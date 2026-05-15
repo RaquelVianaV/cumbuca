@@ -168,11 +168,16 @@ button {
   animation: status-pulse 900ms ease-in-out infinite;
 }
 
-.backup-button {
+.backup-button,
+.logout-button {
   min-height: 40px;
   padding-inline: 12px;
   font-size: 0.84rem;
   white-space: nowrap;
+}
+
+.logout-button {
+  color: var(--red);
 }
 
 @keyframes status-pulse {
@@ -1279,7 +1284,8 @@ td select {
     font-size: 0.78rem;
   }
 
-  .backup-button {
+  .backup-button,
+  .logout-button {
     min-height: 38px;
     padding-inline: 10px;
     font-size: 0.78rem;

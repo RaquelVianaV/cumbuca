@@ -7,6 +7,7 @@ const hero = document.querySelector(".hero");
 const serverStatus = document.querySelector("#server-status");
 const serverStatusText = document.querySelector("#server-status-text");
 const backupButton = document.querySelector("#backup-button");
+const logoutButton = document.querySelector("#logout-button");
 const AUTH_TOKEN_KEY = "cumbucaAuthToken";
 
 const brl = new Intl.NumberFormat("pt-BR", {
@@ -226,6 +227,13 @@ function createBackup() {
 
 if (backupButton) {
   backupButton.addEventListener("click", createBackup);
+}
+
+if (logoutButton) {
+  logoutButton.addEventListener("click", () => {
+    sessionStorage.removeItem(AUTH_TOKEN_KEY);
+    renderLogin();
+  });
 }
 
 function writeLocalState(payload = {}) {
