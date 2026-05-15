@@ -407,6 +407,14 @@ h2 {
   border-left: 4px solid var(--blue);
   border-radius: 8px;
   background: #f9fafb;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 160ms ease, transform 160ms ease;
+}
+
+.compact-item:hover {
+  border-color: #9ca3af;
+  transform: translateY(-1px);
 }
 
 .compact-item span {
@@ -490,6 +498,14 @@ h2 {
   border-left: 5px solid var(--yellow);
   border-radius: 8px;
   background: #ffffff;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 160ms ease, transform 160ms ease;
+}
+
+.due-item:hover {
+  border-color: #9ca3af;
+  transform: translateY(-1px);
 }
 
 .due-item.overdue {
@@ -522,6 +538,60 @@ h2 {
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 760;
+}
+
+.selected-cash-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--blue);
+  border-radius: 8px;
+  background: #eff6ff;
+}
+
+.selected-cash-panel.overdue {
+  border-left-color: var(--red);
+  background: #fff7ed;
+}
+
+.selected-cash-panel.today,
+.selected-cash-panel.soon {
+  border-left-color: var(--yellow);
+  background: #fffbeb;
+}
+
+.selected-cash-panel span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.selected-cash-panel h2,
+.selected-cash-panel p {
+  margin: 0;
+}
+
+.selected-cash-values {
+  display: grid;
+  justify-items: end;
+  gap: 7px;
+  text-align: right;
+}
+
+.selected-cash-values strong {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.selected-cash-values small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
 }
 
 .tool-grid {
@@ -1013,6 +1083,20 @@ button.danger:hover {
   min-width: 17px;
   min-height: 17px;
   accent-color: var(--green);
+}
+
+.cash-row-link {
+  color: var(--green-dark);
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.cash-row-link:hover {
+  text-decoration: underline;
+}
+
+tr.selected-row td {
+  background: #ecfdf5;
 }
 
 .payment-badge {
@@ -1515,9 +1599,15 @@ td select {
   }
 
   .dashboard-header,
-  .dashboard-card-header {
+  .dashboard-card-header,
+  .selected-cash-panel {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .selected-cash-values {
+    justify-items: start;
+    text-align: left;
   }
 
   .client-form-actions {

@@ -441,6 +441,10 @@ function dueStatus(entry) {
   };
 }
 
+function cashEntryLink(entry) {
+  return `/fluxo-de-caixa?conta=${encodeURIComponent(entry.id || "")}`;
+}
+
 function dueAlertsPanel() {
   const entries = dueCashEntries();
 
@@ -466,7 +470,7 @@ function dueAlertsPanel() {
         ${entries.map(entry => {
           const status = dueStatus(entry);
           return `
-            <article class="due-item ${status.className}">
+            <a class="due-item ${status.className}" href="${cashEntryLink(entry)}">
               <div>
                 <strong>${entry.description || "Saida"}</strong>
                 <span>Vencimento: ${entry.dueDate}</span>
@@ -475,7 +479,7 @@ function dueAlertsPanel() {
                 <b>${money(entry.amount)}</b>
                 <small>${status.text}</small>
               </div>
-            </article>
+            </a>
           `;
         }).join("")}
       </div>
@@ -566,11 +570,11 @@ function dashboardPanel() {
               ${dueEntries.slice(0, 4).map(entry => {
                 const status = dueStatus(entry);
                 return `
-                  <div class="compact-item ${status.className}">
+                  <a class="compact-item ${status.className}" href="${cashEntryLink(entry)}">
                     <span>${entry.description || "Saida"}</span>
                     <strong>${money(entry.amount)}</strong>
                     <small>${status.text}</small>
-                  </div>
+                  </a>
                 `;
               }).join("")}
             </div>
@@ -697,6 +701,10 @@ async function renderCash() {
   title.textContent = "Fluxo de Caixa";
   setActive("fluxo-de-caixa");
   ensureCashIds();
+  const selectedCashId = new URLSearchParams(location.search).get("conta") || "";
+  const selectedCashEntry = selectedCashId
+    ? state.cash.find(entry => entry.id === selectedCashId)
+    : null;
   const filteredEntries = filterCashEntries(state.cash);
   const result = await postJson("/api/fluxo-de-caixa", { entries: filteredEntries });
   const today = isoDate(new Date());
@@ -764,7 +772,8 @@ async function renderCash() {
           <div class="metric"><span>Saidas</span><strong>${money(result.expenses)}</strong></div>
           <div class="metric"><span>Saldo</span><strong class="${result.balance < 0 ? "negative" : "positive"}">${money(result.balance)}</strong></div>
         </div>
-        ${cashTable(result.entries)}
+        ${selectedCashPanel(selectedCashEntry)}
+        ${cashTable(result.entries, selectedCashId)}
       </section>
     </div>
   `;
@@ -833,7 +842,38 @@ async function renderCash() {
   });
 }
 
-function cashTable(entries) {
+function selectedCashPanel(entry) {
+  if (!entry) {
+    return "";
+  }
+
+  const isExpense = entry.type === "expense";
+  const due = isExpense && entry.dueDate
+    ? dueStatus({ ...entry, due: dateFromIso(entry.dueDate) })
+    : null;
+
+  return `
+    <section class="selected-cash-panel ${due?.className || ""}">
+      <div>
+        <span>Conta selecionada</span>
+        <h2>${entry.description || "Lancamento"}</h2>
+        <p>${isExpense ? `Vencimento: ${entry.dueDate || "sem vencimento"}` : "Entrada registrada"}</p>
+      </div>
+      <div class="selected-cash-values">
+        <strong class="${entry.type === "income" ? "positive" : "negative"}">${money(entry.amount)}</strong>
+        ${due ? `<small>${due.text}</small>` : ""}
+        ${isExpense ? `
+          <label class="table-checkbox" aria-label="Marcar ${entry.description} como pago">
+            <input type="checkbox" data-toggle-cash-paid="${entry.id}" ${entry.paid ? "checked" : ""}>
+            <span>${entry.paid ? "Pago" : "Pendente"}</span>
+          </label>
+        ` : ""}
+      </div>
+    </section>
+  `;
+}
+
+function cashTable(entries, selectedCashId = "") {
   if (!entries.length) {
     return `<p class="muted">Nenhum lancamento ainda.</p>`;
   }
@@ -844,9 +884,9 @@ function cashTable(entries) {
         <thead><tr><th>Data</th><th>Descricao</th><th>Tipo</th><th>Vencimento</th><th>Pago</th><th>Valor</th></tr></thead>
         <tbody>
           ${entries.map(item => `
-            <tr>
+            <tr class="${item.id === selectedCashId ? "selected-row" : ""}">
               <td>${item.date}</td>
-              <td>${item.description}</td>
+              <td>${item.type === "expense" ? `<a class="cash-row-link" href="${cashEntryLink(item)}">${item.description}</a>` : item.description}</td>
               <td>${item.type === "income" ? "Entrada" : "Saida"}</td>
               <td>${item.type === "expense" ? item.dueDate || "" : ""}</td>
               <td>${item.type === "expense" ? `
