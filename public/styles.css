@@ -115,8 +115,71 @@ button {
   cursor: pointer;
 }
 
-.today-date {
+.header-status {
   justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.server-status {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #374151;
+  font-size: 0.84rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #9ca3af;
+  box-shadow: 0 0 0 3px rgba(156, 163, 175, 0.16);
+}
+
+.server-status[data-status="online"] .status-dot,
+.server-status[data-status="saved"] .status-dot {
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgba(8, 127, 91, 0.16);
+}
+
+.server-status[data-status="saving"] .status-dot,
+.server-status[data-status="checking"] .status-dot {
+  background: var(--yellow);
+  box-shadow: 0 0 0 3px rgba(242, 183, 5, 0.18);
+}
+
+.server-status[data-status="offline"] .status-dot,
+.server-status[data-status="error"] .status-dot {
+  background: var(--red);
+  box-shadow: 0 0 0 3px rgba(194, 65, 12, 0.16);
+}
+
+.server-status[data-status="saving"] .status-dot,
+.server-status[data-status="checking"] .status-dot {
+  animation: status-pulse 900ms ease-in-out infinite;
+}
+
+@keyframes status-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.28);
+  }
+}
+
+.today-date {
   border-color: var(--line);
   background: #ffffff;
   color: #111827;
@@ -1136,6 +1199,10 @@ td select {
     order: 3;
   }
 
+  .header-status {
+    justify-self: end;
+  }
+
   .nav a {
     flex: 1;
     min-width: 0;
@@ -1194,8 +1261,15 @@ td select {
   }
 
   .today-date {
+    display: none;
     padding-inline: 12px;
     font-size: 0.82rem;
+  }
+
+  .server-status {
+    min-height: 38px;
+    padding-inline: 10px;
+    font-size: 0.78rem;
   }
 
   .card,

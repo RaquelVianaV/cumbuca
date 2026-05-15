@@ -17,7 +17,13 @@
         <a href="/menu-semanal" data-route="menu-semanal">Menu</a>
         <a href="/precificacao" data-route="precificacao">Preços</a>
       </nav>
-      <time class="today-date" id="today-date"></time>
+      <div class="header-status">
+        <span class="server-status" id="server-status" data-status="checking">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="server-status-text">Verificando</span>
+        </span>
+        <time class="today-date" id="today-date"></time>
+      </div>
     </header>
 
     <main class="shell">

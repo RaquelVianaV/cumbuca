@@ -4,6 +4,8 @@ const todayDate = document.querySelector("#today-date");
 const navLinks = [...document.querySelectorAll("[data-route]")];
 const header = document.querySelector(".app-header");
 const hero = document.querySelector(".hero");
+const serverStatus = document.querySelector("#server-status");
+const serverStatusText = document.querySelector("#server-status-text");
 const AUTH_TOKEN_KEY = "cumbucaAuthToken";
 
 const brl = new Intl.NumberFormat("pt-BR", {
@@ -71,6 +73,24 @@ const cloudStorageKeys = new Set([
 
 let cloudSaveTimer = null;
 let isApplyingCloudState = false;
+let statusResetTimer = null;
+
+function setServerStatus(status, text) {
+  if (!serverStatus || !serverStatusText) {
+    return;
+  }
+
+  clearTimeout(statusResetTimer);
+  serverStatus.dataset.status = status;
+  serverStatusText.textContent = text;
+
+  if (status === "saved") {
+    statusResetTimer = setTimeout(() => {
+      serverStatus.dataset.status = "online";
+      serverStatusText.textContent = "Servidor online";
+    }, 2200);
+  }
+}
 
 function routeName() {
   return location.pathname.replace("/", "") || "home";
@@ -211,9 +231,17 @@ async function saveCloudState() {
     return;
   }
 
+  setServerStatus("saving", "Salvando");
   try {
-    await putJson("/api/state", serializeState());
+    const response = await putJson("/api/state", serializeState());
+    if (response.error) {
+      setServerStatus("error", "Erro ao salvar");
+      return;
+    }
+
+    setServerStatus("saved", "Salvo");
   } catch (error) {
+    setServerStatus("offline", "Servidor offline");
     console.warn("Nao foi possivel sincronizar com o banco.", error);
   }
 }
@@ -228,6 +256,7 @@ function queueCloudSave() {
 }
 
 async function loadCloudState() {
+  setServerStatus("checking", "Verificando");
   try {
     const response = await fetch("/api/state", {
       headers: authHeaders()
@@ -239,10 +268,12 @@ async function loadCloudState() {
     }
 
     const data = await response.json();
+    setServerStatus(data.enabled ? "online" : "offline", data.enabled ? "Servidor online" : "Banco offline");
     if (data.enabled && data.state) {
       writeLocalState(data.state);
     }
   } catch (error) {
+    setServerStatus("offline", "Servidor offline");
     console.warn("Nao foi possivel carregar dados do banco.", error);
   }
 
