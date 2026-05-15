@@ -1,10 +1,14 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, "public");
 const DATABASE_URL = process.env.DATABASE_URL;
+const AUTH_LOGIN = process.env.AUTH_LOGIN || "cumbuca2026";
+const AUTH_PASSWORD = process.env.AUTH_PASSWORD || "cumbuca25";
+const AUTH_SECRET = process.env.AUTH_SECRET || `${AUTH_LOGIN}:${AUTH_PASSWORD}:cumbuca-local-secret`;
 let pool = null;
 
 if (DATABASE_URL) {
@@ -49,6 +53,47 @@ function sendJson(res, statusCode, payload) {
     "Content-Length": Buffer.byteLength(body)
   });
   res.end(body);
+}
+
+function signToken(payload) {
+  return crypto
+    .createHmac("sha256", AUTH_SECRET)
+    .update(payload)
+    .digest("hex");
+}
+
+function createAuthToken() {
+  const payload = JSON.stringify({
+    login: AUTH_LOGIN,
+    expiresAt: Date.now() + 1000 * 60 * 60 * 24 * 30
+  });
+  const encodedPayload = Buffer.from(payload).toString("base64url");
+  return `${encodedPayload}.${signToken(encodedPayload)}`;
+}
+
+function isAuthorized(req) {
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+  const [encodedPayload, signature] = token.split(".");
+  if (!encodedPayload || !signature || signature !== signToken(encodedPayload)) {
+    return false;
+  }
+
+  try {
+    const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));
+    return payload.login === AUTH_LOGIN && Number(payload.expiresAt || 0) > Date.now();
+  } catch (error) {
+    return false;
+  }
+}
+
+function requireAuth(req, res) {
+  if (isAuthorized(req)) {
+    return true;
+  }
+
+  sendJson(res, 401, { error: "Acesso nao autorizado." });
+  return false;
 }
 
 async function ensureDatabase() {
@@ -245,7 +290,22 @@ async function requestHandler(req, res) {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/login") {
+      const payload = await collectBody(req);
+      if (payload.login === AUTH_LOGIN && payload.password === AUTH_PASSWORD) {
+        sendJson(res, 200, { token: createAuthToken() });
+        return;
+      }
+
+      sendJson(res, 401, { error: "Login ou senha invalidos." });
+      return;
+    }
+
     if (req.method === "GET" && url.pathname === "/api/state") {
+      if (!requireAuth(req, res)) {
+        return;
+      }
+
       sendJson(res, 200, {
         enabled: Boolean(pool),
         state: await readAppState()
@@ -254,6 +314,10 @@ async function requestHandler(req, res) {
     }
 
     if (req.method === "PUT" && url.pathname === "/api/state") {
+      if (!requireAuth(req, res)) {
+        return;
+      }
+
       if (!pool) {
         sendJson(res, 503, { error: "Banco de dados nao configurado." });
         return;
@@ -268,18 +332,30 @@ async function requestHandler(req, res) {
     }
 
     if (req.method === "POST" && url.pathname === "/api/fluxo-de-caixa") {
+      if (!requireAuth(req, res)) {
+        return;
+      }
+
       const payload = await collectBody(req);
       sendJson(res, 200, calculateCashFlow(payload.entries));
       return;
     }
 
     if (req.method === "POST" && url.pathname === "/api/menu-semanal") {
+      if (!requireAuth(req, res)) {
+        return;
+      }
+
       const payload = await collectBody(req);
       sendJson(res, 200, weeklyMenu(payload));
       return;
     }
 
     if (req.method === "POST" && url.pathname === "/api/precificacao") {
+      if (!requireAuth(req, res)) {
+        return;
+      }
+
       const payload = await collectBody(req);
       sendJson(res, 200, calculatePricing(payload));
       return;

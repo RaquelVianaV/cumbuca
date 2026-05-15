@@ -2,6 +2,9 @@ const app = document.querySelector("#app");
 const title = document.querySelector("#page-title");
 const todayDate = document.querySelector("#today-date");
 const navLinks = [...document.querySelectorAll("[data-route]")];
+const header = document.querySelector(".app-header");
+const hero = document.querySelector(".hero");
+const AUTH_TOKEN_KEY = "cumbucaAuthToken";
 
 const brl = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -79,10 +82,15 @@ function setActive(route) {
   });
 }
 
+function authHeaders() {
+  const token = sessionStorage.getItem(AUTH_TOKEN_KEY);
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 function postJson(url, data) {
   return fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(data)
   }).then(response => response.json());
 }
@@ -90,9 +98,60 @@ function postJson(url, data) {
 function putJson(url, data) {
   return fetch(url, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(data)
   }).then(response => response.json());
+}
+
+function showAppShell(visible) {
+  document.body.classList.toggle("login-view", !visible);
+  if (header) {
+    header.hidden = !visible;
+  }
+  if (hero) {
+    hero.hidden = !visible;
+  }
+}
+
+function renderLogin(error = "") {
+  showAppShell(false);
+  title.textContent = "Cumbuca";
+  app.innerHTML = `
+    <section class="login-panel">
+      <img class="login-logo" src="/logo-cumbuca.svg" alt="Cumbuca comida saudavel">
+      <h1>Acesso Cumbuca</h1>
+      <form id="login-form" class="login-form">
+        <label>Login
+          <input name="login" autocomplete="username" required autofocus>
+        </label>
+        <label>Senha
+          <input name="password" type="password" autocomplete="current-password" required>
+        </label>
+        ${error ? `<p class="login-error">${error}</p>` : ""}
+        <button type="submit">Entrar</button>
+      </form>
+    </section>
+  `;
+
+  document.querySelector("#login-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    const button = event.currentTarget.querySelector("button");
+    button.disabled = true;
+    const data = readForm(event.currentTarget);
+
+    try {
+      const response = await postJson("/api/login", data);
+      if (!response.token) {
+        renderLogin(response.error || "Login ou senha invalidos.");
+        return;
+      }
+
+      sessionStorage.setItem(AUTH_TOKEN_KEY, response.token);
+      await bootstrap();
+    } catch (loginError) {
+      renderLogin("Nao foi possivel entrar agora.");
+    }
+  });
 }
 
 function storedObject(key, fallback = {}) {
@@ -170,7 +229,15 @@ function queueCloudSave() {
 
 async function loadCloudState() {
   try {
-    const response = await fetch("/api/state");
+    const response = await fetch("/api/state", {
+      headers: authHeaders()
+    });
+    if (response.status === 401) {
+      sessionStorage.removeItem(AUTH_TOKEN_KEY);
+      renderLogin();
+      return false;
+    }
+
     const data = await response.json();
     if (data.enabled && data.state) {
       writeLocalState(data.state);
@@ -178,6 +245,8 @@ async function loadCloudState() {
   } catch (error) {
     console.warn("Nao foi possivel carregar dados do banco.", error);
   }
+
+  return true;
 }
 
 const originalSetItem = localStorage.setItem.bind(localStorage);
@@ -1552,8 +1621,18 @@ function applyUrlState() {
 }
 
 async function bootstrap() {
+  if (!sessionStorage.getItem(AUTH_TOKEN_KEY)) {
+    renderLogin();
+    return;
+  }
+
+  showAppShell(true);
   app.innerHTML = `<p class="muted">Carregando dados...</p>`;
-  await loadCloudState();
+  const loaded = await loadCloudState();
+  if (!loaded) {
+    return;
+  }
+
   applyUrlState();
   routes[routeName()] ? routes[routeName()]() : home();
 }
