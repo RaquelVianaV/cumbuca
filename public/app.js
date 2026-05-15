@@ -483,6 +483,121 @@ function dueAlertsPanel() {
   `;
 }
 
+function monthCashSummary() {
+  const period = currentMenuPeriodKey();
+  const entries = state.cash.filter(entry => String(entry.date || "").startsWith(period));
+  const income = entries
+    .filter(entry => entry.type === "income")
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const expenses = entries
+    .filter(entry => entry.type === "expense")
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const openExpenses = entries
+    .filter(entry => entry.type === "expense" && !entry.paid)
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+
+  return {
+    income,
+    expenses,
+    openExpenses,
+    balance: income - expenses
+  };
+}
+
+function dashboardMetric(label, value, detail = "", tone = "") {
+  return `
+    <article class="dashboard-metric ${tone}">
+      <span>${label}</span>
+      <strong>${value}</strong>
+      ${detail ? `<small>${detail}</small>` : ""}
+    </article>
+  `;
+}
+
+function lowMonthlyClients() {
+  const currentKey = menuKey();
+  return state.clients
+    .filter(client => client.plan === "mensalista")
+    .map(client => ({
+      client,
+      remaining: clientRemainingQuantity(client, currentKey),
+      total: clientMonthlyQuantity(client, currentKey)
+    }))
+    .filter(item => item.total > 0 && item.remaining <= LOW_MONTHLY_QUANTITY)
+    .sort((a, b) => a.remaining - b.remaining);
+}
+
+function dashboardPanel() {
+  const currentKey = menuKey();
+  const weekOrders = weeklyOrders(currentKey);
+  const monthOrders = monthlyOrders(currentKey);
+  const cash = monthCashSummary();
+  const weekQuantity = weekOrders.reduce((sum, order) => sum + orderQuantity(order), 0);
+  const monthRevenue = monthOrders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
+  const dueEntries = dueCashEntries();
+  const overdueCount = dueEntries.filter(entry => dueStatus(entry).className === "overdue").length;
+  const lowClients = lowMonthlyClients();
+
+  return `
+    <section class="dashboard-panel">
+      <div class="dashboard-header">
+        <div>
+          <p class="eyebrow">Painel operacional</p>
+          <h2>Hoje na Cumbuca</h2>
+        </div>
+        <a class="dashboard-link" href="/menu-semanal?ano=${state.menuPeriod.year}&mes=${state.menuPeriod.month}&semana=${state.menuWeek}">Abrir semana ${state.menuWeek}</a>
+      </div>
+      <div class="dashboard-metrics">
+        ${dashboardMetric("Saldo do mes", money(cash.balance), `${money(cash.income)} entradas`, cash.balance < 0 ? "danger" : "success")}
+        ${dashboardMetric("Saidas abertas", money(cash.openExpenses), `${dueEntries.length} alerta(s)`, dueEntries.length ? "warning" : "success")}
+        ${dashboardMetric("Pedidos da semana", weekOrders.length, `${weekQuantity} cumbuca(s)`, "info")}
+        ${dashboardMetric("Receita em pedidos", money(monthRevenue), `${monthOrders.length} pedido(s) no mes`, "success")}
+        ${dashboardMetric("Clientes", state.clients.length, `${state.clients.filter(client => client.plan === "mensalista").length} mensalista(s)`, "info")}
+        ${dashboardMetric("Vencidas", overdueCount, "contas em atraso", overdueCount ? "danger" : "success")}
+      </div>
+      <div class="dashboard-lists">
+        <section class="dashboard-card">
+          <div class="dashboard-card-header">
+            <h3>Prioridade financeira</h3>
+            <a href="/fluxo-de-caixa">Ver caixa</a>
+          </div>
+          ${dueEntries.length ? `
+            <div class="compact-list">
+              ${dueEntries.slice(0, 4).map(entry => {
+                const status = dueStatus(entry);
+                return `
+                  <div class="compact-item ${status.className}">
+                    <span>${entry.description || "Saida"}</span>
+                    <strong>${money(entry.amount)}</strong>
+                    <small>${status.text}</small>
+                  </div>
+                `;
+              }).join("")}
+            </div>
+          ` : `<p class="muted">Nenhuma conta vencida ou perto de vencer.</p>`}
+        </section>
+        <section class="dashboard-card">
+          <div class="dashboard-card-header">
+            <h3>Mensalistas</h3>
+            <a href="/menu-semanal">Ver pedidos</a>
+          </div>
+          ${lowClients.length ? `
+            <div class="compact-list">
+              ${lowClients.slice(0, 4).map(({ client, remaining, total }) => `
+                <div class="compact-item warning">
+                  <span>${client.name || "Mensalista"}</span>
+                  <strong>${remaining}/${total}</strong>
+                  <small>cumbuca(s) restante(s)</small>
+                </div>
+              `).join("")}
+            </div>
+          ` : `<p class="muted">Nenhum mensalista perto de acabar.</p>`}
+        </section>
+      </div>
+    </section>
+  `;
+}
+
 function filterCashEntries(entries) {
   const { period, date, month, year } = state.cashFilter;
 
@@ -557,6 +672,7 @@ function home() {
   title.textContent = "Cumbuca";
   setActive("");
   app.innerHTML = `
+    ${dashboardPanel()}
     ${dueAlertsPanel()}
     <div class="home-grid">
       ${[
