@@ -1,0 +1,13 @@
+{
+  "name": "cumbuca-tools",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Ferramentas online para fluxo de caixa, menu semanal e precificação.",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

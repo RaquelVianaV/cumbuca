@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Cumbuca | Ferramentas</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="app-header">
+      <a class="brand" href="/" aria-label="Cumbuca">
+        <span class="brand-mark">C</span>
+        <span>Cumbuca</span>
+      </a>
+      <nav class="nav" aria-label="Ferramentas">
+        <a href="/fluxo-de-caixa" data-route="fluxo-de-caixa">Caixa</a>
+        <a href="/menu-semanal" data-route="menu-semanal">Menu</a>
+        <a href="/precificacao" data-route="precificacao">Preços</a>
+      </nav>
+      <time class="today-date" id="today-date"></time>
+    </header>
+
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">Operação Cumbuca</p>
+        <img class="hero-logo" src="/logo-cumbuca.svg" alt="Cumbuca comida saudável">
+        <h1 id="page-title">Cumbuca</h1>
+      </section>
+
+      <section id="app" class="workspace" aria-live="polite"></section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
