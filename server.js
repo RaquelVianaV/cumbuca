@@ -4,6 +4,16 @@ const path = require("path");
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, "public");
+const DATABASE_URL = process.env.DATABASE_URL;
+let pool = null;
+
+if (DATABASE_URL) {
+  const { Pool } = require("pg");
+  pool = new Pool({
+    connectionString: DATABASE_URL,
+    ssl: process.env.PGSSLMODE === "disable" ? false : { rejectUnauthorized: false }
+  });
+}
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -39,6 +49,57 @@ function sendJson(res, statusCode, payload) {
     "Content-Length": Buffer.byteLength(body)
   });
   res.end(body);
+}
+
+async function ensureDatabase() {
+  if (!pool) {
+    return false;
+  }
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_state (
+      id text PRIMARY KEY,
+      payload jsonb NOT NULL,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+  return true;
+}
+
+async function readAppState() {
+  const ready = await ensureDatabase();
+  if (!ready) {
+    return null;
+  }
+
+  const result = await pool.query("SELECT payload, updated_at FROM app_state WHERE id = $1", ["default"]);
+  if (!result.rows.length) {
+    return null;
+  }
+
+  return {
+    ...result.rows[0].payload,
+    cloudUpdatedAt: result.rows[0].updated_at
+  };
+}
+
+async function saveAppState(payload) {
+  const ready = await ensureDatabase();
+  if (!ready) {
+    return null;
+  }
+
+  await pool.query(
+    `
+      INSERT INTO app_state (id, payload, updated_at)
+      VALUES ($1, $2, now())
+      ON CONFLICT (id)
+      DO UPDATE SET payload = EXCLUDED.payload, updated_at = now()
+    `,
+    ["default", payload]
+  );
+
+  return readAppState();
 }
 
 function collectBody(req) {
@@ -181,6 +242,28 @@ async function requestHandler(req, res) {
   try {
     if (req.method === "GET" && url.pathname === "/api/tools") {
       sendJson(res, 200, { tools });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/state") {
+      sendJson(res, 200, {
+        enabled: Boolean(pool),
+        state: await readAppState()
+      });
+      return;
+    }
+
+    if (req.method === "PUT" && url.pathname === "/api/state") {
+      if (!pool) {
+        sendJson(res, 503, { error: "Banco de dados nao configurado." });
+        return;
+      }
+
+      const payload = await collectBody(req);
+      sendJson(res, 200, {
+        enabled: true,
+        state: await saveAppState(payload)
+      });
       return;
     }
 

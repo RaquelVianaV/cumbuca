@@ -53,6 +53,22 @@ const state = {
   cashFilter: JSON.parse(localStorage.getItem("cashFilter") || '{"period":"all"}')
 };
 
+const cloudStorageKeys = new Set([
+  "cashEntries",
+  "weeklyMenusByPeriod",
+  "menuWeek",
+  "menuPeriod",
+  "menuDatesByPeriod",
+  "clients",
+  "orders",
+  "pricingIngredients",
+  "pricingConfig",
+  "cashFilter"
+]);
+
+let cloudSaveTimer = null;
+let isApplyingCloudState = false;
+
 function routeName() {
   return location.pathname.replace("/", "") || "home";
 }
@@ -70,6 +86,116 @@ function postJson(url, data) {
     body: JSON.stringify(data)
   }).then(response => response.json());
 }
+
+function putJson(url, data) {
+  return fetch(url, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data)
+  }).then(response => response.json());
+}
+
+function storedObject(key, fallback = {}) {
+  try {
+    return JSON.parse(localStorage.getItem(key) || "null") || fallback;
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function serializeState() {
+  return {
+    cash: state.cash,
+    menus: state.menus,
+    menuWeek: state.menuWeek,
+    menuPeriod: state.menuPeriod,
+    menuDates: state.menuDates,
+    clients: state.clients,
+    orders: state.orders,
+    ingredients: state.ingredients,
+    cashFilter: state.cashFilter,
+    pricingConfig: storedObject("pricingConfig", {}),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function writeLocalState(payload = {}) {
+  isApplyingCloudState = true;
+  try {
+    state.cash = Array.isArray(payload.cash) ? payload.cash : state.cash;
+    state.menus = payload.menus && typeof payload.menus === "object" ? payload.menus : state.menus;
+    state.menuWeek = Number(payload.menuWeek || state.menuWeek || 1);
+    state.menuPeriod = payload.menuPeriod && typeof payload.menuPeriod === "object" ? payload.menuPeriod : state.menuPeriod;
+    state.menuDates = payload.menuDates && typeof payload.menuDates === "object" ? payload.menuDates : state.menuDates;
+    state.clients = Array.isArray(payload.clients) ? payload.clients : state.clients;
+    state.orders = Array.isArray(payload.orders) ? payload.orders : state.orders;
+    state.ingredients = Array.isArray(payload.ingredients) ? payload.ingredients : state.ingredients;
+    state.cashFilter = payload.cashFilter && typeof payload.cashFilter === "object" ? payload.cashFilter : state.cashFilter;
+
+    localStorage.setItem("cashEntries", JSON.stringify(state.cash));
+    localStorage.setItem("weeklyMenusByPeriod", JSON.stringify(state.menus));
+    localStorage.setItem("menuWeek", String(state.menuWeek));
+    localStorage.setItem("menuPeriod", JSON.stringify(state.menuPeriod));
+    localStorage.setItem("menuDatesByPeriod", JSON.stringify(state.menuDates));
+    localStorage.setItem("clients", JSON.stringify(state.clients));
+    localStorage.setItem("orders", JSON.stringify(state.orders));
+    localStorage.setItem("pricingIngredients", JSON.stringify(state.ingredients));
+    localStorage.setItem("cashFilter", JSON.stringify(state.cashFilter));
+    localStorage.setItem("pricingConfig", JSON.stringify(payload.pricingConfig || storedObject("pricingConfig", {})));
+  } finally {
+    isApplyingCloudState = false;
+  }
+}
+
+async function saveCloudState() {
+  if (isApplyingCloudState) {
+    return;
+  }
+
+  try {
+    await putJson("/api/state", serializeState());
+  } catch (error) {
+    console.warn("Nao foi possivel sincronizar com o banco.", error);
+  }
+}
+
+function queueCloudSave() {
+  if (isApplyingCloudState) {
+    return;
+  }
+
+  clearTimeout(cloudSaveTimer);
+  cloudSaveTimer = setTimeout(saveCloudState, 350);
+}
+
+async function loadCloudState() {
+  try {
+    const response = await fetch("/api/state");
+    const data = await response.json();
+    if (data.enabled && data.state) {
+      writeLocalState(data.state);
+    }
+  } catch (error) {
+    console.warn("Nao foi possivel carregar dados do banco.", error);
+  }
+}
+
+const originalSetItem = localStorage.setItem.bind(localStorage);
+const originalRemoveItem = localStorage.removeItem.bind(localStorage);
+
+localStorage.setItem = function setSyncedItem(key, value) {
+  originalSetItem(key, value);
+  if (cloudStorageKeys.has(key)) {
+    queueCloudSave();
+  }
+};
+
+localStorage.removeItem = function removeSyncedItem(key) {
+  originalRemoveItem(key);
+  if (cloudStorageKeys.has(key)) {
+    queueCloudSave();
+  }
+};
 
 function readForm(form) {
   return Object.fromEntries(new FormData(form).entries());
@@ -1401,25 +1527,35 @@ const routes = {
   precificacao: renderPricing
 };
 
-const weekParam = new URLSearchParams(location.search).get("semana");
-if (weekParam && Number(weekParam) >= 1 && Number(weekParam) <= 5) {
-  state.menuWeek = Number(weekParam);
-  state.showMonthSummary = false;
-  localStorage.setItem("menuWeek", weekParam);
+function applyUrlState() {
+  const params = new URLSearchParams(location.search);
+  const weekParam = params.get("semana");
+  if (weekParam && Number(weekParam) >= 1 && Number(weekParam) <= 5) {
+    state.menuWeek = Number(weekParam);
+    state.showMonthSummary = false;
+    localStorage.setItem("menuWeek", weekParam);
+  }
+
+  if (params.get("resumo") === "mes") {
+    state.showMonthSummary = true;
+  }
+
+  const yearParam = params.get("ano");
+  const monthParam = params.get("mes");
+  if (yearParam && monthParam) {
+    state.menuPeriod = {
+      year: Number(yearParam),
+      month: Number(monthParam)
+    };
+    localStorage.setItem("menuPeriod", JSON.stringify(state.menuPeriod));
+  }
 }
 
-if (new URLSearchParams(location.search).get("resumo") === "mes") {
-  state.showMonthSummary = true;
+async function bootstrap() {
+  app.innerHTML = `<p class="muted">Carregando dados...</p>`;
+  await loadCloudState();
+  applyUrlState();
+  routes[routeName()] ? routes[routeName()]() : home();
 }
 
-const yearParam = new URLSearchParams(location.search).get("ano");
-const monthParam = new URLSearchParams(location.search).get("mes");
-if (yearParam && monthParam) {
-  state.menuPeriod = {
-    year: Number(yearParam),
-    month: Number(monthParam)
-  };
-  localStorage.setItem("menuPeriod", JSON.stringify(state.menuPeriod));
-}
-
-routes[routeName()] ? routes[routeName()]() : home();
+bootstrap();
