@@ -275,6 +275,85 @@ h2 {
   gap: 16px;
 }
 
+.due-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.due-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.due-panel-header h2 {
+  margin: 0;
+}
+
+.due-count {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f9fafb;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.due-list {
+  display: grid;
+  gap: 8px;
+}
+
+.due-item {
+  min-height: 58px;
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--yellow);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.due-item.overdue {
+  border-left-color: var(--red);
+  background: #fff7ed;
+}
+
+.due-item.today {
+  border-left-color: var(--yellow);
+  background: #fffbeb;
+}
+
+.due-item.soon {
+  border-left-color: var(--blue);
+  background: #eff6ff;
+}
+
+.due-item div {
+  display: grid;
+  gap: 4px;
+}
+
+.due-item div:last-child {
+  justify-items: end;
+  text-align: right;
+}
+
+.due-item span,
+.due-item small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 760;
+}
+
 .tool-grid {
   display: grid;
   grid-template-columns: 360px minmax(0, 1fr);
@@ -381,6 +460,10 @@ h2 {
 
 .form-grid.single {
   grid-template-columns: 1fr;
+}
+
+#cash-form[data-type="income"] .cash-expense-field {
+  display: none;
 }
 
 label {
@@ -742,6 +825,23 @@ button.danger:hover {
 .checkbox-field input {
   width: 18px;
   min-height: 18px;
+  accent-color: var(--green);
+}
+
+.table-checkbox {
+  min-width: 118px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #374151;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.table-checkbox input {
+  width: 17px;
+  min-width: 17px;
+  min-height: 17px;
   accent-color: var(--green);
 }
 

@@ -373,6 +373,116 @@ function endOfWeek(date) {
   return copy;
 }
 
+function addDays(date, days) {
+  const copy = new Date(date);
+  copy.setDate(copy.getDate() + days);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+
+function dateFromIso(value) {
+  return value ? new Date(`${value}T00:00:00`) : null;
+}
+
+function ensureCashIds() {
+  let changed = false;
+  state.cash = state.cash.map((entry, index) => {
+    if (entry.id) {
+      return entry;
+    }
+
+    changed = true;
+    return {
+      ...entry,
+      id: `cash-${Date.now()}-${index}`
+    };
+  });
+
+  if (changed) {
+    localStorage.setItem("cashEntries", JSON.stringify(state.cash));
+  }
+}
+
+function dueCashEntries() {
+  const today = addDays(new Date(), 0);
+  const limit = addDays(today, 7);
+
+  return state.cash
+    .filter(entry => entry.type === "expense" && !entry.paid && entry.dueDate)
+    .map(entry => ({
+      ...entry,
+      due: dateFromIso(entry.dueDate)
+    }))
+    .filter(entry => entry.due && entry.due <= limit)
+    .sort((a, b) => a.due - b.due);
+}
+
+function dueStatus(entry) {
+  const today = addDays(new Date(), 0);
+  const diff = Math.ceil((entry.due - today) / 86400000);
+
+  if (diff < 0) {
+    return {
+      className: "overdue",
+      text: `Vencida ha ${Math.abs(diff)} dia(s)`
+    };
+  }
+
+  if (diff === 0) {
+    return {
+      className: "today",
+      text: "Vence hoje"
+    };
+  }
+
+  return {
+    className: "soon",
+    text: `Vence em ${diff} dia(s)`
+  };
+}
+
+function dueAlertsPanel() {
+  const entries = dueCashEntries();
+
+  if (!entries.length) {
+    return `
+      <section class="panel due-panel">
+        <div class="due-panel-header">
+          <h2>Contas a vencer</h2>
+          <span class="due-count">0 pendentes</span>
+        </div>
+        <p class="muted">Nenhuma conta vencida ou vencendo nos proximos 7 dias.</p>
+      </section>
+    `;
+  }
+
+  return `
+    <section class="panel due-panel">
+      <div class="due-panel-header">
+        <h2>Contas a vencer</h2>
+        <span class="due-count">${entries.length} pendente(s)</span>
+      </div>
+      <div class="due-list">
+        ${entries.map(entry => {
+          const status = dueStatus(entry);
+          return `
+            <article class="due-item ${status.className}">
+              <div>
+                <strong>${entry.description || "Saida"}</strong>
+                <span>Vencimento: ${entry.dueDate}</span>
+              </div>
+              <div>
+                <b>${money(entry.amount)}</b>
+                <small>${status.text}</small>
+              </div>
+            </article>
+          `;
+        }).join("")}
+      </div>
+    </section>
+  `;
+}
+
 function filterCashEntries(entries) {
   const { period, date, month, year } = state.cashFilter;
 
@@ -447,6 +557,7 @@ function home() {
   title.textContent = "Cumbuca";
   setActive("");
   app.innerHTML = `
+    ${dueAlertsPanel()}
     <div class="home-grid">
       ${[
         ["fluxo-de-caixa", "Fluxo de Caixa", "Organize entradas, saídas e saldo previsto."],
@@ -469,6 +580,7 @@ function home() {
 async function renderCash() {
   title.textContent = "Fluxo de Caixa";
   setActive("fluxo-de-caixa");
+  ensureCashIds();
   const filteredEntries = filterCashEntries(state.cash);
   const result = await postJson("/api/fluxo-de-caixa", { entries: filteredEntries });
   const today = isoDate(new Date());
@@ -495,6 +607,13 @@ async function renderCash() {
           </label>
           <label>Valor
             <input name="amount" type="number" min="0" step="0.01" placeholder="0,00" required>
+          </label>
+          <label class="cash-expense-field">Vencimento
+            <input name="dueDate" type="date">
+          </label>
+          <label class="checkbox-field cash-expense-field">
+            <input name="paid" type="checkbox">
+            <span>Pago</span>
           </label>
           <div class="actions">
             <button type="submit">Adicionar</button>
@@ -536,10 +655,30 @@ async function renderCash() {
 
   document.querySelector("#cash-form").addEventListener("submit", event => {
     event.preventDefault();
-    state.cash.push(readForm(event.currentTarget));
+    const data = readForm(event.currentTarget);
+    const isExpense = data.type === "expense";
+    state.cash.push({
+      ...data,
+      id: `cash-${Date.now()}`,
+      dueDate: isExpense ? data.dueDate : "",
+      paid: isExpense && data.paid === "on"
+    });
     localStorage.setItem("cashEntries", JSON.stringify(state.cash));
     renderCash();
   });
+
+  const cashForm = document.querySelector("#cash-form");
+  const cashTypeField = cashForm.querySelector("[name='type']");
+  const dueDateField = cashForm.querySelector("[name='dueDate']");
+
+  function updateCashExpenseFields() {
+    const isExpense = cashTypeField.value === "expense";
+    cashForm.dataset.type = cashTypeField.value;
+    dueDateField.required = isExpense;
+  }
+
+  cashTypeField.addEventListener("change", updateCashExpenseFields);
+  updateCashExpenseFields();
 
   const filterForm = document.querySelector("#cash-filter-form");
   const periodField = document.querySelector("#cash-period");
@@ -564,6 +703,18 @@ async function renderCash() {
     localStorage.removeItem("cashEntries");
     renderCash();
   });
+
+  document.querySelectorAll("[data-toggle-cash-paid]").forEach(input => {
+    input.addEventListener("change", event => {
+      const id = event.currentTarget.dataset.toggleCashPaid;
+      state.cash = state.cash.map(entry => entry.id === id ? {
+        ...entry,
+        paid: event.currentTarget.checked
+      } : entry);
+      localStorage.setItem("cashEntries", JSON.stringify(state.cash));
+      renderCash();
+    });
+  });
 }
 
 function cashTable(entries) {
@@ -574,13 +725,20 @@ function cashTable(entries) {
   return `
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Data</th><th>Descricao</th><th>Tipo</th><th>Valor</th></tr></thead>
+        <thead><tr><th>Data</th><th>Descricao</th><th>Tipo</th><th>Vencimento</th><th>Pago</th><th>Valor</th></tr></thead>
         <tbody>
           ${entries.map(item => `
             <tr>
               <td>${item.date}</td>
               <td>${item.description}</td>
               <td>${item.type === "income" ? "Entrada" : "Saida"}</td>
+              <td>${item.type === "expense" ? item.dueDate || "" : ""}</td>
+              <td>${item.type === "expense" ? `
+                <label class="table-checkbox" aria-label="Marcar ${item.description} como pago">
+                  <input type="checkbox" data-toggle-cash-paid="${item.id}" ${item.paid ? "checked" : ""}>
+                  <span>${item.paid ? "Pago" : "Pendente"}</span>
+                </label>
+              ` : ""}</td>
               <td class="${item.type === "income" ? "positive" : "negative"}">${money(item.amount)}</td>
             </tr>
           `).join("")}

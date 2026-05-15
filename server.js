@@ -182,10 +182,13 @@ function calculateCashFlow(entries = []) {
     const amount = Math.abs(number(item.amount));
     const type = item.type === "expense" ? "expense" : "income";
     return {
+      id: item.id || "",
       description: String(item.description || "").trim() || "Lancamento",
       date: String(item.date || ""),
       type,
-      amount
+      amount,
+      dueDate: String(item.dueDate || ""),
+      paid: Boolean(item.paid)
     };
   });
 
