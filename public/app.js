@@ -6,6 +6,7 @@ const header = document.querySelector(".app-header");
 const hero = document.querySelector(".hero");
 const serverStatus = document.querySelector("#server-status");
 const serverStatusText = document.querySelector("#server-status-text");
+const backupButton = document.querySelector("#backup-button");
 const AUTH_TOKEN_KEY = "cumbucaAuthToken";
 
 const brl = new Intl.NumberFormat("pt-BR", {
@@ -196,6 +197,35 @@ function serializeState() {
     pricingConfig: storedObject("pricingConfig", {}),
     updatedAt: new Date().toISOString()
   };
+}
+
+function backupFilename() {
+  return `cumbuca-backup-${isoDate(new Date())}.json`;
+}
+
+function createBackup() {
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    app: "cumbuca",
+    state: serializeState()
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {
+    type: "application/json"
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = backupFilename();
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  setServerStatus("saved", "Backup gerado");
+}
+
+if (backupButton) {
+  backupButton.addEventListener("click", createBackup);
 }
 
 function writeLocalState(payload = {}) {

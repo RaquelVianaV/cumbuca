@@ -168,6 +168,13 @@ button {
   animation: status-pulse 900ms ease-in-out infinite;
 }
 
+.backup-button {
+  min-height: 40px;
+  padding-inline: 12px;
+  font-size: 0.84rem;
+  white-space: nowrap;
+}
+
 @keyframes status-pulse {
   0%,
   100% {
@@ -1267,6 +1274,12 @@ td select {
   }
 
   .server-status {
+    min-height: 38px;
+    padding-inline: 10px;
+    font-size: 0.78rem;
+  }
+
+  .backup-button {
     min-height: 38px;
     padding-inline: 10px;
     font-size: 0.78rem;
