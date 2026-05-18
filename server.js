@@ -2,22 +2,54 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+let Pool = null;
+try {
+  ({ Pool } = require("pg"));
+} catch (error) {
+  Pool = null;
+}
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, "public");
-const DATABASE_URL = process.env.DATABASE_URL;
-const AUTH_LOGIN = process.env.AUTH_LOGIN || "cumbuca2026";
-const AUTH_PASSWORD = process.env.AUTH_PASSWORD || "cumbuca25";
-const AUTH_SECRET = process.env.AUTH_SECRET || `${AUTH_LOGIN}:${AUTH_PASSWORD}:cumbuca-local-secret`;
-let pool = null;
+const AUTH_USER = process.env.CUMBUCA_USER || "cumbuca";
+const AUTH_PASSWORD = process.env.CUMBUCA_PASSWORD || "cumbuca2026";
+const AUTH_SECRET = process.env.CUMBUCA_AUTH_SECRET || "cumbuca-local-secret";
+const SESSION_COOKIE = "cumbuca_session";
+const DATABASE_URL = process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL || process.env.DATABASE_URL;
+const stateKeys = [
+  "cashEntries",
+  "weeklyMenusByPeriod",
+  "menuWeek",
+  "menuPeriod",
+  "menuDatesByPeriod",
+  "clients",
+  "orders",
+  "pricingIngredients",
+  "pricingConfig",
+  "cashFilter"
+];
+function databaseUrl() {
+  if (!DATABASE_URL) {
+    return "";
+  }
 
-if (DATABASE_URL) {
-  const { Pool } = require("pg");
-  pool = new Pool({
-    connectionString: DATABASE_URL,
-    ssl: process.env.PGSSLMODE === "disable" ? false : { rejectUnauthorized: false }
-  });
+  try {
+    const url = new URL(DATABASE_URL);
+    ["sslmode", "sslcert", "sslkey", "sslrootcert", "channel_binding"].forEach(param => {
+      url.searchParams.delete(param);
+    });
+    return url.toString();
+  } catch (error) {
+    return DATABASE_URL;
+  }
 }
+
+const db = DATABASE_URL && Pool
+  ? new Pool({
+    connectionString: databaseUrl(),
+    ssl: process.env.PGSSLMODE === "disable" ? false : { rejectUnauthorized: false }
+  })
+  : null;
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -46,105 +78,50 @@ const tools = [
   }
 ];
 
-function sendJson(res, statusCode, payload) {
+function sendJson(res, statusCode, payload, extraHeaders = {}) {
   const body = JSON.stringify(payload);
   res.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
-    "Content-Length": Buffer.byteLength(body)
+    "Content-Length": Buffer.byteLength(body),
+    ...extraHeaders
   });
   res.end(body);
 }
 
-function signToken(payload) {
+function redirect(res, location) {
+  res.writeHead(302, { Location: location });
+  res.end();
+}
+
+function parseCookies(req) {
+  return String(req.headers.cookie || "")
+    .split(";")
+    .map(cookie => cookie.trim())
+    .filter(Boolean)
+    .reduce((cookies, cookie) => {
+      const index = cookie.indexOf("=");
+      if (index === -1) {
+        return cookies;
+      }
+      cookies[decodeURIComponent(cookie.slice(0, index))] = decodeURIComponent(cookie.slice(index + 1));
+      return cookies;
+    }, {});
+}
+
+function sessionToken() {
   return crypto
     .createHmac("sha256", AUTH_SECRET)
-    .update(payload)
+    .update(`${AUTH_USER}:${AUTH_PASSWORD}`)
     .digest("hex");
 }
 
-function createAuthToken() {
-  const payload = JSON.stringify({
-    login: AUTH_LOGIN,
-    expiresAt: Date.now() + 1000 * 60 * 60 * 24 * 30
-  });
-  const encodedPayload = Buffer.from(payload).toString("base64url");
-  return `${encodedPayload}.${signToken(encodedPayload)}`;
+function isAuthenticated(req) {
+  return parseCookies(req)[SESSION_COOKIE] === sessionToken();
 }
 
-function isAuthorized(req) {
-  const header = req.headers.authorization || "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-  const [encodedPayload, signature] = token.split(".");
-  if (!encodedPayload || !signature || signature !== signToken(encodedPayload)) {
-    return false;
-  }
-
-  try {
-    const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));
-    return payload.login === AUTH_LOGIN && Number(payload.expiresAt || 0) > Date.now();
-  } catch (error) {
-    return false;
-  }
-}
-
-function requireAuth(req, res) {
-  if (isAuthorized(req)) {
-    return true;
-  }
-
-  sendJson(res, 401, { error: "Acesso nao autorizado." });
-  return false;
-}
-
-async function ensureDatabase() {
-  if (!pool) {
-    return false;
-  }
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS app_state (
-      id text PRIMARY KEY,
-      payload jsonb NOT NULL,
-      updated_at timestamptz NOT NULL DEFAULT now()
-    )
-  `);
-  return true;
-}
-
-async function readAppState() {
-  const ready = await ensureDatabase();
-  if (!ready) {
-    return null;
-  }
-
-  const result = await pool.query("SELECT payload, updated_at FROM app_state WHERE id = $1", ["default"]);
-  if (!result.rows.length) {
-    return null;
-  }
-
-  return {
-    ...result.rows[0].payload,
-    cloudUpdatedAt: result.rows[0].updated_at
-  };
-}
-
-async function saveAppState(payload) {
-  const ready = await ensureDatabase();
-  if (!ready) {
-    return null;
-  }
-
-  await pool.query(
-    `
-      INSERT INTO app_state (id, payload, updated_at)
-      VALUES ($1, $2, now())
-      ON CONFLICT (id)
-      DO UPDATE SET payload = EXCLUDED.payload, updated_at = now()
-    `,
-    ["default", payload]
-  );
-
-  return readAppState();
+function sessionCookie(value, maxAge) {
+  const secure = process.env.VERCEL ? "; Secure" : "";
+  return `${SESSION_COOKIE}=${encodeURIComponent(value)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${secure}`;
 }
 
 function collectBody(req) {
@@ -177,18 +154,63 @@ function number(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+async function ensureStateTable() {
+  if (!db) {
+    return false;
+  }
+
+  await db.query(`
+    create table if not exists cumbuca_app_state (
+      key text primary key,
+      value jsonb not null,
+      updated_at timestamptz not null default now()
+    )
+  `);
+  return true;
+}
+
+async function readAppState() {
+  if (!await ensureStateTable()) {
+    return { database: false, state: {} };
+  }
+
+  const result = await db.query("select key, value from cumbuca_app_state");
+  return {
+    database: true,
+    state: Object.fromEntries(result.rows.map(row => [row.key, row.value]))
+  };
+}
+
+async function writeAppState(payload = {}) {
+  if (!await ensureStateTable()) {
+    return { database: false };
+  }
+
+  const entries = Object.entries(payload)
+    .filter(([key]) => stateKeys.includes(key));
+
+  for (const [key, value] of entries) {
+    await db.query(
+      `insert into cumbuca_app_state (key, value, updated_at)
+       values ($1, $2::jsonb, now())
+       on conflict (key)
+       do update set value = excluded.value, updated_at = now()`,
+      [key, JSON.stringify(value)]
+    );
+  }
+
+  return { database: true, saved: entries.map(([key]) => key) };
+}
+
 function calculateCashFlow(entries = []) {
   const normalized = entries.map(item => {
     const amount = Math.abs(number(item.amount));
     const type = item.type === "expense" ? "expense" : "income";
     return {
-      id: item.id || "",
-      description: String(item.description || "").trim() || "Lancamento",
+      description: String(item.description || "").trim() || "Lançamento",
       date: String(item.date || ""),
       type,
-      amount,
-      dueDate: String(item.dueDate || ""),
-      paid: Boolean(item.paid)
+      amount
     };
   });
 
@@ -238,13 +260,25 @@ function calculatePricing(payload = {}) {
 
 function weeklyMenu(payload = {}) {
   const meals = Array.isArray(payload.meals) ? payload.meals : [];
+  const allowedStatuses = ["planejado", "compras", "preparo", "pronto"];
   const plan = Array.from({ length: 5 }, (_, index) => {
     const found = meals[index] || {};
+    const status = allowedStatuses.includes(found.status) ? found.status : "planejado";
+    const ingredients = Array.isArray(found.ingredients)
+      ? found.ingredients
+        .map(item => ({
+          name: String(item.name || "").trim(),
+          value: number(item.value)
+        }))
+        .filter(item => item.name || item.value > 0)
+      : [];
+    const ingredientCost = ingredients.reduce((sum, item) => sum + item.value, 0);
     return {
       slot: index + 1,
       dish: String(found.dish || "").trim(),
-      cost: number(found.cost),
-      status: found.status === "pronto" ? "pronto" : "planejado",
+      ingredients,
+      cost: ingredientCost || number(found.cost),
+      status,
       notes: String(found.notes || "").trim()
     };
   });
@@ -269,7 +303,7 @@ function serveStatic(req, res, pathname) {
     if (error) {
       fs.readFile(path.join(PUBLIC_DIR, "index.html"), (fallbackError, fallbackData) => {
         if (fallbackError) {
-          sendJson(res, 404, { error: "Arquivo nao encontrado." });
+          sendJson(res, 404, { error: "Arquivo não encontrado." });
           return;
         }
         res.writeHead(200, { "Content-Type": mimeTypes[".html"] });
@@ -284,81 +318,106 @@ function serveStatic(req, res, pathname) {
   });
 }
 
-async function requestHandler(req, res) {
+async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
+  const authenticated = isAuthenticated(req);
 
   try {
-    if (req.method === "GET" && url.pathname === "/api/tools") {
-      sendJson(res, 200, { tools });
+    if (req.method === "GET" && url.pathname === "/api/health") {
+      let database = false;
+      try {
+        database = await ensureStateTable();
+      } catch (error) {
+        database = false;
+      }
+      sendJson(res, 200, {
+        status: "online",
+        database
+      });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/session") {
+      sendJson(res, 200, { authenticated });
       return;
     }
 
     if (req.method === "POST" && url.pathname === "/api/login") {
       const payload = await collectBody(req);
-      if (payload.login === AUTH_LOGIN && payload.password === AUTH_PASSWORD) {
-        sendJson(res, 200, { token: createAuthToken() });
+      if (payload.username === AUTH_USER && payload.password === AUTH_PASSWORD) {
+        sendJson(res, 200, { ok: true }, {
+          "Set-Cookie": sessionCookie(sessionToken(), 60 * 60 * 24 * 30)
+        });
         return;
       }
 
-      sendJson(res, 401, { error: "Login ou senha invalidos." });
+      sendJson(res, 401, { error: "Login ou senha inválidos." });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/logout") {
+      sendJson(res, 200, { ok: true }, {
+        "Set-Cookie": sessionCookie("", 0)
+      });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/login") {
+      if (authenticated) {
+        redirect(res, "/");
+        return;
+      }
+      serveStatic(req, res, "/login.html");
+      return;
+    }
+
+    const publicFiles = ["/styles.css", "/login.js", "/logo-cumbuca.svg"];
+    if (!authenticated) {
+      if (req.method === "GET" && publicFiles.includes(url.pathname)) {
+        serveStatic(req, res, url.pathname);
+        return;
+      }
+
+      if (url.pathname.startsWith("/api/")) {
+        sendJson(res, 401, { error: "Faça login para continuar." });
+        return;
+      }
+
+      if (req.method === "GET") {
+        redirect(res, "/login");
+        return;
+      }
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/tools") {
+      sendJson(res, 200, { tools });
       return;
     }
 
     if (req.method === "GET" && url.pathname === "/api/state") {
-      if (!requireAuth(req, res)) {
-        return;
-      }
-
-      sendJson(res, 200, {
-        enabled: Boolean(pool),
-        state: await readAppState()
-      });
+      sendJson(res, 200, await readAppState());
       return;
     }
 
-    if (req.method === "PUT" && url.pathname === "/api/state") {
-      if (!requireAuth(req, res)) {
-        return;
-      }
-
-      if (!pool) {
-        sendJson(res, 503, { error: "Banco de dados nao configurado." });
-        return;
-      }
-
+    if (req.method === "POST" && url.pathname === "/api/state") {
       const payload = await collectBody(req);
-      sendJson(res, 200, {
-        enabled: true,
-        state: await saveAppState(payload)
-      });
+      sendJson(res, 200, await writeAppState(payload.state || payload));
       return;
     }
 
     if (req.method === "POST" && url.pathname === "/api/fluxo-de-caixa") {
-      if (!requireAuth(req, res)) {
-        return;
-      }
-
       const payload = await collectBody(req);
       sendJson(res, 200, calculateCashFlow(payload.entries));
       return;
     }
 
     if (req.method === "POST" && url.pathname === "/api/menu-semanal") {
-      if (!requireAuth(req, res)) {
-        return;
-      }
-
       const payload = await collectBody(req);
       sendJson(res, 200, weeklyMenu(payload));
       return;
     }
 
     if (req.method === "POST" && url.pathname === "/api/precificacao") {
-      if (!requireAuth(req, res)) {
-        return;
-      }
-
       const payload = await collectBody(req);
       sendJson(res, 200, calculatePricing(payload));
       return;
@@ -369,18 +428,18 @@ async function requestHandler(req, res) {
       return;
     }
 
-    sendJson(res, 405, { error: "Metodo nao permitido." });
+    sendJson(res, 405, { error: "Método não permitido." });
   } catch (error) {
-    sendJson(res, 400, { error: error.message || "Requisicao invalida." });
+    sendJson(res, 400, { error: error.message || "Requisição inválida." });
   }
 }
 
-const server = http.createServer(requestHandler);
+const server = http.createServer(handleRequest);
 
-if (require.main === module) {
+if (!process.env.VERCEL) {
   server.listen(PORT, () => {
     console.log(`Cumbuca Tools rodando em http://localhost:${PORT}`);
   });
 }
 
-module.exports = requestHandler;
+module.exports = handleRequest;

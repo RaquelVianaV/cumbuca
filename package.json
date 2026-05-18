@@ -5,10 +5,12 @@
   "description": "Ferramentas online para fluxo de caixa, menu semanal e precificação.",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "deploy": "vercel --prod --yes",
+    "deploy:railway": "railway up"
   },
   "dependencies": {
-    "pg": "^8.16.3"
+    "pg": "^8.13.1"
   },
   "engines": {
     "node": ">=18"

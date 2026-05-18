@@ -1,14 +1,11 @@
 const app = document.querySelector("#app");
 const title = document.querySelector("#page-title");
 const todayDate = document.querySelector("#today-date");
-const navLinks = [...document.querySelectorAll("[data-route]")];
-const header = document.querySelector(".app-header");
-const hero = document.querySelector(".hero");
 const serverStatus = document.querySelector("#server-status");
-const serverStatusText = document.querySelector("#server-status-text");
+const databaseStatus = document.querySelector("#database-status");
 const backupButton = document.querySelector("#backup-button");
 const logoutButton = document.querySelector("#logout-button");
-const AUTH_TOKEN_KEY = "cumbucaAuthToken";
+const navLinks = [...document.querySelectorAll("[data-route]")];
 
 const brl = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -22,33 +19,67 @@ const fullDate = new Intl.DateTimeFormat("pt-BR", {
   year: "numeric"
 });
 
-const shortDateTime = new Intl.DateTimeFormat("pt-BR", {
-  day: "2-digit",
-  month: "2-digit",
-  year: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit"
-});
-
 if (todayDate) {
   const now = new Date();
   todayDate.dateTime = isoDate(now);
   todayDate.textContent = fullDate.format(now);
 }
 
+async function updateServerStatus() {
+  if (!serverStatus || !databaseStatus) {
+    return;
+  }
+
+  try {
+    const response = await fetch("/api/health", { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error("offline");
+    }
+    const result = await response.json();
+    serverStatus.textContent = "Servidor online";
+    serverStatus.classList.add("online");
+    serverStatus.classList.remove("offline");
+    databaseStatus.textContent = result.database ? "Banco online" : "Banco offline";
+    databaseStatus.classList.toggle("online", Boolean(result.database));
+    databaseStatus.classList.toggle("offline", !result.database);
+  } catch (error) {
+    serverStatus.textContent = "Servidor offline";
+    serverStatus.classList.add("offline");
+    serverStatus.classList.remove("online");
+    databaseStatus.textContent = "Banco offline";
+    databaseStatus.classList.add("offline");
+    databaseStatus.classList.remove("online");
+  }
+}
+
+if (logoutButton) {
+  logoutButton.addEventListener("click", async () => {
+    await fetch("/api/logout", { method: "POST" });
+    location.href = "/login";
+  });
+}
+
 const LOW_MONTHLY_QUANTITY = 5;
 
+function localValue(key, fallback) {
+  try {
+    return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback));
+  } catch (error) {
+    return fallback;
+  }
+}
+
 const state = {
-  cash: JSON.parse(localStorage.getItem("cashEntries") || "[]"),
-  menus: JSON.parse(localStorage.getItem("weeklyMenusByPeriod") || "null") || {},
+  cash: localValue("cashEntries", []),
+  menus: localValue("weeklyMenusByPeriod", {}),
   menuWeek: Number(localStorage.getItem("menuWeek") || "1"),
-  menuPeriod: JSON.parse(localStorage.getItem("menuPeriod") || "null") || {
+  menuPeriod: localValue("menuPeriod", {
     year: new Date().getFullYear(),
     month: new Date().getMonth() + 1
-  },
-  menuDates: JSON.parse(localStorage.getItem("menuDatesByPeriod") || "null") || {},
-  clients: JSON.parse(localStorage.getItem("clients") || "[]"),
-  orders: JSON.parse(localStorage.getItem("orders") || "[]"),
+  }),
+  menuDates: localValue("menuDatesByPeriod", {}),
+  clients: localValue("clients", []),
+  orders: localValue("orders", []),
   showClients: false,
   showOrders: false,
   showPlanning: false,
@@ -56,43 +87,132 @@ const state = {
   clientTab: "form",
   editClientIndex: null,
   editOrderId: null,
-  ingredients: JSON.parse(localStorage.getItem("pricingIngredients") || "[]"),
-  cashFilter: JSON.parse(localStorage.getItem("cashFilter") || '{"period":"all"}')
+  ingredients: localValue("pricingIngredients", []),
+  pricingConfig: localValue("pricingConfig", {}),
+  cashFilter: localValue("cashFilter", { period: "all" }),
+  database: false
 };
 
-const cloudStorageKeys = new Set([
-  "cashEntries",
-  "weeklyMenusByPeriod",
-  "menuWeek",
-  "menuPeriod",
-  "menuDatesByPeriod",
-  "clients",
-  "orders",
-  "pricingIngredients",
-  "pricingConfig",
-  "cashFilter"
-]);
+function appStatePayload() {
+  return {
+    cashEntries: state.cash,
+    weeklyMenusByPeriod: state.menus,
+    menuWeek: state.menuWeek,
+    menuPeriod: state.menuPeriod,
+    menuDatesByPeriod: state.menuDates,
+    clients: state.clients,
+    orders: state.orders,
+    pricingIngredients: state.ingredients,
+    pricingConfig: state.pricingConfig,
+    cashFilter: state.cashFilter
+  };
+}
 
-let cloudSaveTimer = null;
-let isApplyingCloudState = false;
-let statusResetTimer = null;
+function persistLocal() {
+  Object.entries(appStatePayload()).forEach(([key, value]) => {
+    localStorage.setItem(key, JSON.stringify(value));
+  });
+}
 
-function setServerStatus(status, text) {
-  if (!serverStatus || !serverStatusText) {
+async function persistState() {
+  persistLocal();
+  try {
+    await fetch("/api/state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state: appStatePayload() })
+    });
+  } catch (error) {
+    // localStorage keeps the app usable if the network is unavailable.
+  }
+}
+
+async function hydrateState() {
+  try {
+    const response = await fetch("/api/state", { cache: "no-store" });
+    if (!response.ok) {
+      return;
+    }
+    const result = await response.json();
+    state.database = Boolean(result.database);
+    const saved = result.state || {};
+    state.cash = saved.cashEntries || state.cash;
+    state.menus = saved.weeklyMenusByPeriod || state.menus;
+    state.menuWeek = Number(saved.menuWeek || state.menuWeek);
+    state.menuPeriod = saved.menuPeriod || state.menuPeriod;
+    state.menuDates = saved.menuDatesByPeriod || state.menuDates;
+    state.clients = saved.clients || state.clients;
+    state.orders = saved.orders || state.orders;
+    state.ingredients = saved.pricingIngredients || state.ingredients;
+    state.pricingConfig = saved.pricingConfig || state.pricingConfig;
+    state.cashFilter = saved.cashFilter || state.cashFilter;
+    persistLocal();
+  } catch (error) {
+    state.database = false;
+  }
+}
+
+async function latestBackupPayload() {
+  let payload = appStatePayload();
+  let database = state.database;
+
+  try {
+    const response = await fetch("/api/state", { cache: "no-store" });
+    if (response.ok) {
+      const result = await response.json();
+      database = Boolean(result.database);
+      payload = {
+        ...payload,
+        ...(result.state || {})
+      };
+    }
+  } catch (error) {
+    database = false;
+  }
+
+  return {
+    app: "Cumbuca",
+    version: "1.0.0",
+    exportedAt: new Date().toISOString(),
+    source: database ? "postgres" : "localStorage",
+    data: payload
+  };
+}
+
+async function downloadBackup() {
+  if (!backupButton) {
     return;
   }
 
-  clearTimeout(statusResetTimer);
-  serverStatus.dataset.status = status;
-  serverStatusText.textContent = text;
+  backupButton.disabled = true;
+  const originalText = backupButton.textContent;
+  backupButton.textContent = "Gerando...";
 
-  if (status === "saved") {
-    statusResetTimer = setTimeout(() => {
-      serverStatus.dataset.status = "online";
-      serverStatusText.textContent = "Servidor online";
-    }, 2200);
+  try {
+    const payload = await latestBackupPayload();
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json"
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `cumbuca-backup-${isoDate(new Date())}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  } finally {
+    backupButton.disabled = false;
+    backupButton.textContent = originalText;
   }
 }
+
+if (backupButton) {
+  backupButton.addEventListener("click", downloadBackup);
+}
+
+updateServerStatus();
+setInterval(updateServerStatus, 30000);
 
 function routeName() {
   return location.pathname.replace("/", "") || "home";
@@ -104,236 +224,13 @@ function setActive(route) {
   });
 }
 
-function authHeaders() {
-  const token = sessionStorage.getItem(AUTH_TOKEN_KEY);
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 function postJson(url, data) {
   return fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data)
   }).then(response => response.json());
 }
-
-function putJson(url, data) {
-  return fetch(url, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify(data)
-  }).then(response => response.json());
-}
-
-function showAppShell(visible) {
-  document.body.classList.toggle("login-view", !visible);
-  if (header) {
-    header.hidden = !visible;
-  }
-  if (hero) {
-    hero.hidden = !visible;
-  }
-}
-
-function renderLogin(error = "") {
-  showAppShell(false);
-  title.textContent = "Cumbuca";
-  app.innerHTML = `
-    <section class="login-panel">
-      <img class="login-logo" src="/logo-cumbuca.svg" alt="Cumbuca comida saudavel">
-      <h1>Acesso Cumbuca</h1>
-      <form id="login-form" class="login-form">
-        <label>Login
-          <input name="login" autocomplete="username" required autofocus>
-        </label>
-        <label>Senha
-          <input name="password" type="password" autocomplete="current-password" required>
-        </label>
-        ${error ? `<p class="login-error">${error}</p>` : ""}
-        <button type="submit">Entrar</button>
-      </form>
-    </section>
-  `;
-
-  document.querySelector("#login-form").addEventListener("submit", async event => {
-    event.preventDefault();
-    const button = event.currentTarget.querySelector("button");
-    button.disabled = true;
-    const data = readForm(event.currentTarget);
-
-    try {
-      const response = await postJson("/api/login", data);
-      if (!response.token) {
-        renderLogin(response.error || "Login ou senha invalidos.");
-        return;
-      }
-
-      sessionStorage.setItem(AUTH_TOKEN_KEY, response.token);
-      await bootstrap();
-    } catch (loginError) {
-      renderLogin("Nao foi possivel entrar agora.");
-    }
-  });
-}
-
-function storedObject(key, fallback = {}) {
-  try {
-    return JSON.parse(localStorage.getItem(key) || "null") || fallback;
-  } catch (error) {
-    return fallback;
-  }
-}
-
-function serializeState() {
-  return {
-    cash: state.cash,
-    menus: state.menus,
-    menuWeek: state.menuWeek,
-    menuPeriod: state.menuPeriod,
-    menuDates: state.menuDates,
-    clients: state.clients,
-    orders: state.orders,
-    ingredients: state.ingredients,
-    cashFilter: state.cashFilter,
-    pricingConfig: storedObject("pricingConfig", {}),
-    updatedAt: new Date().toISOString()
-  };
-}
-
-function backupFilename() {
-  return `cumbuca-backup-${isoDate(new Date())}.json`;
-}
-
-function createBackup() {
-  const payload = {
-    exportedAt: new Date().toISOString(),
-    app: "cumbuca",
-    state: serializeState()
-  };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], {
-    type: "application/json"
-  });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-
-  link.href = url;
-  link.download = backupFilename();
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-  setServerStatus("saved", "Backup gerado");
-}
-
-if (backupButton) {
-  backupButton.addEventListener("click", createBackup);
-}
-
-if (logoutButton) {
-  logoutButton.addEventListener("click", () => {
-    sessionStorage.removeItem(AUTH_TOKEN_KEY);
-    renderLogin();
-  });
-}
-
-function writeLocalState(payload = {}) {
-  isApplyingCloudState = true;
-  try {
-    state.cash = Array.isArray(payload.cash) ? payload.cash : state.cash;
-    state.menus = payload.menus && typeof payload.menus === "object" ? payload.menus : state.menus;
-    state.menuWeek = Number(payload.menuWeek || state.menuWeek || 1);
-    state.menuPeriod = payload.menuPeriod && typeof payload.menuPeriod === "object" ? payload.menuPeriod : state.menuPeriod;
-    state.menuDates = payload.menuDates && typeof payload.menuDates === "object" ? payload.menuDates : state.menuDates;
-    state.clients = Array.isArray(payload.clients) ? payload.clients : state.clients;
-    state.orders = Array.isArray(payload.orders) ? payload.orders : state.orders;
-    state.ingredients = Array.isArray(payload.ingredients) ? payload.ingredients : state.ingredients;
-    state.cashFilter = payload.cashFilter && typeof payload.cashFilter === "object" ? payload.cashFilter : state.cashFilter;
-
-    localStorage.setItem("cashEntries", JSON.stringify(state.cash));
-    localStorage.setItem("weeklyMenusByPeriod", JSON.stringify(state.menus));
-    localStorage.setItem("menuWeek", String(state.menuWeek));
-    localStorage.setItem("menuPeriod", JSON.stringify(state.menuPeriod));
-    localStorage.setItem("menuDatesByPeriod", JSON.stringify(state.menuDates));
-    localStorage.setItem("clients", JSON.stringify(state.clients));
-    localStorage.setItem("orders", JSON.stringify(state.orders));
-    localStorage.setItem("pricingIngredients", JSON.stringify(state.ingredients));
-    localStorage.setItem("cashFilter", JSON.stringify(state.cashFilter));
-    localStorage.setItem("pricingConfig", JSON.stringify(payload.pricingConfig || storedObject("pricingConfig", {})));
-  } finally {
-    isApplyingCloudState = false;
-  }
-}
-
-async function saveCloudState() {
-  if (isApplyingCloudState) {
-    return;
-  }
-
-  setServerStatus("saving", "Salvando");
-  try {
-    const response = await putJson("/api/state", serializeState());
-    if (response.error) {
-      setServerStatus("error", "Erro ao salvar");
-      return;
-    }
-
-    setServerStatus("saved", "Salvo");
-  } catch (error) {
-    setServerStatus("offline", "Servidor offline");
-    console.warn("Nao foi possivel sincronizar com o banco.", error);
-  }
-}
-
-function queueCloudSave() {
-  if (isApplyingCloudState) {
-    return;
-  }
-
-  clearTimeout(cloudSaveTimer);
-  cloudSaveTimer = setTimeout(saveCloudState, 350);
-}
-
-async function loadCloudState() {
-  setServerStatus("checking", "Verificando");
-  try {
-    const response = await fetch("/api/state", {
-      headers: authHeaders()
-    });
-    if (response.status === 401) {
-      sessionStorage.removeItem(AUTH_TOKEN_KEY);
-      renderLogin();
-      return false;
-    }
-
-    const data = await response.json();
-    setServerStatus(data.enabled ? "online" : "offline", data.enabled ? "Servidor online" : "Banco offline");
-    if (data.enabled && data.state) {
-      writeLocalState(data.state);
-    }
-  } catch (error) {
-    setServerStatus("offline", "Servidor offline");
-    console.warn("Nao foi possivel carregar dados do banco.", error);
-  }
-
-  return true;
-}
-
-const originalSetItem = localStorage.setItem.bind(localStorage);
-const originalRemoveItem = localStorage.removeItem.bind(localStorage);
-
-localStorage.setItem = function setSyncedItem(key, value) {
-  originalSetItem(key, value);
-  if (cloudStorageKeys.has(key)) {
-    queueCloudSave();
-  }
-};
-
-localStorage.removeItem = function removeSyncedItem(key) {
-  originalRemoveItem(key);
-  if (cloudStorageKeys.has(key)) {
-    queueCloudSave();
-  }
-};
 
 function readForm(form) {
   return Object.fromEntries(new FormData(form).entries());
@@ -341,15 +238,6 @@ function readForm(form) {
 
 function money(value) {
   return brl.format(Number(value || 0));
-}
-
-function formatDateTime(value) {
-  if (!value) {
-    return "";
-  }
-
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "" : shortDateTime.format(date);
 }
 
 function isoDate(date) {
@@ -371,235 +259,6 @@ function endOfWeek(date) {
   const copy = startOfWeek(date);
   copy.setDate(copy.getDate() + 6);
   return copy;
-}
-
-function addDays(date, days) {
-  const copy = new Date(date);
-  copy.setDate(copy.getDate() + days);
-  copy.setHours(0, 0, 0, 0);
-  return copy;
-}
-
-function dateFromIso(value) {
-  return value ? new Date(`${value}T00:00:00`) : null;
-}
-
-function ensureCashIds() {
-  let changed = false;
-  state.cash = state.cash.map((entry, index) => {
-    if (entry.id) {
-      return entry;
-    }
-
-    changed = true;
-    return {
-      ...entry,
-      id: `cash-${Date.now()}-${index}`
-    };
-  });
-
-  if (changed) {
-    localStorage.setItem("cashEntries", JSON.stringify(state.cash));
-  }
-}
-
-function dueCashEntries() {
-  const today = addDays(new Date(), 0);
-  const limit = addDays(today, 7);
-
-  return state.cash
-    .filter(entry => entry.type === "expense" && !entry.paid && entry.dueDate)
-    .map(entry => ({
-      ...entry,
-      due: dateFromIso(entry.dueDate)
-    }))
-    .filter(entry => entry.due && entry.due <= limit)
-    .sort((a, b) => a.due - b.due);
-}
-
-function dueStatus(entry) {
-  const today = addDays(new Date(), 0);
-  const diff = Math.ceil((entry.due - today) / 86400000);
-
-  if (diff < 0) {
-    return {
-      className: "overdue",
-      text: `Vencida ha ${Math.abs(diff)} dia(s)`
-    };
-  }
-
-  if (diff === 0) {
-    return {
-      className: "today",
-      text: "Vence hoje"
-    };
-  }
-
-  return {
-    className: "soon",
-    text: `Vence em ${diff} dia(s)`
-  };
-}
-
-function cashEntryLink(entry) {
-  return `/fluxo-de-caixa?conta=${encodeURIComponent(entry.id || "")}`;
-}
-
-function dueAlertsPanel() {
-  const entries = dueCashEntries();
-
-  if (!entries.length) {
-    return `
-      <section class="panel due-panel">
-        <div class="due-panel-header">
-          <h2>Contas a vencer</h2>
-          <span class="due-count">0 pendentes</span>
-        </div>
-        <p class="muted">Nenhuma conta vencida ou vencendo nos proximos 7 dias.</p>
-      </section>
-    `;
-  }
-
-  return `
-    <section class="panel due-panel">
-      <div class="due-panel-header">
-        <h2>Contas a vencer</h2>
-        <span class="due-count">${entries.length} pendente(s)</span>
-      </div>
-      <div class="due-list">
-        ${entries.map(entry => {
-          const status = dueStatus(entry);
-          return `
-            <a class="due-item ${status.className}" href="${cashEntryLink(entry)}">
-              <div>
-                <strong>${entry.description || "Saida"}</strong>
-                <span>Vencimento: ${entry.dueDate}</span>
-              </div>
-              <div>
-                <b>${money(entry.amount)}</b>
-                <small>${status.text}</small>
-              </div>
-            </a>
-          `;
-        }).join("")}
-      </div>
-    </section>
-  `;
-}
-
-function monthCashSummary() {
-  const period = currentMenuPeriodKey();
-  const entries = state.cash.filter(entry => String(entry.date || "").startsWith(period));
-  const income = entries
-    .filter(entry => entry.type === "income")
-    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-  const expenses = entries
-    .filter(entry => entry.type === "expense")
-    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-  const openExpenses = entries
-    .filter(entry => entry.type === "expense" && !entry.paid)
-    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-
-  return {
-    income,
-    expenses,
-    openExpenses,
-    balance: income - expenses
-  };
-}
-
-function dashboardMetric(label, value, detail = "", tone = "") {
-  return `
-    <article class="dashboard-metric ${tone}">
-      <span>${label}</span>
-      <strong>${value}</strong>
-      ${detail ? `<small>${detail}</small>` : ""}
-    </article>
-  `;
-}
-
-function lowMonthlyClients() {
-  const currentKey = menuKey();
-  return state.clients
-    .filter(client => client.plan === "mensalista")
-    .map(client => ({
-      client,
-      remaining: clientRemainingQuantity(client, currentKey),
-      total: clientMonthlyQuantity(client, currentKey)
-    }))
-    .filter(item => item.total > 0 && item.remaining <= LOW_MONTHLY_QUANTITY)
-    .sort((a, b) => a.remaining - b.remaining);
-}
-
-function dashboardPanel() {
-  const currentKey = menuKey();
-  const weekOrders = weeklyOrders(currentKey);
-  const monthOrders = monthlyOrders(currentKey);
-  const cash = monthCashSummary();
-  const weekQuantity = weekOrders.reduce((sum, order) => sum + orderQuantity(order), 0);
-  const monthRevenue = monthOrders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
-  const dueEntries = dueCashEntries();
-  const overdueCount = dueEntries.filter(entry => dueStatus(entry).className === "overdue").length;
-  const lowClients = lowMonthlyClients();
-
-  return `
-    <section class="dashboard-panel">
-      <div class="dashboard-header">
-        <div>
-          <p class="eyebrow">Painel operacional</p>
-          <h2>Hoje na Cumbuca</h2>
-        </div>
-        <a class="dashboard-link" href="/menu-semanal?ano=${state.menuPeriod.year}&mes=${state.menuPeriod.month}&semana=${state.menuWeek}">Abrir semana ${state.menuWeek}</a>
-      </div>
-      <div class="dashboard-metrics">
-        ${dashboardMetric("Saldo do mes", money(cash.balance), `${money(cash.income)} entradas`, cash.balance < 0 ? "danger" : "success")}
-        ${dashboardMetric("Saidas abertas", money(cash.openExpenses), `${dueEntries.length} alerta(s)`, dueEntries.length ? "warning" : "success")}
-        ${dashboardMetric("Pedidos da semana", weekOrders.length, `${weekQuantity} cumbuca(s)`, "info")}
-        ${dashboardMetric("Receita em pedidos", money(monthRevenue), `${monthOrders.length} pedido(s) no mes`, "success")}
-        ${dashboardMetric("Clientes", state.clients.length, `${state.clients.filter(client => client.plan === "mensalista").length} mensalista(s)`, "info")}
-        ${dashboardMetric("Vencidas", overdueCount, "contas em atraso", overdueCount ? "danger" : "success")}
-      </div>
-      <div class="dashboard-lists">
-        <section class="dashboard-card">
-          <div class="dashboard-card-header">
-            <h3>Prioridade financeira</h3>
-            <a href="/fluxo-de-caixa">Ver caixa</a>
-          </div>
-          ${dueEntries.length ? `
-            <div class="compact-list">
-              ${dueEntries.slice(0, 4).map(entry => {
-                const status = dueStatus(entry);
-                return `
-                  <a class="compact-item ${status.className}" href="${cashEntryLink(entry)}">
-                    <span>${entry.description || "Saida"}</span>
-                    <strong>${money(entry.amount)}</strong>
-                    <small>${status.text}</small>
-                  </a>
-                `;
-              }).join("")}
-            </div>
-          ` : `<p class="muted">Nenhuma conta vencida ou perto de vencer.</p>`}
-        </section>
-        <section class="dashboard-card">
-          <div class="dashboard-card-header">
-            <h3>Mensalistas</h3>
-            <a href="/menu-semanal">Ver pedidos</a>
-          </div>
-          ${lowClients.length ? `
-            <div class="compact-list">
-              ${lowClients.slice(0, 4).map(({ client, remaining, total }) => `
-                <div class="compact-item warning">
-                  <span>${client.name || "Mensalista"}</span>
-                  <strong>${remaining}/${total}</strong>
-                  <small>cumbuca(s) restante(s)</small>
-                </div>
-              `).join("")}
-            </div>
-          ` : `<p class="muted">Nenhum mensalista perto de acabar.</p>`}
-        </section>
-      </div>
-    </section>
-  `;
 }
 
 function filterCashEntries(entries) {
@@ -676,8 +335,6 @@ function home() {
   title.textContent = "Cumbuca";
   setActive("");
   app.innerHTML = `
-    ${dashboardPanel()}
-    ${dueAlertsPanel()}
     <div class="home-grid">
       ${[
         ["fluxo-de-caixa", "Fluxo de Caixa", "Organize entradas, saídas e saldo previsto."],
@@ -700,11 +357,6 @@ function home() {
 async function renderCash() {
   title.textContent = "Fluxo de Caixa";
   setActive("fluxo-de-caixa");
-  ensureCashIds();
-  const selectedCashId = new URLSearchParams(location.search).get("conta") || "";
-  const selectedCashEntry = selectedCashId
-    ? state.cash.find(entry => entry.id === selectedCashId)
-    : null;
   const filteredEntries = filterCashEntries(state.cash);
   const result = await postJson("/api/fluxo-de-caixa", { entries: filteredEntries });
   const today = isoDate(new Date());
@@ -715,9 +367,9 @@ async function renderCash() {
   app.innerHTML = `
     <div class="tool-grid">
       <section class="panel">
-        <h2>Novo lancamento</h2>
+        <h2>Novo lançamento</h2>
         <form id="cash-form" class="form-grid single">
-          <label>Descricao
+          <label>Descrição
             <input name="description" placeholder="Venda marmitas, aluguel, fornecedor" required>
           </label>
           <label>Data
@@ -726,18 +378,11 @@ async function renderCash() {
           <label>Tipo
             <select name="type">
               <option value="income">Entrada</option>
-              <option value="expense">Saida</option>
+              <option value="expense">Saída</option>
             </select>
           </label>
           <label>Valor
             <input name="amount" type="number" min="0" step="0.01" placeholder="0,00" required>
-          </label>
-          <label class="cash-expense-field">Vencimento
-            <input name="dueDate" type="date">
-          </label>
-          <label class="checkbox-field cash-expense-field">
-            <input name="paid" type="checkbox">
-            <span>Pago</span>
           </label>
           <div class="actions">
             <button type="submit">Adicionar</button>
@@ -769,41 +414,20 @@ async function renderCash() {
         </form>
         <div class="summary">
           <div class="metric"><span>Entradas</span><strong>${money(result.income)}</strong></div>
-          <div class="metric"><span>Saidas</span><strong>${money(result.expenses)}</strong></div>
+          <div class="metric"><span>Saídas</span><strong>${money(result.expenses)}</strong></div>
           <div class="metric"><span>Saldo</span><strong class="${result.balance < 0 ? "negative" : "positive"}">${money(result.balance)}</strong></div>
         </div>
-        ${selectedCashPanel(selectedCashEntry)}
-        ${cashTable(result.entries, selectedCashId)}
+        ${cashTable(result.entries)}
       </section>
     </div>
   `;
 
   document.querySelector("#cash-form").addEventListener("submit", event => {
     event.preventDefault();
-    const data = readForm(event.currentTarget);
-    const isExpense = data.type === "expense";
-    state.cash.push({
-      ...data,
-      id: `cash-${Date.now()}`,
-      dueDate: isExpense ? data.dueDate : "",
-      paid: isExpense && data.paid === "on"
-    });
-    localStorage.setItem("cashEntries", JSON.stringify(state.cash));
+    state.cash.push(readForm(event.currentTarget));
+    persistState();
     renderCash();
   });
-
-  const cashForm = document.querySelector("#cash-form");
-  const cashTypeField = cashForm.querySelector("[name='type']");
-  const dueDateField = cashForm.querySelector("[name='dueDate']");
-
-  function updateCashExpenseFields() {
-    const isExpense = cashTypeField.value === "expense";
-    cashForm.dataset.type = cashTypeField.value;
-    dueDateField.required = isExpense;
-  }
-
-  cashTypeField.addEventListener("change", updateCashExpenseFields);
-  updateCashExpenseFields();
 
   const filterForm = document.querySelector("#cash-filter-form");
   const periodField = document.querySelector("#cash-period");
@@ -819,61 +443,18 @@ async function renderCash() {
   filterForm.addEventListener("submit", event => {
     event.preventDefault();
     state.cashFilter = readForm(event.currentTarget);
-    localStorage.setItem("cashFilter", JSON.stringify(state.cashFilter));
+    persistState();
     renderCash();
   });
 
   document.querySelector("#clear-cash").addEventListener("click", () => {
     state.cash = [];
-    localStorage.removeItem("cashEntries");
+    persistState();
     renderCash();
   });
-
-  document.querySelectorAll("[data-toggle-cash-paid]").forEach(input => {
-    input.addEventListener("change", event => {
-      const id = event.currentTarget.dataset.toggleCashPaid;
-      state.cash = state.cash.map(entry => entry.id === id ? {
-        ...entry,
-        paid: event.currentTarget.checked
-      } : entry);
-      localStorage.setItem("cashEntries", JSON.stringify(state.cash));
-      renderCash();
-    });
-  });
 }
 
-function selectedCashPanel(entry) {
-  if (!entry) {
-    return "";
-  }
-
-  const isExpense = entry.type === "expense";
-  const due = isExpense && entry.dueDate
-    ? dueStatus({ ...entry, due: dateFromIso(entry.dueDate) })
-    : null;
-
-  return `
-    <section class="selected-cash-panel ${due?.className || ""}">
-      <div>
-        <span>Conta selecionada</span>
-        <h2>${entry.description || "Lancamento"}</h2>
-        <p>${isExpense ? `Vencimento: ${entry.dueDate || "sem vencimento"}` : "Entrada registrada"}</p>
-      </div>
-      <div class="selected-cash-values">
-        <strong class="${entry.type === "income" ? "positive" : "negative"}">${money(entry.amount)}</strong>
-        ${due ? `<small>${due.text}</small>` : ""}
-        ${isExpense ? `
-          <label class="table-checkbox" aria-label="Marcar ${entry.description} como pago">
-            <input type="checkbox" data-toggle-cash-paid="${entry.id}" ${entry.paid ? "checked" : ""}>
-            <span>${entry.paid ? "Pago" : "Pendente"}</span>
-          </label>
-        ` : ""}
-      </div>
-    </section>
-  `;
-}
-
-function cashTable(entries, selectedCashId = "") {
+function cashTable(entries) {
   if (!entries.length) {
     return `<p class="muted">Nenhum lancamento ainda.</p>`;
   }
@@ -881,20 +462,13 @@ function cashTable(entries, selectedCashId = "") {
   return `
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Data</th><th>Descricao</th><th>Tipo</th><th>Vencimento</th><th>Pago</th><th>Valor</th></tr></thead>
+        <thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Valor</th></tr></thead>
         <tbody>
           ${entries.map(item => `
-            <tr class="${item.id === selectedCashId ? "selected-row" : ""}">
+            <tr>
               <td>${item.date}</td>
-              <td>${item.type === "expense" ? `<a class="cash-row-link" href="${cashEntryLink(item)}">${item.description}</a>` : item.description}</td>
-              <td>${item.type === "income" ? "Entrada" : "Saida"}</td>
-              <td>${item.type === "expense" ? item.dueDate || "" : ""}</td>
-              <td>${item.type === "expense" ? `
-                <label class="table-checkbox" aria-label="Marcar ${item.description} como pago">
-                  <input type="checkbox" data-toggle-cash-paid="${item.id}" ${item.paid ? "checked" : ""}>
-                  <span>${item.paid ? "Pago" : "Pendente"}</span>
-                </label>
-              ` : ""}</td>
+              <td>${item.description}</td>
+              <td>${item.type === "income" ? "Entrada" : "Saída"}</td>
               <td class="${item.type === "income" ? "positive" : "negative"}">${money(item.amount)}</td>
             </tr>
           `).join("")}
@@ -904,12 +478,53 @@ function cashTable(entries, selectedCashId = "") {
   `;
 }
 
+function planningIngredients(item) {
+  const saved = Array.isArray(item.ingredients) ? item.ingredients : [];
+  return Array.from({ length: Math.max(1, saved.length) }, (_, index) => {
+    return saved[index] || { name: "", value: "" };
+  });
+}
+
+function planningIngredientRow(menuIndex, ingredientIndex, ingredient = {}) {
+  return `
+    <div class="ingredient-row" data-ingredient-row data-menu-index="${menuIndex}">
+      <input class="ingredient-name" name="ingredient-name-${menuIndex}-${ingredientIndex}" value="${ingredient.name || ""}" placeholder="Ingrediente">
+      <input class="ingredient-value" name="ingredient-value-${menuIndex}-${ingredientIndex}" type="number" min="0" step="0.01" value="${ingredient.value || ""}" placeholder="R$">
+      <button class="ingredient-remove" type="button" data-remove-ingredient aria-label="Remover ingrediente">-</button>
+    </div>
+  `;
+}
+
+function planningIngredientRows(item, menuIndex) {
+  return planningIngredients(item)
+    .map((ingredient, ingredientIndex) => planningIngredientRow(menuIndex, ingredientIndex, ingredient))
+    .join("");
+}
+
+function readPlanningIngredients(form, menuIndex) {
+  return [...form.querySelectorAll(`[data-ingredient-row][data-menu-index="${menuIndex}"]`)]
+    .map(row => ({
+      name: String(row.querySelector(".ingredient-name")?.value || "").trim(),
+      value: row.querySelector(".ingredient-value")?.value || ""
+    }))
+    .filter(item => item.name || Number(item.value || 0) > 0);
+}
+
+function planningIngredientTotal(ingredients) {
+  return ingredients.reduce((sum, item) => sum + Number(item.value || 0), 0);
+}
+
 async function renderMenu() {
   title.textContent = "Menu Semanal";
   setActive("menu-semanal");
   const currentWeek = state.menuWeek || 1;
   const currentKey = menuKey(currentWeek);
   const result = await postJson("/api/menu-semanal", { meals: state.menus[currentKey] || [] });
+  const planningStats = {
+    shopping: result.plan.filter(item => item.status === "compras").length,
+    prep: result.plan.filter(item => item.status === "preparo").length,
+    ready: result.plan.filter(item => item.status === "pronto").length
+  };
   const savedRange = state.menuDates[currentKey] || {};
   const today = new Date();
   const defaultStart = isoDate(startOfWeek(today));
@@ -959,30 +574,50 @@ async function renderMenu() {
       ${state.showOrders ? orderPanel(result.plan, currentKey) : ""}
       ${state.showPlanning ? `
         <section class="planning-panel">
-          <div class="summary">
+          <div class="summary planning-summary">
             <div class="metric"><span>Custo semanal</span><strong>${money(result.totalCost)}</strong></div>
-            <div class="metric"><span>Pratos prontos</span><strong>${result.readyCount}/5</strong></div>
+            <div class="metric"><span>Lista de compras</span><strong>${planningStats.shopping}</strong></div>
+            <div class="metric"><span>Em preparo</span><strong>${planningStats.prep}</strong></div>
+            <div class="metric"><span>Pratos prontos</span><strong>${planningStats.ready}/5</strong></div>
           </div>
           <form id="menu-form">
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Prato</th><th>Custo</th><th>Status</th><th>Observação</th></tr></thead>
-                <tbody>
-                  ${result.plan.map((item, index) => `
-                    <tr>
-                      <td><input name="dish-${index}" value="${item.dish}" placeholder="Prato ${item.slot}"></td>
-                      <td><input name="cost-${index}" type="number" min="0" step="0.01" value="${item.cost || ""}"></td>
-                      <td>
-                        <select name="status-${index}">
-                          <option value="planejado" ${item.status === "planejado" ? "selected" : ""}>Planejado</option>
-                          <option value="pronto" ${item.status === "pronto" ? "selected" : ""}>Pronto</option>
-                        </select>
-                      </td>
-                      <td><input name="notes-${index}" value="${item.notes}" placeholder="Compra, preparo, entrega"></td>
-                    </tr>
-                  `).join("")}
-                </tbody>
-              </table>
+            <div class="planning-board">
+              ${result.plan.map((item, index) => `
+                <article class="planning-card" data-status="${item.status}">
+                  <div class="planning-card-top">
+                    <span>Cumbuca ${item.slot}</span>
+                    <strong>${item.status === "pronto" ? "Pronto" : item.status === "preparo" ? "Preparo" : item.status === "compras" ? "Compras" : "Planejado"}</strong>
+                  </div>
+                  <label>Prato
+                    <input name="dish-${index}" value="${item.dish}" placeholder="Nome da cumbuca">
+                  </label>
+                  <label>Custo total
+                    <input name="cost-${index}" type="number" min="0" step="0.01" value="${item.cost || ""}" placeholder="Soma dos ingredientes">
+                  </label>
+                  <div class="ingredient-list">
+                    <div class="ingredient-list-title">
+                      <span>Lista de ingredientes</span>
+                      <span>Valor</span>
+                      <span></span>
+                    </div>
+                    <div class="ingredient-rows" data-ingredient-rows="${index}">
+                      ${planningIngredientRows(item, index)}
+                    </div>
+                    <button class="ingredient-add" type="button" data-add-ingredient="${index}">+ Ingrediente</button>
+                  </div>
+                  <label>Status
+                    <select name="status-${index}">
+                      <option value="planejado" ${item.status === "planejado" ? "selected" : ""}>Planejado</option>
+                      <option value="compras" ${item.status === "compras" ? "selected" : ""}>Lista de compras</option>
+                      <option value="preparo" ${item.status === "preparo" ? "selected" : ""}>Em preparo</option>
+                      <option value="pronto" ${item.status === "pronto" ? "selected" : ""}>Pronto</option>
+                    </select>
+                  </label>
+                  <label>Observação
+                    <textarea name="notes-${index}" placeholder="Compra, preparo, entrega">${item.notes}</textarea>
+                  </label>
+                </article>
+              `).join("")}
             </div>
             <div class="actions">
               <button type="submit">Salvar menu</button>
@@ -1000,7 +635,7 @@ async function renderMenu() {
       event.preventDefault();
       state.menuWeek = Number(event.currentTarget.dataset.week);
       state.showMonthSummary = false;
-      localStorage.setItem("menuWeek", String(state.menuWeek));
+      persistState();
       history.replaceState(null, "", `/menu-semanal?ano=${state.menuPeriod.year}&mes=${state.menuPeriod.month}&semana=${state.menuWeek}`);
       renderMenu();
     });
@@ -1086,7 +721,7 @@ async function renderMenu() {
       }
       state.clients.splice(index, 1);
       state.editClientIndex = null;
-      localStorage.setItem("clients", JSON.stringify(state.clients));
+      persistState();
       renderMenu();
     });
   });
@@ -1147,7 +782,7 @@ async function renderMenu() {
           createdMenuKey: currentKey
         });
       }
-      localStorage.setItem("clients", JSON.stringify(state.clients));
+      persistState();
       state.editClientIndex = null;
       state.clientTab = "list";
       renderMenu();
@@ -1219,21 +854,26 @@ async function renderMenu() {
       const weeklyValue = client.plan === "semanal" ? Number(data.get("weeklyValue") || 0) : 0;
       const deliveryFee = client.plan === "semanal" ? Number(data.get("orderDeliveryFee") || 0) : 0;
       const paid = client.plan === "semanal" && data.get("paid") === "on";
-      const monthlyValue = monthlyChargeForClient(client, currentKey, state.editOrderId);
 
       if (!dishes.length) {
         return;
       }
 
       let remainingAfterOrder = null;
+      let monthlyValue = 0;
       if (client.plan === "mensalista") {
         const requested = dishes.reduce((sum, dish) => sum + Number(dish.quantity || 0), 0);
-        const available = clientRemainingQuantity(client, currentKey, state.editOrderId);
-        if (requested > available) {
-          alert(`Este mensalista tem ${available} cumbuca(s) disponível(is) neste mês.`);
+        const packageQuantity = clientMonthlyQuantity(client, currentKey);
+        const packageValue = clientMonthlyValue(client, currentKey);
+        if (packageQuantity <= 0 || packageValue <= 0) {
+          alert("Informe o valor e a quantidade do pacote mensal no cadastro deste cliente.");
           return;
         }
-        remainingAfterOrder = available - requested;
+        monthlyValue = monthlyChargeForOrder(client, currentKey, requested, state.editOrderId);
+        const orderedBefore = clientOrderedQuantity(client, currentKey, state.editOrderId);
+        const capacityAfterOrder = clientMonthlyCapacity(client, currentKey, state.editOrderId)
+          + (monthlyValue > 0 ? (monthlyValue / packageValue) * packageQuantity : 0);
+        remainingAfterOrder = Math.max(0, capacityAfterOrder - orderedBefore - requested);
       }
 
       const savedOrder = {
@@ -1248,8 +888,7 @@ async function renderMenu() {
         notes: String(data.get("notes") || "").trim(),
         createdAt: state.editOrderId
           ? state.orders.find(order => Number(order.id) === Number(state.editOrderId))?.createdAt || new Date().toISOString()
-          : new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+          : new Date().toISOString()
       };
 
       if (state.editOrderId) {
@@ -1257,7 +896,7 @@ async function renderMenu() {
       } else {
         state.orders.push(savedOrder);
       }
-      localStorage.setItem("orders", JSON.stringify(state.orders));
+      persistState();
       state.editOrderId = null;
       if (remainingAfterOrder !== null && remainingAfterOrder <= LOW_MONTHLY_QUANTITY) {
         alert(monthlyQuantityWarningText(client, remainingAfterOrder));
@@ -1291,7 +930,7 @@ async function renderMenu() {
         if (Number(state.editOrderId) === id) {
           state.editOrderId = null;
         }
-        localStorage.setItem("orders", JSON.stringify(state.orders));
+        persistState();
         renderMenu();
       });
     });
@@ -1304,7 +943,7 @@ async function renderMenu() {
       year: Number(data.year),
       month: Number(data.month)
     };
-    localStorage.setItem("menuPeriod", JSON.stringify(state.menuPeriod));
+    persistState();
     history.replaceState(null, "", `/menu-semanal?ano=${state.menuPeriod.year}&mes=${state.menuPeriod.month}&semana=${state.menuWeek}`);
     renderMenu();
   });
@@ -1320,7 +959,7 @@ async function renderMenu() {
       start: startField.value,
       end: endField.value
     };
-    localStorage.setItem("menuDatesByPeriod", JSON.stringify(state.menuDates));
+    persistState();
   }
 
   const startDateField = document.querySelector("#menu-start-date");
@@ -1332,23 +971,55 @@ async function renderMenu() {
 
   const menuForm = document.querySelector("#menu-form");
   if (menuForm) {
+    document.querySelectorAll("[data-add-ingredient]").forEach(button => {
+      button.addEventListener("click", event => {
+        const menuIndex = Number(event.currentTarget.dataset.addIngredient);
+        const rows = document.querySelector(`[data-ingredient-rows="${menuIndex}"]`);
+        const ingredientIndex = rows.querySelectorAll("[data-ingredient-row]").length;
+        rows.insertAdjacentHTML("beforeend", planningIngredientRow(menuIndex, ingredientIndex));
+      });
+    });
+
+    menuForm.addEventListener("click", event => {
+      const removeButton = event.target.closest("[data-remove-ingredient]");
+      if (!removeButton) {
+        return;
+      }
+
+      const row = removeButton.closest("[data-ingredient-row]");
+      const rows = row.parentElement;
+      if (rows.querySelectorAll("[data-ingredient-row]").length === 1) {
+        row.querySelectorAll("input").forEach(input => {
+          input.value = "";
+        });
+        return;
+      }
+
+      row.remove();
+    });
+
     menuForm.addEventListener("submit", event => {
       event.preventDefault();
       const data = readForm(event.currentTarget);
-      state.menus[currentKey] = result.plan.map((item, index) => ({
-        slot: index + 1,
-        dish: data[`dish-${index}`],
-        cost: data[`cost-${index}`],
-        status: data[`status-${index}`],
-        notes: data[`notes-${index}`]
-      }));
-      localStorage.setItem("weeklyMenusByPeriod", JSON.stringify(state.menus));
+      state.menus[currentKey] = result.plan.map((item, index) => {
+        const ingredients = readPlanningIngredients(event.currentTarget, index);
+        const ingredientTotal = planningIngredientTotal(ingredients);
+        return {
+          slot: index + 1,
+          dish: data[`dish-${index}`],
+          ingredients,
+          cost: ingredientTotal || data[`cost-${index}`],
+          status: data[`status-${index}`],
+          notes: data[`notes-${index}`]
+        };
+      });
+      persistState();
       renderMenu();
     });
 
     document.querySelector("#clear-menu").addEventListener("click", () => {
       state.menus[currentKey] = [];
-      localStorage.setItem("weeklyMenusByPeriod", JSON.stringify(state.menus));
+      persistState();
       renderMenu();
     });
   }
@@ -1442,7 +1113,7 @@ function clientList(currentKey) {
               <td>${client.plan === "mensalista" ? "Mensalista" : "Semanal"}</td>
               <td>${client.plan === "mensalista" ? money(clientMonthlyValue(client, currentKey)) : "Variável"}</td>
               <td>
-                ${client.plan === "mensalista" ? `${clientRemainingQuantity(client, currentKey)}/${clientMonthlyQuantity(client, currentKey)} ${clientQuantityStatus(client, currentKey)}` : money(client.weeklyDeliveryFee || client.deliveryFee)}
+                ${client.plan === "mensalista" ? `${clientRemainingQuantity(client, currentKey)}/${clientMonthlyCapacity(client, currentKey)} ${clientChargedPackageCount(client, currentKey) > 1 ? `<span class="quantity-badge renewed">${clientChargedPackageCount(client, currentKey)} pacotes</span>` : ""} ${clientQuantityStatus(client, currentKey)}` : money(client.weeklyDeliveryFee || client.deliveryFee)}
               </td>
               <td>${client.notes || ""}</td>
               <td>
@@ -1479,6 +1150,24 @@ function clientMonthlyQuantity(client, currentKey) {
   return Number(clientMonthlyPackage(client, currentKey).monthlyQuantity || 0);
 }
 
+function clientChargedPackageCount(client, currentKey, ignoredOrderId = null) {
+  const packageValue = clientMonthlyValue(client, currentKey);
+  if (packageValue <= 0) {
+    return 0;
+  }
+
+  return monthlyOrders(currentKey)
+    .filter(order => order.clientPhone === client.phone)
+    .filter(order => Number(order.id) !== Number(ignoredOrderId))
+    .reduce((sum, order) => sum + Math.ceil(Number(order.amount || 0) / packageValue), 0);
+}
+
+function clientMonthlyCapacity(client, currentKey, ignoredOrderId = null) {
+  const packageQuantity = clientMonthlyQuantity(client, currentKey);
+  const packageCount = Math.max(1, clientChargedPackageCount(client, currentKey, ignoredOrderId));
+  return packageQuantity * packageCount;
+}
+
 function clientOrderedQuantity(client, currentKey, ignoredOrderId = null) {
   return monthlyOrders(currentKey)
     .filter(order => order.clientPhone === client.phone)
@@ -1487,20 +1176,29 @@ function clientOrderedQuantity(client, currentKey, ignoredOrderId = null) {
 }
 
 function clientRemainingQuantity(client, currentKey, ignoredOrderId = null) {
-  return Math.max(0, clientMonthlyQuantity(client, currentKey) - clientOrderedQuantity(client, currentKey, ignoredOrderId));
+  return Math.max(0, clientMonthlyCapacity(client, currentKey, ignoredOrderId) - clientOrderedQuantity(client, currentKey, ignoredOrderId));
 }
 
-function monthlyChargeForClient(client, currentKey, ignoredOrderId = null) {
+function monthlyChargeForOrder(client, currentKey, requestedQuantity, ignoredOrderId = null) {
   if (client.plan !== "mensalista") {
     return 0;
   }
 
-  const alreadyCharged = monthlyOrders(currentKey)
-    .filter(order => order.clientPhone === client.phone)
-    .filter(order => Number(order.id) !== Number(ignoredOrderId))
-    .some(order => Number(order.amount || 0) > 0);
+  const packageValue = clientMonthlyValue(client, currentKey);
+  const packageQuantity = clientMonthlyQuantity(client, currentKey);
+  if (packageValue <= 0 || packageQuantity <= 0) {
+    return 0;
+  }
 
-  return alreadyCharged ? 0 : clientMonthlyValue(client, currentKey);
+  const orderedQuantity = clientOrderedQuantity(client, currentKey, ignoredOrderId);
+  const chargedPackages = clientChargedPackageCount(client, currentKey, ignoredOrderId);
+  const entitledPackages = Math.max(1, chargedPackages);
+  const packagesNeeded = Math.max(entitledPackages, Math.ceil((orderedQuantity + requestedQuantity) / packageQuantity));
+  const packagesToCharge = chargedPackages === 0
+    ? packagesNeeded
+    : Math.max(0, packagesNeeded - chargedPackages);
+
+  return packagesToCharge * packageValue;
 }
 
 function isLowMonthlyQuantity(client, currentKey) {
@@ -1510,7 +1208,7 @@ function isLowMonthlyQuantity(client, currentKey) {
 
 function monthlyQuantityWarningText(client, remaining) {
   if (remaining <= 0) {
-    return `A quantidade de ${client.name || "mensalista"} acabou neste mês.`;
+    return `O pacote de ${client.name || "mensalista"} acabou. O próximo pedido mensal renova um novo pacote automaticamente.`;
   }
 
   return `Atenção: ${client.name || "mensalista"} está com apenas ${remaining} cumbuca(s) restante(s) neste mês.`;
@@ -1523,7 +1221,7 @@ function clientQuantityStatus(client, currentKey) {
 
   const remaining = clientRemainingQuantity(client, currentKey);
   if (remaining <= 0) {
-    return `<span class="quantity-badge empty">Acabou</span>`;
+    return `<span class="quantity-badge empty">Pode renovar</span>`;
   }
 
   if (isLowMonthlyQuantity(client, currentKey)) {
@@ -1575,35 +1273,19 @@ function monthSummaryPanel(currentKey) {
   const orders = monthlyOrders(currentKey);
   const totalQuantity = orders.reduce((sum, order) => sum + orderQuantity(order), 0);
   const totalDeliveryFee = orders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0);
-  const dishStats = new Map();
+  const weeklySummary = [1, 2, 3, 4, 5].map(week => {
+    const key = `${periodKey}-semana-${week}`;
+    const dishes = state.menus[key] || [];
+    const weekOrders = weeklyOrders(key);
 
-  Object.entries(state.menus)
-    .filter(([key]) => menuPeriodKeyFromKey(key) === periodKey)
-    .forEach(([key, dishes]) => {
-      const week = key.split("semana-")[1] || "";
-      const weekOrders = weeklyOrders(key);
-
-      dishes.forEach(item => {
-        const dish = String(item.dish || "").trim();
-        if (!dish) {
-          return;
-        }
-
-        const found = dishStats.get(dish) || {
-          dish,
-          weeks: new Set(),
-          quantity: 0
-        };
-        found.weeks.add(`Semana ${week}`);
-        found.quantity += weekOrders.reduce((sum, order) => {
-          const orderedDish = (order.dishes || []).find(dishOrder => Number(dishOrder.slot) === Number(item.slot));
-          return sum + Number(orderedDish?.quantity || 0);
-        }, 0);
-        dishStats.set(dish, found);
-      });
-    });
-
-  const dishes = [...dishStats.values()].sort((a, b) => a.dish.localeCompare(b.dish, "pt-BR"));
+    return {
+      week,
+      dishes: dishes.map(item => item.dish).filter(Boolean).join(", "),
+      menuCost: dishes.reduce((sum, item) => sum + Number(item.cost || 0), 0),
+      orderAmount: weekOrders.reduce((sum, order) => sum + Number(order.amount || 0), 0),
+      orderCount: weekOrders.length
+    };
+  });
 
   return `
     <section class="month-summary-panel">
@@ -1614,19 +1296,17 @@ function monthSummaryPanel(currentKey) {
       </div>
       <div class="table-wrap month-summary-table">
         <table>
-          <thead><tr><th>Prato feito no mês</th><th>Semanas</th><th>Cumbucas vendidas</th></tr></thead>
+          <thead><tr><th>Semana</th><th>Prato feito no mês</th><th>Custo total da semana</th><th>Valor total em pedidos da semana</th><th>Pedidos</th></tr></thead>
           <tbody>
-            ${dishes.length ? dishes.map(item => `
+            ${weeklySummary.map(item => `
               <tr>
-                <td>${item.dish}</td>
-                <td>${[...item.weeks].join(", ")}</td>
-                <td>${item.quantity}</td>
+                <td>Semana ${item.week}</td>
+                <td>${item.dishes || "Nenhum prato registrado."}</td>
+                <td>${money(item.menuCost)}</td>
+                <td>${money(item.orderAmount)}</td>
+                <td>${item.orderCount}</td>
               </tr>
-            `).join("") : `
-              <tr>
-                <td colspan="3">Nenhum prato registrado neste mês.</td>
-              </tr>
-            `}
+            `).join("")}
           </tbody>
         </table>
       </div>
@@ -1681,7 +1361,7 @@ function orderList(plan, currentKey) {
   return `
     <div class="table-wrap order-table">
       <table>
-        <thead><tr><th>Cliente</th><th>Contato</th><th>Endereço</th><th>Pedido</th><th>Total</th><th>Valor em real</th><th>Valor em frete</th><th>Pagamento</th><th>Última atualização</th><th>Obs.</th><th></th></tr></thead>
+        <thead><tr><th>Cliente</th><th>Contato</th><th>Endereço</th><th>Pedido</th><th>Total</th><th>Valor em real</th><th>Valor em frete</th><th>Pagamento</th><th>Obs.</th><th></th></tr></thead>
         <tbody>
           ${orders.map(order => {
             const client = clientByPhone(order.clientPhone);
@@ -1695,7 +1375,6 @@ function orderList(plan, currentKey) {
                 <td>${Number(order.amount || 0) > 0 ? money(order.amount) : ""}</td>
                 <td>${Number(order.deliveryFee || 0) > 0 ? money(order.deliveryFee) : ""}</td>
                 <td>${client.plan === "semanal" ? (order.paid ? `<span class="payment-badge paid">Pago</span>` : `<span class="payment-badge pending">Aguardando pagamento</span>`) : ""}</td>
-                <td>${formatDateTime(order.updatedAt || order.createdAt)}</td>
                 <td>${order.notes || ""}</td>
                 <td>
                   <div class="table-actions">
@@ -1720,41 +1399,8 @@ function paymentText(order, client) {
   return order.paid ? "Pago" : "Aguardando pagamento";
 }
 
-function paymentSpreadsheetText(order, client) {
-  if (client.plan === "mensalista") {
-    return "Mensalista";
-  }
-
-  return order.paid ? "PIX OK" : "Aguardando";
-}
-
-function orderFreightText(order, client, currentKey) {
-  if (client.plan === "mensalista") {
-    const total = clientMonthlyQuantity(client, currentKey);
-    if (!total) {
-      return "";
-    }
-
-    return `${clientRemainingQuantity(client, currentKey)}/${total}`;
-  }
-
-  return Number(order.deliveryFee || 0) > 0 ? money(order.deliveryFee) : "";
-}
-
 function orderOverviewPanel(plan, currentKey) {
-  const orders = weeklyOrders(currentKey)
-    .map((order, index) => ({
-      order,
-      originalIndex: index + 1,
-      client: clientByPhone(order.clientPhone)
-    }))
-    .sort((a, b) => {
-      if (a.client.plan === b.client.plan) {
-        return (a.client.name || "").localeCompare(b.client.name || "", "pt-BR");
-      }
-
-      return a.client.plan === "mensalista" ? -1 : 1;
-    });
+  const orders = weeklyOrders(currentKey);
 
   if (!orders.length) {
     return `<p class="muted">Nenhum pedido registrado nesta semana.</p>`;
@@ -1767,29 +1413,29 @@ function orderOverviewPanel(plan, currentKey) {
         <table>
           <thead>
             <tr>
-              <th>Nº</th>
-              <th>Clientes</th>
-              ${[1, 2, 3, 4, 5].map(slot => `<th>Cumbuca ${String(slot).padStart(2, "0")}</th>`).join("")}
+              <th>Cliente</th>
+              ${plan.map(item => `<th>${item.dish || `Cumbuca ${item.slot}`}</th>`).join("")}
               <th>Total</th>
-              <th>Endereços</th>
-              <th>Frete</th>
-              <th>Valor final</th>
-              <th>Forma de Pag.</th>
+              <th>Valor em real</th>
+              <th>Valor em frete</th>
+              <th>Endereço</th>
+              <th>Pagamento</th>
+              <th>Tipo</th>
             </tr>
           </thead>
           <tbody>
-            ${orders.map(({ order, client, originalIndex }) => {
-              const isMonthly = client.plan === "mensalista";
+            ${orders.map(order => {
+              const client = clientByPhone(order.clientPhone);
               return `
-                <tr class="${isMonthly ? "monthly-client-row" : "weekly-client-row"}">
-                  <td class="order-number-cell">${originalIndex}</td>
-                  <td class="order-client-cell">${client.name || "Cliente removido"}</td>
-                  ${[1, 2, 3, 4, 5].map(slot => `<td class="quantity-cell">${orderDishQuantity(order, slot) || ""}</td>`).join("")}
+                <tr class="${client.plan === "mensalista" ? "monthly-client-row" : ""}">
+                  <td>${client.name || "Cliente removido"}</td>
+                  ${plan.map(item => `<td class="quantity-cell">${orderDishQuantity(order, item.slot) || ""}</td>`).join("")}
                   <td class="quantity-cell total-cell">${orderQuantity(order)}</td>
+                  <td>${Number(order.amount || 0) > 0 ? money(order.amount) : ""}</td>
+                  <td>${Number(order.deliveryFee || 0) > 0 ? money(order.deliveryFee) : ""}</td>
                   <td>${[client.address, client.complement].filter(Boolean).join(" - ")}</td>
-                  <td class="freight-cell">${orderFreightText(order, client, currentKey)}</td>
-                  <td class="money-cell">${Number(order.amount || 0) > 0 ? money(order.amount) : ""}</td>
-                  <td class="payment-cell">${paymentSpreadsheetText(order, client)}</td>
+                  <td>${paymentText(order, client)}</td>
+                  <td>${client.plan === "mensalista" ? "Mensalista" : "Semanal"}</td>
                 </tr>
               `;
             }).join("")}
@@ -1818,7 +1464,7 @@ function orderPanel(plan, currentKey) {
           <select name="clientPhone" ${state.clients.length ? "required" : "disabled"}>
             ${state.clients.length
               ? `<option value="">Selecione um cliente</option>${state.clients.map(client => `
-                  <option value="${client.phone}" ${editing?.clientPhone === client.phone ? "selected" : ""}>${client.name} - ${client.phone}${client.plan === "mensalista" ? ` - restam ${clientRemainingQuantity(client, currentKey, editing?.id)}/${clientMonthlyQuantity(client, currentKey)}${isLowMonthlyQuantity(client, currentKey) ? " - perto de acabar" : clientRemainingQuantity(client, currentKey, editing?.id) <= 0 ? " - acabou" : ""}` : ""}</option>
+                  <option value="${client.phone}" ${editing?.clientPhone === client.phone ? "selected" : ""}>${client.name} - ${client.phone}${client.plan === "mensalista" ? ` - restam ${clientRemainingQuantity(client, currentKey, editing?.id)}/${clientMonthlyCapacity(client, currentKey, editing?.id)}${clientChargedPackageCount(client, currentKey, editing?.id) > 1 ? ` - ${clientChargedPackageCount(client, currentKey, editing?.id)} pacotes` : ""}${isLowMonthlyQuantity(client, currentKey) ? " - perto de acabar" : clientRemainingQuantity(client, currentKey, editing?.id) <= 0 ? " - pode renovar" : ""}` : ""}</option>
                 `).join("")}`
               : `<option value="">Cadastre um cliente primeiro</option>`}
           </select>
@@ -1866,7 +1512,7 @@ function orderPanel(plan, currentKey) {
 async function renderPricing() {
   title.textContent = "Precificação";
   setActive("precificacao");
-  const savedConfig = JSON.parse(localStorage.getItem("pricingConfig") || "{}");
+  const savedConfig = state.pricingConfig;
   const result = await postJson("/api/precificacao", {
     ...savedConfig,
     ingredients: state.ingredients
@@ -1883,7 +1529,7 @@ async function renderPricing() {
           <label>Quantidade
             <input name="quantity" type="number" min="0" step="0.001" required>
           </label>
-          <label>Custo unitario
+          <label>Custo unitário
             <input name="unitCost" type="number" min="0" step="0.01" required>
           </label>
           <div class="actions">
@@ -1893,12 +1539,12 @@ async function renderPricing() {
         ${ingredientList()}
       </section>
       <section class="panel">
-        <h2>Calculo</h2>
+        <h2>Cálculo</h2>
         <form id="pricing-form" class="form-grid">
           <label>Embalagem
             <input name="packaging" type="number" min="0" step="0.01" value="${savedConfig.packaging || ""}">
           </label>
-          <label>Mao de obra
+          <label>Mão de obra
             <input name="labor" type="number" min="0" step="0.01" value="${savedConfig.labor || ""}">
           </label>
           <label>Custos fixos rateados
@@ -1920,7 +1566,7 @@ async function renderPricing() {
         </form>
         <div class="summary">
           <div class="metric"><span>Custo total</span><strong>${money(result.totalCost)}</strong></div>
-          <div class="metric"><span>Preco sugerido</span><strong>${money(result.suggestedPrice)}</strong></div>
+          <div class="metric"><span>Preço sugerido</span><strong>${money(result.suggestedPrice)}</strong></div>
           <div class="metric"><span>Lucro previsto</span><strong>${money(result.profit)}</strong></div>
         </div>
       </section>
@@ -1930,20 +1576,21 @@ async function renderPricing() {
   document.querySelector("#ingredient-form").addEventListener("submit", event => {
     event.preventDefault();
     state.ingredients.push(readForm(event.currentTarget));
-    localStorage.setItem("pricingIngredients", JSON.stringify(state.ingredients));
+    persistState();
     renderPricing();
   });
 
   document.querySelector("#pricing-form").addEventListener("submit", event => {
     event.preventDefault();
-    localStorage.setItem("pricingConfig", JSON.stringify(readForm(event.currentTarget)));
+    state.pricingConfig = readForm(event.currentTarget);
+    persistState();
     renderPricing();
   });
 
   document.querySelector("#clear-pricing").addEventListener("click", () => {
     state.ingredients = [];
-    localStorage.removeItem("pricingIngredients");
-    localStorage.removeItem("pricingConfig");
+    state.pricingConfig = {};
+    persistState();
     renderPricing();
   });
 }
@@ -1979,13 +1626,12 @@ const routes = {
   precificacao: renderPricing
 };
 
-function applyUrlState() {
+function applyRouteParams() {
   const params = new URLSearchParams(location.search);
   const weekParam = params.get("semana");
   if (weekParam && Number(weekParam) >= 1 && Number(weekParam) <= 5) {
     state.menuWeek = Number(weekParam);
     state.showMonthSummary = false;
-    localStorage.setItem("menuWeek", weekParam);
   }
 
   if (params.get("resumo") === "mes") {
@@ -1999,25 +1645,10 @@ function applyUrlState() {
       year: Number(yearParam),
       month: Number(monthParam)
     };
-    localStorage.setItem("menuPeriod", JSON.stringify(state.menuPeriod));
   }
 }
 
-async function bootstrap() {
-  if (!sessionStorage.getItem(AUTH_TOKEN_KEY)) {
-    renderLogin();
-    return;
-  }
-
-  showAppShell(true);
-  app.innerHTML = `<p class="muted">Carregando dados...</p>`;
-  const loaded = await loadCloudState();
-  if (!loaded) {
-    return;
-  }
-
-  applyUrlState();
+hydrateState().then(() => {
+  applyRouteParams();
   routes[routeName()] ? routes[routeName()]() : home();
-}
-
-bootstrap();
+});

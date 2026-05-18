@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Cumbuca | Login</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body class="login-page">
+    <main class="login-shell">
+      <section class="login-panel">
+        <img class="login-logo" src="/logo-cumbuca.svg" alt="Cumbuca comida saudável">
+        <p class="eyebrow">Acesso Cumbuca</p>
+        <h1>Entrar</h1>
+        <form id="login-form" class="login-form">
+          <label>Login
+            <input name="username" autocomplete="username" required>
+          </label>
+          <label>Senha
+            <input name="password" type="password" autocomplete="current-password" required>
+          </label>
+          <p class="login-error" id="login-error" role="alert"></p>
+          <button type="submit">Entrar</button>
+        </form>
+      </section>
+    </main>
+    <script src="/login.js"></script>
+  </body>
+</html>
