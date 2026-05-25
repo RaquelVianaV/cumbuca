@@ -2,6 +2,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const PDFDocument = require("pdfkit");
 let Pool = null;
 try {
   ({ Pool } = require("pg"));
@@ -24,6 +25,8 @@ const stateKeys = [
   "menuDatesByPeriod",
   "clients",
   "orders",
+  "storeSales",
+  "auditLog",
   "pricingIngredients",
   "pricingConfig",
   "cashFilter"
@@ -75,6 +78,11 @@ const tools = [
     id: "precificacao",
     title: "Precificação",
     description: "Calcule preço de venda a partir de custo, perdas, taxas e margem."
+  },
+  {
+    id: "relatorios",
+    title: "Relatórios",
+    description: "Consolide vendas, caixa, clientes e cardápio por período."
   }
 ];
 
@@ -169,6 +177,96 @@ async function ensureStateTable() {
   return true;
 }
 
+async function ensureBackupTable() {
+  if (!db) {
+    return false;
+  }
+
+  await db.query(`
+    create table if not exists cumbuca_app_backups (
+      backup_date date primary key,
+      payload jsonb not null,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )
+  `);
+  return true;
+}
+
+async function writeAutomaticBackup(payload = {}) {
+  if (!await ensureBackupTable()) {
+    return false;
+  }
+
+  await db.query(
+    `insert into cumbuca_app_backups (backup_date, payload, created_at, updated_at)
+     values (current_date, $1::jsonb, now(), now())
+     on conflict (backup_date)
+     do update set payload = excluded.payload, updated_at = now()`,
+    [JSON.stringify({
+      app: "Cumbuca",
+      version: "1.0.0",
+      exportedAt: new Date().toISOString(),
+      source: "automatic",
+      data: payload
+    })]
+  );
+  return true;
+}
+
+async function listBackups() {
+  if (!await ensureBackupTable()) {
+    return { database: false, backups: [] };
+  }
+
+  const result = await db.query(`
+    select backup_date, created_at, updated_at
+    from cumbuca_app_backups
+    order by backup_date desc
+    limit 30
+  `);
+  return { database: true, backups: result.rows };
+}
+
+async function verifyPersistence() {
+  if (!await ensureStateTable() || !await ensureBackupTable()) {
+    return { database: false };
+  }
+
+  const marker = {
+    checkedAt: new Date().toISOString(),
+    id: crypto.randomUUID()
+  };
+  await db.query(
+    `insert into cumbuca_app_state (key, value, updated_at)
+     values ($1, $2::jsonb, now())
+     on conflict (key)
+     do update set value = excluded.value, updated_at = now()`,
+    ["__healthcheck", JSON.stringify(marker)]
+  );
+  const readBack = await db.query("select value, updated_at from cumbuca_app_state where key = $1", ["__healthcheck"]);
+  const saved = readBack.rows[0]?.value?.id === marker.id;
+  if (saved) {
+    const currentState = await readAppState();
+    await writeAutomaticBackup(currentState.state || {});
+  }
+  const backups = await db.query(`
+    select backup_date, updated_at, backup_date >= current_date - interval '7 days' as weekly_ok
+    from cumbuca_app_backups
+    order by backup_date desc
+    limit 1
+  `);
+
+  return {
+    database: true,
+    saved,
+    checkedAt: marker.checkedAt,
+    stateUpdatedAt: readBack.rows[0]?.updated_at || null,
+    lastBackup: backups.rows[0] || null,
+    backupWeeklyOk: Boolean(backups.rows[0]?.weekly_ok)
+  };
+}
+
 async function readAppState() {
   if (!await ensureStateTable()) {
     return { database: false, state: {} };
@@ -199,7 +297,9 @@ async function writeAppState(payload = {}) {
     );
   }
 
-  return { database: true, saved: entries.map(([key]) => key) };
+  await writeAutomaticBackup(payload);
+
+  return { database: true, saved: entries.map(([key]) => key), backup: true };
 }
 
 function calculateCashFlow(entries = []) {
@@ -256,6 +356,98 @@ function calculatePricing(payload = {}) {
     suggestedPrice: price,
     profit: price - totalCost - price * (feePercent / 100)
   };
+}
+
+function brl(value) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL"
+  }).format(number(value));
+}
+
+function pdfText(value) {
+  return String(value ?? "");
+}
+
+function addPdfTable(doc, headers, rows, widths) {
+  const startX = doc.x;
+  let y = doc.y;
+  const rowHeight = 20;
+
+  function drawRow(values, isHeader = false) {
+    const cells = Array.isArray(values) ? values : Object.values(values || {});
+    let x = startX;
+    doc.font(isHeader ? "Helvetica-Bold" : "Helvetica").fontSize(isHeader ? 8 : 8);
+    cells.forEach((value, index) => {
+      doc.rect(x, y, widths[index], rowHeight).stroke("#d1d5db");
+      doc.text(pdfText(value), x + 4, y + 6, {
+        width: widths[index] - 8,
+        height: rowHeight - 8,
+        ellipsis: true
+      });
+      x += widths[index];
+    });
+    y += rowHeight;
+    if (y > 730) {
+      doc.addPage();
+      y = 50;
+    }
+  }
+
+  drawRow(headers, true);
+  rows.forEach(row => drawRow(row));
+  doc.y = y + 10;
+}
+
+function buildReportPdf(payload = {}) {
+  const data = payload.data || {};
+  const doc = new PDFDocument({ size: "A4", margin: 42 });
+  const chunks = [];
+
+  doc.on("data", chunk => chunks.push(chunk));
+
+  doc.font("Helvetica-Bold").fontSize(20).fillColor("#573220").text("RELATÓRIO FINANCEIRO SEMANAL");
+  doc.font("Helvetica").fontSize(10).fillColor("#69707d").text(payload.periodLabel || data.periodKey || "");
+  doc.moveDown(1);
+
+  const summary = [
+    ["Total", brl(data.balance)],
+    ["Entradas", brl(data.totalIncome)],
+    ["Saídas", brl(data.expenses)],
+    ["Cumbucas", data.totalSoldQuantity || 0],
+    ["Semanal", data.weeklyCashQuantity || 0],
+    ["Loja", data.storeQuantity || 0]
+  ];
+
+  const boxWidth = 168;
+  summary.forEach(([label, value], index) => {
+    const col = index % 3;
+    const row = Math.floor(index / 3);
+    const x = 42 + col * 172;
+    const y = 95 + row * 58;
+    doc.rect(x, y, boxWidth, 48).fill(index === 0 ? "#573220" : "#f9fafb").stroke("#e5e7eb");
+    doc.fillColor(index === 0 ? "#ffffff" : "#69707d").font("Helvetica-Bold").fontSize(8).text(label.toUpperCase(), x + 10, y + 9);
+    doc.fillColor(index === 0 ? "#ffffff" : "#121417").fontSize(14).text(pdfText(value), x + 10, y + 24, { width: boxWidth - 20 });
+  });
+
+  doc.y = 225;
+  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Entradas");
+  addPdfTable(doc, ["Data", "Descrição", "Valor"], data.incomeRows || [], [82, 320, 110]);
+
+  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Principais saídas (despesas)");
+  addPdfTable(doc, ["Data", "Descrição", "Valor"], data.expenseRows || [], [82, 320, 110]);
+
+  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Cumbucas vendidas na loja");
+  addPdfTable(doc, ["Data", "Quantidade", "Observação"], data.storeRows || [], [82, 90, 340]);
+
+  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Lançamentos");
+  addPdfTable(doc, ["Data", "Descrição", "Tipo", "Valor"], data.cashRows || [], [82, 250, 80, 100]);
+
+  doc.end();
+
+  return new Promise(resolve => {
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+  });
 }
 
 function weeklyMenu(payload = {}) {
@@ -402,6 +594,28 @@ async function handleRequest(req, res) {
     if (req.method === "POST" && url.pathname === "/api/state") {
       const payload = await collectBody(req);
       sendJson(res, 200, await writeAppState(payload.state || payload));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/backups") {
+      sendJson(res, 200, await listBackups());
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/persistence-check") {
+      sendJson(res, 200, await verifyPersistence());
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/report-pdf") {
+      const payload = await collectBody(req);
+      const pdf = await buildReportPdf(payload);
+      res.writeHead(200, {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="${payload.filename || "cumbuca-relatorio.pdf"}"`,
+        "Content-Length": pdf.length
+      });
+      res.end(pdf);
       return;
     }
 

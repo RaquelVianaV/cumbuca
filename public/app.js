@@ -3,6 +3,7 @@ const title = document.querySelector("#page-title");
 const todayDate = document.querySelector("#today-date");
 const serverStatus = document.querySelector("#server-status");
 const databaseStatus = document.querySelector("#database-status");
+const saveStatus = document.querySelector("#save-status");
 const backupButton = document.querySelector("#backup-button");
 const logoutButton = document.querySelector("#logout-button");
 const navLinks = [...document.querySelectorAll("[data-route]")];
@@ -17,6 +18,13 @@ const fullDate = new Intl.DateTimeFormat("pt-BR", {
   day: "2-digit",
   month: "long",
   year: "numeric"
+});
+
+const shortDateTime = new Intl.DateTimeFormat("pt-BR", {
+  day: "2-digit",
+  month: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit"
 });
 
 if (todayDate) {
@@ -52,6 +60,45 @@ async function updateServerStatus() {
   }
 }
 
+function setSaveStatus(text, mode = "checking") {
+  if (!saveStatus) {
+    return;
+  }
+
+  saveStatus.textContent = text;
+  saveStatus.classList.toggle("online", mode === "online");
+  saveStatus.classList.toggle("offline", mode === "offline");
+}
+
+async function updatePersistenceStatus() {
+  if (!saveStatus) {
+    return;
+  }
+
+  setSaveStatus("Salvamento verificando");
+  try {
+    const response = await fetch("/api/persistence-check", { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error("persistence check failed");
+    }
+    const result = await response.json();
+    if (!result.database || !result.saved) {
+      setSaveStatus("Salvando só local", "offline");
+      return;
+    }
+
+    const backupDate = result.lastBackup?.backup_date
+      ? formatIsoDateBr(String(result.lastBackup.backup_date).slice(0, 10))
+      : "";
+    const backupText = result.backupWeeklyOk
+      ? `backup semanal ok ${backupDate}`
+      : "backup semanal pendente";
+    setSaveStatus(`Supabase ok · ${backupText}`, "online");
+  } catch (error) {
+    setSaveStatus("Sem confirmação do Supabase", "offline");
+  }
+}
+
 if (logoutButton) {
   logoutButton.addEventListener("click", async () => {
     await fetch("/api/logout", { method: "POST" });
@@ -80,6 +127,8 @@ const state = {
   menuDates: localValue("menuDatesByPeriod", {}),
   clients: localValue("clients", []),
   orders: localValue("orders", []),
+  storeSales: localValue("storeSales", []),
+  auditLog: localValue("auditLog", []),
   showClients: false,
   showOrders: false,
   showPlanning: false,
@@ -87,9 +136,18 @@ const state = {
   clientTab: "form",
   editClientIndex: null,
   editOrderId: null,
+  editCashId: null,
   ingredients: localValue("pricingIngredients", []),
   pricingConfig: localValue("pricingConfig", {}),
   cashFilter: localValue("cashFilter", { period: "all" }),
+  reportPeriod: localValue("reportPeriod", {
+    type: "month",
+    year: new Date().getFullYear(),
+    month: new Date().getMonth() + 1,
+    week: 1,
+    start: "",
+    end: ""
+  }),
   database: false
 };
 
@@ -102,6 +160,8 @@ function appStatePayload() {
     menuDatesByPeriod: state.menuDates,
     clients: state.clients,
     orders: state.orders,
+    storeSales: state.storeSales,
+    auditLog: state.auditLog,
     pricingIngredients: state.ingredients,
     pricingConfig: state.pricingConfig,
     cashFilter: state.cashFilter
@@ -114,15 +174,34 @@ function persistLocal() {
   });
 }
 
+function recordAudit(action, detail) {
+  state.auditLog.unshift({
+    id: Date.now(),
+    at: new Date().toISOString(),
+    action,
+    detail
+  });
+  state.auditLog = state.auditLog.slice(0, 120);
+}
+
 async function persistState() {
   persistLocal();
+  setSaveStatus("Salvando...");
   try {
-    await fetch("/api/state", {
+    const response = await fetch("/api/state", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ state: appStatePayload() })
     });
+    const result = await response.json();
+    if (response.ok && result.database) {
+      const now = shortDateTime.format(new Date());
+      setSaveStatus(`Salvo no Supabase ${now}`, "online");
+    } else {
+      setSaveStatus("Salvo só neste navegador", "offline");
+    }
   } catch (error) {
+    setSaveStatus("Salvo só neste navegador", "offline");
     // localStorage keeps the app usable if the network is unavailable.
   }
 }
@@ -143,6 +222,8 @@ async function hydrateState() {
     state.menuDates = saved.menuDatesByPeriod || state.menuDates;
     state.clients = saved.clients || state.clients;
     state.orders = saved.orders || state.orders;
+    state.storeSales = saved.storeSales || state.storeSales;
+    state.auditLog = saved.auditLog || state.auditLog;
     state.ingredients = saved.pricingIngredients || state.ingredients;
     state.pricingConfig = saved.pricingConfig || state.pricingConfig;
     state.cashFilter = saved.cashFilter || state.cashFilter;
@@ -212,7 +293,9 @@ if (backupButton) {
 }
 
 updateServerStatus();
+updatePersistenceStatus();
 setInterval(updateServerStatus, 30000);
+setInterval(updatePersistenceStatus, 120000);
 
 function routeName() {
   return location.pathname.replace("/", "") || "home";
@@ -295,6 +378,25 @@ function filterCashEntries(entries) {
   });
 }
 
+function ensureCashEntryIds() {
+  let changed = false;
+  state.cash = state.cash.map((entry, index) => {
+    if (entry.id) {
+      return entry;
+    }
+
+    changed = true;
+    return {
+      id: `cash-${Date.now()}-${index}`,
+      ...entry
+    };
+  });
+
+  if (changed) {
+    persistLocal();
+  }
+}
+
 function menuKey(week = state.menuWeek) {
   const month = String(state.menuPeriod.month).padStart(2, "0");
   return `${state.menuPeriod.year}-${month}-semana-${week}`;
@@ -307,6 +409,45 @@ function menuPeriodKeyFromKey(key = menuKey()) {
 function currentMenuPeriodKey() {
   const month = String(state.menuPeriod.month).padStart(2, "0");
   return `${state.menuPeriod.year}-${month}`;
+}
+
+function reportPeriodKey() {
+  const month = String(state.reportPeriod.month).padStart(2, "0");
+  return `${state.reportPeriod.year}-${month}`;
+}
+
+function reportWeekKey() {
+  return `${reportPeriodKey()}-semana-${Number(state.reportPeriod.week || 1)}`;
+}
+
+function defaultReportWeekRange() {
+  const today = new Date();
+  return {
+    start: isoDate(startOfWeek(today)),
+    end: isoDate(endOfWeek(today))
+  };
+}
+
+function reportWeekRange() {
+  const fallback = defaultReportWeekRange();
+  return {
+    start: state.reportPeriod.start || fallback.start,
+    end: state.reportPeriod.end || fallback.end
+  };
+}
+
+function formatIsoDateBr(date) {
+  const [year, month, day] = String(date || "").split("-");
+  if (!year || !month || !day) {
+    return date || "";
+  }
+
+  return `${day}/${month}/${year}`;
+}
+
+function reportWeekRangeLabel() {
+  const { start, end } = reportWeekRange();
+  return `${formatIsoDateBr(start)} a ${formatIsoDateBr(end)}`;
 }
 
 function monthOptions(selectedMonth) {
@@ -331,6 +472,94 @@ function monthOptions(selectedMonth) {
   }).join("");
 }
 
+function currentMonthKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function homeMetricData() {
+  const monthKey = currentMonthKey();
+  const currentMenuKey = menuKey(state.menuWeek || 1);
+  const monthOrders = state.orders.filter(order => menuPeriodKeyFromKey(order.menuKey) === monthKey);
+  const monthCash = state.cash.filter(entry => String(entry.date || "").startsWith(monthKey));
+  const todayKey = isoDate(new Date());
+  const todayCash = state.cash.filter(entry => entry.date === todayKey);
+  const weekStart = isoDate(startOfWeek(new Date()));
+  const weekEnd = isoDate(endOfWeek(new Date()));
+  const weekCash = state.cash.filter(entry => {
+    const date = String(entry.date || "");
+    return date >= weekStart && date <= weekEnd;
+  });
+  const income = monthCash
+    .filter(entry => entry.type !== "expense")
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const expenses = monthCash
+    .filter(entry => entry.type === "expense")
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const menuItems = state.menus[currentMenuKey] || [];
+  const todayIncome = todayCash
+    .filter(entry => entry.type !== "expense")
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const todayExpenses = todayCash
+    .filter(entry => entry.type === "expense")
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const weekIncome = weekCash
+    .filter(entry => entry.type !== "expense")
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const weekExpenses = weekCash
+    .filter(entry => entry.type === "expense")
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const recentExpenses = [...state.cash]
+    .filter(entry => entry.type === "expense")
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
+    .slice(0, 3);
+  const storeToday = state.storeSales
+    .filter(entry => entry.date === todayKey)
+    .reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+
+  return {
+    balance: income - expenses,
+    todayBalance: todayIncome - todayExpenses,
+    todayIncome,
+    todayExpenses,
+    weekBalance: weekIncome - weekExpenses,
+    weekIncome,
+    weekExpenses,
+    weekStart,
+    weekEnd,
+    orders: monthOrders.length,
+    bowls: monthOrders.reduce((sum, order) => sum + orderQuantity(order), 0),
+    clients: state.clients.length,
+    planned: menuItems.length,
+    ready: menuItems.filter(item => item.status === "pronto").length,
+    storeToday,
+    recentExpenses,
+    monthKey
+  };
+}
+
+function dashboardAlerts(metrics, weeklyOrders) {
+  const alerts = [];
+
+  if (metrics.weekBalance < 0) {
+    alerts.push(["Saldo da semana negativo", money(metrics.weekBalance)]);
+  }
+
+  if (!weeklyOrders) {
+    alerts.push(["Nenhum pedido na semana aberta", "Confira o menu"]);
+  }
+
+  if (!metrics.storeToday) {
+    alerts.push(["Loja sem venda lançada hoje", "Atualize se já vendeu"]);
+  }
+
+  if (!metrics.recentExpenses.length) {
+    alerts.push(["Sem despesas recentes", "Tudo limpo por enquanto"]);
+  }
+
+  return alerts;
+}
+
 function home() {
   title.textContent = "Cumbuca";
   setActive("");
@@ -339,7 +568,9 @@ function home() {
       ${[
         ["fluxo-de-caixa", "Fluxo de Caixa", "Organize entradas, saídas e saldo previsto."],
         ["menu-semanal", "Menu Semanal", "Planeje pratos, custos e status de preparo."],
-        ["precificacao", "Precificação", "Calcule preço de venda com margem e taxas."]
+        ["loja", "Loja", "Lance cumbucas vendidas no balcão por dia."],
+        ["precificacao", "Precificação", "Calcule preço de venda com margem e taxas."],
+        ["relatorios", "Relatórios", "Acompanhe vendas, caixa, clientes e cardápio por mês."]
       ].map(([href, heading, text]) => `
         <a class="card" href="/${href}">
           <span class="card-icon" aria-hidden="true"></span>
@@ -352,11 +583,103 @@ function home() {
       `).join("")}
     </div>
   `;
+
+  const metrics = homeMetricData();
+  const weeklyOrders = state.orders.filter(order => order.menuKey === menuKey(state.menuWeek || 1)).length;
+  const alerts = dashboardAlerts(metrics, weeklyOrders);
+  const tools = [
+    ["fluxo-de-caixa", "Fluxo de Caixa", "Entradas, saídas e saldo", money(metrics.weekBalance), "Saldo da semana"],
+    ["menu-semanal", "Menu Semanal", "Pratos, preparo e pedidos", `${metrics.ready}/${metrics.planned || 0}`, "Prontos na semana"],
+    ["loja", "Loja", "Vendas do balcão por data", String(metrics.storeToday), "Cumbucas hoje"],
+    ["precificacao", "Precificação", "Ingredientes, margem e venda", String(state.ingredients.length), "Itens cadastrados"],
+    ["relatorios", "Relatórios", "Leituras mensais e exportações", String(metrics.bowls), "Cumbucas no mês"]
+  ];
+
+  app.innerHTML = `
+    <section class="dashboard-band">
+      <div class="dashboard-copy">
+        <span>Painel ${metrics.monthKey}</span>
+        <h2>Resumo rápido da operação</h2>
+        <p>Caixa, clientes, pedidos e produção em uma visão para abrir o dia com clareza.</p>
+      </div>
+      <div class="dashboard-kpis">
+        <div class="metric dashboard-metric is-primary">
+          <span>Saldo da semana</span>
+          <strong class="${metrics.weekBalance < 0 ? "negative" : "positive"}">${money(metrics.weekBalance)}</strong>
+        </div>
+        <div class="metric dashboard-metric">
+          <span>Pedidos da semana</span>
+          <strong>${weeklyOrders}</strong>
+        </div>
+        <div class="metric dashboard-metric">
+          <span>Cumbucas loja hoje</span>
+          <strong>${metrics.storeToday}</strong>
+        </div>
+        <div class="metric dashboard-metric">
+          <span>Semana</span>
+          <strong>${formatIsoDateBr(metrics.weekStart)} a ${formatIsoDateBr(metrics.weekEnd)}</strong>
+        </div>
+      </div>
+    </section>
+
+    <div class="home-grid">
+      ${tools.map(([href, heading, text, value, label]) => `
+        <a class="card" href="/${href}">
+          <span class="card-icon" aria-hidden="true"></span>
+          <div>
+            <h2>${heading}</h2>
+            <p>${text}</p>
+          </div>
+          <div class="card-footer">
+            <span>
+              <b>${value}</b>
+              ${label}
+            </span>
+            <strong>Abrir</strong>
+          </div>
+        </a>
+      `).join("")}
+    </div>
+
+    <section class="dashboard-lane">
+      <div class="panel dashboard-panel">
+        <h2>Semana</h2>
+        <div class="focus-list">
+          <span><strong>${money(metrics.weekIncome)}</strong> entradas</span>
+          <span><strong>${money(metrics.weekExpenses)}</strong> saídas</span>
+          <span><strong>${weeklyOrders}</strong> pedidos na semana aberta</span>
+        </div>
+      </div>
+      <div class="panel dashboard-panel">
+        <h2>Alertas</h2>
+        ${alerts.length ? `
+          <div class="alert-list">
+            ${alerts.map(([label, detail]) => `<span><b>${label}</b>${detail}</span>`).join("")}
+          </div>
+        ` : `<p class="muted">Nenhum alerta agora.</p>`}
+      </div>
+    </section>
+
+    <section class="panel dashboard-panel">
+      <h2>Despesas recentes</h2>
+      ${metrics.recentExpenses.length ? `
+          <div class="recent-list">
+            ${metrics.recentExpenses.map(entry => `
+              <span><b>${money(entry.amount)}</b>${entry.description || "Despesa"}<small>${entry.date || ""}</small></span>
+            `).join("")}
+          </div>
+        ` : `<p class="muted">Nenhuma despesa lançada ainda.</p>`}
+    </section>
+  `;
 }
 
 async function renderCash() {
   title.textContent = "Fluxo de Caixa";
   setActive("fluxo-de-caixa");
+  ensureCashEntryIds();
+  const editing = state.editCashId !== null
+    ? state.cash.find(entry => String(entry.id) === String(state.editCashId))
+    : null;
   const filteredEntries = filterCashEntries(state.cash);
   const result = await postJson("/api/fluxo-de-caixa", { entries: filteredEntries });
   const today = isoDate(new Date());
@@ -367,25 +690,26 @@ async function renderCash() {
   app.innerHTML = `
     <div class="tool-grid">
       <section class="panel">
-        <h2>Novo lançamento</h2>
+        <h2>${editing ? "Editar lançamento" : "Novo lançamento"}</h2>
         <form id="cash-form" class="form-grid single">
           <label>Descrição
-            <input name="description" placeholder="Venda marmitas, aluguel, fornecedor" required>
+            <input name="description" placeholder="Venda marmitas, aluguel, fornecedor" value="${editing?.description || ""}" required>
           </label>
           <label>Data
-            <input name="date" type="date" required>
+            <input name="date" type="date" value="${editing?.date || ""}" required>
           </label>
           <label>Tipo
             <select name="type">
-              <option value="income">Entrada</option>
-              <option value="expense">Saída</option>
+              <option value="income" ${editing?.type === "income" ? "selected" : ""}>Entrada</option>
+              <option value="expense" ${editing?.type === "expense" ? "selected" : ""}>Saída</option>
             </select>
           </label>
           <label>Valor
-            <input name="amount" type="number" min="0" step="0.01" placeholder="0,00" required>
+            <input name="amount" type="number" min="0" step="0.01" placeholder="0,00" value="${editing?.amount || ""}" required>
           </label>
           <div class="actions">
-            <button type="submit">Adicionar</button>
+            <button type="submit">${editing ? "Salvar edição" : "Adicionar"}</button>
+            ${editing ? `<button class="secondary" type="button" id="cancel-cash-edit">Cancelar</button>` : ""}
             <button class="secondary" type="button" id="clear-cash">Limpar</button>
           </div>
         </form>
@@ -424,10 +748,31 @@ async function renderCash() {
 
   document.querySelector("#cash-form").addEventListener("submit", event => {
     event.preventDefault();
-    state.cash.push(readForm(event.currentTarget));
+    const values = readForm(event.currentTarget);
+    const entry = {
+      id: editing?.id || Date.now(),
+      ...values
+    };
+
+    if (editing) {
+      state.cash = state.cash.map(item => String(item.id) === String(editing.id) ? entry : item);
+      state.editCashId = null;
+      recordAudit("Caixa editado", `${entry.description || "Lançamento"} - ${money(entry.amount)}`);
+    } else {
+      state.cash.push(entry);
+      recordAudit("Caixa criado", `${entry.description || "Lançamento"} - ${money(entry.amount)}`);
+    }
     persistState();
     renderCash();
   });
+
+  const cancelCashEdit = document.querySelector("#cancel-cash-edit");
+  if (cancelCashEdit) {
+    cancelCashEdit.addEventListener("click", () => {
+      state.editCashId = null;
+      renderCash();
+    });
+  }
 
   const filterForm = document.querySelector("#cash-filter-form");
   const periodField = document.querySelector("#cash-period");
@@ -448,9 +793,38 @@ async function renderCash() {
   });
 
   document.querySelector("#clear-cash").addEventListener("click", () => {
+    if (!confirm("Limpar todos os lançamentos do fluxo de caixa?")) {
+      return;
+    }
     state.cash = [];
+    state.editCashId = null;
     persistState();
     renderCash();
+  });
+
+  document.querySelectorAll("[data-edit-cash]").forEach(button => {
+    button.addEventListener("click", event => {
+      state.editCashId = event.currentTarget.dataset.editCash;
+      renderCash();
+    });
+  });
+
+  document.querySelectorAll("[data-delete-cash]").forEach(button => {
+    button.addEventListener("click", event => {
+      if (!confirm("Excluir este lançamento?")) {
+        return;
+      }
+
+      const id = event.currentTarget.dataset.deleteCash;
+      const removed = state.cash.find(item => String(item.id) === String(id));
+      state.cash = state.cash.filter(item => String(item.id) !== String(id));
+      if (String(state.editCashId) === String(id)) {
+        state.editCashId = null;
+      }
+      recordAudit("Caixa excluído", `${removed?.description || "Lançamento"} - ${money(removed?.amount)}`);
+      persistState();
+      renderCash();
+    });
   });
 }
 
@@ -462,7 +836,7 @@ function cashTable(entries) {
   return `
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Valor</th></tr></thead>
+        <thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Valor</th><th></th></tr></thead>
         <tbody>
           ${entries.map(item => `
             <tr>
@@ -470,6 +844,12 @@ function cashTable(entries) {
               <td>${item.description}</td>
               <td>${item.type === "income" ? "Entrada" : "Saída"}</td>
               <td class="${item.type === "income" ? "positive" : "negative"}">${money(item.amount)}</td>
+              <td>
+                <div class="table-actions">
+                  <button class="secondary table-action" type="button" data-edit-cash="${item.id || ""}">Editar</button>
+                  <button class="danger table-action" type="button" data-delete-cash="${item.id || ""}">Excluir</button>
+                </div>
+              </td>
             </tr>
           `).join("")}
         </tbody>
@@ -1619,11 +1999,893 @@ function ingredientList() {
   `;
 }
 
+function reportCashEntries(periodKey, weekKey) {
+  if ((state.reportPeriod.type || "month") !== "week") {
+    return state.cash.filter(entry => String(entry.date || "").startsWith(periodKey));
+  }
+
+  const { start, end } = reportWeekRange();
+
+  return state.cash.filter(entry => {
+    const date = String(entry.date || "");
+    return date >= start && date <= end;
+  });
+}
+
+function reportStoreSales(periodKey) {
+  if ((state.reportPeriod.type || "month") !== "week") {
+    return state.storeSales.filter(entry => String(entry.date || "").startsWith(periodKey));
+  }
+
+  const { start, end } = reportWeekRange();
+  return state.storeSales.filter(entry => {
+    const date = String(entry.date || "");
+    return date >= start && date <= end;
+  });
+}
+
+function reportData() {
+  const type = state.reportPeriod.type || "month";
+  const periodKey = reportPeriodKey();
+  const selectedWeek = Number(state.reportPeriod.week || 1);
+  const weekKey = reportWeekKey();
+  const cashEntries = reportCashEntries(periodKey, weekKey);
+  const storeSales = reportStoreSales(periodKey);
+  const orders = type === "week"
+    ? state.orders.filter(order => order.menuKey === weekKey)
+    : state.orders.filter(order => menuPeriodKeyFromKey(order.menuKey) === periodKey);
+  const weeks = type === "week" ? [selectedWeek] : [1, 2, 3, 4, 5];
+  const menuWeeks = weeks.map(week => {
+    const key = `${periodKey}-semana-${week}`;
+    const dishes = state.menus[key] || [];
+    const weekOrders = state.orders.filter(order => order.menuKey === key);
+
+    return {
+      week,
+      key,
+      dishes,
+      orders: weekOrders,
+      menuCost: dishes.reduce((sum, item) => sum + Number(item.cost || 0), 0),
+      orderAmount: weekOrders.reduce((sum, order) => sum + Number(order.amount || 0), 0),
+      deliveryFee: weekOrders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0),
+      quantity: weekOrders.reduce((sum, order) => sum + orderQuantity(order), 0)
+    };
+  });
+  const income = cashEntries
+    .filter(entry => entry.type !== "expense")
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const expenses = cashEntries
+    .filter(entry => entry.type === "expense")
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const incomeEntries = cashEntries.filter(entry => entry.type !== "expense");
+  const expenseEntries = cashEntries.filter(entry => entry.type === "expense");
+  const orderRevenue = orders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
+  const deliveryRevenue = orders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0);
+  const totalQuantity = orders.reduce((sum, order) => sum + orderQuantity(order), 0);
+  const storeQuantity = storeSales.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+  const weeklyCashQuantity = totalQuantity;
+  const totalIncome = income;
+  const paidOrders = orders.filter(order => {
+    const client = clientByPhone(order.clientPhone);
+    return client.plan === "mensalista" || order.paid;
+  }).length;
+
+  return {
+    type,
+    periodKey,
+    weekKey,
+    selectedWeek,
+    cashEntries,
+    storeSales,
+    incomeEntries,
+    expenseEntries,
+    orders,
+    menuWeeks,
+    income,
+    expenses,
+    totalIncome,
+    balance: totalIncome - expenses,
+    orderRevenue,
+    deliveryRevenue,
+    totalQuantity,
+    weeklyCashQuantity,
+    storeQuantity,
+    totalSoldQuantity: weeklyCashQuantity + storeQuantity,
+    averageTicket: orders.length ? orderRevenue / orders.length : 0,
+    paidOrders,
+    pendingOrders: orders.length - paidOrders,
+    menuCost: menuWeeks.reduce((sum, item) => sum + item.menuCost, 0),
+    topExpenses: [...expenseEntries]
+      .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
+      .slice(0, 6),
+    weeklyClients: state.clients.filter(client => client.plan !== "mensalista").length,
+    monthlyClients: state.clients.filter(client => client.plan === "mensalista").length
+  };
+}
+
+function csvValue(value) {
+  return `"${String(value ?? "").replace(/"/g, '""')}"`;
+}
+
+function toCsv(rows) {
+  if (!rows.length) {
+    return "";
+  }
+
+  const headers = Object.keys(rows[0]);
+  return [
+    headers.map(csvValue).join(","),
+    ...rows.map(row => headers.map(header => csvValue(row[header])).join(","))
+  ].join("\n");
+}
+
+function downloadTextFile(filename, content, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function reportCsvRows(kind, data) {
+  if (kind === "cash") {
+    return data.cashEntries.map(entry => ({
+      data: entry.date || "",
+      descricao: entry.description || "",
+      tipo: entry.type === "expense" ? "saida" : "entrada",
+      valor: Number(entry.amount || 0)
+    }));
+  }
+
+  if (kind === "orders") {
+    return data.orders.map(order => {
+      const client = clientByPhone(order.clientPhone);
+      return {
+        semana: order.menuKey || "",
+        cliente: client.name || order.clientPhone || "",
+        contato: order.clientPhone || "",
+        quantidade: orderQuantity(order),
+        valor: Number(order.amount || 0),
+        frete: Number(order.deliveryFee || 0),
+        pagamento: paymentText(order, client),
+        observacao: order.notes || ""
+      };
+    });
+  }
+
+  if (kind === "clients") {
+    return state.clients.map(client => ({
+      nome: client.name || "",
+      contato: client.phone || "",
+      plano: client.plan === "mensalista" ? "mensalista" : "semanal",
+      endereco: [client.address, client.complement].filter(Boolean).join(" - "),
+      pacote_mensal: Number(client.monthlyPackage || 0),
+      valor_mensal: Number(client.monthlyPrice || 0)
+    }));
+  }
+
+  return data.menuWeeks.flatMap(week => week.dishes.map(item => ({
+    semana: week.week,
+    prato: item.dish || "",
+    status: item.status || "",
+    custo: Number(item.cost || 0),
+    ingredientes: (item.ingredients || []).map(ingredient => ingredient.name).filter(Boolean).join("; ")
+  })));
+}
+
+function pdfRows(headers, rows) {
+  if (!rows.length) {
+    return `<p class="pdf-empty">Sem dados neste período.</p>`;
+  }
+
+  return `
+    <table>
+      <thead>
+        <tr>${headers.map(header => `<th>${escapeHtml(header)}</th>`).join("")}</tr>
+      </thead>
+      <tbody>
+        ${rows.map(row => `
+          <tr>${row.map(value => `<td>${escapeHtml(value)}</td>`).join("")}</tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function reportPdfHtml(data) {
+  const generatedAt = fullDate.format(new Date());
+  const periodLabel = data.type === "week"
+    ? reportWeekRangeLabel()
+    : data.periodKey;
+  const unusedLegacySummary = [
+    ["Receita de pedidos", money(data.orderRevenue)],
+    ["Cumbucas vendidas", data.totalQuantity],
+    ["Ticket médio", money(data.averageTicket)],
+    ["Frete arrecadado", money(data.deliveryRevenue)],
+    ["Entradas no caixa", money(data.income)],
+    ["Saídas no caixa", money(data.expenses)],
+    ["Saldo do caixa", money(data.balance)],
+    ["Custo planejado", money(data.menuCost)],
+    ["Pedidos pagos", data.paidOrders],
+    ["Pedidos pendentes", data.pendingOrders],
+    ["Clientes semanais", data.weeklyClients],
+    ["Mensalistas", data.monthlyClients]
+  ];
+  const summary = [
+    ["Total", money(data.balance)],
+    ["Entradas", money(data.totalIncome)],
+    ["Saídas", money(data.expenses)],
+    ["Cumbucas vendidas", data.totalSoldQuantity],
+    ["Semanal", data.weeklyCashQuantity],
+    ["Loja", data.storeQuantity],
+    ["Receita pedidos", money(data.orderRevenue)],
+    ["Entradas caixa", money(data.income)]
+  ];
+  const orderRows = data.orders.map(order => {
+    const client = clientByPhone(order.clientPhone);
+    return [
+      order.menuKey || "",
+      client.name || order.clientPhone || "Cliente removido",
+      orderQuantity(order),
+      money(order.amount),
+      money(order.deliveryFee),
+      paymentText(order, client)
+    ];
+  });
+  const cashRows = data.cashEntries.map(entry => [
+    entry.date || "",
+    entry.description || "",
+    entry.type === "expense" ? "Saída" : "Entrada",
+    money(entry.amount)
+  ]);
+  const incomeRows = data.incomeEntries.map(entry => [
+    entry.date || "",
+    entry.description || "",
+    money(entry.amount)
+  ]);
+  const storeRows = data.storeSales.map(entry => [
+    entry.date || "",
+    Number(entry.quantity || 0),
+    entry.notes || ""
+  ]);
+  const expenseRows = data.topExpenses.map(entry => [
+    entry.date || "",
+    entry.description || "",
+    money(entry.amount)
+  ]);
+  const menuRows = data.menuWeeks.map(week => [
+    `Semana ${week.week}`,
+    week.dishes.map(item => item.dish).filter(Boolean).join(", ") || "Sem pratos",
+    money(week.menuCost),
+    week.quantity,
+    week.orders.length,
+    money(week.orderAmount)
+  ]);
+
+  return `<!doctype html>
+    <html lang="pt-BR">
+      <head>
+        <meta charset="utf-8">
+        <title>Relatório Financeiro Semanal ${escapeHtml(periodLabel)}</title>
+        <style>
+          @page { margin: 18mm; }
+          * { box-sizing: border-box; }
+          body {
+            margin: 0;
+            color: #121417;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 12px;
+            line-height: 1.4;
+          }
+          header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 24px;
+            padding-bottom: 18px;
+            border-bottom: 2px solid #573220;
+            margin-bottom: 18px;
+          }
+          h1, h2, p { margin-top: 0; }
+          h1 { margin-bottom: 6px; font-size: 28px; line-height: 1; color: #573220; text-transform: uppercase; }
+          h2 { margin: 22px 0 10px; font-size: 15px; color: #573220; }
+          .meta { color: #69707d; text-align: right; }
+          .summary {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+          }
+          .metric {
+            min-height: 64px;
+            padding: 10px;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            background: #fafafa;
+          }
+          .metric span {
+            display: block;
+            color: #69707d;
+            font-size: 9px;
+            font-weight: 700;
+            text-transform: uppercase;
+          }
+          .metric strong {
+            display: block;
+            margin-top: 6px;
+            font-size: 15px;
+          }
+          .metric.total {
+            background: #573220;
+            color: #ffffff;
+            border-color: #573220;
+          }
+          .metric.total span,
+          .metric.total strong {
+            color: #ffffff;
+          }
+          .sold {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-top: 8px;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            page-break-inside: auto;
+          }
+          tr { page-break-inside: avoid; page-break-after: auto; }
+          th, td {
+            padding: 7px 8px;
+            border: 1px solid #e5e7eb;
+            text-align: left;
+            vertical-align: top;
+          }
+          th {
+            background: #f3f4f6;
+            color: #374151;
+            font-size: 9px;
+            text-transform: uppercase;
+          }
+          .pdf-empty {
+            padding: 10px;
+            border: 1px dashed #d1d5db;
+            color: #69707d;
+          }
+        </style>
+      </head>
+      <body>
+        <header>
+          <div>
+            <h1>Relatório Financeiro Semanal</h1>
+            <p>${escapeHtml(periodLabel)}</p>
+          </div>
+          <div class="meta">
+            <strong>Gerado em</strong><br>
+            ${escapeHtml(generatedAt)}
+          </div>
+        </header>
+        <section class="summary">
+          ${summary.map(([label, value], index) => `
+            <div class="metric ${index === 0 ? "total" : ""}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>
+          `).join("")}
+        </section>
+        <h2>Quantidade de cumbucas vendidas</h2>
+        <section class="sold">
+          <div class="metric"><span>Semanal</span><strong>${escapeHtml(data.weeklyCashQuantity)}</strong></div>
+          <div class="metric"><span>Loja</span><strong>${escapeHtml(data.storeQuantity)}</strong></div>
+          <div class="metric total"><span>Total</span><strong>${escapeHtml(data.totalSoldQuantity)}</strong></div>
+        </section>
+        <h2>Entradas ${escapeHtml(reportTitleSuffix(data))}</h2>
+        ${pdfRows(["Data", "Descrição", "Valor"], incomeRows)}
+        <h2>Principais saídas (despesas)</h2>
+        ${pdfRows(["Data", "Descrição", "Valor"], expenseRows)}
+        <h2>Cumbucas vendidas na loja</h2>
+        ${pdfRows(["Data", "Quantidade", "Observação"], storeRows)}
+        <h2>Lançamentos ${escapeHtml(reportTitleSuffix(data))}</h2>
+        ${pdfRows(["Data", "Descrição", "Tipo", "Valor"], cashRows)}
+      </body>
+    </html>`;
+}
+
+function oldPrintReportPdfWithPopup() {
+  const data = reportData();
+  const printWindow = window.open("", "_blank", "noopener,noreferrer");
+
+  if (!printWindow) {
+    alert("Permita pop-ups para gerar o PDF do relatório.");
+    return;
+  }
+
+  printWindow.document.open();
+  printWindow.document.write(reportPdfHtml(data));
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.print();
+}
+
+async function downloadReportPdf() {
+  const data = reportData();
+  const periodLabel = data.type === "week" ? reportWeekRangeLabel() : data.periodKey;
+  const filename = data.type === "week"
+    ? `cumbuca-relatorio-${data.weekKey}.pdf`
+    : `cumbuca-relatorio-${data.periodKey}.pdf`;
+  const payload = {
+    filename,
+    periodLabel,
+    data: {
+      periodKey: data.periodKey,
+      balance: data.balance,
+      totalIncome: data.totalIncome,
+      expenses: data.expenses,
+      totalSoldQuantity: data.totalSoldQuantity,
+      weeklyCashQuantity: data.weeklyCashQuantity,
+      storeQuantity: data.storeQuantity,
+      incomeRows: data.incomeEntries.map(entry => [entry.date || "", entry.description || "", money(entry.amount)]),
+      expenseRows: data.topExpenses.map(entry => [entry.date || "", entry.description || "", money(entry.amount)]),
+      storeRows: data.storeSales.map(entry => [entry.date || "", Number(entry.quantity || 0), entry.notes || ""]),
+      cashRows: data.cashEntries.map(entry => [
+        entry.date || "",
+        entry.description || "",
+        entry.type === "expense" ? "Saída" : "Entrada",
+        money(entry.amount)
+      ])
+    }
+  };
+
+  const response = await fetch("/api/report-pdf", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    alert("Não foi possível gerar o PDF agora.");
+    return;
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function printReportPdf() {
+  const data = reportData();
+  const frame = document.createElement("iframe");
+  frame.title = "Relatório PDF";
+  frame.style.position = "fixed";
+  frame.style.right = "0";
+  frame.style.bottom = "0";
+  frame.style.width = "0";
+  frame.style.height = "0";
+  frame.style.border = "0";
+  document.body.appendChild(frame);
+
+  const frameWindow = frame.contentWindow;
+  const frameDocument = frame.contentDocument || frameWindow.document;
+  frameDocument.open();
+  frameDocument.write(reportPdfHtml(data));
+  frameDocument.close();
+
+  setTimeout(() => {
+    frameWindow.focus();
+    frameWindow.print();
+    setTimeout(() => frame.remove(), 1000);
+  }, 100);
+}
+
+function exportReport(kind) {
+  if (kind === "pdf") {
+    downloadReportPdf();
+    return;
+  }
+
+  const data = reportData();
+  const baseName = data.type === "week"
+    ? `cumbuca-relatorio-${data.weekKey}`
+    : `cumbuca-relatorio-${data.periodKey}`;
+
+  if (kind === "json") {
+    downloadTextFile(`${baseName}.json`, JSON.stringify({
+      generatedAt: new Date().toISOString(),
+      period: data.periodKey,
+      type: data.type,
+      week: data.type === "week" ? data.selectedWeek : null,
+      summary: {
+        income: data.income,
+        expenses: data.expenses,
+        balance: data.balance,
+        totalIncome: data.totalIncome,
+        weeklyCashQuantity: data.weeklyCashQuantity,
+        storeQuantity: data.storeQuantity,
+        totalSoldQuantity: data.totalSoldQuantity,
+        orderRevenue: data.orderRevenue,
+        deliveryRevenue: data.deliveryRevenue,
+        totalQuantity: data.totalQuantity,
+        averageTicket: data.averageTicket,
+        paidOrders: data.paidOrders,
+        pendingOrders: data.pendingOrders,
+        menuCost: data.menuCost,
+        clients: state.clients.length
+      },
+      cashEntries: data.cashEntries,
+      orders: data.orders,
+      clients: state.clients,
+      menuWeeks: data.menuWeeks
+    }, null, 2), "application/json");
+    return;
+  }
+
+  downloadTextFile(`${baseName}-${kind}.csv`, toCsv(reportCsvRows(kind, data)), "text/csv;charset=utf-8");
+}
+
+function reportOrdersTable(data) {
+  if (!data.orders.length) {
+    return `<p class="muted">Nenhum pedido neste período.</p>`;
+  }
+
+  return `
+    <div class="table-wrap report-table">
+      <table>
+        <thead><tr><th>Semana</th><th>Cliente</th><th>Qtd.</th><th>Valor</th><th>Frete</th><th>Pagamento</th></tr></thead>
+        <tbody>
+          ${data.orders.map(order => {
+            const client = clientByPhone(order.clientPhone);
+            return `
+              <tr>
+                <td>${order.menuKey || ""}</td>
+                <td>${client.name || order.clientPhone || "Cliente removido"}</td>
+                <td>${orderQuantity(order)}</td>
+                <td>${money(order.amount)}</td>
+                <td>${money(order.deliveryFee)}</td>
+                <td>${paymentText(order, client)}</td>
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function reportCashTable(data) {
+  if (!data.cashEntries.length) {
+    return `<p class="muted">Nenhum lançamento de caixa neste período.</p>`;
+  }
+
+  return `
+    <div class="table-wrap report-table">
+      <table>
+        <thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Valor</th></tr></thead>
+        <tbody>
+          ${data.cashEntries.map(entry => `
+            <tr>
+              <td>${entry.date || ""}</td>
+              <td>${entry.description || ""}</td>
+              <td>${entry.type === "expense" ? "Saída" : "Entrada"}</td>
+              <td>${money(entry.amount)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function reportMenuTable(data) {
+  if (!data.menuWeeks.some(week => week.dishes.length || week.orders.length)) {
+    return `<p class="muted">Nenhum cardápio ou pedido neste período.</p>`;
+  }
+
+  return `
+    <div class="table-wrap report-table">
+      <table>
+        <thead><tr><th>Semana</th><th>Pratos</th><th>Custo</th><th>Cumbucas</th><th>Pedidos</th><th>Receita</th></tr></thead>
+        <tbody>
+          ${data.menuWeeks.map(week => `
+            <tr>
+              <td>Semana ${week.week}</td>
+              <td>${week.dishes.map(item => item.dish).filter(Boolean).join(", ") || "Sem pratos"}</td>
+              <td>${money(week.menuCost)}</td>
+              <td>${week.quantity}</td>
+              <td>${week.orders.length}</td>
+              <td>${money(week.orderAmount)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function storeSalesPanel(data) {
+  const defaultDate = reportTypeDefaultDate(data);
+
+  return `
+    <section class="panel report-section">
+      <h2>Cumbucas vendidas na loja</h2>
+      <form id="store-sale-form" class="store-sale-form">
+        <label>Data
+          <input name="date" type="date" value="${defaultDate}" required>
+        </label>
+        <label>Quantidade
+          <input name="quantity" type="number" min="0" step="1" placeholder="0" required>
+        </label>
+        <label>Observação
+          <input name="notes" placeholder="Opcional">
+        </label>
+        <button type="submit">Adicionar</button>
+      </form>
+      ${storeSalesTable(data.storeSales)}
+    </section>
+  `;
+}
+
+function reportTypeDefaultDate(data) {
+  if (data.type === "week") {
+    return reportWeekRange().end;
+  }
+
+  return `${data.periodKey}-01`;
+}
+
+function storeSalesTable(entries) {
+  if (!entries.length) {
+    return `<p class="muted">Nenhuma cumbuca da loja lançada neste período.</p>`;
+  }
+
+  return `
+    <div class="table-wrap report-table">
+      <table>
+        <thead><tr><th>Data</th><th>Quantidade</th><th>Observação</th><th></th></tr></thead>
+        <tbody>
+          ${entries.map(entry => `
+            <tr>
+              <td>${entry.date || ""}</td>
+              <td>${Number(entry.quantity || 0)}</td>
+              <td>${entry.notes || ""}</td>
+              <td><button class="danger table-action" type="button" data-delete-store-sale="${entry.id}">Excluir</button></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function auditPanel() {
+  const items = state.auditLog.slice(0, 8);
+
+  return `
+    <section class="panel report-section">
+      <h2>Histórico recente</h2>
+      ${items.length ? `
+        <div class="audit-list">
+          ${items.map(item => `
+            <span>
+              <b>${item.action}</b>
+              ${item.detail || ""}
+              <small>${new Date(item.at).toLocaleString("pt-BR")}</small>
+            </span>
+          `).join("")}
+        </div>
+      ` : `<p class="muted">Nenhuma alteração registrada ainda.</p>`}
+    </section>
+  `;
+}
+
+function renderStoreSales() {
+  title.textContent = "Loja";
+  setActive("loja");
+  const today = isoDate(new Date());
+  const monthKey = currentMonthKey();
+  const monthEntries = state.storeSales.filter(entry => String(entry.date || "").startsWith(monthKey));
+  const todayTotal = state.storeSales
+    .filter(entry => entry.date === today)
+    .reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+  const monthTotal = monthEntries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+
+  app.innerHTML = `
+    <div class="tool-grid">
+      <section class="panel">
+        <h2>Lançar venda da loja</h2>
+        <form id="store-sale-form" class="form-grid single">
+          <label>Data
+            <input name="date" type="date" value="${today}" required>
+          </label>
+          <label>Quantidade de cumbucas
+            <input name="quantity" type="number" min="0" step="1" placeholder="0" required>
+          </label>
+          <label>Observação
+            <input name="notes" placeholder="Opcional">
+          </label>
+          <div class="actions">
+            <button type="submit">Adicionar</button>
+          </div>
+        </form>
+      </section>
+      <section class="panel report-section">
+        <div class="summary">
+          <div class="metric"><span>Hoje</span><strong>${todayTotal}</strong></div>
+          <div class="metric"><span>Mês atual</span><strong>${monthTotal}</strong></div>
+          <div class="metric"><span>Lançamentos</span><strong>${monthEntries.length}</strong></div>
+        </div>
+        ${storeSalesTable(monthEntries)}
+      </section>
+    </div>
+  `;
+
+  document.querySelector("#store-sale-form").addEventListener("submit", event => {
+    event.preventDefault();
+    const values = readForm(event.currentTarget);
+    state.storeSales.push({
+      id: Date.now(),
+      date: values.date,
+      quantity: Number(values.quantity || 0),
+      notes: values.notes || ""
+    });
+    recordAudit("Loja lançada", `${values.quantity || 0} cumbuca(s) em ${values.date}`);
+    persistState();
+    renderStoreSales();
+  });
+
+  document.querySelectorAll("[data-delete-store-sale]").forEach(button => {
+    button.addEventListener("click", event => {
+      if (!confirm("Excluir este lançamento da loja?")) {
+        return;
+      }
+      const id = Number(event.currentTarget.dataset.deleteStoreSale);
+      const removed = state.storeSales.find(entry => Number(entry.id) === id);
+      state.storeSales = state.storeSales.filter(entry => Number(entry.id) !== id);
+      recordAudit("Loja excluída", `${removed?.quantity || 0} cumbuca(s) em ${removed?.date || ""}`);
+      persistState();
+      renderStoreSales();
+    });
+  });
+}
+
+function oldReportTitleSuffix(data) {
+  return data.type === "week" ? `da semana ${data.selectedWeek}` : "do mês";
+}
+
+function reportTitleSuffix(data) {
+  if (data.type !== "week") {
+    return "do mês";
+  }
+
+  return `de ${reportWeekRangeLabel()}`;
+}
+
+function renderReports() {
+  title.textContent = "Relatórios";
+  setActive("relatorios");
+  const data = reportData();
+  const reportType = state.reportPeriod.type || "month";
+  const weekRange = reportWeekRange();
+
+  app.innerHTML = `
+    <section class="panel report-panel">
+      <form id="report-filter-form" class="period-picker report-filter" data-period="${reportType}">
+        <label>Período
+          <select name="type" id="report-period-type">
+            <option value="month" ${reportType === "month" ? "selected" : ""}>Mês</option>
+            <option value="week" ${reportType === "week" ? "selected" : ""}>Semana</option>
+          </select>
+        </label>
+        <label>Ano
+          <input name="year" type="number" min="2020" max="2100" step="1" value="${state.reportPeriod.year}">
+        </label>
+        <label>Mês
+          <select name="month">
+            ${monthOptions(state.reportPeriod.month)}
+          </select>
+        </label>
+        <label class="report-week-field">De
+          <input name="start" type="date" value="${weekRange.start}">
+        </label>
+        <label class="report-week-field">Até
+          <input name="end" type="date" value="${weekRange.end}">
+        </label>
+        <button type="submit">Atualizar</button>
+      </form>
+      <div class="report-actions">
+        <button class="secondary" type="button" data-export-report="orders">Pedidos CSV</button>
+        <button class="secondary" type="button" data-export-report="cash">Caixa CSV</button>
+        <button class="secondary" type="button" data-export-report="clients">Clientes CSV</button>
+        <button class="secondary" type="button" data-export-report="menu">Cardápio CSV</button>
+        <button type="button" data-export-report="json">Relatório JSON</button>
+        <button type="button" data-export-report="pdf">Relatório PDF</button>
+      </div>
+    </section>
+
+    <section class="report-grid">
+      <div class="metric report-metric"><span>Receita de pedidos</span><strong>${money(data.orderRevenue)}</strong></div>
+      <div class="metric report-metric"><span>Cumbucas vendidas</span><strong>${data.totalQuantity}</strong></div>
+      <div class="metric report-metric"><span>Cumbucas loja</span><strong>${data.storeQuantity}</strong></div>
+      <div class="metric report-metric"><span>Total cumbucas</span><strong>${data.totalSoldQuantity}</strong></div>
+      <div class="metric report-metric"><span>Ticket médio</span><strong>${money(data.averageTicket)}</strong></div>
+      <div class="metric report-metric"><span>Frete arrecadado</span><strong>${money(data.deliveryRevenue)}</strong></div>
+      <div class="metric report-metric"><span>Entradas no caixa</span><strong>${money(data.income)}</strong></div>
+      <div class="metric report-metric"><span>Saídas no caixa</span><strong>${money(data.expenses)}</strong></div>
+      <div class="metric report-metric"><span>Saldo do caixa</span><strong class="${data.balance < 0 ? "negative" : "positive"}">${money(data.balance)}</strong></div>
+      <div class="metric report-metric"><span>Custo planejado</span><strong>${money(data.menuCost)}</strong></div>
+      <div class="metric report-metric"><span>Pedidos pagos</span><strong>${data.paidOrders}</strong></div>
+      <div class="metric report-metric"><span>Pedidos pendentes</span><strong>${data.pendingOrders}</strong></div>
+      <div class="metric report-metric"><span>Clientes semanais</span><strong>${data.weeklyClients}</strong></div>
+      <div class="metric report-metric"><span>Mensalistas</span><strong>${data.monthlyClients}</strong></div>
+    </section>
+
+    <section class="panel report-section">
+      <h2>Pedidos ${reportTitleSuffix(data)}</h2>
+      ${reportOrdersTable(data)}
+    </section>
+    <section class="panel report-section">
+      <h2>Caixa ${reportTitleSuffix(data)}</h2>
+      ${reportCashTable(data)}
+    </section>
+    <section class="panel report-section">
+      <h2>Cardápio e produção</h2>
+      ${reportMenuTable(data)}
+    </section>
+    ${auditPanel()}
+  `;
+
+  const reportFilterForm = document.querySelector("#report-filter-form");
+  const reportTypeField = document.querySelector("#report-period-type");
+
+  reportTypeField.addEventListener("change", event => {
+    reportFilterForm.dataset.period = event.currentTarget.value;
+  });
+
+  reportFilterForm.addEventListener("submit", event => {
+    event.preventDefault();
+    const values = readForm(event.currentTarget);
+    state.reportPeriod = {
+      type: values.type || "month",
+      year: Number(values.year || new Date().getFullYear()),
+      month: Number(values.month || new Date().getMonth() + 1),
+      week: Number(state.reportPeriod.week || 1),
+      start: values.start || weekRange.start,
+      end: values.end || weekRange.end
+    };
+    localStorage.setItem("reportPeriod", JSON.stringify(state.reportPeriod));
+    const weeklyQuery = state.reportPeriod.type === "week" ? `&inicio=${state.reportPeriod.start}&fim=${state.reportPeriod.end}` : "";
+    history.replaceState(null, "", `/relatorios?ano=${state.reportPeriod.year}&mes=${state.reportPeriod.month}${weeklyQuery}`);
+    renderReports();
+  });
+
+  document.querySelectorAll("[data-export-report]").forEach(button => {
+    button.addEventListener("click", event => {
+      exportReport(event.currentTarget.dataset.exportReport);
+    });
+  });
+}
+
 const routes = {
   home,
   "fluxo-de-caixa": renderCash,
   "menu-semanal": renderMenu,
-  precificacao: renderPricing
+  loja: renderStoreSales,
+  precificacao: renderPricing,
+  relatorios: renderReports
 };
 
 function applyRouteParams() {
@@ -1640,11 +2902,24 @@ function applyRouteParams() {
 
   const yearParam = params.get("ano");
   const monthParam = params.get("mes");
+  const startParam = params.get("inicio");
+  const endParam = params.get("fim");
+  const reportWeekParam = weekParam && Number(weekParam) >= 1 && Number(weekParam) <= 5 ? Number(weekParam) : null;
   if (yearParam && monthParam) {
     state.menuPeriod = {
       year: Number(yearParam),
       month: Number(monthParam)
     };
+    if (routeName() === "relatorios") {
+      state.reportPeriod = {
+        type: startParam && endParam ? "week" : (reportWeekParam ? "week" : (state.reportPeriod.type || "month")),
+        year: Number(yearParam),
+        month: Number(monthParam),
+        week: reportWeekParam || Number(state.reportPeriod.week || 1),
+        start: startParam || state.reportPeriod.start || "",
+        end: endParam || state.reportPeriod.end || ""
+      };
+    }
   }
 }
 
