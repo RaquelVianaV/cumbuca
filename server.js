@@ -32,6 +32,24 @@ const stateKeys = [
   "pricingConfig",
   "cashFilter"
 ];
+
+const defaultState = {
+  cashEntries: [],
+  weeklyMenusByPeriod: {},
+  menuWeek: 1,
+  menuPeriod: {
+    year: new Date().getFullYear(),
+    month: new Date().getMonth() + 1
+  },
+  menuDatesByPeriod: {},
+  clients: [],
+  orders: [],
+  storeSales: [],
+  auditLog: [],
+  pricingIngredients: [],
+  pricingConfig: {},
+  cashFilter: { period: "all" }
+};
 function databaseUrl() {
   if (!DATABASE_URL) {
     return "";
@@ -255,7 +273,10 @@ async function restoreBackup(backupDate) {
   }
 
   const payload = backup.payload?.data || backup.payload || {};
-  const result = await writeAppState(payload);
+  const restoredState = Object.fromEntries(
+    stateKeys.map(key => [key, Object.prototype.hasOwnProperty.call(payload, key) ? payload[key] : defaultState[key]])
+  );
+  const result = await writeAppState(restoredState);
   return {
     database: true,
     restored: true,
