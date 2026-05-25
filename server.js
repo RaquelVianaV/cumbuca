@@ -50,6 +50,20 @@ const defaultState = {
   pricingConfig: {},
   cashFilter: { period: "all" }
 };
+
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function normalizeState(payload = {}) {
+  return Object.fromEntries(
+    stateKeys.map(key => [
+      key,
+      Object.prototype.hasOwnProperty.call(payload, key) ? payload[key] : cloneJson(defaultState[key])
+    ])
+  );
+}
+
 function databaseUrl() {
   if (!DATABASE_URL) {
     return "";
@@ -227,7 +241,7 @@ async function writeAutomaticBackup(payload = {}) {
       version: "1.0.0",
       exportedAt: new Date().toISOString(),
       source: "automatic",
-      data: payload
+      data: normalizeState(payload)
     })]
   );
   return true;
@@ -273,9 +287,7 @@ async function restoreBackup(backupDate) {
   }
 
   const payload = backup.payload?.data || backup.payload || {};
-  const restoredState = Object.fromEntries(
-    stateKeys.map(key => [key, Object.prototype.hasOwnProperty.call(payload, key) ? payload[key] : defaultState[key]])
-  );
+  const restoredState = normalizeState(payload);
   const result = await writeAppState(restoredState);
   return {
     database: true,
@@ -326,13 +338,13 @@ async function verifyPersistence() {
 
 async function readAppState() {
   if (!await ensureStateTable()) {
-    return { database: false, state: {} };
+    return { database: false, state: normalizeState({}) };
   }
 
-  const result = await db.query("select key, value from cumbuca_app_state");
+  const result = await db.query("select key, value from cumbuca_app_state where key = any($1::text[])", [stateKeys]);
   return {
     database: true,
-    state: Object.fromEntries(result.rows.map(row => [row.key, row.value]))
+    state: normalizeState(Object.fromEntries(result.rows.map(row => [row.key, row.value])))
   };
 }
 
