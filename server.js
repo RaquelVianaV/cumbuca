@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const PDFDocument = require("pdfkit");
+const JSZip = require("jszip");
 let Pool = null;
 try {
   ({ Pool } = require("pg"));
@@ -228,6 +229,41 @@ async function listBackups() {
   return { database: true, backups: result.rows };
 }
 
+async function readBackup(backupDate) {
+  if (!await ensureBackupTable()) {
+    return { database: false, backup: null };
+  }
+
+  const result = await db.query(
+    `select backup_date, payload, created_at, updated_at
+     from cumbuca_app_backups
+     where backup_date = $1::date`,
+    [backupDate]
+  );
+  return { database: true, backup: result.rows[0] || null };
+}
+
+async function restoreBackup(backupDate) {
+  const backupResult = await readBackup(backupDate);
+  if (!backupResult.database) {
+    return { database: false };
+  }
+
+  const backup = backupResult.backup;
+  if (!backup) {
+    return { database: true, restored: false, error: "Backup nao encontrado." };
+  }
+
+  const payload = backup.payload?.data || backup.payload || {};
+  const result = await writeAppState(payload);
+  return {
+    database: true,
+    restored: true,
+    backupDate: backup.backup_date,
+    keys: result.saved || []
+  };
+}
+
 async function verifyPersistence() {
   if (!await ensureStateTable() || !await ensureBackupTable()) {
     return { database: false };
@@ -310,7 +346,8 @@ function calculateCashFlow(entries = []) {
       description: String(item.description || "").trim() || "Lançamento",
       date: String(item.date || ""),
       type,
-      amount
+      amount,
+      category: String(item.category || "").trim() || "outros"
     };
   });
 
@@ -406,14 +443,18 @@ function buildReportPdf(payload = {}) {
 
   doc.on("data", chunk => chunks.push(chunk));
 
-  doc.font("Helvetica-Bold").fontSize(20).fillColor("#573220").text("RELATÓRIO FINANCEIRO SEMANAL");
-  doc.font("Helvetica").fontSize(10).fillColor("#69707d").text(payload.periodLabel || data.periodKey || "");
-  doc.moveDown(1);
+  doc.rect(0, 0, 595.28, 86).fill("#573220");
+  doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(21).text("RELATORIO FINANCEIRO", 42, 28);
+  doc.font("Helvetica").fontSize(10).text(payload.periodLabel || data.periodKey || "", 42, 55);
+  doc.font("Helvetica-Bold").fontSize(9).text(`Gerado em ${new Date().toLocaleDateString("pt-BR")}`, 410, 34, {
+    width: 135,
+    align: "right"
+  });
 
   const summary = [
     ["Total", brl(data.balance)],
     ["Entradas", brl(data.totalIncome)],
-    ["Saídas", brl(data.expenses)],
+    ["Saidas", brl(data.expenses)],
     ["Cumbucas", data.totalSoldQuantity || 0],
     ["Semanal", data.weeklyCashQuantity || 0],
     ["Loja", data.storeQuantity || 0]
@@ -424,30 +465,120 @@ function buildReportPdf(payload = {}) {
     const col = index % 3;
     const row = Math.floor(index / 3);
     const x = 42 + col * 172;
-    const y = 95 + row * 58;
-    doc.rect(x, y, boxWidth, 48).fill(index === 0 ? "#573220" : "#f9fafb").stroke("#e5e7eb");
+    const y = 105 + row * 58;
+    doc.roundedRect(x, y, boxWidth, 48, 5).fill(index === 0 ? "#087f5b" : "#f9fafb").stroke("#e5e7eb");
     doc.fillColor(index === 0 ? "#ffffff" : "#69707d").font("Helvetica-Bold").fontSize(8).text(label.toUpperCase(), x + 10, y + 9);
     doc.fillColor(index === 0 ? "#ffffff" : "#121417").fontSize(14).text(pdfText(value), x + 10, y + 24, { width: boxWidth - 20 });
   });
 
-  doc.y = 225;
+  doc.y = 235;
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Entradas");
-  addPdfTable(doc, ["Data", "Descrição", "Valor"], data.incomeRows || [], [82, 320, 110]);
+  addPdfTable(doc, ["Data", "Descricao", "Valor"], data.incomeRows || [], [82, 320, 110]);
 
-  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Principais saídas (despesas)");
-  addPdfTable(doc, ["Data", "Descrição", "Valor"], data.expenseRows || [], [82, 320, 110]);
+  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Principais saidas (despesas)");
+  addPdfTable(doc, ["Data", "Descricao", "Categoria", "Valor"], data.expenseRows || [], [82, 240, 100, 90]);
 
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Cumbucas vendidas na loja");
-  addPdfTable(doc, ["Data", "Quantidade", "Observação"], data.storeRows || [], [82, 90, 340]);
+  addPdfTable(doc, ["Data", "Quantidade", "Observacao"], data.storeRows || [], [82, 90, 340]);
 
-  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Lançamentos");
-  addPdfTable(doc, ["Data", "Descrição", "Tipo", "Valor"], data.cashRows || [], [82, 250, 80, 100]);
+  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Lancamentos");
+  addPdfTable(doc, ["Data", "Descricao", "Tipo", "Categoria", "Valor"], data.cashRows || [], [72, 210, 70, 80, 80]);
+
+  const footerY = 760;
+  doc.moveTo(42, footerY).lineTo(250, footerY).stroke("#d1d5db");
+  doc.fillColor("#69707d").font("Helvetica").fontSize(8).text("Assinatura / conferencia", 42, footerY + 8);
+  doc.text("Observacoes: conferir contas, despesas maiores e cumbucas vendidas antes do fechamento.", 300, footerY, {
+    width: 240,
+    align: "right"
+  });
 
   doc.end();
 
   return new Promise(resolve => {
     doc.on("end", () => resolve(Buffer.concat(chunks)));
   });
+}
+
+async function buildReportXlsx(payload = {}) {
+  const data = payload.data || {};
+  const zip = new JSZip();
+  const summaryRows = [
+    ["Periodo", payload.periodLabel || data.periodKey || ""],
+    ["Saldo", data.balance || 0],
+    ["Entradas", data.totalIncome || 0],
+    ["Saidas", data.expenses || 0],
+    ["Cumbucas semanal", data.weeklyCashQuantity || 0],
+    ["Cumbucas loja", data.storeQuantity || 0],
+    ["Cumbucas total", data.totalSoldQuantity || 0]
+  ];
+
+  const sheets = [
+    ["Resumo", summaryRows],
+    ["Entradas", [["Data", "Descricao", "Valor"], ...(data.incomeRows || [])]],
+    ["Despesas", [["Data", "Descricao", "Categoria", "Valor"], ...(data.expenseRows || [])]],
+    ["Loja", [["Data", "Quantidade", "Observacao"], ...(data.storeRows || [])]],
+    ["Caixa", [["Data", "Descricao", "Tipo", "Categoria", "Valor"], ...(data.cashRows || [])]]
+  ];
+
+  function xml(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function columnName(index) {
+    let name = "";
+    let current = index + 1;
+    while (current > 0) {
+      const remainder = (current - 1) % 26;
+      name = String.fromCharCode(65 + remainder) + name;
+      current = Math.floor((current - 1) / 26);
+    }
+    return name;
+  }
+
+  function sheetXml(rows) {
+    const body = rows.map((row, rowIndex) => {
+      const cells = row.map((value, columnIndex) => {
+        const ref = `${columnName(columnIndex)}${rowIndex + 1}`;
+        if (typeof value === "number" && Number.isFinite(value)) {
+          return `<c r="${ref}"><v>${value}</v></c>`;
+        }
+        return `<c r="${ref}" t="inlineStr"><is><t>${xml(value)}</t></is></c>`;
+      }).join("");
+      return `<row r="${rowIndex + 1}">${cells}</row>`;
+    }).join("");
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${body}</sheetData></worksheet>`;
+  }
+
+  zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  ${sheets.map((_, index) => `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("")}
+</Types>`);
+  zip.folder("_rels").file(".rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`);
+  zip.folder("xl").file("workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>${sheets.map(([name], index) => `<sheet name="${xml(name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join("")}</sheets>
+</workbook>`);
+  zip.folder("xl").folder("_rels").file("workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  ${sheets.map((_, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`).join("")}
+</Relationships>`);
+  const worksheetFolder = zip.folder("xl").folder("worksheets");
+  sheets.forEach(([, rows], index) => {
+    worksheetFolder.file(`sheet${index + 1}.xml`, sheetXml(rows));
+  });
+
+  return zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
 }
 
 function weeklyMenu(payload = {}) {
@@ -602,6 +733,33 @@ async function handleRequest(req, res) {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/api/backup") {
+      const backupDate = url.searchParams.get("date");
+      if (!backupDate) {
+        sendJson(res, 400, { error: "Informe a data do backup." });
+        return;
+      }
+      const result = await readBackup(backupDate);
+      if (!result.backup) {
+        sendJson(res, 404, { error: "Backup nao encontrado." });
+        return;
+      }
+      const body = JSON.stringify(result.backup.payload, null, 2);
+      res.writeHead(200, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Disposition": `attachment; filename="cumbuca-backup-${backupDate}.json"`,
+        "Content-Length": Buffer.byteLength(body)
+      });
+      res.end(body);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/restore-backup") {
+      const payload = await collectBody(req);
+      sendJson(res, 200, await restoreBackup(payload.date));
+      return;
+    }
+
     if (req.method === "GET" && url.pathname === "/api/persistence-check") {
       sendJson(res, 200, await verifyPersistence());
       return;
@@ -616,6 +774,18 @@ async function handleRequest(req, res) {
         "Content-Length": pdf.length
       });
       res.end(pdf);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/report-xlsx") {
+      const payload = await collectBody(req);
+      const xlsx = await buildReportXlsx(payload);
+      res.writeHead(200, {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="${payload.filename || "cumbuca-relatorio.xlsx"}"`,
+        "Content-Length": xlsx.length
+      });
+      res.end(xlsx);
       return;
     }
 

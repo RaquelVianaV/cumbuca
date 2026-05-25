@@ -741,6 +741,19 @@ textarea {
   display: grid;
 }
 
+.quick-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -4px 0 16px;
+}
+
+.quick-filter-bar button {
+  min-height: 34px;
+  padding-inline: 12px;
+  font-size: 0.82rem;
+}
+
 .summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -796,6 +809,44 @@ textarea {
 
 .report-section h2 {
   margin-bottom: 0;
+}
+
+.backup-list-state {
+  min-height: 82px;
+}
+
+.toast-area {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 50;
+  display: grid;
+  gap: 8px;
+  width: min(320px, calc(100vw - 36px));
+}
+
+.toast {
+  transform: translateY(8px);
+  opacity: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(8, 127, 91, 0.18);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--green-dark);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.14);
+  font-size: 0.88rem;
+  font-weight: 850;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.toast.show {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.toast.warning {
+  border-color: #fed7aa;
+  color: var(--red);
 }
 
 .report-table table {

@@ -70,6 +70,25 @@ function setSaveStatus(text, mode = "checking") {
   saveStatus.classList.toggle("offline", mode === "offline");
 }
 
+function showToast(text, mode = "success") {
+  let area = document.querySelector(".toast-area");
+  if (!area) {
+    area = document.createElement("div");
+    area.className = "toast-area";
+    document.body.appendChild(area);
+  }
+
+  const toast = document.createElement("div");
+  toast.className = `toast ${mode}`;
+  toast.textContent = text;
+  area.appendChild(toast);
+  setTimeout(() => toast.classList.add("show"), 20);
+  setTimeout(() => {
+    toast.classList.remove("show");
+    setTimeout(() => toast.remove(), 180);
+  }, 2600);
+}
+
 async function updatePersistenceStatus() {
   if (!saveStatus) {
     return;
@@ -107,6 +126,14 @@ if (logoutButton) {
 }
 
 const LOW_MONTHLY_QUANTITY = 5;
+const expenseCategories = [
+  ["fornecedor", "Fornecedor"],
+  ["embalagem", "Embalagem"],
+  ["aluguel", "Aluguel"],
+  ["delivery", "Delivery"],
+  ["taxa", "Taxa"],
+  ["outros", "Outros"]
+];
 
 function localValue(key, fallback) {
   try {
@@ -137,6 +164,7 @@ const state = {
   editClientIndex: null,
   editOrderId: null,
   editCashId: null,
+  editStoreSaleId: null,
   ingredients: localValue("pricingIngredients", []),
   pricingConfig: localValue("pricingConfig", {}),
   cashFilter: localValue("cashFilter", { period: "all" }),
@@ -197,11 +225,14 @@ async function persistState() {
     if (response.ok && result.database) {
       const now = shortDateTime.format(new Date());
       setSaveStatus(`Salvo no Supabase ${now}`, "online");
+      showToast("Salvo no Supabase", "success");
     } else {
       setSaveStatus("Salvo só neste navegador", "offline");
+      showToast("Salvo so neste navegador", "warning");
     }
   } catch (error) {
     setSaveStatus("Salvo só neste navegador", "offline");
+    showToast("Sem confirmacao do Supabase", "warning");
     // localStorage keeps the app usable if the network is unavailable.
   }
 }
@@ -376,6 +407,15 @@ function filterCashEntries(entries) {
 
     return true;
   });
+}
+
+function categoryName(value) {
+  return expenseCategories.find(([key]) => key === value)?.[1] || "Outros";
+}
+
+function lastMonthKey(date = new Date()) {
+  const copy = new Date(date.getFullYear(), date.getMonth() - 1, 1);
+  return `${copy.getFullYear()}-${String(copy.getMonth() + 1).padStart(2, "0")}`;
 }
 
 function ensureCashEntryIds() {
@@ -704,6 +744,13 @@ async function renderCash() {
               <option value="expense" ${editing?.type === "expense" ? "selected" : ""}>Saída</option>
             </select>
           </label>
+          <label>Categoria
+            <select name="category">
+              ${expenseCategories.map(([value, label]) => `
+                <option value="${value}" ${(editing?.category || "outros") === value ? "selected" : ""}>${label}</option>
+              `).join("")}
+            </select>
+          </label>
           <label>Valor
             <input name="amount" type="number" min="0" step="0.01" placeholder="0,00" value="${editing?.amount || ""}" required>
           </label>
@@ -736,6 +783,12 @@ async function renderCash() {
           </label>
           <button type="submit">Aplicar</button>
         </form>
+        <div class="quick-filter-bar">
+          <button class="secondary" type="button" data-cash-quick="today">Hoje</button>
+          <button class="secondary" type="button" data-cash-quick="week">Esta semana</button>
+          <button class="secondary" type="button" data-cash-quick="month">Este mês</button>
+          <button class="secondary" type="button" data-cash-quick="last-month">Mês passado</button>
+        </div>
         <div class="summary">
           <div class="metric"><span>Entradas</span><strong>${money(result.income)}</strong></div>
           <div class="metric"><span>Saídas</span><strong>${money(result.expenses)}</strong></div>
@@ -792,6 +845,26 @@ async function renderCash() {
     renderCash();
   });
 
+  document.querySelectorAll("[data-cash-quick]").forEach(button => {
+    button.addEventListener("click", event => {
+      const quick = event.currentTarget.dataset.cashQuick;
+      if (quick === "today") {
+        state.cashFilter = { period: "day", date: today, month: selectedMonth, year: selectedYear };
+      }
+      if (quick === "week") {
+        state.cashFilter = { period: "week", date: today, month: selectedMonth, year: selectedYear };
+      }
+      if (quick === "month") {
+        state.cashFilter = { period: "month", date: today, month: today.slice(0, 7), year: selectedYear };
+      }
+      if (quick === "last-month") {
+        state.cashFilter = { period: "month", date: today, month: lastMonthKey(), year: selectedYear };
+      }
+      persistState();
+      renderCash();
+    });
+  });
+
   document.querySelector("#clear-cash").addEventListener("click", () => {
     if (!confirm("Limpar todos os lançamentos do fluxo de caixa?")) {
       return;
@@ -836,13 +909,14 @@ function cashTable(entries) {
   return `
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Valor</th><th></th></tr></thead>
+        <thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Categoria</th><th>Valor</th><th></th></tr></thead>
         <tbody>
           ${entries.map(item => `
             <tr>
               <td>${item.date}</td>
               <td>${item.description}</td>
               <td>${item.type === "income" ? "Entrada" : "Saída"}</td>
+              <td>${item.type === "expense" ? categoryName(item.category) : "-"}</td>
               <td class="${item.type === "income" ? "positive" : "negative"}">${money(item.amount)}</td>
               <td>
                 <div class="table-actions">
@@ -2145,6 +2219,7 @@ function reportCsvRows(kind, data) {
       data: entry.date || "",
       descricao: entry.description || "",
       tipo: entry.type === "expense" ? "saida" : "entrada",
+      categoria: entry.type === "expense" ? categoryName(entry.category) : "",
       valor: Number(entry.amount || 0)
     }));
   }
@@ -2434,12 +2509,13 @@ async function downloadReportPdf() {
       weeklyCashQuantity: data.weeklyCashQuantity,
       storeQuantity: data.storeQuantity,
       incomeRows: data.incomeEntries.map(entry => [entry.date || "", entry.description || "", money(entry.amount)]),
-      expenseRows: data.topExpenses.map(entry => [entry.date || "", entry.description || "", money(entry.amount)]),
+      expenseRows: data.topExpenses.map(entry => [entry.date || "", entry.description || "", categoryName(entry.category), money(entry.amount)]),
       storeRows: data.storeSales.map(entry => [entry.date || "", Number(entry.quantity || 0), entry.notes || ""]),
       cashRows: data.cashEntries.map(entry => [
         entry.date || "",
         entry.description || "",
         entry.type === "expense" ? "Saída" : "Entrada",
+        entry.type === "expense" ? categoryName(entry.category) : "-",
         money(entry.amount)
       ])
     }
@@ -2453,6 +2529,58 @@ async function downloadReportPdf() {
 
   if (!response.ok) {
     alert("Não foi possível gerar o PDF agora.");
+    return;
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function downloadReportXlsx() {
+  const data = reportData();
+  const periodLabel = data.type === "week" ? reportWeekRangeLabel() : data.periodKey;
+  const filename = data.type === "week"
+    ? `cumbuca-relatorio-${data.weekKey}.xlsx`
+    : `cumbuca-relatorio-${data.periodKey}.xlsx`;
+  const payload = {
+    filename,
+    periodLabel,
+    data: {
+      periodKey: data.periodKey,
+      balance: data.balance,
+      totalIncome: data.totalIncome,
+      expenses: data.expenses,
+      totalSoldQuantity: data.totalSoldQuantity,
+      weeklyCashQuantity: data.weeklyCashQuantity,
+      storeQuantity: data.storeQuantity,
+      incomeRows: data.incomeEntries.map(entry => [entry.date || "", entry.description || "", Number(entry.amount || 0)]),
+      expenseRows: data.topExpenses.map(entry => [entry.date || "", entry.description || "", categoryName(entry.category), Number(entry.amount || 0)]),
+      storeRows: data.storeSales.map(entry => [entry.date || "", Number(entry.quantity || 0), entry.notes || ""]),
+      cashRows: data.cashEntries.map(entry => [
+        entry.date || "",
+        entry.description || "",
+        entry.type === "expense" ? "Saída" : "Entrada",
+        entry.type === "expense" ? categoryName(entry.category) : "-",
+        Number(entry.amount || 0)
+      ])
+    }
+  };
+
+  const response = await fetch("/api/report-xlsx", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    alert("Não foi possível gerar o Excel agora.");
     return;
   }
 
@@ -2495,6 +2623,11 @@ function printReportPdf() {
 function exportReport(kind) {
   if (kind === "pdf") {
     downloadReportPdf();
+    return;
+  }
+
+  if (kind === "xlsx") {
+    downloadReportXlsx();
     return;
   }
 
@@ -2574,13 +2707,14 @@ function reportCashTable(data) {
   return `
     <div class="table-wrap report-table">
       <table>
-        <thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Valor</th></tr></thead>
+        <thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Categoria</th><th>Valor</th></tr></thead>
         <tbody>
           ${data.cashEntries.map(entry => `
             <tr>
               <td>${entry.date || ""}</td>
               <td>${entry.description || ""}</td>
               <td>${entry.type === "expense" ? "Saída" : "Entrada"}</td>
+              <td>${entry.type === "expense" ? categoryName(entry.category) : "-"}</td>
               <td>${money(entry.amount)}</td>
             </tr>
           `).join("")}
@@ -2662,7 +2796,12 @@ function storeSalesTable(entries) {
               <td>${entry.date || ""}</td>
               <td>${Number(entry.quantity || 0)}</td>
               <td>${entry.notes || ""}</td>
-              <td><button class="danger table-action" type="button" data-delete-store-sale="${entry.id}">Excluir</button></td>
+              <td>
+                <div class="table-actions">
+                  <button class="secondary table-action" type="button" data-edit-store-sale="${entry.id}">Editar</button>
+                  <button class="danger table-action" type="button" data-delete-store-sale="${entry.id}">Excluir</button>
+                </div>
+              </td>
             </tr>
           `).join("")}
         </tbody>
@@ -2696,6 +2835,9 @@ function renderStoreSales() {
   title.textContent = "Loja";
   setActive("loja");
   const today = isoDate(new Date());
+  const editing = state.editStoreSaleId !== null
+    ? state.storeSales.find(entry => String(entry.id) === String(state.editStoreSaleId))
+    : null;
   const monthKey = currentMonthKey();
   const monthEntries = state.storeSales.filter(entry => String(entry.date || "").startsWith(monthKey));
   const todayTotal = state.storeSales
@@ -2706,19 +2848,20 @@ function renderStoreSales() {
   app.innerHTML = `
     <div class="tool-grid">
       <section class="panel">
-        <h2>Lançar venda da loja</h2>
+        <h2>${editing ? "Editar venda da loja" : "Lançar venda da loja"}</h2>
         <form id="store-sale-form" class="form-grid single">
           <label>Data
-            <input name="date" type="date" value="${today}" required>
+            <input name="date" type="date" value="${editing?.date || today}" required>
           </label>
           <label>Quantidade de cumbucas
-            <input name="quantity" type="number" min="0" step="1" placeholder="0" required>
+            <input name="quantity" type="number" min="0" step="1" placeholder="0" value="${editing?.quantity || ""}" required>
           </label>
           <label>Observação
-            <input name="notes" placeholder="Opcional">
+            <input name="notes" placeholder="Opcional" value="${editing?.notes || ""}">
           </label>
           <div class="actions">
-            <button type="submit">Adicionar</button>
+            <button type="submit">${editing ? "Salvar edição" : "Adicionar"}</button>
+            ${editing ? `<button class="secondary" type="button" id="cancel-store-sale-edit">Cancelar</button>` : ""}
           </div>
         </form>
       </section>
@@ -2736,15 +2879,37 @@ function renderStoreSales() {
   document.querySelector("#store-sale-form").addEventListener("submit", event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
-    state.storeSales.push({
-      id: Date.now(),
+    const entry = {
+      id: editing?.id || Date.now(),
       date: values.date,
       quantity: Number(values.quantity || 0),
       notes: values.notes || ""
-    });
-    recordAudit("Loja lançada", `${values.quantity || 0} cumbuca(s) em ${values.date}`);
+    };
+    if (editing) {
+      state.storeSales = state.storeSales.map(item => String(item.id) === String(editing.id) ? entry : item);
+      state.editStoreSaleId = null;
+      recordAudit("Loja editada", `${values.quantity || 0} cumbuca(s) em ${values.date}`);
+    } else {
+      state.storeSales.push(entry);
+      recordAudit("Loja lançada", `${values.quantity || 0} cumbuca(s) em ${values.date}`);
+    }
     persistState();
     renderStoreSales();
+  });
+
+  const cancelStoreSaleEdit = document.querySelector("#cancel-store-sale-edit");
+  if (cancelStoreSaleEdit) {
+    cancelStoreSaleEdit.addEventListener("click", () => {
+      state.editStoreSaleId = null;
+      renderStoreSales();
+    });
+  }
+
+  document.querySelectorAll("[data-edit-store-sale]").forEach(button => {
+    button.addEventListener("click", event => {
+      state.editStoreSaleId = event.currentTarget.dataset.editStoreSale;
+      renderStoreSales();
+    });
   });
 
   document.querySelectorAll("[data-delete-store-sale]").forEach(button => {
@@ -2755,6 +2920,9 @@ function renderStoreSales() {
       const id = Number(event.currentTarget.dataset.deleteStoreSale);
       const removed = state.storeSales.find(entry => Number(entry.id) === id);
       state.storeSales = state.storeSales.filter(entry => Number(entry.id) !== id);
+      if (String(state.editStoreSaleId) === String(id)) {
+        state.editStoreSaleId = null;
+      }
       recordAudit("Loja excluída", `${removed?.quantity || 0} cumbuca(s) em ${removed?.date || ""}`);
       persistState();
       renderStoreSales();
@@ -2812,6 +2980,7 @@ function renderReports() {
         <button class="secondary" type="button" data-export-report="clients">Clientes CSV</button>
         <button class="secondary" type="button" data-export-report="menu">Cardápio CSV</button>
         <button type="button" data-export-report="json">Relatório JSON</button>
+        <button type="button" data-export-report="xlsx">Relatório Excel</button>
         <button type="button" data-export-report="pdf">Relatório PDF</button>
       </div>
     </section>
@@ -2879,13 +3048,107 @@ function renderReports() {
   });
 }
 
+async function renderBackups() {
+  title.textContent = "Backups";
+  setActive("backups");
+  app.innerHTML = `
+    <section class="panel report-section">
+      <h2>Backups salvos no Supabase</h2>
+      <p class="muted">Use para baixar uma copia ou restaurar um dia especifico se algo for apagado sem querer.</p>
+      <div id="backup-list" class="backup-list-state">Carregando backups...</div>
+    </section>
+  `;
+
+  try {
+    const response = await fetch("/api/backups", { cache: "no-store" });
+    const result = await response.json();
+    const backups = result.backups || [];
+    const list = document.querySelector("#backup-list");
+    if (!result.database) {
+      list.innerHTML = `<p class="muted">Banco offline agora. Nao foi possivel consultar backups.</p>`;
+      return;
+    }
+    if (!backups.length) {
+      list.innerHTML = `<p class="muted">Nenhum backup encontrado ainda.</p>`;
+      return;
+    }
+
+    list.innerHTML = `
+      <div class="table-wrap report-table">
+        <table>
+          <thead><tr><th>Data do backup</th><th>Atualizado em</th><th>Acoes</th></tr></thead>
+          <tbody>
+            ${backups.map(backup => {
+              const date = String(backup.backup_date || "").slice(0, 10);
+              return `
+                <tr>
+                  <td>${formatIsoDateBr(date)}</td>
+                  <td>${backup.updated_at ? new Date(backup.updated_at).toLocaleString("pt-BR") : ""}</td>
+                  <td>
+                    <div class="table-actions">
+                      <button class="secondary table-action" type="button" data-download-backup="${date}">Baixar</button>
+                      <button class="danger table-action" type="button" data-restore-backup="${date}">Restaurar</button>
+                    </div>
+                  </td>
+                </tr>
+              `;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    document.querySelectorAll("[data-download-backup]").forEach(button => {
+      button.addEventListener("click", event => {
+        const date = event.currentTarget.dataset.downloadBackup;
+        const link = document.createElement("a");
+        link.href = `/api/backup?date=${encodeURIComponent(date)}`;
+        link.download = `cumbuca-backup-${date}.json`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      });
+    });
+
+    document.querySelectorAll("[data-restore-backup]").forEach(button => {
+      button.addEventListener("click", async event => {
+        const date = event.currentTarget.dataset.restoreBackup;
+        if (!confirm(`Restaurar o backup de ${formatIsoDateBr(date)}? Isso vai substituir os dados atuais.`)) {
+          return;
+        }
+        if (!confirm("Confirma mesmo? Antes de restaurar, baixe um backup atual pelo botao Backup.")) {
+          return;
+        }
+
+        const restoreResponse = await fetch("/api/restore-backup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ date })
+        });
+        const restoreResult = await restoreResponse.json();
+        if (!restoreResponse.ok || !restoreResult.restored) {
+          showToast("Nao foi possivel restaurar", "warning");
+          return;
+        }
+        await hydrateState();
+        persistLocal();
+        showToast("Backup restaurado", "success");
+        renderBackups();
+      });
+    });
+  } catch (error) {
+    document.querySelector("#backup-list").innerHTML = `<p class="muted">Nao foi possivel carregar os backups agora.</p>`;
+  }
+}
+
 const routes = {
   home,
   "fluxo-de-caixa": renderCash,
   "menu-semanal": renderMenu,
   loja: renderStoreSales,
   precificacao: renderPricing,
-  relatorios: renderReports
+  relatorios: renderReports,
+  backups: renderBackups
 };
 
 function applyRouteParams() {
