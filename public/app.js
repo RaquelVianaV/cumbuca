@@ -3831,6 +3831,7 @@ const routes = {
   "fluxo-de-caixa": renderCash,
   "menu-semanal": renderMenu,
   loja: renderStoreSales,
+  financeiro: renderFinance,
   precificacao: renderPricing,
   relatorios: renderReports,
   backups: renderBackups
@@ -3858,7 +3859,7 @@ function applyRouteParams() {
       year: Number(yearParam),
       month: Number(monthParam)
     };
-    if (routeName() === "relatorios") {
+    if (routeName() === "relatorios" || routeName() === "financeiro") {
       state.reportPeriod = {
         type: startParam && endParam ? "week" : (reportWeekParam ? "week" : (state.reportPeriod.type || "month")),
         year: Number(yearParam),
