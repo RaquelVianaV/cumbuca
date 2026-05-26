@@ -28,6 +28,7 @@ const stateKeys = [
   "orders",
   "storeSales",
   "auditLog",
+  "monthlyClosings",
   "pricingIngredients",
   "pricingConfig",
   "cashFilter"
@@ -46,6 +47,7 @@ const defaultState = {
   orders: [],
   storeSales: [],
   auditLog: [],
+  monthlyClosings: {},
   pricingIngredients: [],
   pricingConfig: {},
   cashFilter: { period: "all" }
@@ -149,15 +151,62 @@ function parseCookies(req) {
     }, {});
 }
 
-function sessionToken() {
+function authUsers() {
+  const fallback = [{ username: AUTH_USER, password: AUTH_PASSWORD, name: AUTH_USER }];
+  if (!process.env.CUMBUCA_USERS) {
+    return fallback;
+  }
+
+  try {
+    const parsed = JSON.parse(process.env.CUMBUCA_USERS);
+    if (!Array.isArray(parsed)) {
+      return fallback;
+    }
+    const users = parsed
+      .filter(user => user?.username && user?.password)
+      .map(user => ({
+        username: String(user.username),
+        password: String(user.password),
+        name: String(user.name || user.username)
+      }));
+    return users.length ? users : fallback;
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function userSessionToken(user) {
   return crypto
     .createHmac("sha256", AUTH_SECRET)
-    .update(`${AUTH_USER}:${AUTH_PASSWORD}`)
+    .update(`${user.username}:${user.password}`)
     .digest("hex");
 }
 
+function sessionToken() {
+  return userSessionToken({ username: AUTH_USER, password: AUTH_PASSWORD });
+}
+
+function findAuthUser(username, password) {
+  return authUsers().find(user => user.username === username && user.password === password) || null;
+}
+
+function currentUser(req) {
+  const cookieValue = parseCookies(req)[SESSION_COOKIE] || "";
+  const [username, token] = cookieValue.split(".");
+  const user = authUsers().find(item => item.username === username);
+  if (user && token === userSessionToken(user)) {
+    return { username: user.username, name: user.name };
+  }
+
+  if (cookieValue === sessionToken()) {
+    return { username: AUTH_USER, name: AUTH_USER };
+  }
+
+  return null;
+}
+
 function isAuthenticated(req) {
-  return parseCookies(req)[SESSION_COOKIE] === sessionToken();
+  return Boolean(currentUser(req));
 }
 
 function sessionCookie(value, maxAge) {
@@ -376,6 +425,7 @@ function calculateCashFlow(entries = []) {
     const amount = Math.abs(number(item.amount));
     const type = item.type === "expense" ? "expense" : "income";
     return {
+      id: item.id || "",
       description: String(item.description || "").trim() || "Lançamento",
       date: String(item.date || ""),
       type,
@@ -488,9 +538,10 @@ function buildReportPdf(payload = {}) {
     ["Total", brl(data.balance)],
     ["Entradas", brl(data.totalIncome)],
     ["Saidas", brl(data.expenses)],
+    ["Disponivel retirada", brl(data.availableForWithdrawal)],
+    ["Retiradas", brl(data.withdrawalTotal)],
     ["Cumbucas", data.totalSoldQuantity || 0],
-    ["Semanal", data.weeklyCashQuantity || 0],
-    ["Loja", data.storeQuantity || 0]
+    ["Semanal", data.weeklyCashQuantity || 0]
   ];
 
   const boxWidth = 168;
@@ -504,12 +555,15 @@ function buildReportPdf(payload = {}) {
     doc.fillColor(index === 0 ? "#ffffff" : "#121417").fontSize(14).text(pdfText(value), x + 10, y + 24, { width: boxWidth - 20 });
   });
 
-  doc.y = 235;
+  doc.y = summary.length > 6 ? 300 : 235;
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Entradas");
   addPdfTable(doc, ["Data", "Descricao", "Valor"], data.incomeRows || [], [82, 320, 110]);
 
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Principais saidas (despesas)");
   addPdfTable(doc, ["Data", "Descricao", "Categoria", "Valor"], data.expenseRows || [], [82, 240, 100, 90]);
+
+  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Retiradas");
+  addPdfTable(doc, ["Destino", "Valor"], data.withdrawalRows || [], [250, 140]);
 
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Cumbucas vendidas na loja");
   addPdfTable(doc, ["Data", "Quantidade", "Observacao"], data.storeRows || [], [82, 90, 340]);
@@ -540,6 +594,9 @@ async function buildReportXlsx(payload = {}) {
     ["Saldo", data.balance || 0],
     ["Entradas", data.totalIncome || 0],
     ["Saidas", data.expenses || 0],
+    ["Saidas operacionais", data.operationalExpenses || 0],
+    ["Retiradas", data.withdrawalTotal || 0],
+    ["Disponivel retirada", data.availableForWithdrawal || 0],
     ["Cumbucas semanal", data.weeklyCashQuantity || 0],
     ["Cumbucas loja", data.storeQuantity || 0],
     ["Cumbucas total", data.totalSoldQuantity || 0]
@@ -549,6 +606,7 @@ async function buildReportXlsx(payload = {}) {
     ["Resumo", summaryRows],
     ["Entradas", [["Data", "Descricao", "Valor"], ...(data.incomeRows || [])]],
     ["Despesas", [["Data", "Descricao", "Categoria", "Valor"], ...(data.expenseRows || [])]],
+    ["Retiradas", [["Destino", "Valor"], ...(data.withdrawalRows || [])]],
     ["Loja", [["Data", "Quantidade", "Observacao"], ...(data.storeRows || [])]],
     ["Caixa", [["Data", "Descricao", "Tipo", "Categoria", "Valor"], ...(data.cashRows || [])]]
   ];
@@ -677,6 +735,7 @@ function serveStatic(req, res, pathname) {
 async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const authenticated = isAuthenticated(req);
+  const user = currentUser(req);
 
   try {
     if (req.method === "GET" && url.pathname === "/api/health") {
@@ -694,15 +753,16 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/session") {
-      sendJson(res, 200, { authenticated });
+      sendJson(res, 200, { authenticated, user });
       return;
     }
 
     if (req.method === "POST" && url.pathname === "/api/login") {
       const payload = await collectBody(req);
-      if (payload.username === AUTH_USER && payload.password === AUTH_PASSWORD) {
-        sendJson(res, 200, { ok: true }, {
-          "Set-Cookie": sessionCookie(sessionToken(), 60 * 60 * 24 * 30)
+      const authUser = findAuthUser(String(payload.username || ""), String(payload.password || ""));
+      if (authUser) {
+        sendJson(res, 200, { ok: true, user: { username: authUser.username, name: authUser.name } }, {
+          "Set-Cookie": sessionCookie(`${authUser.username}.${userSessionToken(authUser)}`, 60 * 60 * 24 * 30)
         });
         return;
       }

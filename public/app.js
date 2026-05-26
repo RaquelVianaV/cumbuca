@@ -132,6 +132,7 @@ const expenseCategories = [
   ["aluguel", "Aluguel"],
   ["delivery", "Delivery"],
   ["taxa", "Taxa"],
+  ["retirada", "Retirada"],
   ["outros", "Outros"]
 ];
 
@@ -156,6 +157,7 @@ const state = {
   orders: localValue("orders", []),
   storeSales: localValue("storeSales", []),
   auditLog: localValue("auditLog", []),
+  monthlyClosings: localValue("monthlyClosings", {}),
   showClients: false,
   showOrders: false,
   showPlanning: false,
@@ -176,6 +178,7 @@ const state = {
     start: "",
     end: ""
   }),
+  currentUser: null,
   database: false
 };
 
@@ -190,6 +193,7 @@ function appStatePayload() {
     orders: state.orders,
     storeSales: state.storeSales,
     auditLog: state.auditLog,
+    monthlyClosings: state.monthlyClosings,
     pricingIngredients: state.ingredients,
     pricingConfig: state.pricingConfig,
     cashFilter: state.cashFilter
@@ -207,7 +211,8 @@ function recordAudit(action, detail) {
     id: Date.now(),
     at: new Date().toISOString(),
     action,
-    detail
+    detail,
+    user: state.currentUser?.name || state.currentUser?.username || ""
   });
   state.auditLog = state.auditLog.slice(0, 120);
 }
@@ -255,12 +260,26 @@ async function hydrateState() {
     state.orders = saved.orders || state.orders;
     state.storeSales = saved.storeSales || state.storeSales;
     state.auditLog = saved.auditLog || state.auditLog;
+    state.monthlyClosings = saved.monthlyClosings || state.monthlyClosings;
     state.ingredients = saved.pricingIngredients || state.ingredients;
     state.pricingConfig = saved.pricingConfig || state.pricingConfig;
     state.cashFilter = saved.cashFilter || state.cashFilter;
     persistLocal();
   } catch (error) {
     state.database = false;
+  }
+}
+
+async function hydrateSession() {
+  try {
+    const response = await fetch("/api/session", { cache: "no-store" });
+    if (!response.ok) {
+      return;
+    }
+    const result = await response.json();
+    state.currentUser = result.user || null;
+  } catch (error) {
+    state.currentUser = null;
   }
 }
 
@@ -411,6 +430,86 @@ function filterCashEntries(entries) {
 
 function categoryName(value) {
   return expenseCategories.find(([key]) => key === value)?.[1] || "Outros";
+}
+
+function cashTotals(entries = state.cash) {
+  return entries.reduce((totals, entry) => {
+    const amount = Number(entry.amount || 0);
+    if (entry.type === "expense") {
+      totals.expenses += amount;
+    } else {
+      totals.income += amount;
+    }
+    totals.balance = totals.income - totals.expenses;
+    return totals;
+  }, { income: 0, expenses: 0, balance: 0 });
+}
+
+function withdrawalSplit(amount) {
+  const total = Math.max(0, Number(amount || 0));
+  const savings = total * 0.10;
+  const remaining = total - savings;
+  const vanessa = remaining * 0.70;
+  const raquel = remaining * 0.30;
+
+  return { total, savings, remaining, vanessa, raquel };
+}
+
+function isWithdrawalEntry(entry = {}) {
+  return entry.category === "retirada" || String(entry.description || "").toLowerCase().startsWith("retirada -");
+}
+
+function withdrawalTarget(entry = {}) {
+  const text = String(entry.description || "").toLowerCase();
+  if (text.includes("cofrinho")) {
+    return "savings";
+  }
+  if (text.includes("vanessa")) {
+    return "vanessa";
+  }
+  if (text.includes("raquel")) {
+    return "raquel";
+  }
+  return "other";
+}
+
+function financialSummary(cashEntries = []) {
+  const summary = {
+    income: 0,
+    operationalExpenses: 0,
+    withdrawals: {
+      savings: 0,
+      vanessa: 0,
+      raquel: 0,
+      other: 0,
+      total: 0
+    },
+    withdrawalEntries: []
+  };
+
+  cashEntries.forEach(entry => {
+    const amount = Number(entry.amount || 0);
+    if (entry.type !== "expense") {
+      summary.income += amount;
+      return;
+    }
+
+    if (isWithdrawalEntry(entry)) {
+      const target = withdrawalTarget(entry);
+      summary.withdrawals[target] += amount;
+      summary.withdrawals.total += amount;
+      summary.withdrawalEntries.push(entry);
+      return;
+    }
+
+    summary.operationalExpenses += amount;
+  });
+
+  summary.profitBeforeWithdrawals = summary.income - summary.operationalExpenses;
+  summary.availableForWithdrawal = summary.profitBeforeWithdrawals - summary.withdrawals.total;
+  summary.balance = summary.availableForWithdrawal;
+  summary.suggestedWithdrawal = withdrawalSplit(Math.max(0, summary.availableForWithdrawal));
+  return summary;
 }
 
 function lastMonthKey(date = new Date()) {
@@ -726,6 +825,8 @@ async function renderCash() {
   const selectedDate = state.cashFilter.date || today;
   const selectedMonth = state.cashFilter.month || today.slice(0, 7);
   const selectedYear = state.cashFilter.year || today.slice(0, 4);
+  const totalCash = cashTotals(state.cash);
+  const previewWithdrawal = withdrawalSplit(totalCash.balance);
 
   app.innerHTML = `
     <div class="tool-grid">
@@ -761,7 +862,25 @@ async function renderCash() {
           </div>
         </form>
       </section>
-      <section class="panel">
+      <section class="panel withdrawal-panel">
+        <h2>Retiradas</h2>
+        <form id="withdrawal-form" class="form-grid single">
+          <label>Data
+            <input name="date" type="date" value="${today}" required>
+          </label>
+          <label>Valor a distribuir
+            <input name="amount" type="number" min="0" max="${Math.max(0, totalCash.balance)}" step="0.01" value="${Math.max(0, totalCash.balance).toFixed(2)}" required>
+          </label>
+          <div class="withdrawal-preview" aria-live="polite">
+            <span><b>Caixa disponivel</b>${money(totalCash.balance)}</span>
+            <span><b>Cofrinho 10%</b>${money(previewWithdrawal.savings)}</span>
+            <span><b>Vanessa 70%</b>${money(previewWithdrawal.vanessa)}</span>
+            <span><b>Raquel 30%</b>${money(previewWithdrawal.raquel)}</span>
+          </div>
+          <button type="submit" ${totalCash.balance > 0 ? "" : "disabled"}>Registrar retiradas</button>
+        </form>
+      </section>
+      <section class="panel cash-ledger-panel">
         <form id="cash-filter-form" class="filter-bar">
           <label>Filtrar
             <select name="period" id="cash-period">
@@ -826,6 +945,67 @@ async function renderCash() {
       renderCash();
     });
   }
+
+  const withdrawalForm = document.querySelector("#withdrawal-form");
+  withdrawalForm.addEventListener("input", () => {
+    const amount = Number(withdrawalForm.elements.amount.value || 0);
+    const split = withdrawalSplit(amount);
+    const preview = withdrawalForm.querySelector(".withdrawal-preview");
+    preview.innerHTML = `
+      <span><b>Caixa disponivel</b>${money(totalCash.balance)}</span>
+      <span><b>Cofrinho 10%</b>${money(split.savings)}</span>
+      <span><b>Vanessa 70%</b>${money(split.vanessa)}</span>
+      <span><b>Raquel 30%</b>${money(split.raquel)}</span>
+    `;
+  });
+
+  withdrawalForm.addEventListener("submit", event => {
+    event.preventDefault();
+    const values = readForm(event.currentTarget);
+    const available = cashTotals(state.cash).balance;
+    const split = withdrawalSplit(values.amount);
+
+    if (split.total <= 0) {
+      showToast("Informe um valor maior que zero.", "error");
+      return;
+    }
+
+    if (split.total > available) {
+      showToast("A retirada nao pode ser maior que o caixa disponivel.", "error");
+      return;
+    }
+
+    const idBase = Date.now();
+    state.cash.push(
+      {
+        id: `withdrawal-${idBase}-savings`,
+        description: "Retirada - cofrinho",
+        date: values.date,
+        type: "expense",
+        category: "retirada",
+        amount: split.savings.toFixed(2)
+      },
+      {
+        id: `withdrawal-${idBase}-vanessa`,
+        description: "Retirada - Vanessa",
+        date: values.date,
+        type: "expense",
+        category: "retirada",
+        amount: split.vanessa.toFixed(2)
+      },
+      {
+        id: `withdrawal-${idBase}-raquel`,
+        description: "Retirada - Raquel",
+        date: values.date,
+        type: "expense",
+        category: "retirada",
+        amount: split.raquel.toFixed(2)
+      }
+    );
+    recordAudit("Retirada registrada", `Total ${money(split.total)} - cofrinho ${money(split.savings)}, Vanessa ${money(split.vanessa)}, Raquel ${money(split.raquel)}`);
+    persistState();
+    renderCash();
+  });
 
   const filterForm = document.querySelector("#cash-filter-form");
   const periodField = document.querySelector("#cash-period");
@@ -2133,6 +2313,7 @@ function reportData() {
     .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
   const incomeEntries = cashEntries.filter(entry => entry.type !== "expense");
   const expenseEntries = cashEntries.filter(entry => entry.type === "expense");
+  const financial = financialSummary(cashEntries);
   const orderRevenue = orders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
   const deliveryRevenue = orders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0);
   const totalQuantity = orders.reduce((sum, order) => sum + orderQuantity(order), 0);
@@ -2157,6 +2338,7 @@ function reportData() {
     menuWeeks,
     income,
     expenses,
+    financial,
     totalIncome,
     balance: totalIncome - expenses,
     orderRevenue,
@@ -2222,6 +2404,28 @@ function reportCsvRows(kind, data) {
       categoria: entry.type === "expense" ? categoryName(entry.category) : "",
       valor: Number(entry.amount || 0)
     }));
+  }
+
+  if (kind === "financial") {
+    const rows = [
+      { secao: "resumo", data: "", descricao: "Entradas no caixa", tipo: "entrada", categoria: "", valor: data.financial.income },
+      { secao: "resumo", data: "", descricao: "Saidas operacionais", tipo: "saida", categoria: "operacional", valor: data.financial.operationalExpenses },
+      { secao: "resumo", data: "", descricao: "Lucro antes das retiradas", tipo: "saldo", categoria: "", valor: data.financial.profitBeforeWithdrawals },
+      { secao: "resumo", data: "", descricao: "Retiradas ja feitas", tipo: "saida", categoria: "retirada", valor: data.financial.withdrawals.total },
+      { secao: "resumo", data: "", descricao: "Disponivel para retirada", tipo: "saldo", categoria: "", valor: data.financial.availableForWithdrawal },
+      { secao: "retiradas", data: "", descricao: "Cofrinho", tipo: "saida", categoria: "retirada", valor: data.financial.withdrawals.savings },
+      { secao: "retiradas", data: "", descricao: "Vanessa", tipo: "saida", categoria: "retirada", valor: data.financial.withdrawals.vanessa },
+      { secao: "retiradas", data: "", descricao: "Raquel", tipo: "saida", categoria: "retirada", valor: data.financial.withdrawals.raquel }
+    ];
+
+    return rows.concat(data.cashEntries.map(entry => ({
+      secao: isWithdrawalEntry(entry) ? "lancamento_retirada" : "lancamento_caixa",
+      data: entry.date || "",
+      descricao: entry.description || "",
+      tipo: entry.type === "expense" ? "saida" : "entrada",
+      categoria: entry.type === "expense" ? categoryName(entry.category) : "",
+      valor: Number(entry.amount || 0)
+    })));
   }
 
   if (kind === "orders") {
@@ -2505,6 +2709,14 @@ async function downloadReportPdf() {
       balance: data.balance,
       totalIncome: data.totalIncome,
       expenses: data.expenses,
+      operationalExpenses: data.financial.operationalExpenses,
+      availableForWithdrawal: data.financial.availableForWithdrawal,
+      withdrawalTotal: data.financial.withdrawals.total,
+      withdrawalRows: [
+        ["Cofrinho", money(data.financial.withdrawals.savings)],
+        ["Vanessa", money(data.financial.withdrawals.vanessa)],
+        ["Raquel", money(data.financial.withdrawals.raquel)]
+      ],
       totalSoldQuantity: data.totalSoldQuantity,
       weeklyCashQuantity: data.weeklyCashQuantity,
       storeQuantity: data.storeQuantity,
@@ -2557,6 +2769,14 @@ async function downloadReportXlsx() {
       balance: data.balance,
       totalIncome: data.totalIncome,
       expenses: data.expenses,
+      operationalExpenses: data.financial.operationalExpenses,
+      availableForWithdrawal: data.financial.availableForWithdrawal,
+      withdrawalTotal: data.financial.withdrawals.total,
+      withdrawalRows: [
+        ["Cofrinho", Number(data.financial.withdrawals.savings || 0)],
+        ["Vanessa", Number(data.financial.withdrawals.vanessa || 0)],
+        ["Raquel", Number(data.financial.withdrawals.raquel || 0)]
+      ],
       totalSoldQuantity: data.totalSoldQuantity,
       weeklyCashQuantity: data.weeklyCashQuantity,
       storeQuantity: data.storeQuantity,
@@ -2622,6 +2842,11 @@ function printReportPdf() {
 
 function exportReport(kind) {
   if (kind === "pdf") {
+    downloadReportPdf();
+    return;
+  }
+
+  if (kind === "financial-pdf") {
     downloadReportPdf();
     return;
   }
@@ -2821,12 +3046,81 @@ function auditPanel() {
           ${items.map(item => `
             <span>
               <b>${item.action}</b>
-              ${item.detail || ""}
+              ${item.detail || ""}${item.user ? ` - ${item.user}` : ""}
               <small>${new Date(item.at).toLocaleString("pt-BR")}</small>
             </span>
           `).join("")}
         </div>
       ` : `<p class="muted">Nenhuma alteração registrada ainda.</p>`}
+    </section>
+  `;
+}
+
+function withdrawalReportTable(data) {
+  if (!data.financial.withdrawalEntries.length) {
+    return `<p class="muted">Nenhuma retirada neste periodo.</p>`;
+  }
+
+  return `
+    <div class="table-wrap report-table">
+      <table>
+        <thead><tr><th>Data</th><th>Destino</th><th>Descricao</th><th>Valor</th></tr></thead>
+        <tbody>
+          ${data.financial.withdrawalEntries.map(entry => `
+            <tr>
+              <td>${entry.date || ""}</td>
+              <td>${withdrawalTarget(entry) === "savings" ? "Cofrinho" : withdrawalTarget(entry) === "vanessa" ? "Vanessa" : withdrawalTarget(entry) === "raquel" ? "Raquel" : "Outras"}</td>
+              <td>${entry.description || ""}</td>
+              <td>${money(entry.amount)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function monthlyClosingPayload(data) {
+  return {
+    id: `${data.periodKey}-${Date.now()}`,
+    periodKey: data.periodKey,
+    closedAt: new Date().toISOString(),
+    income: data.financial.income,
+    operationalExpenses: data.financial.operationalExpenses,
+    profitBeforeWithdrawals: data.financial.profitBeforeWithdrawals,
+    withdrawals: data.financial.withdrawals,
+    availableForWithdrawal: data.financial.availableForWithdrawal,
+    suggestedWithdrawal: data.financial.suggestedWithdrawal,
+    cashEntries: data.cashEntries.length
+  };
+}
+
+function monthlyClosingPanel(data) {
+  const closing = state.monthlyClosings[data.periodKey];
+
+  return `
+    <section class="panel report-section">
+      <div class="section-heading">
+        <div>
+          <h2>Fechamento mensal</h2>
+          <p class="muted-inline">Calcula faturamento, custos, retiradas e valor disponivel do mes.</p>
+        </div>
+        <button type="button" id="close-month">${closing ? "Atualizar fechamento" : "Fechar mes"}</button>
+      </div>
+      <div class="summary">
+        <div class="metric"><span>Faturamento</span><strong>${money(data.financial.income)}</strong></div>
+        <div class="metric"><span>Custos operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
+        <div class="metric"><span>Lucro antes retiradas</span><strong>${money(data.financial.profitBeforeWithdrawals)}</strong></div>
+      </div>
+      ${closing ? `
+        <div class="closing-record">
+          <span><b>Fechado em</b>${new Date(closing.closedAt).toLocaleString("pt-BR")}</span>
+          <span><b>Disponivel registrado</b>${money(closing.availableForWithdrawal)}</span>
+          <span><b>Cofrinho sugerido</b>${money(closing.suggestedWithdrawal?.savings || 0)}</span>
+          <span><b>Vanessa sugerido</b>${money(closing.suggestedWithdrawal?.vanessa || 0)}</span>
+          <span><b>Raquel sugerido</b>${money(closing.suggestedWithdrawal?.raquel || 0)}</span>
+        </div>
+      ` : `<p class="muted">Este mes ainda nao foi fechado.</p>`}
     </section>
   `;
 }
@@ -2977,6 +3271,7 @@ function renderReports() {
       <div class="report-actions">
         <button class="secondary" type="button" data-export-report="orders">Pedidos CSV</button>
         <button class="secondary" type="button" data-export-report="cash">Caixa CSV</button>
+        <button class="secondary" type="button" data-export-report="financial">Financeiro CSV</button>
         <button class="secondary" type="button" data-export-report="clients">Clientes CSV</button>
         <button class="secondary" type="button" data-export-report="menu">Cardápio CSV</button>
         <button type="button" data-export-report="json">Relatório JSON</button>
@@ -2995,6 +3290,9 @@ function renderReports() {
       <div class="metric report-metric"><span>Entradas no caixa</span><strong>${money(data.income)}</strong></div>
       <div class="metric report-metric"><span>Saídas no caixa</span><strong>${money(data.expenses)}</strong></div>
       <div class="metric report-metric"><span>Saldo do caixa</span><strong class="${data.balance < 0 ? "negative" : "positive"}">${money(data.balance)}</strong></div>
+      <div class="metric report-metric"><span>Saidas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
+      <div class="metric report-metric"><span>Retiradas feitas</span><strong>${money(data.financial.withdrawals.total)}</strong></div>
+      <div class="metric report-metric"><span>Disponivel para retirada</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
       <div class="metric report-metric"><span>Custo planejado</span><strong>${money(data.menuCost)}</strong></div>
       <div class="metric report-metric"><span>Pedidos pagos</span><strong>${data.paidOrders}</strong></div>
       <div class="metric report-metric"><span>Pedidos pendentes</span><strong>${data.pendingOrders}</strong></div>
@@ -3002,6 +3300,16 @@ function renderReports() {
       <div class="metric report-metric"><span>Mensalistas</span><strong>${data.monthlyClients}</strong></div>
     </section>
 
+    <section class="panel report-section">
+      <h2>Retiradas ${reportTitleSuffix(data)}</h2>
+      <div class="summary">
+        <div class="metric"><span>Cofrinho</span><strong>${money(data.financial.withdrawals.savings)}</strong></div>
+        <div class="metric"><span>Vanessa</span><strong>${money(data.financial.withdrawals.vanessa)}</strong></div>
+        <div class="metric"><span>Raquel</span><strong>${money(data.financial.withdrawals.raquel)}</strong></div>
+      </div>
+      ${withdrawalReportTable(data)}
+    </section>
+    ${reportType === "month" ? monthlyClosingPanel(data) : ""}
     <section class="panel report-section">
       <h2>Pedidos ${reportTitleSuffix(data)}</h2>
       ${reportOrdersTable(data)}
@@ -3046,6 +3354,24 @@ function renderReports() {
       exportReport(event.currentTarget.dataset.exportReport);
     });
   });
+
+  const closeMonthButton = document.querySelector("#close-month");
+  if (closeMonthButton) {
+    closeMonthButton.addEventListener("click", () => {
+      if (state.monthlyClosings[data.periodKey] && !confirm(`Atualizar o fechamento de ${data.periodKey}?`)) {
+        return;
+      }
+
+      const closing = monthlyClosingPayload(data);
+      state.monthlyClosings = {
+        ...state.monthlyClosings,
+        [data.periodKey]: closing
+      };
+      recordAudit("Mes fechado", `${data.periodKey} - disponivel ${money(closing.availableForWithdrawal)}`);
+      persistState();
+      renderReports();
+    });
+  }
 }
 
 async function renderBackups() {
@@ -3186,7 +3512,7 @@ function applyRouteParams() {
   }
 }
 
-hydrateState().then(() => {
+Promise.all([hydrateSession(), hydrateState()]).then(() => {
   applyRouteParams();
   routes[routeName()] ? routes[routeName()]() : home();
 });
