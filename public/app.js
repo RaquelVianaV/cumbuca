@@ -838,6 +838,7 @@ function home() {
         ["fluxo-de-caixa", "Fluxo de Caixa", "Organize entradas, saídas e saldo previsto."],
         ["menu-semanal", "Menu Semanal", "Planeje pratos, custos e status de preparo."],
         ["loja", "Loja", "Lance cumbucas vendidas no balcão por dia."],
+        ["financeiro", "Financeiro", "Confira entradas, semanal, saidas, retiradas e fechamento."],
         ["precificacao", "Precificação", "Calcule preço de venda com margem e taxas."],
         ["relatorios", "Relatórios", "Acompanhe vendas, caixa, clientes e cardápio por mês."]
       ].map(([href, heading, text]) => `
@@ -860,6 +861,7 @@ function home() {
     ["fluxo-de-caixa", "Fluxo de Caixa", "Entradas, saídas e saldo", money(metrics.weekBalance), "Saldo da semana"],
     ["menu-semanal", "Menu Semanal", "Pratos, preparo e pedidos", `${metrics.ready}/${metrics.planned || 0}`, "Prontos na semana"],
     ["loja", "Loja", "Vendas do balcão por data", String(metrics.storeToday), "Cumbucas hoje"],
+    ["financeiro", "Financeiro", "Conferencia financeira", money(metrics.balance), "Saldo do mes"],
     ["precificacao", "Precificação", "Ingredientes, margem e venda", String(state.ingredients.length), "Itens cadastrados"],
     ["relatorios", "Relatórios", "Leituras mensais e exportações", String(metrics.bowls), "Cumbucas no mês"]
   ];
@@ -3460,6 +3462,130 @@ function reportTitleSuffix(data) {
   }
 
   return `de ${reportWeekRangeLabel()}`;
+}
+
+function financeFilterPanel(reportType, weekRange) {
+  return `
+    <section class="panel report-panel">
+      <form id="report-filter-form" class="period-picker report-filter" data-period="${reportType}">
+        <label>Periodo
+          <select name="type" id="report-period-type">
+            <option value="month" ${reportType === "month" ? "selected" : ""}>Mes</option>
+            <option value="week" ${reportType === "week" ? "selected" : ""}>Semana</option>
+          </select>
+        </label>
+        <label>Ano
+          <input name="year" type="number" min="2020" max="2100" step="1" value="${state.reportPeriod.year}">
+        </label>
+        <label>Mes
+          <select name="month">
+            ${monthOptions(state.reportPeriod.month)}
+          </select>
+        </label>
+        <label class="report-week-field">De
+          <input name="start" type="date" value="${weekRange.start}">
+        </label>
+        <label class="report-week-field">Ate
+          <input name="end" type="date" value="${weekRange.end}">
+        </label>
+        <button type="submit">Atualizar</button>
+      </form>
+    </section>
+  `;
+}
+
+function bindReportPeriodForm(renderFn, path) {
+  const reportFilterForm = document.querySelector("#report-filter-form");
+  const reportTypeField = document.querySelector("#report-period-type");
+  const weekRange = reportWeekRange();
+
+  reportTypeField.addEventListener("change", event => {
+    reportFilterForm.dataset.period = event.currentTarget.value;
+  });
+
+  reportFilterForm.addEventListener("submit", event => {
+    event.preventDefault();
+    const values = readForm(event.currentTarget);
+    state.reportPeriod = {
+      type: values.type || "month",
+      year: Number(values.year || new Date().getFullYear()),
+      month: Number(values.month || new Date().getMonth() + 1),
+      week: Number(state.reportPeriod.week || 1),
+      start: values.start || weekRange.start,
+      end: values.end || weekRange.end
+    };
+    localStorage.setItem("reportPeriod", JSON.stringify(state.reportPeriod));
+    const weeklyQuery = state.reportPeriod.type === "week" ? `&inicio=${state.reportPeriod.start}&fim=${state.reportPeriod.end}` : "";
+    history.replaceState(null, "", `/${path}?ano=${state.reportPeriod.year}&mes=${state.reportPeriod.month}${weeklyQuery}`);
+    renderFn();
+  });
+}
+
+function bindMonthlyClosing(data, renderFn) {
+  const closeMonthButton = document.querySelector("#close-month");
+  if (!closeMonthButton) {
+    return;
+  }
+
+  closeMonthButton.addEventListener("click", () => {
+    if (state.monthlyClosings[data.periodKey] && !confirm(`Atualizar o fechamento de ${data.periodKey}?`)) {
+      return;
+    }
+
+    const closing = monthlyClosingPayload(data);
+    state.monthlyClosings = {
+      ...state.monthlyClosings,
+      [data.periodKey]: closing
+    };
+    recordAudit("Mes fechado", `${data.periodKey} - disponivel ${money(closing.availableForWithdrawal)}`);
+    persistState();
+    renderFn();
+  });
+}
+
+function renderFinance() {
+  title.textContent = "Financeiro";
+  setActive("financeiro");
+  const data = reportData();
+  const reportType = state.reportPeriod.type || "month";
+  const weekRange = reportWeekRange();
+
+  app.innerHTML = `
+    ${financeFilterPanel(reportType, weekRange)}
+    <section class="report-grid">
+      <div class="metric report-metric"><span>Entrou no caixa</span><strong>${money(data.income)}</strong></div>
+      <div class="metric report-metric"><span>Entrou com semanal</span><strong>${money(data.orderRevenue)}</strong></div>
+      <div class="metric report-metric"><span>Saiu em saidas</span><strong>${money(data.expenses)}</strong></div>
+      <div class="metric report-metric"><span>Saidas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
+      <div class="metric report-metric"><span>Retiradas feitas</span><strong>${money(data.financial.withdrawals.total)}</strong></div>
+      <div class="metric report-metric"><span>Disponivel para retirada</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
+    </section>
+    <section class="panel report-section">
+      <h2>Retiradas ${reportTitleSuffix(data)}</h2>
+      <div class="summary">
+        <div class="metric"><span>Cofrinho</span><strong>${money(data.financial.withdrawals.savings)}</strong></div>
+        <div class="metric"><span>Vanessa</span><strong>${money(data.financial.withdrawals.vanessa)}</strong></div>
+        <div class="metric"><span>Raquel</span><strong>${money(data.financial.withdrawals.raquel)}</strong></div>
+      </div>
+      ${withdrawalReportTable(data)}
+    </section>
+    ${reportType === "month" ? monthlyClosingPanel(data) : ""}
+    <section class="panel report-section">
+      <h2>O que entrou no caixa ${reportTitleSuffix(data)}</h2>
+      ${reportIncomeCashTable(data)}
+    </section>
+    <section class="panel report-section">
+      <h2>O que entrou com o semanal ${reportTitleSuffix(data)}</h2>
+      ${reportOrdersTable(data)}
+    </section>
+    <section class="panel report-section">
+      <h2>O que saiu em saidas ${reportTitleSuffix(data)}</h2>
+      ${reportExpenseOutTable(data)}
+    </section>
+  `;
+
+  bindReportPeriodForm(renderFinance, "financeiro");
+  bindMonthlyClosing(data, renderFinance);
 }
 
 function renderReports() {
