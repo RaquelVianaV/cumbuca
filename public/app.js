@@ -126,14 +126,63 @@ if (logoutButton) {
 }
 
 const LOW_MONTHLY_QUANTITY = 5;
+const incomeCategories = [
+  ["venda", "Venda"],
+  ["ifood", "iFood"],
+  ["99", "99"]
+];
 const expenseCategories = [
-  ["fornecedor", "Fornecedor"],
-  ["embalagem", "Embalagem"],
+  ["supermercado", "Supermercado"],
+  ["despesas-gerais", "Despesas gerais"],
+  ["funcionarios", "Funcionarios"],
+  ["entregador", "Entregador"],
+  ["99-uber", "99/Uber"],
+  ["adesivos", "Adesivos"],
   ["aluguel", "Aluguel"],
-  ["delivery", "Delivery"],
-  ["taxa", "Taxa"],
+  ["enel", "Enel"],
+  ["contador", "Contador"],
+  ["impostos", "Impostos"],
+  ["nubank-cumbuca", "Nubank Cumbuca"],
+  ["bee-delivery", "Bee Delivery"],
+  ["gas", "Gas"],
+  ["vivo", "Vivo"],
   ["retirada", "Retirada"],
+  ["vanessa", "Vanessa"],
+  ["raquel", "Raquel"],
+  ["cofrinho", "Cofrinho"],
+  ["troco", "Troco"],
+  ["diferenca", "Diferenca"],
   ["outros", "Outros"]
+];
+const defaultExpenseReasons = [
+  "Supermercado",
+  "Despesas gerais",
+  "Funcionarios",
+  "Entregador",
+  "99/Uber",
+  "Adesivos",
+  "Jean Veiculos / MARTINS",
+  "Gv Distribuidora / IDEAL",
+  "Mab",
+  "Praso",
+  "Frical",
+  "Frigorifico",
+  "Sanduiches",
+  "Sucos",
+  "Semear",
+  "Aluguel",
+  "Enel",
+  "Contador",
+  "Impostos",
+  "Nubank Cumbuca",
+  "Bee Delivery",
+  "Gas",
+  "Vivo",
+  "Vanessa",
+  "Raquel",
+  "Cofrinho",
+  "Troco",
+  "Diferenca"
 ];
 
 function localValue(key, fallback) {
@@ -142,6 +191,18 @@ function localValue(key, fallback) {
   } catch (error) {
     return fallback;
   }
+}
+
+function seededExpenseReasons() {
+  const saved = localValue("expenseReasons", null);
+  if (Array.isArray(saved) && saved.length) {
+    return saved;
+  }
+  const legacy = localValue("suppliers", null);
+  if (Array.isArray(legacy) && legacy.length) {
+    return legacy;
+  }
+  return defaultExpenseReasons;
 }
 
 const state = {
@@ -156,6 +217,7 @@ const state = {
   clients: localValue("clients", []),
   orders: localValue("orders", []),
   storeSales: localValue("storeSales", []),
+  expenseReasons: seededExpenseReasons(),
   auditLog: localValue("auditLog", []),
   monthlyClosings: localValue("monthlyClosings", {}),
   showClients: false,
@@ -167,6 +229,7 @@ const state = {
   editOrderId: null,
   editCashId: null,
   editStoreSaleId: null,
+  editExpenseReasonIndex: null,
   ingredients: localValue("pricingIngredients", []),
   pricingConfig: localValue("pricingConfig", {}),
   cashFilter: localValue("cashFilter", { period: "all" }),
@@ -192,6 +255,7 @@ function appStatePayload() {
     clients: state.clients,
     orders: state.orders,
     storeSales: state.storeSales,
+    expenseReasons: state.expenseReasons,
     auditLog: state.auditLog,
     monthlyClosings: state.monthlyClosings,
     pricingIngredients: state.ingredients,
@@ -259,6 +323,9 @@ async function hydrateState() {
     state.clients = saved.clients || state.clients;
     state.orders = saved.orders || state.orders;
     state.storeSales = saved.storeSales || state.storeSales;
+    state.expenseReasons = Array.isArray(saved.expenseReasons) && saved.expenseReasons.length
+      ? saved.expenseReasons
+      : (Array.isArray(saved.suppliers) && saved.suppliers.length ? saved.suppliers : state.expenseReasons);
     state.auditLog = saved.auditLog || state.auditLog;
     state.monthlyClosings = saved.monthlyClosings || state.monthlyClosings;
     state.ingredients = saved.pricingIngredients || state.ingredients;
@@ -395,13 +462,22 @@ function endOfWeek(date) {
 }
 
 function filterCashEntries(entries) {
-  const { period, date, month, year } = state.cashFilter;
+  const { period, date, month, year, search } = state.cashFilter;
+  const query = String(search || "").trim().toLowerCase();
+  const searchedEntries = query
+    ? entries.filter(entry => [
+      entry.description,
+      entry.category,
+      categoryName(entry.category),
+      entry.type === "expense" ? "saida" : "entrada"
+    ].some(value => String(value || "").toLowerCase().includes(query)))
+    : entries;
 
   if (!period || period === "all") {
-    return entries;
+    return searchedEntries;
   }
 
-  return entries.filter(entry => {
+  return searchedEntries.filter(entry => {
     if (!entry.date) {
       return false;
     }
@@ -429,7 +505,61 @@ function filterCashEntries(entries) {
 }
 
 function categoryName(value) {
-  return expenseCategories.find(([key]) => key === value)?.[1] || "Outros";
+  if (String(value || "").startsWith("supplier:")) {
+    return String(value).replace(/^supplier:/, "");
+  }
+  if (String(value || "").startsWith("reason:")) {
+    return String(value).replace(/^reason:/, "");
+  }
+  return [...incomeCategories, ...expenseCategories].find(([key]) => key === value)?.[1] || "Outros";
+}
+
+function expenseReasonOptions() {
+  return [...new Set((state.expenseReasons || []).map(name => String(name || "").trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "pt-BR"))
+    .map(name => [`reason:${name}`, name]);
+}
+
+function cashCategoryOptions(type, selected = "") {
+  const normalizedSelected = String(selected || "").replace(/^supplier:/, "reason:");
+  const options = type === "expense"
+    ? [...expenseCategories, ...expenseReasonOptions()]
+    : incomeCategories;
+
+  return options.map(([value, label]) => `
+    <option value="${value}" ${normalizedSelected === value ? "selected" : ""}>${label}</option>
+  `).join("");
+}
+
+function expenseReasonsPanel() {
+  const editingIndex = state.editExpenseReasonIndex;
+  const editing = editingIndex !== null ? state.expenseReasons[editingIndex] : "";
+
+  return `
+    <section class="panel supplier-panel">
+      <h2>Motivos de saida</h2>
+      <form id="expense-reason-form" class="form-grid single">
+        <label>${editing ? "Editar motivo" : "Novo motivo"}
+          <input name="reason" value="${editing || ""}" placeholder="Ex.: Supermercado, Praso, Frical" required>
+        </label>
+        <div class="actions">
+          <button type="submit">${editing ? "Salvar edicao" : "Cadastrar"}</button>
+          ${editing ? `<button class="secondary" type="button" id="cancel-expense-reason-edit">Cancelar</button>` : ""}
+        </div>
+      </form>
+      ${state.expenseReasons.length ? `
+        <div class="reason-list">
+          ${state.expenseReasons.map((reason, index) => `
+            <span>
+              <b>${reason}</b>
+              <button class="secondary table-action" type="button" data-edit-expense-reason="${index}">Editar</button>
+              <button class="danger table-action" type="button" data-delete-expense-reason="${index}">Excluir</button>
+            </span>
+          `).join("")}
+        </div>
+      ` : `<p class="muted">Nenhum motivo cadastrado.</p>`}
+    </section>
+  `;
 }
 
 function cashTotals(entries = state.cash) {
@@ -834,22 +964,20 @@ async function renderCash() {
         <h2>${editing ? "Editar lançamento" : "Novo lançamento"}</h2>
         <form id="cash-form" class="form-grid single">
           <label>Descrição
-            <input name="description" placeholder="Venda marmitas, aluguel, fornecedor" value="${editing?.description || ""}" required>
+            <input name="description" placeholder="Venda, iFood, supermercado, entregador" value="${editing?.description || ""}" required>
           </label>
           <label>Data
             <input name="date" type="date" value="${editing?.date || ""}" required>
           </label>
           <label>Tipo
-            <select name="type">
+            <select name="type" id="cash-type">
               <option value="income" ${editing?.type === "income" ? "selected" : ""}>Entrada</option>
               <option value="expense" ${editing?.type === "expense" ? "selected" : ""}>Saída</option>
             </select>
           </label>
-          <label>Categoria
-            <select name="category">
-              ${expenseCategories.map(([value, label]) => `
-                <option value="${value}" ${(editing?.category || "outros") === value ? "selected" : ""}>${label}</option>
-              `).join("")}
+          <label>Origem / categoria
+            <select name="category" id="cash-category">
+              ${cashCategoryOptions(editing?.type || "income", editing?.category || (editing?.type === "expense" ? "outros" : "venda"))}
             </select>
           </label>
           <label>Valor
@@ -862,6 +990,7 @@ async function renderCash() {
           </div>
         </form>
       </section>
+      ${expenseReasonsPanel()}
       <section class="panel withdrawal-panel">
         <h2>Retiradas</h2>
         <form id="withdrawal-form" class="form-grid single">
@@ -899,6 +1028,9 @@ async function renderCash() {
           </label>
           <label class="filter-control filter-year">Ano
             <input name="year" type="number" min="2000" max="2100" step="1" value="${selectedYear}">
+          </label>
+          <label>Buscar
+            <input name="search" placeholder="Nome, motivo ou origem" value="${state.cashFilter.search || ""}">
           </label>
           <button type="submit">Aplicar</button>
         </form>
@@ -945,6 +1077,64 @@ async function renderCash() {
       renderCash();
     });
   }
+
+  const cashTypeField = document.querySelector("#cash-type");
+  const cashCategoryField = document.querySelector("#cash-category");
+  cashTypeField.addEventListener("change", event => {
+    const type = event.currentTarget.value;
+    cashCategoryField.innerHTML = cashCategoryOptions(type, type === "expense" ? "outros" : "venda");
+  });
+
+  document.querySelector("#expense-reason-form").addEventListener("submit", event => {
+    event.preventDefault();
+    const values = readForm(event.currentTarget);
+    const reason = String(values.reason || "").trim();
+    if (!reason) {
+      return;
+    }
+    if (state.editExpenseReasonIndex !== null) {
+      state.expenseReasons = state.expenseReasons.map((item, index) => index === state.editExpenseReasonIndex ? reason : item);
+      state.editExpenseReasonIndex = null;
+      recordAudit("Motivo de saida editado", reason);
+    } else {
+      state.expenseReasons = [...new Set([...state.expenseReasons, reason])];
+      recordAudit("Motivo de saida criado", reason);
+    }
+    persistState();
+    renderCash();
+  });
+
+  const cancelExpenseReasonEdit = document.querySelector("#cancel-expense-reason-edit");
+  if (cancelExpenseReasonEdit) {
+    cancelExpenseReasonEdit.addEventListener("click", () => {
+      state.editExpenseReasonIndex = null;
+      renderCash();
+    });
+  }
+
+  document.querySelectorAll("[data-edit-expense-reason]").forEach(button => {
+    button.addEventListener("click", event => {
+      state.editExpenseReasonIndex = Number(event.currentTarget.dataset.editExpenseReason);
+      renderCash();
+    });
+  });
+
+  document.querySelectorAll("[data-delete-expense-reason]").forEach(button => {
+    button.addEventListener("click", event => {
+      const index = Number(event.currentTarget.dataset.deleteExpenseReason);
+      const reason = state.expenseReasons[index];
+      if (!confirm(`Excluir o motivo "${reason}"? Lancamentos antigos continuam salvos com esse nome.`)) {
+        return;
+      }
+      state.expenseReasons = state.expenseReasons.filter((_, itemIndex) => itemIndex !== index);
+      if (state.editExpenseReasonIndex === index) {
+        state.editExpenseReasonIndex = null;
+      }
+      recordAudit("Motivo de saida excluido", reason);
+      persistState();
+      renderCash();
+    });
+  });
 
   const withdrawalForm = document.querySelector("#withdrawal-form");
   withdrawalForm.addEventListener("input", () => {
@@ -1029,16 +1219,16 @@ async function renderCash() {
     button.addEventListener("click", event => {
       const quick = event.currentTarget.dataset.cashQuick;
       if (quick === "today") {
-        state.cashFilter = { period: "day", date: today, month: selectedMonth, year: selectedYear };
+        state.cashFilter = { ...state.cashFilter, period: "day", date: today, month: selectedMonth, year: selectedYear };
       }
       if (quick === "week") {
-        state.cashFilter = { period: "week", date: today, month: selectedMonth, year: selectedYear };
+        state.cashFilter = { ...state.cashFilter, period: "week", date: today, month: selectedMonth, year: selectedYear };
       }
       if (quick === "month") {
-        state.cashFilter = { period: "month", date: today, month: today.slice(0, 7), year: selectedYear };
+        state.cashFilter = { ...state.cashFilter, period: "month", date: today, month: today.slice(0, 7), year: selectedYear };
       }
       if (quick === "last-month") {
-        state.cashFilter = { period: "month", date: today, month: lastMonthKey(), year: selectedYear };
+        state.cashFilter = { ...state.cashFilter, period: "month", date: today, month: lastMonthKey(), year: selectedYear };
       }
       persistState();
       renderCash();
@@ -1096,7 +1286,7 @@ function cashTable(entries) {
               <td>${item.date}</td>
               <td>${item.description}</td>
               <td>${item.type === "income" ? "Entrada" : "Saída"}</td>
-              <td>${item.type === "expense" ? categoryName(item.category) : "-"}</td>
+              <td>${categoryName(item.category)}</td>
               <td class="${item.type === "income" ? "positive" : "negative"}">${money(item.amount)}</td>
               <td>
                 <div class="table-actions">
@@ -2401,7 +2591,7 @@ function reportCsvRows(kind, data) {
       data: entry.date || "",
       descricao: entry.description || "",
       tipo: entry.type === "expense" ? "saida" : "entrada",
-      categoria: entry.type === "expense" ? categoryName(entry.category) : "",
+      categoria: categoryName(entry.category),
       valor: Number(entry.amount || 0)
     }));
   }
@@ -2423,7 +2613,7 @@ function reportCsvRows(kind, data) {
       data: entry.date || "",
       descricao: entry.description || "",
       tipo: entry.type === "expense" ? "saida" : "entrada",
-      categoria: entry.type === "expense" ? categoryName(entry.category) : "",
+      categoria: categoryName(entry.category),
       valor: Number(entry.amount || 0)
     })));
   }
@@ -2496,7 +2686,6 @@ function reportPdfHtml(data) {
     ["Entradas no caixa", money(data.income)],
     ["Saídas no caixa", money(data.expenses)],
     ["Saldo do caixa", money(data.balance)],
-    ["Custo planejado", money(data.menuCost)],
     ["Pedidos pagos", data.paidOrders],
     ["Pedidos pendentes", data.pendingOrders],
     ["Clientes semanais", data.weeklyClients],
@@ -2544,15 +2733,6 @@ function reportPdfHtml(data) {
     entry.description || "",
     money(entry.amount)
   ]);
-  const menuRows = data.menuWeeks.map(week => [
-    `Semana ${week.week}`,
-    week.dishes.map(item => item.dish).filter(Boolean).join(", ") || "Sem pratos",
-    money(week.menuCost),
-    week.quantity,
-    week.orders.length,
-    money(week.orderAmount)
-  ]);
-
   return `<!doctype html>
     <html lang="pt-BR">
       <head>
@@ -2727,7 +2907,7 @@ async function downloadReportPdf() {
         entry.date || "",
         entry.description || "",
         entry.type === "expense" ? "Saída" : "Entrada",
-        entry.type === "expense" ? categoryName(entry.category) : "-",
+        categoryName(entry.category),
         money(entry.amount)
       ])
     }
@@ -2787,7 +2967,7 @@ async function downloadReportXlsx() {
         entry.date || "",
         entry.description || "",
         entry.type === "expense" ? "Saída" : "Entrada",
-        entry.type === "expense" ? categoryName(entry.category) : "-",
+        categoryName(entry.category),
         Number(entry.amount || 0)
       ])
     }
@@ -2881,7 +3061,6 @@ function exportReport(kind) {
         averageTicket: data.averageTicket,
         paidOrders: data.paidOrders,
         pendingOrders: data.pendingOrders,
-        menuCost: data.menuCost,
         clients: state.clients.length
       },
       cashEntries: data.cashEntries,
@@ -2939,7 +3118,55 @@ function reportCashTable(data) {
               <td>${entry.date || ""}</td>
               <td>${entry.description || ""}</td>
               <td>${entry.type === "expense" ? "Saída" : "Entrada"}</td>
-              <td>${entry.type === "expense" ? categoryName(entry.category) : "-"}</td>
+              <td>${categoryName(entry.category)}</td>
+              <td>${money(entry.amount)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function reportIncomeCashTable(data) {
+  if (!data.incomeEntries.length) {
+    return `<p class="muted">Nenhuma entrada de caixa neste periodo.</p>`;
+  }
+
+  return `
+    <div class="table-wrap report-table">
+      <table>
+        <thead><tr><th>Data</th><th>Origem</th><th>Descricao</th><th>Valor</th></tr></thead>
+        <tbody>
+          ${data.incomeEntries.map(entry => `
+            <tr>
+              <td>${entry.date || ""}</td>
+              <td>${categoryName(entry.category)}</td>
+              <td>${entry.description || ""}</td>
+              <td>${money(entry.amount)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function reportExpenseOutTable(data) {
+  if (!data.expenseEntries.length) {
+    return `<p class="muted">Nenhuma saida neste periodo.</p>`;
+  }
+
+  return `
+    <div class="table-wrap report-table">
+      <table>
+        <thead><tr><th>Data</th><th>Motivo</th><th>Descricao</th><th>Valor</th></tr></thead>
+        <tbody>
+          ${data.expenseEntries.map(entry => `
+            <tr>
+              <td>${entry.date || ""}</td>
+              <td>${categoryName(entry.category)}</td>
+              <td>${entry.description || ""}</td>
               <td>${money(entry.amount)}</td>
             </tr>
           `).join("")}
@@ -2957,13 +3184,12 @@ function reportMenuTable(data) {
   return `
     <div class="table-wrap report-table">
       <table>
-        <thead><tr><th>Semana</th><th>Pratos</th><th>Custo</th><th>Cumbucas</th><th>Pedidos</th><th>Receita</th></tr></thead>
+        <thead><tr><th>Semana</th><th>Pratos</th><th>Cumbucas</th><th>Pedidos</th><th>Receita</th></tr></thead>
         <tbody>
           ${data.menuWeeks.map(week => `
             <tr>
               <td>Semana ${week.week}</td>
               <td>${week.dishes.map(item => item.dish).filter(Boolean).join(", ") || "Sem pratos"}</td>
-              <td>${money(week.menuCost)}</td>
               <td>${week.quantity}</td>
               <td>${week.orders.length}</td>
               <td>${money(week.orderAmount)}</td>
@@ -3293,7 +3519,6 @@ function renderReports() {
       <div class="metric report-metric"><span>Saidas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
       <div class="metric report-metric"><span>Retiradas feitas</span><strong>${money(data.financial.withdrawals.total)}</strong></div>
       <div class="metric report-metric"><span>Disponivel para retirada</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
-      <div class="metric report-metric"><span>Custo planejado</span><strong>${money(data.menuCost)}</strong></div>
       <div class="metric report-metric"><span>Pedidos pagos</span><strong>${data.paidOrders}</strong></div>
       <div class="metric report-metric"><span>Pedidos pendentes</span><strong>${data.pendingOrders}</strong></div>
       <div class="metric report-metric"><span>Clientes semanais</span><strong>${data.weeklyClients}</strong></div>
@@ -3311,8 +3536,16 @@ function renderReports() {
     </section>
     ${reportType === "month" ? monthlyClosingPanel(data) : ""}
     <section class="panel report-section">
-      <h2>Pedidos ${reportTitleSuffix(data)}</h2>
+      <h2>O que entrou no caixa ${reportTitleSuffix(data)}</h2>
+      ${reportIncomeCashTable(data)}
+    </section>
+    <section class="panel report-section">
+      <h2>O que entrou com o semanal ${reportTitleSuffix(data)}</h2>
       ${reportOrdersTable(data)}
+    </section>
+    <section class="panel report-section">
+      <h2>O que saiu em saidas ${reportTitleSuffix(data)}</h2>
+      ${reportExpenseOutTable(data)}
     </section>
     <section class="panel report-section">
       <h2>Caixa ${reportTitleSuffix(data)}</h2>

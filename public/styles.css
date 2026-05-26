@@ -803,6 +803,36 @@ textarea {
   color: var(--earth);
 }
 
+.supplier-panel {
+  display: grid;
+  grid-column: 1;
+  gap: 12px;
+}
+
+.reason-list {
+  display: grid;
+  gap: 8px;
+  max-height: 280px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.reason-list span {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 42px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f9fafb;
+}
+
+.reason-list b {
+  overflow-wrap: anywhere;
+}
+
 .withdrawal-panel {
   display: grid;
   grid-column: 1;
@@ -811,7 +841,7 @@ textarea {
 
 .cash-ledger-panel {
   grid-column: 2;
-  grid-row: 1 / span 2;
+  grid-row: 1 / span 3;
 }
 
 .withdrawal-preview {
@@ -1807,6 +1837,7 @@ td select {
   .quick-actions,
   .withdrawal-preview,
   .closing-record,
+  .reason-list span,
   .audit-list span {
     grid-template-columns: 1fr;
   }
@@ -1817,6 +1848,7 @@ td select {
   }
 
   .withdrawal-panel,
+  .supplier-panel,
   .cash-ledger-panel {
     grid-column: auto;
     grid-row: auto;
