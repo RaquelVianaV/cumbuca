@@ -1028,6 +1028,31 @@ function dashboardPendingPayments(orders) {
   });
 }
 
+function paymentReminderDate(entry) {
+  const today = isoDate(new Date());
+  if (entry.dueDate) {
+    return entry.dueDate;
+  }
+  if (entry.date && entry.date >= today) {
+    return entry.date;
+  }
+  return "";
+}
+
+function dashboardPendingCashPayments(limit = 5) {
+  const end = isoDate(new Date(Date.now() + 30 * 86400000));
+
+  return state.cash
+    .filter(entry => entry.type === "expense")
+    .map(entry => ({
+      ...entry,
+      reminderDate: paymentReminderDate(entry)
+    }))
+    .filter(entry => entry.reminderDate && entry.reminderDate <= end)
+    .sort((a, b) => String(a.reminderDate).localeCompare(String(b.reminderDate)))
+    .slice(0, limit);
+}
+
 function dashboardLowMonthlyClients(currentKey) {
   return state.clients
     .filter(client => !client.inactive)
@@ -1110,6 +1135,7 @@ function homeMetricData() {
     recentExpenses,
     dishTotals: weeklyDishTotals(menuItems, weekOrders),
     pendingPayments: dashboardPendingPayments(weekOrders),
+    pendingCashPayments: dashboardPendingCashPayments(),
     lowMonthlyClients: dashboardLowMonthlyClients(currentMenuKey),
     clientsWithoutAddress: dashboardClientsWithoutAddress(),
     menuWithoutCost: dashboardMenuWithoutCost(menuItems),
@@ -1130,6 +1156,10 @@ function dashboardAlerts(metrics, weeklyOrders) {
 
   if (metrics.pendingPayments.length) {
     alerts.push(["Pagamentos pendentes", `${metrics.pendingPayments.length} pedido(s)`]);
+  }
+
+  if (metrics.pendingCashPayments.length) {
+    alerts.push(["Contas a vencer", `${metrics.pendingCashPayments.length} conta(s)`]);
   }
 
   if (metrics.lowMonthlyClients.length) {
@@ -1292,14 +1322,21 @@ function home() {
       </div>
       <div class="panel dashboard-panel">
         <h2>Pagamentos pendentes</h2>
-        ${metrics.pendingPayments.length ? `
+        ${metrics.pendingPayments.length || metrics.pendingCashPayments.length ? `
           <div class="recent-list">
+            ${metrics.pendingCashPayments.map(entry => `
+              <span>
+                <b>${money(entry.amount)}</b>
+                ${entry.description || categoryName(entry.category)}
+                <small>${formatIsoDateBr(entry.reminderDate)} - ${entry.dueDate ? dueDateDistanceLabel(entry.dueDate) : "Despesa programada"}</small>
+              </span>
+            `).join("")}
             ${metrics.pendingPayments.slice(0, 5).map(order => {
               const client = clientByPhone(order.clientPhone);
-              return `<span><b>${money(order.amount)}</b>${client.name || order.clientPhone}<small>${orderQuantity(order)} cumbucas</small></span>`;
+              return `<span><b>${money(order.amount)}</b>${client.name || order.clientPhone}<small>${orderQuantity(order)} cumbucas - pedido semanal</small></span>`;
             }).join("")}
           </div>
-        ` : `<p class="muted">Nenhum pagamento semanal pendente.</p>`}
+        ` : `<p class="muted">Nenhum pagamento ou conta pendente.</p>`}
       </div>
     </section>
 
@@ -1308,7 +1345,7 @@ function home() {
       ${metrics.recentExpenses.length ? `
           <div class="recent-list">
             ${metrics.recentExpenses.map(entry => `
-              <span><b>${money(entry.amount)}</b>${entry.description || "Despesa"}<small>${entry.date || ""}</small></span>
+              <span><b>${money(entry.amount)}</b>${entry.description || "Despesa"}<small>${formatIsoDateBr(entry.date)}</small></span>
             `).join("")}
           </div>
         ` : `<p class="muted">Nenhuma despesa lançada ainda.</p>`}
@@ -4317,9 +4354,13 @@ function upcomingBills(limit = 6) {
   const end = isoDate(new Date(Date.now() + 30 * 86400000));
 
   return state.cash
-    .filter(entry => entry.type === "expense" && entry.dueDate)
-    .filter(entry => entry.dueDate <= end)
-    .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)))
+    .filter(entry => entry.type === "expense")
+    .map(entry => ({
+      ...entry,
+      reminderDate: paymentReminderDate(entry)
+    }))
+    .filter(entry => entry.reminderDate && entry.reminderDate <= end)
+    .sort((a, b) => String(a.reminderDate).localeCompare(String(b.reminderDate)))
     .slice(0, limit);
 }
 
@@ -4335,7 +4376,7 @@ function upcomingBillsPanel() {
             <span>
               <b>${money(entry.amount)}</b>
               ${entry.description || categoryName(entry.category)}
-              <small>${formatIsoDateBr(entry.dueDate)} - ${dueDateDistanceLabel(entry.dueDate)}</small>
+              <small>${formatIsoDateBr(entry.reminderDate)} - ${entry.dueDate ? dueDateDistanceLabel(entry.dueDate) : "Despesa programada"}</small>
             </span>
           `).join("")}
         </div>
