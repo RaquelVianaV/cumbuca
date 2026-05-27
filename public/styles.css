@@ -201,6 +201,37 @@ button.secondary:hover {
   background: #f9fafb;
 }
 
+a.secondary.table-action,
+.file-action {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #ffffff;
+  color: #374151;
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+a.secondary.table-action:hover,
+.file-action:hover {
+  border-color: var(--line-strong);
+  background: #f9fafb;
+}
+
+.file-action input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .shell {
   width: min(1180px, calc(100% - 36px));
   margin: 0 auto;
@@ -551,7 +582,7 @@ h2 {
 
 .focus-list {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -921,6 +952,86 @@ textarea {
 
 .backup-list-state {
   min-height: 82px;
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  background: #f9fafb;
+  color: var(--muted);
+}
+
+.backup-manual-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.backup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.backup-list-state strong {
+  color: var(--green-dark);
+}
+
+.db-usage-card {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.9fr) minmax(0, 1.4fr);
+  gap: 14px;
+  align-items: stretch;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--green);
+  border-radius: 8px;
+  background: #f9fafb;
+}
+
+.db-usage-card[data-level="medium"] {
+  border-left-color: #b7791f;
+}
+
+.db-usage-card[data-level="high"] {
+  border-left-color: var(--red);
+}
+
+.db-usage-card > div:first-child {
+  display: grid;
+  align-content: center;
+  gap: 6px;
+}
+
+.db-usage-card span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.db-usage-card strong {
+  color: var(--green-dark);
+  font-size: 1.45rem;
+  line-height: 1;
+}
+
+.db-usage-card[data-level="medium"] strong {
+  color: #92400e;
+}
+
+.db-usage-card[data-level="high"] strong {
+  color: var(--red);
+}
+
+.db-usage-card p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.db-usage-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .toast-area {
@@ -1273,7 +1384,8 @@ textarea {
   line-height: 1;
 }
 
-.client-tabs {
+.client-tabs,
+.order-tabs {
   display: flex;
   gap: 8px;
   padding: 6px;
@@ -1282,7 +1394,8 @@ textarea {
   background: #f3f4f6;
 }
 
-.client-tabs button {
+.client-tabs button,
+.order-tabs button {
   min-height: 40px;
   flex: 1;
   border: 0;
@@ -1292,10 +1405,17 @@ textarea {
 }
 
 .client-tabs button.active,
-.client-tabs button:hover {
+.client-tabs button:hover,
+.order-tabs button.active,
+.order-tabs button:hover {
   background: #ffffff;
   color: var(--green-dark);
   box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+
+.order-tab-panel {
+  display: grid;
+  gap: 14px;
 }
 
 .client-form {
@@ -1835,6 +1955,8 @@ td select {
 
   .focus-list,
   .quick-actions,
+  .db-usage-card,
+  .db-usage-metrics,
   .withdrawal-preview,
   .closing-record,
   .reason-list span,
@@ -1858,7 +1980,8 @@ td select {
     flex-direction: column;
   }
 
-  .client-tabs {
+  .client-tabs,
+  .order-tabs {
     flex-direction: column;
   }
 
@@ -1875,6 +1998,41 @@ td select {
 }
 
 @media (max-width: 560px) {
+  .table-wrap table,
+  .table-wrap thead,
+  .table-wrap tbody,
+  .table-wrap tr,
+  .table-wrap th,
+  .table-wrap td {
+    display: block;
+  }
+
+  .table-wrap thead {
+    display: none;
+  }
+
+  .table-wrap tr {
+    margin-bottom: 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #ffffff;
+    overflow: hidden;
+  }
+
+  .table-wrap td {
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    padding: 9px 10px;
+  }
+
+  .table-wrap td:last-child {
+    border-bottom: 0;
+  }
+
+  .table-actions {
+    flex-wrap: wrap;
+  }
+
   .shell {
     width: min(100% - 24px, 1180px);
     padding-top: 30px;

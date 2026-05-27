@@ -102,19 +102,13 @@ async function updatePersistenceStatus() {
     }
     const result = await response.json();
     if (!result.database || !result.saved) {
-      setSaveStatus("Salvando só local", "offline");
+      setSaveStatus("Salvando so local", "offline");
       return;
     }
 
-    const backupDate = result.lastBackup?.backup_date
-      ? formatIsoDateBr(String(result.lastBackup.backup_date).slice(0, 10))
-      : "";
-    const backupText = result.backupWeeklyOk
-      ? `backup semanal ok ${backupDate}`
-      : "backup semanal pendente";
-    setSaveStatus(`Supabase ok · ${backupText}`, "online");
+    setSaveStatus("Supabase ok - backup manual", "online");
   } catch (error) {
-    setSaveStatus("Sem confirmação do Supabase", "offline");
+    setSaveStatus("Sem confirmacao do Supabase", "offline");
   }
 }
 
@@ -134,6 +128,7 @@ const incomeCategories = [
 const expenseCategories = [
   ["supermercado", "Supermercado"],
   ["despesas-gerais", "Despesas gerais"],
+  ["boleto", "Boleto"],
   ["funcionarios", "Funcionarios"],
   ["entregador", "Entregador"],
   ["99-uber", "99/Uber"],
@@ -225,6 +220,9 @@ const state = {
   showPlanning: false,
   showMonthSummary: false,
   clientTab: "form",
+  orderTab: "form",
+  clientSearch: "",
+  orderSearch: "",
   editClientIndex: null,
   editOrderId: null,
   editCashId: null,
@@ -233,13 +231,19 @@ const state = {
   ingredients: localValue("pricingIngredients", []),
   pricingConfig: localValue("pricingConfig", {}),
   cashFilter: localValue("cashFilter", { period: "all" }),
+  financialPlanning: localValue("financialPlanning", {
+    savings: "",
+    improvements: [],
+    purchases: []
+  }),
   reportPeriod: localValue("reportPeriod", {
     type: "month",
     year: new Date().getFullYear(),
     month: new Date().getMonth() + 1,
     week: 1,
     start: "",
-    end: ""
+    end: "",
+    expenseCategory: "all"
   }),
   currentUser: null,
   database: false
@@ -260,7 +264,8 @@ function appStatePayload() {
     monthlyClosings: state.monthlyClosings,
     pricingIngredients: state.ingredients,
     pricingConfig: state.pricingConfig,
-    cashFilter: state.cashFilter
+    cashFilter: state.cashFilter,
+    financialPlanning: state.financialPlanning
   };
 }
 
@@ -331,6 +336,7 @@ async function hydrateState() {
     state.ingredients = saved.pricingIngredients || state.ingredients;
     state.pricingConfig = saved.pricingConfig || state.pricingConfig;
     state.cashFilter = saved.cashFilter || state.cashFilter;
+    state.financialPlanning = saved.financialPlanning || state.financialPlanning;
     persistLocal();
   } catch (error) {
     state.database = false;
@@ -377,6 +383,31 @@ async function latestBackupPayload() {
   };
 }
 
+async function importBackupFile(file) {
+  const text = await file.text();
+  const parsed = JSON.parse(text);
+  const data = parsed.data || parsed.state || parsed;
+
+  state.cash = data.cashEntries || state.cash;
+  state.menus = data.weeklyMenusByPeriod || state.menus;
+  state.menuWeek = Number(data.menuWeek || state.menuWeek);
+  state.menuPeriod = data.menuPeriod || state.menuPeriod;
+  state.menuDates = data.menuDatesByPeriod || state.menuDates;
+  state.clients = data.clients || state.clients;
+  state.orders = data.orders || state.orders;
+  state.storeSales = data.storeSales || state.storeSales;
+  state.expenseReasons = data.expenseReasons || state.expenseReasons;
+  state.auditLog = data.auditLog || state.auditLog;
+  state.monthlyClosings = data.monthlyClosings || state.monthlyClosings;
+  state.ingredients = data.pricingIngredients || state.ingredients;
+  state.pricingConfig = data.pricingConfig || state.pricingConfig;
+  state.cashFilter = data.cashFilter || state.cashFilter;
+  state.financialPlanning = data.financialPlanning || state.financialPlanning;
+
+  recordAudit("backup_importado", file.name || "backup manual");
+  await persistState();
+}
+
 async function downloadBackup() {
   if (!backupButton) {
     return;
@@ -403,6 +434,207 @@ async function downloadBackup() {
     backupButton.disabled = false;
     backupButton.textContent = originalText;
   }
+}
+
+function yearFromMenuKey(key) {
+  return String(key || "").slice(0, 4);
+}
+
+function cleanupPreview(year) {
+  const target = String(year || "");
+  return {
+    cash: state.cash.filter(entry => String(entry.date || "").startsWith(target)).length,
+    orders: state.orders.filter(order => yearFromMenuKey(order.menuKey) === target).length,
+    menus: Object.keys(state.menus || {}).filter(key => yearFromMenuKey(key) === target).length,
+    menuDates: Object.keys(state.menuDates || {}).filter(key => yearFromMenuKey(key) === target).length,
+    storeSales: state.storeSales.filter(entry => String(entry.date || "").startsWith(target)).length,
+    monthlyClosings: Object.keys(state.monthlyClosings || {}).filter(key => String(key || "").startsWith(target)).length
+  };
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function estimatedBytes(value) {
+  return new TextEncoder().encode(JSON.stringify(value || {})).length;
+}
+
+function databaseUsageEstimate() {
+  const payload = appStatePayload();
+  const sizeBytes = estimatedBytes(payload);
+  const records = {
+    cash: state.cash.length,
+    orders: state.orders.length,
+    menus: Object.keys(state.menus || {}).length,
+    menuDates: Object.keys(state.menuDates || {}).length,
+    storeSales: state.storeSales.length,
+    monthlyClosings: Object.keys(state.monthlyClosings || {}).length,
+    clients: state.clients.length,
+    pricingIngredients: state.ingredients.length,
+    auditLog: state.auditLog.length
+  };
+  const totalRecords = Object.values(records).reduce((sum, value) => sum + value, 0);
+  const level = sizeBytes >= 5 * 1024 * 1024 || totalRecords >= 10000
+    ? "high"
+    : sizeBytes >= 1 * 1024 * 1024 || totalRecords >= 3000
+      ? "medium"
+      : "low";
+  const label = level === "high" ? "Alto" : level === "medium" ? "Moderado" : "Leve";
+  const message = level === "high"
+    ? "Recomendado baixar backup e limpar anos antigos."
+    : level === "medium"
+      ? "Acompanhe o crescimento e planeje limpeza anual."
+      : "Banco em tamanho tranquilo para uso normal.";
+
+  return {
+    sizeBytes,
+    totalRecords,
+    records,
+    level,
+    label,
+    message
+  };
+}
+
+function yearUsageEstimate(year) {
+  const target = String(year || "");
+  const scopedPayload = {
+    cashEntries: state.cash.filter(entry => String(entry.date || "").startsWith(target)),
+    orders: state.orders.filter(order => yearFromMenuKey(order.menuKey) === target),
+    weeklyMenusByPeriod: Object.fromEntries(Object.entries(state.menus || {}).filter(([key]) => yearFromMenuKey(key) === target)),
+    menuDatesByPeriod: Object.fromEntries(Object.entries(state.menuDates || {}).filter(([key]) => yearFromMenuKey(key) === target)),
+    storeSales: state.storeSales.filter(entry => String(entry.date || "").startsWith(target)),
+    monthlyClosings: Object.fromEntries(Object.entries(state.monthlyClosings || {}).filter(([key]) => String(key || "").startsWith(target)))
+  };
+
+  return estimatedBytes(scopedPayload);
+}
+
+function databaseUsageHtml(selectedYear) {
+  const usage = databaseUsageEstimate();
+  const yearBytes = yearUsageEstimate(selectedYear);
+  return `
+    <div class="db-usage-card" data-level="${usage.level}">
+      <div>
+        <span>Status de lotacao</span>
+        <strong>${usage.label}</strong>
+        <p>${usage.message}</p>
+      </div>
+      <div class="db-usage-metrics">
+        <div class="metric"><span>Uso estimado</span><strong>${formatBytes(usage.sizeBytes)}</strong></div>
+        <div class="metric"><span>Registros</span><strong>${usage.totalRecords}</strong></div>
+        <div class="metric"><span>Ano selecionado</span><strong>${formatBytes(yearBytes)}</strong></div>
+      </div>
+    </div>
+  `;
+}
+
+function realDatabaseUsageHtml(result) {
+  if (!result?.database) {
+    return `<p class="muted">Nao foi possivel consultar o tamanho real do Supabase agora.</p>`;
+  }
+
+  if (!result.tables?.length) {
+    return `<p class="muted">Nenhuma tabela da Cumbuca encontrada no Supabase.</p>`;
+  }
+
+  return `
+    <div class="table-wrap report-table">
+      <table>
+        <thead><tr><th>Tabela</th><th>Linhas</th><th>Tamanho total</th><th>Dados</th></tr></thead>
+        <tbody>
+          ${result.tables.map(table => `
+            <tr>
+              <td>${table.name}</td>
+              <td>${table.rows}</td>
+              <td>${formatBytes(table.totalBytes || 0)}</td>
+              <td>${formatBytes(table.tableBytes || 0)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function loadRealDatabaseUsage() {
+  const target = document.querySelector("#real-db-usage");
+  if (!target) {
+    return;
+  }
+
+  try {
+    const response = await fetch("/api/database-usage", { cache: "no-store" });
+    const result = await response.json();
+    target.innerHTML = realDatabaseUsageHtml(result);
+  } catch (error) {
+    target.innerHTML = `<p class="muted">Nao foi possivel consultar o tamanho real do Supabase agora.</p>`;
+  }
+}
+
+function cleanupYears() {
+  const years = new Set();
+  state.cash.forEach(entry => {
+    if (String(entry.date || "").slice(0, 4)) {
+      years.add(String(entry.date || "").slice(0, 4));
+    }
+  });
+  state.orders.forEach(order => {
+    if (yearFromMenuKey(order.menuKey)) {
+      years.add(yearFromMenuKey(order.menuKey));
+    }
+  });
+  state.storeSales.forEach(entry => {
+    if (String(entry.date || "").slice(0, 4)) {
+      years.add(String(entry.date || "").slice(0, 4));
+    }
+  });
+  Object.keys(state.menus || {}).forEach(key => years.add(yearFromMenuKey(key)));
+  Object.keys(state.monthlyClosings || {}).forEach(key => years.add(String(key || "").slice(0, 4)));
+
+  const currentYear = String(new Date().getFullYear());
+  return [...years]
+    .filter(year => /^\d{4}$/.test(year))
+    .filter(year => year !== currentYear)
+    .sort((a, b) => b.localeCompare(a));
+}
+
+async function cleanupYear(year) {
+  const target = String(year || "");
+  const preview = cleanupPreview(target);
+
+  state.cash = state.cash.filter(entry => !String(entry.date || "").startsWith(target));
+  state.orders = state.orders.filter(order => yearFromMenuKey(order.menuKey) !== target);
+  state.storeSales = state.storeSales.filter(entry => !String(entry.date || "").startsWith(target));
+  state.menus = Object.fromEntries(Object.entries(state.menus || {}).filter(([key]) => yearFromMenuKey(key) !== target));
+  state.menuDates = Object.fromEntries(Object.entries(state.menuDates || {}).filter(([key]) => yearFromMenuKey(key) !== target));
+  state.monthlyClosings = Object.fromEntries(Object.entries(state.monthlyClosings || {}).filter(([key]) => !String(key || "").startsWith(target)));
+
+  recordAudit("limpeza_ano", `${target}: ${JSON.stringify(preview)}`);
+  await persistState();
+  return preview;
+}
+
+function cleanupPreviewHtml(year, preview) {
+  const total = Object.values(preview).reduce((sum, value) => sum + value, 0);
+  return `
+    <div class="summary">
+      <div class="metric"><span>Caixa</span><strong>${preview.cash}</strong></div>
+      <div class="metric"><span>Pedidos</span><strong>${preview.orders}</strong></div>
+      <div class="metric"><span>Menus</span><strong>${preview.menus}</strong></div>
+      <div class="metric"><span>Datas menu</span><strong>${preview.menuDates}</strong></div>
+      <div class="metric"><span>Loja</span><strong>${preview.storeSales}</strong></div>
+      <div class="metric"><span>Fechamentos</span><strong>${preview.monthlyClosings}</strong></div>
+    </div>
+    <p class="muted">${total ? `A limpeza de ${year} removera ${total} grupo(s)/registro(s) antigos.` : `Nao ha dados de ${year} para apagar.`}</p>
+  `;
 }
 
 if (backupButton) {
@@ -529,6 +761,35 @@ function cashCategoryOptions(type, selected = "") {
   return options.map(([value, label]) => `
     <option value="${value}" ${normalizedSelected === value ? "selected" : ""}>${label}</option>
   `).join("");
+}
+
+function isBillCategory(value) {
+  const normalized = String(value || "").replace(/^supplier:/, "reason:").toLowerCase();
+  return normalized === "boleto" || normalized === "reason:boleto" || normalized.includes("boleto");
+}
+
+function textLines(value) {
+  return String(value || "")
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean);
+}
+
+function planningText(items) {
+  return Array.isArray(items) ? items.map(item => escapeHtml(item)).join("\n") : "";
+}
+
+function planningItemsHtml(items, emptyText) {
+  const cleanItems = Array.isArray(items) ? items.filter(Boolean) : [];
+  if (!cleanItems.length) {
+    return `<p class="muted">${emptyText}</p>`;
+  }
+
+  return `
+    <div class="recent-list">
+      ${cleanItems.map(item => `<span><b>${escapeHtml(item)}</b></span>`).join("")}
+    </div>
+  `;
 }
 
 function expenseReasonsPanel() {
@@ -746,13 +1007,56 @@ function currentMonthKey() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function dishNameForSlot(menuItems, slot) {
+  return menuItems.find(item => Number(item.slot) === Number(slot))?.dish || `Cumbuca ${slot}`;
+}
+
+function weeklyDishTotals(menuItems, orders) {
+  return [1, 2, 3, 4, 5]
+    .map(slot => ({
+      slot,
+      dish: dishNameForSlot(menuItems, slot),
+      quantity: orders.reduce((sum, order) => sum + orderDishQuantity(order, slot), 0)
+    }))
+    .filter(item => item.quantity > 0 || menuItems.some(menu => Number(menu.slot) === Number(item.slot)));
+}
+
+function dashboardPendingPayments(orders) {
+  return orders.filter(order => {
+    const client = clientByPhone(order.clientPhone);
+    return client.plan === "semanal" && !order.paid;
+  });
+}
+
+function dashboardLowMonthlyClients(currentKey) {
+  return state.clients
+    .filter(client => !client.inactive)
+    .filter(client => client.plan === "mensalista")
+    .filter(client => isLowMonthlyQuantity(client, currentKey) || clientRemainingQuantity(client, currentKey) <= 0)
+    .slice(0, 5);
+}
+
+function dashboardClientsWithoutAddress() {
+  return state.clients
+    .filter(client => !client.inactive)
+    .filter(client => !String(client.address || "").trim())
+    .slice(0, 5);
+}
+
+function dashboardMenuWithoutCost(menuItems) {
+  return menuItems.filter(item => String(item.dish || "").trim() && Number(item.cost || 0) <= 0);
+}
+
 function homeMetricData() {
   const monthKey = currentMonthKey();
   const currentMenuKey = menuKey(state.menuWeek || 1);
+  const menuItems = state.menus[currentMenuKey] || [];
+  const weekOrders = state.orders.filter(order => order.menuKey === currentMenuKey);
   const monthOrders = state.orders.filter(order => menuPeriodKeyFromKey(order.menuKey) === monthKey);
   const monthCash = state.cash.filter(entry => String(entry.date || "").startsWith(monthKey));
   const todayKey = isoDate(new Date());
   const todayCash = state.cash.filter(entry => entry.date === todayKey);
+  const todayOrders = weekOrders.filter(order => String(order.createdAt || "").slice(0, 10) === todayKey);
   const weekStart = isoDate(startOfWeek(new Date()));
   const weekEnd = isoDate(endOfWeek(new Date()));
   const weekCash = state.cash.filter(entry => {
@@ -765,7 +1069,6 @@ function homeMetricData() {
   const expenses = monthCash
     .filter(entry => entry.type === "expense")
     .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-  const menuItems = state.menus[currentMenuKey] || [];
   const todayIncome = todayCash
     .filter(entry => entry.type !== "expense")
     .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
@@ -796,13 +1099,20 @@ function homeMetricData() {
     weekExpenses,
     weekStart,
     weekEnd,
+    todayOrders,
+    weekOrders,
     orders: monthOrders.length,
     bowls: monthOrders.reduce((sum, order) => sum + orderQuantity(order), 0),
-    clients: state.clients.length,
+    clients: state.clients.filter(client => !client.inactive).length,
     planned: menuItems.length,
     ready: menuItems.filter(item => item.status === "pronto").length,
     storeToday,
     recentExpenses,
+    dishTotals: weeklyDishTotals(menuItems, weekOrders),
+    pendingPayments: dashboardPendingPayments(weekOrders),
+    lowMonthlyClients: dashboardLowMonthlyClients(currentMenuKey),
+    clientsWithoutAddress: dashboardClientsWithoutAddress(),
+    menuWithoutCost: dashboardMenuWithoutCost(menuItems),
     monthKey
   };
 }
@@ -816,6 +1126,22 @@ function dashboardAlerts(metrics, weeklyOrders) {
 
   if (!weeklyOrders) {
     alerts.push(["Nenhum pedido na semana aberta", "Confira o menu"]);
+  }
+
+  if (metrics.pendingPayments.length) {
+    alerts.push(["Pagamentos pendentes", `${metrics.pendingPayments.length} pedido(s)`]);
+  }
+
+  if (metrics.lowMonthlyClients.length) {
+    alerts.push(["Mensalistas no limite", `${metrics.lowMonthlyClients.length} cliente(s)`]);
+  }
+
+  if (metrics.clientsWithoutAddress.length) {
+    alerts.push(["Cliente sem endereco", `${metrics.clientsWithoutAddress.length} cadastro(s)`]);
+  }
+
+  if (metrics.menuWithoutCost.length) {
+    alerts.push(["Menu sem custo", `${metrics.menuWithoutCost.length} cumbuca(s)`]);
   }
 
   if (!metrics.storeToday) {
@@ -914,8 +1240,9 @@ function home() {
 
     <section class="dashboard-lane">
       <div class="panel dashboard-panel">
-        <h2>Semana</h2>
+        <h2>Hoje e semana</h2>
         <div class="focus-list">
+          <span><strong>${metrics.todayOrders.length}</strong> pedidos hoje</span>
           <span><strong>${money(metrics.weekIncome)}</strong> entradas</span>
           <span><strong>${money(metrics.weekExpenses)}</strong> saídas</span>
           <span><strong>${weeklyOrders}</strong> pedidos na semana aberta</span>
@@ -928,6 +1255,51 @@ function home() {
             ${alerts.map(([label, detail]) => `<span><b>${label}</b>${detail}</span>`).join("")}
           </div>
         ` : `<p class="muted">Nenhum alerta agora.</p>`}
+      </div>
+    </section>
+
+    <section class="dashboard-lane">
+      <div class="panel dashboard-panel">
+        <h2>Producao por sabor</h2>
+        ${metrics.dishTotals.length ? `
+          <div class="recent-list">
+            ${metrics.dishTotals.map(item => `
+              <span><b>${item.quantity}</b>${item.dish || `Cumbuca ${item.slot}`}<small>Cumbuca ${item.slot}</small></span>
+            `).join("")}
+          </div>
+        ` : `<p class="muted">Nenhuma cumbuca planejada ou pedida nesta semana.</p>`}
+      </div>
+      <div class="panel dashboard-panel">
+        <h2>Acoes rapidas</h2>
+        <div class="quick-actions">
+          <a href="/menu-semanal">Pedido</a>
+          <a href="/financeiro">Financeiro</a>
+          <a href="/backups">Backup</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="dashboard-lane">
+      <div class="panel dashboard-panel">
+        <h2>Mensalistas no limite</h2>
+        ${metrics.lowMonthlyClients.length ? `
+          <div class="recent-list">
+            ${metrics.lowMonthlyClients.map(client => `
+              <span><b>${clientRemainingQuantity(client, menuKey(state.menuWeek || 1))}</b>${client.name || client.phone}<small>restantes</small></span>
+            `).join("")}
+          </div>
+        ` : `<p class="muted">Nenhum mensalista no limite agora.</p>`}
+      </div>
+      <div class="panel dashboard-panel">
+        <h2>Pagamentos pendentes</h2>
+        ${metrics.pendingPayments.length ? `
+          <div class="recent-list">
+            ${metrics.pendingPayments.slice(0, 5).map(order => {
+              const client = clientByPhone(order.clientPhone);
+              return `<span><b>${money(order.amount)}</b>${client.name || order.clientPhone}<small>${orderQuantity(order)} cumbucas</small></span>`;
+            }).join("")}
+          </div>
+        ` : `<p class="muted">Nenhum pagamento semanal pendente.</p>`}
       </div>
     </section>
 
@@ -981,6 +1353,9 @@ async function renderCash() {
             <select name="category" id="cash-category">
               ${cashCategoryOptions(editing?.type || "income", editing?.category || (editing?.type === "expense" ? "outros" : "venda"))}
             </select>
+          </label>
+          <label id="cash-due-date-field">Vencimento
+            <input name="dueDate" type="date" value="${editing?.dueDate || ""}">
           </label>
           <label>Valor
             <input name="amount" type="number" min="0" step="0.01" placeholder="0,00" value="${editing?.amount || ""}" required>
@@ -1082,10 +1457,22 @@ async function renderCash() {
 
   const cashTypeField = document.querySelector("#cash-type");
   const cashCategoryField = document.querySelector("#cash-category");
+  const cashDueDateField = document.querySelector("#cash-due-date-field");
+  const updateCashDueDateVisibility = () => {
+    const shouldShow = cashTypeField.value === "expense" && isBillCategory(cashCategoryField.value);
+    cashDueDateField.hidden = !shouldShow;
+    cashDueDateField.querySelector("input").required = shouldShow;
+    if (!shouldShow) {
+      cashDueDateField.querySelector("input").value = "";
+    }
+  };
   cashTypeField.addEventListener("change", event => {
     const type = event.currentTarget.value;
     cashCategoryField.innerHTML = cashCategoryOptions(type, type === "expense" ? "outros" : "venda");
+    updateCashDueDateVisibility();
   });
+  cashCategoryField.addEventListener("change", updateCashDueDateVisibility);
+  updateCashDueDateVisibility();
 
   document.querySelector("#expense-reason-form").addEventListener("submit", event => {
     event.preventDefault();
@@ -1281,14 +1668,15 @@ function cashTable(entries) {
   return `
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Categoria</th><th>Valor</th><th></th></tr></thead>
+        <thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Categoria</th><th>Vencimento</th><th>Valor</th><th></th></tr></thead>
         <tbody>
           ${entries.map(item => `
             <tr>
-              <td>${item.date}</td>
+              <td>${formatIsoDateBr(item.date)}</td>
               <td>${item.description}</td>
               <td>${item.type === "income" ? "Entrada" : "Saída"}</td>
               <td>${categoryName(item.category)}</td>
+              <td>${item.dueDate ? formatIsoDateBr(item.dueDate) : "-"}</td>
               <td class="${item.type === "income" ? "positive" : "negative"}">${money(item.amount)}</td>
               <td>
                 <div class="table-actions">
@@ -1447,6 +1835,7 @@ async function renderMenu() {
             </div>
             <div class="actions">
               <button type="submit">Salvar menu</button>
+              ${currentWeek > 1 ? `<button class="secondary" type="button" id="copy-previous-menu">Duplicar semana anterior</button>` : ""}
               <button class="secondary" type="button" id="clear-menu">Limpar</button>
             </div>
           </form>
@@ -1542,15 +1931,40 @@ async function renderMenu() {
     button.addEventListener("click", event => {
       const index = Number(event.currentTarget.dataset.deleteClient);
       const client = state.clients[index];
-      if (!confirm(`Excluir cadastro de ${client.name}?`)) {
+      if (!confirm(`Inativar cadastro de ${client.name}? O historico de pedidos sera mantido.`)) {
         return;
       }
-      state.clients.splice(index, 1);
+      state.clients[index] = {
+        ...client,
+        inactive: true,
+        inactiveAt: new Date().toISOString()
+      };
       state.editClientIndex = null;
       persistState();
       renderMenu();
     });
   });
+
+  document.querySelectorAll("[data-reactivate-client]").forEach(button => {
+    button.addEventListener("click", event => {
+      const index = Number(event.currentTarget.dataset.reactivateClient);
+      state.clients[index] = {
+        ...state.clients[index],
+        inactive: false,
+        inactiveAt: ""
+      };
+      persistState();
+      renderMenu();
+    });
+  });
+
+  const clientSearch = document.querySelector("[data-client-search]");
+  if (clientSearch) {
+    clientSearch.addEventListener("input", event => {
+      state.clientSearch = event.currentTarget.value;
+      renderMenu();
+    });
+  }
 
   if (clientForm) {
     const cancelClientEdit = document.querySelector("#cancel-client-edit");
@@ -1576,6 +1990,15 @@ async function renderMenu() {
     clientForm.addEventListener("submit", event => {
       event.preventDefault();
       const data = readForm(event.currentTarget);
+      const normalizedPhone = String(data.phone || "").replace(/\D/g, "");
+      const duplicateClient = state.clients.find((client, index) => {
+        const samePhone = String(client.phone || "").replace(/\D/g, "") === normalizedPhone;
+        return samePhone && index !== state.editClientIndex;
+      });
+      if (duplicateClient) {
+        alert(`Ja existe cliente cadastrado com este telefone: ${duplicateClient.name || duplicateClient.phone}`);
+        return;
+      }
       const periodKey = currentMenuPeriodKey();
       const monthlyPackages = {
         ...(state.editClientIndex !== null ? state.clients[state.editClientIndex]?.monthlyPackages || {} : {})
@@ -1615,14 +2038,27 @@ async function renderMenu() {
     });
   }
 
-  const orderForm = document.querySelector("#order-form");
-  if (orderForm) {
-    document.querySelector("#order-back").addEventListener("click", () => {
+  const orderBack = document.querySelector("#order-back");
+  if (orderBack) {
+    orderBack.addEventListener("click", () => {
       state.showOrders = false;
       state.editOrderId = null;
       renderMenu();
     });
+  }
 
+  document.querySelectorAll("[data-order-tab]").forEach(button => {
+    button.addEventListener("click", event => {
+      state.orderTab = event.currentTarget.dataset.orderTab;
+      if (state.orderTab !== "form") {
+        state.editOrderId = null;
+      }
+      renderMenu();
+    });
+  });
+
+  const orderForm = document.querySelector("#order-form");
+  if (orderForm) {
     const totalField = document.querySelector("#order-total");
     const clientField = orderForm.querySelector("[name='clientPhone']");
     const weeklyFields = document.querySelector("#weekly-order-fields");
@@ -1724,6 +2160,7 @@ async function renderMenu() {
       }
       persistState();
       state.editOrderId = null;
+      state.orderTab = "orders";
       if (remainingAfterOrder !== null && remainingAfterOrder <= LOW_MONTHLY_QUANTITY) {
         alert(monthlyQuantityWarningText(client, remainingAfterOrder));
       }
@@ -1737,6 +2174,31 @@ async function renderMenu() {
         renderMenu();
       });
     });
+
+    document.querySelectorAll("[data-toggle-paid-order]").forEach(button => {
+      button.addEventListener("click", event => {
+        const id = Number(event.currentTarget.dataset.togglePaidOrder);
+        state.orders = state.orders.map(order => (
+          Number(order.id) === id ? { ...order, paid: !order.paid } : order
+        ));
+        persistState();
+        renderMenu();
+      });
+    });
+
+    const downloadProduction = document.querySelector("[data-download-production]");
+    if (downloadProduction) {
+      downloadProduction.addEventListener("click", () => {
+        downloadTextFile(`cumbuca-producao-${currentKey}.txt`, productionListText(plan, currentKey), "text/plain;charset=utf-8");
+      });
+    }
+
+    const downloadDelivery = document.querySelector("[data-download-delivery]");
+    if (downloadDelivery) {
+      downloadDelivery.addEventListener("click", () => {
+        downloadTextFile(`cumbuca-entrega-${currentKey}.txt`, deliveryListText(currentKey), "text/plain;charset=utf-8");
+      });
+    }
 
     const cancelOrderEdit = document.querySelector("#cancel-order-edit");
     if (cancelOrderEdit) {
@@ -1761,6 +2223,62 @@ async function renderMenu() {
       });
     });
   }
+
+  document.querySelectorAll("[data-edit-order]").forEach(button => {
+    button.addEventListener("click", event => {
+      state.editOrderId = Number(event.currentTarget.dataset.editOrder);
+      state.orderTab = "form";
+      renderMenu();
+    });
+  });
+
+  document.querySelectorAll("[data-toggle-paid-order]").forEach(button => {
+    button.addEventListener("click", event => {
+      const id = Number(event.currentTarget.dataset.togglePaidOrder);
+      state.orders = state.orders.map(order => (
+        Number(order.id) === id ? { ...order, paid: !order.paid } : order
+      ));
+      persistState();
+      renderMenu();
+    });
+  });
+
+  const orderSearch = document.querySelector("[data-order-search]");
+  if (orderSearch) {
+    orderSearch.addEventListener("input", event => {
+      state.orderSearch = event.currentTarget.value;
+      renderMenu();
+    });
+  }
+
+  const downloadProductionOutside = document.querySelector("[data-download-production]");
+  if (downloadProductionOutside) {
+    downloadProductionOutside.addEventListener("click", () => {
+      downloadTextFile(`cumbuca-producao-${currentKey}.txt`, productionListText(result.plan, currentKey), "text/plain;charset=utf-8");
+    });
+  }
+
+  const downloadDeliveryOutside = document.querySelector("[data-download-delivery]");
+  if (downloadDeliveryOutside) {
+    downloadDeliveryOutside.addEventListener("click", () => {
+      downloadTextFile(`cumbuca-entrega-${currentKey}.txt`, deliveryListText(currentKey), "text/plain;charset=utf-8");
+    });
+  }
+
+  document.querySelectorAll("[data-delete-order]").forEach(button => {
+    button.addEventListener("click", event => {
+      const id = Number(event.currentTarget.dataset.deleteOrder);
+      if (!confirm("Excluir este pedido?")) {
+        return;
+      }
+      state.orders = state.orders.filter(order => Number(order.id) !== id);
+      if (Number(state.editOrderId) === id) {
+        state.editOrderId = null;
+      }
+      persistState();
+      renderMenu();
+    });
+  });
 
   document.querySelector("#menu-period-form").addEventListener("submit", event => {
     event.preventDefault();
@@ -1848,6 +2366,27 @@ async function renderMenu() {
       persistState();
       renderMenu();
     });
+
+    const copyPreviousMenu = document.querySelector("#copy-previous-menu");
+    if (copyPreviousMenu) {
+      copyPreviousMenu.addEventListener("click", () => {
+        const previousKey = menuKey(currentWeek - 1);
+        const previousMenu = state.menus[previousKey] || [];
+        if (!previousMenu.length) {
+          showToast("Semana anterior sem menu", "warning");
+          return;
+        }
+        if (!confirm("Duplicar o menu da semana anterior para esta semana?")) {
+          return;
+        }
+        state.menus[currentKey] = previousMenu.map(item => ({
+          ...item,
+          status: item.status || "planejado"
+        }));
+        persistState();
+        renderMenu();
+      });
+    }
   }
 }
 
@@ -1860,7 +2399,7 @@ function clientPanel(currentKey) {
     <section class="client-panel">
       <div class="client-panel-header">
         <h2>${editing ? "Editar cliente" : "Cadastro de clientes"}</h2>
-        <div class="client-count"><span>Clientes cadastrados</span><strong>${state.clients.length}</strong></div>
+        <div class="client-count"><span>Clientes ativos</span><strong>${activeClients().length}</strong></div>
         <button class="secondary" type="button" id="client-back">Voltar</button>
       </div>
       <div class="client-tabs" role="tablist" aria-label="Clientes">
@@ -1918,7 +2457,18 @@ function clientList(currentKey) {
 
   const orderedClients = state.clients
     .map((client, index) => ({ client, index }))
+    .filter(({ client }) => {
+      const query = String(state.clientSearch || "").trim().toLowerCase();
+      if (!query) {
+        return true;
+      }
+      return [client.name, client.phone, client.address, client.complement, client.notes, client.plan]
+        .some(value => String(value || "").toLowerCase().includes(query));
+    })
     .sort((a, b) => {
+      if (Boolean(a.client.inactive) !== Boolean(b.client.inactive)) {
+        return a.client.inactive ? 1 : -1;
+      }
       if (a.client.plan === b.client.plan) {
         return (a.client.name || "").localeCompare(b.client.name || "", "pt-BR");
       }
@@ -1926,13 +2476,18 @@ function clientList(currentKey) {
     });
 
   return `
+    <div class="filter-bar">
+      <label>Buscar cliente
+        <input data-client-search placeholder="Nome, telefone, endereco ou observacao" value="${state.clientSearch || ""}">
+      </label>
+    </div>
     <div class="table-wrap client-table">
       <table>
         <thead><tr><th>Nome</th><th>Endereço</th><th>Complemento</th><th>Telefone</th><th>Plano</th><th>Valor</th><th>Frete / Qtd. restante</th><th>Obs.</th><th></th></tr></thead>
         <tbody>
           ${orderedClients.map(({ client, index }) => `
             <tr>
-              <td>${client.name || ""}</td>
+              <td>${client.name || ""}${client.inactive ? ` <span class="payment-badge pending">Inativo</span>` : ""}</td>
               <td>${client.address || ""}</td>
               <td>${client.complement || ""}</td>
               <td>${client.phone || ""}</td>
@@ -1945,7 +2500,9 @@ function clientList(currentKey) {
               <td>
                 <div class="table-actions">
                   <button class="secondary table-action" type="button" data-edit-client="${index}">Editar</button>
-                  <button class="danger table-action" type="button" data-delete-client="${index}">Excluir</button>
+                  ${client.inactive
+                    ? `<button class="secondary table-action" type="button" data-reactivate-client="${index}">Reativar</button>`
+                    : `<button class="danger table-action" type="button" data-delete-client="${index}">Inativar</button>`}
                 </div>
               </td>
             </tr>
@@ -1958,6 +2515,10 @@ function clientList(currentKey) {
 
 function clientByPhone(phone) {
   return state.clients.find(client => client.phone === phone) || {};
+}
+
+function activeClients() {
+  return state.clients.filter(client => !client.inactive);
 }
 
 function clientMonthlyPackage(client, currentKey = menuKey()) {
@@ -2177,14 +2738,221 @@ function orderSummary(plan, currentKey) {
   `;
 }
 
-function orderList(plan, currentKey) {
+function orderWhatsAppText(order, plan) {
+  const client = clientByPhone(order.clientPhone);
+  const items = (order.dishes || [])
+    .map(dish => {
+      const name = dishNameForSlot(plan, dish.slot);
+      return `${dish.quantity}x ${name}`;
+    })
+    .join(", ");
+  const total = Number(order.amount || 0) + Number(order.deliveryFee || 0);
+  return [
+    `Oi, ${client.name || "tudo bem"}!`,
+    `Seu pedido Cumbuca: ${items || `${orderQuantity(order)} cumbuca(s)`}.`,
+    total > 0 ? `Total: ${money(total)}.` : "",
+    order.notes ? `Obs: ${order.notes}.` : ""
+  ].filter(Boolean).join(" ");
+}
+
+function orderWhatsAppUrl(order, plan) {
+  const phone = String(order.clientPhone || "").replace(/\D/g, "");
+  return `https://wa.me/55${phone}?text=${encodeURIComponent(orderWhatsAppText(order, plan))}`;
+}
+
+function productionListText(plan, currentKey) {
+  const totals = weeklyDishTotals(plan, weeklyOrders(currentKey));
+  if (!totals.length) {
+    return "Sem pedidos para producao.";
+  }
+
+  return [
+    `Lista de producao - ${currentKey}`,
+    "",
+    ...totals.map(item => `${item.quantity}x ${item.dish} (Cumbuca ${item.slot})`)
+  ].join("\n");
+}
+
+function deliveryListText(currentKey) {
+  const rows = weeklyOrders(currentKey)
+    .map(order => ({ order, client: clientByPhone(order.clientPhone) }))
+    .filter(({ client }) => String(client.address || "").trim());
+
+  if (!rows.length) {
+    return "Nenhuma entrega com endereco preenchido.";
+  }
+
+  return [
+    `Lista de entrega - ${currentKey}`,
+    "",
+    ...rows.map(({ order, client }) => [
+      `${client.name || order.clientPhone} - ${orderQuantity(order)} cumbuca(s)`,
+      [client.address, client.complement].filter(Boolean).join(" - "),
+      `Contato: ${client.phone || order.clientPhone || ""}`,
+      order.notes ? `Obs: ${order.notes}` : ""
+    ].filter(Boolean).join("\n"))
+  ].join("\n\n");
+}
+
+function productionListPanel(plan, currentKey) {
   const orders = weeklyOrders(currentKey);
+  const totals = weeklyDishTotals(plan, orders);
+  return `
+    <section class="order-overview-panel">
+      <div class="section-heading">
+        <h2>Lista de producao</h2>
+        <button class="secondary" type="button" data-download-production>Baixar TXT</button>
+      </div>
+      ${totals.length ? `
+        <div class="recent-list">
+          ${totals.map(item => `<span><b>${item.quantity}</b>${item.dish}<small>Cumbuca ${item.slot}</small></span>`).join("")}
+        </div>
+      ` : `<p class="muted">Sem pedidos para producao ainda.</p>`}
+    </section>
+  `;
+}
+
+function deliveryListPanel(currentKey) {
+  const rows = weeklyOrders(currentKey)
+    .map(order => ({ order, client: clientByPhone(order.clientPhone) }))
+    .filter(({ client }) => String(client.address || "").trim());
+  return `
+    <section class="order-overview-panel">
+      <div class="section-heading">
+        <h2>Lista de entrega</h2>
+        <button class="secondary" type="button" data-download-delivery>Baixar TXT</button>
+      </div>
+      ${rows.length ? `
+        <div class="recent-list">
+          ${rows.map(({ order, client }) => `
+            <span><b>${orderQuantity(order)}</b>${client.name || order.clientPhone}<small>${[client.address, client.complement].filter(Boolean).join(" - ")}</small></span>
+          `).join("")}
+        </div>
+      ` : `<p class="muted">Nenhuma entrega com endereco preenchido.</p>`}
+    </section>
+  `;
+}
+
+function orderTabs() {
+  const tabs = [
+    ["form", state.editOrderId ? "Editar pedido" : "Novo pedido"],
+    ["orders", "Pedidos"],
+    ["production", "Producao"],
+    ["delivery", "Entrega"]
+  ];
+
+  return `
+    <div class="order-tabs" role="tablist" aria-label="Pedidos">
+      ${tabs.map(([tab, label]) => `
+        <button class="${state.orderTab === tab ? "active" : ""}" type="button" data-order-tab="${tab}">${label}</button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function orderTabContent(plan, currentKey, editing, availableClients) {
+  if (state.orderTab === "orders") {
+    return `
+      ${orderOverviewPanel(plan, currentKey)}
+      ${orderList(plan, currentKey)}
+    `;
+  }
+
+  if (state.orderTab === "production") {
+    return productionListPanel(plan, currentKey);
+  }
+
+  if (state.orderTab === "delivery") {
+    return deliveryListPanel(currentKey);
+  }
+
+  return orderFormPanel(plan, currentKey, editing, availableClients);
+}
+
+function orderFormPanel(plan, currentKey, editing, availableClients) {
+  return `
+      <form id="order-form" class="order-form">
+        <label>Cliente
+          <select name="clientPhone" ${availableClients.length ? "required" : "disabled"}>
+            ${availableClients.length
+              ? `<option value="">Selecione um cliente</option>${availableClients.map(client => `
+                  <option value="${client.phone}" ${editing?.clientPhone === client.phone ? "selected" : ""}>${client.name} - ${client.phone}${client.plan === "mensalista" ? ` - restam ${clientRemainingQuantity(client, currentKey, editing?.id)}/${clientMonthlyCapacity(client, currentKey, editing?.id)}${clientChargedPackageCount(client, currentKey, editing?.id) > 1 ? ` - ${clientChargedPackageCount(client, currentKey, editing?.id)} pacotes` : ""}${isLowMonthlyQuantity(client, currentKey) ? " - perto de acabar" : clientRemainingQuantity(client, currentKey, editing?.id) <= 0 ? " - pode renovar" : ""}` : ""}</option>
+                `).join("")}`
+              : `<option value="">Cadastre ou reative um cliente primeiro</option>`}
+          </select>
+        </label>
+        <div class="dish-picker">
+          ${plan.map(item => `
+            <label class="dish-option">
+              <div class="dish-option-title">
+                <span>Cumbuca ${item.slot}</span>
+                <strong>${item.dish || ""}</strong>
+              </div>
+              <input data-dish-quantity type="number" name="dish-${item.slot}" min="0" step="1" value="${editing ? orderDishQuantity(editing, item.slot) : 0}" aria-label="Quantidade da Cumbuca ${item.slot}">
+            </label>
+          `).join("")}
+        </div>
+        <div class="weekly-order-fields" id="weekly-order-fields" hidden>
+          <label>Valor em real deste pedido
+            <input name="weeklyValue" type="number" min="0" step="0.01" placeholder="0,00" value="${editing?.amount || ""}" disabled>
+          </label>
+          <label>Valor em frete
+            <input name="orderDeliveryFee" type="number" min="0" step="0.01" placeholder="0,00" value="${editing?.deliveryFee || ""}" disabled>
+          </label>
+          <label class="checkbox-field">
+            <input name="paid" type="checkbox" ${editing?.paid ? "checked" : ""} disabled>
+            <span>Pago</span>
+          </label>
+        </div>
+        <label>Observação
+          <input name="notes" placeholder="Retirada, entrega, restrição ou detalhe do pedido" value="${editing?.notes || ""}">
+        </label>
+        <div class="order-total">
+          <span>Total de cumbucas</span>
+          <strong id="order-total">0</strong>
+        </div>
+        <div class="actions">
+          <button type="submit" ${availableClients.length ? "" : "disabled"}>${editing ? "Salvar edição" : "Salvar pedido"}</button>
+          ${editing ? `<button class="secondary" type="button" id="cancel-order-edit">Cancelar</button>` : ""}
+        </div>
+      </form>
+  `;
+}
+
+function orderList(plan, currentKey) {
+  const query = String(state.orderSearch || "").trim().toLowerCase();
+  const orders = weeklyOrders(currentKey).filter(order => {
+    if (!query) {
+      return true;
+    }
+    const client = clientByPhone(order.clientPhone);
+    return [
+      client.name,
+      client.phone || order.clientPhone,
+      client.address,
+      orderDishesText(order, plan),
+      paymentText(order, client),
+      order.notes
+    ].some(value => String(value || "").toLowerCase().includes(query));
+  });
 
   if (!orders.length) {
-    return `<p class="muted">Nenhum pedido registrado nesta semana.</p>`;
+    return `
+      <div class="filter-bar">
+        <label>Buscar pedido
+          <input data-order-search placeholder="Cliente, telefone, pagamento ou observacao" value="${state.orderSearch || ""}">
+        </label>
+      </div>
+      <p class="muted">Nenhum pedido encontrado nesta semana.</p>
+    `;
   }
 
   return `
+    <div class="filter-bar">
+      <label>Buscar pedido
+        <input data-order-search placeholder="Cliente, telefone, pagamento ou observacao" value="${state.orderSearch || ""}">
+      </label>
+    </div>
     <div class="table-wrap order-table">
       <table>
         <thead><tr><th>Cliente</th><th>Contato</th><th>Endereço</th><th>Pedido</th><th>Total</th><th>Valor em real</th><th>Valor em frete</th><th>Pagamento</th><th>Obs.</th><th></th></tr></thead>
@@ -2205,6 +2973,8 @@ function orderList(plan, currentKey) {
                 <td>
                   <div class="table-actions">
                     <button class="secondary table-action" type="button" data-edit-order="${order.id}">Editar</button>
+                    ${client.plan === "semanal" ? `<button class="secondary table-action" type="button" data-toggle-paid-order="${order.id}">${order.paid ? "Marcar pendente" : "Marcar pago"}</button>` : ""}
+                    <a class="secondary table-action" href="${orderWhatsAppUrl(order, plan)}" target="_blank" rel="noopener">WhatsApp</a>
                     <button class="danger table-action" type="button" data-delete-order="${order.id}">Excluir</button>
                   </div>
                 </td>
@@ -2276,6 +3046,7 @@ function orderPanel(plan, currentKey) {
   const editing = state.editOrderId
     ? state.orders.find(order => Number(order.id) === Number(state.editOrderId))
     : null;
+  const availableClients = activeClients();
 
   return `
     <section class="client-panel">
@@ -2284,15 +3055,19 @@ function orderPanel(plan, currentKey) {
         <button class="secondary" type="button" id="order-back">Voltar</button>
       </div>
       ${orderSummary(plan, currentKey)}
-      ${orderOverviewPanel(plan, currentKey)}
+      ${orderTabs()}
+      <div class="order-tab-panel">
+        ${orderTabContent(plan, currentKey, editing, availableClients)}
+      </div>
+      <!--
       <form id="order-form" class="order-form">
         <label>Cliente
-          <select name="clientPhone" ${state.clients.length ? "required" : "disabled"}>
-            ${state.clients.length
-              ? `<option value="">Selecione um cliente</option>${state.clients.map(client => `
+          <select name="clientPhone" ${availableClients.length ? "required" : "disabled"}>
+            ${availableClients.length
+              ? `<option value="">Selecione um cliente</option>${availableClients.map(client => `
                   <option value="${client.phone}" ${editing?.clientPhone === client.phone ? "selected" : ""}>${client.name} - ${client.phone}${client.plan === "mensalista" ? ` - restam ${clientRemainingQuantity(client, currentKey, editing?.id)}/${clientMonthlyCapacity(client, currentKey, editing?.id)}${clientChargedPackageCount(client, currentKey, editing?.id) > 1 ? ` - ${clientChargedPackageCount(client, currentKey, editing?.id)} pacotes` : ""}${isLowMonthlyQuantity(client, currentKey) ? " - perto de acabar" : clientRemainingQuantity(client, currentKey, editing?.id) <= 0 ? " - pode renovar" : ""}` : ""}</option>
                 `).join("")}`
-              : `<option value="">Cadastre um cliente primeiro</option>`}
+              : `<option value="">Cadastre ou reative um cliente primeiro</option>`}
           </select>
         </label>
         <div class="dish-picker">
@@ -2326,11 +3101,12 @@ function orderPanel(plan, currentKey) {
           <strong id="order-total">0</strong>
         </div>
         <div class="actions">
-          <button type="submit" ${state.clients.length ? "" : "disabled"}>${editing ? "Salvar edição" : "Salvar pedido"}</button>
+          <button type="submit" ${availableClients.length ? "" : "disabled"}>${editing ? "Salvar edição" : "Salvar pedido"}</button>
           ${editing ? `<button class="secondary" type="button" id="cancel-order-edit">Cancelar</button>` : ""}
         </div>
       </form>
       ${orderList(plan, currentKey)}
+      -->
     </section>
   `;
 }
@@ -2549,6 +3325,52 @@ function reportData() {
     weeklyClients: state.clients.filter(client => client.plan !== "mensalista").length,
     monthlyClients: state.clients.filter(client => client.plan === "mensalista").length
   };
+}
+
+function sumRowsByLabel(rows, labelFor, amountFor) {
+  const totals = rows.reduce((acc, row) => {
+    const label = labelFor(row);
+    acc[label] = (acc[label] || 0) + Number(amountFor(row) || 0);
+    return acc;
+  }, {});
+
+  return Object.entries(totals)
+    .filter(([, value]) => value > 0)
+    .sort(([a], [b]) => a.localeCompare(b, "pt-BR"))
+    .map(([label, value]) => [label, money(value)]);
+}
+
+function accountIncomeBreakdown(data) {
+  return sumRowsByLabel(
+    data.incomeEntries,
+    entry => categoryName(entry.category),
+    entry => entry.amount
+  );
+}
+
+function weeklyRevenueBreakdown(data) {
+  const rows = [
+    ["Pedidos semanais pagos", data.orders
+      .filter(order => {
+        const client = clientByPhone(order.clientPhone);
+        return client.plan === "semanal" && order.paid;
+      })
+      .reduce((sum, order) => sum + Number(order.amount || 0), 0)],
+    ["Pedidos semanais pendentes", data.orders
+      .filter(order => {
+        const client = clientByPhone(order.clientPhone);
+        return client.plan === "semanal" && !order.paid;
+      })
+      .reduce((sum, order) => sum + Number(order.amount || 0), 0)],
+    ["Mensalistas", data.orders
+      .filter(order => clientByPhone(order.clientPhone).plan === "mensalista")
+      .reduce((sum, order) => sum + Number(order.amount || 0), 0)],
+    ["Frete", data.deliveryRevenue]
+  ];
+
+  return rows
+    .filter(([, value]) => Number(value || 0) > 0)
+    .map(([label, value]) => [label, money(value)]);
 }
 
 function csvValue(value) {
@@ -2849,14 +3671,16 @@ function reportPdfHtml(data) {
           <div class="metric"><span>Loja</span><strong>${escapeHtml(data.storeQuantity)}</strong></div>
           <div class="metric total"><span>Total</span><strong>${escapeHtml(data.totalSoldQuantity)}</strong></div>
         </section>
-        <h2>Entradas ${escapeHtml(reportTitleSuffix(data))}</h2>
-        ${pdfRows(["Data", "Descrição", "Valor"], incomeRows)}
+        <h2>Resumo de entradas ${escapeHtml(reportTitleSuffix(data))}</h2>
+        ${pdfRows(["Grupo", "Origem", "Valor"], [
+          ...accountIncomeBreakdown(data).map(([label, value]) => ["Conta", label, value]),
+          ...weeklyRevenueBreakdown(data).map(([label, value]) => ["Semanal", label, value]),
+          ["Total", "Conta + semanal", money(data.income + data.orderRevenue)]
+        ])}
         <h2>Principais saídas (despesas)</h2>
         ${pdfRows(["Data", "Descrição", "Valor"], expenseRows)}
         <h2>Cumbucas vendidas na loja</h2>
         ${pdfRows(["Data", "Quantidade", "Observação"], storeRows)}
-        <h2>Lançamentos ${escapeHtml(reportTitleSuffix(data))}</h2>
-        ${pdfRows(["Data", "Descrição", "Tipo", "Valor"], cashRows)}
       </body>
     </html>`;
 }
@@ -2898,6 +3722,13 @@ async function downloadReportPdf() {
         ["Cofrinho", money(data.financial.withdrawals.savings)],
         ["Vanessa", money(data.financial.withdrawals.vanessa)],
         ["Raquel", money(data.financial.withdrawals.raquel)]
+      ],
+      accountIncome: data.income,
+      weeklyRevenue: data.orderRevenue,
+      incomeSummaryRows: [
+        ...accountIncomeBreakdown(data).map(([label, value]) => ["Conta", label, value]),
+        ...weeklyRevenueBreakdown(data).map(([label, value]) => ["Semanal", label, value]),
+        ["Total", "Conta + semanal", money(data.income + data.orderRevenue)]
       ],
       totalSoldQuantity: data.totalSoldQuantity,
       weeklyCashQuantity: data.weeklyCashQuantity,
@@ -3078,93 +3909,77 @@ function exportReport(kind) {
 
 function reportOrdersTable(data) {
   if (!data.orders.length) {
-    return `<p class="muted">Nenhum pedido neste período.</p>`;
+    return `<p class="muted">Nenhum pedido neste periodo.</p>`;
   }
 
   return `
-    <div class="table-wrap report-table">
-      <table>
-        <thead><tr><th>Semana</th><th>Cliente</th><th>Qtd.</th><th>Valor</th><th>Frete</th><th>Pagamento</th></tr></thead>
-        <tbody>
-          ${data.orders.map(order => {
-            const client = clientByPhone(order.clientPhone);
-            return `
-              <tr>
-                <td>${order.menuKey || ""}</td>
-                <td>${client.name || order.clientPhone || "Cliente removido"}</td>
-                <td>${orderQuantity(order)}</td>
-                <td>${money(order.amount)}</td>
-                <td>${money(order.deliveryFee)}</td>
-                <td>${paymentText(order, client)}</td>
-              </tr>
-            `;
-          }).join("")}
-        </tbody>
-      </table>
+    <div class="summary">
+      <div class="metric report-metric"><span>Receita pedidos</span><strong>${money(data.orderRevenue)}</strong></div>
+      <div class="metric report-metric"><span>Frete</span><strong>${money(data.deliveryRevenue)}</strong></div>
+      <div class="metric report-metric"><span>Cumbucas semanal</span><strong>${data.weeklyCashQuantity}</strong></div>
+      <div class="metric report-metric"><span>Pedidos pagos</span><strong>${data.paidOrders}</strong></div>
+      <div class="metric report-metric"><span>Pedidos pendentes</span><strong>${data.pendingOrders}</strong></div>
     </div>
   `;
 }
-
 function reportCashTable(data) {
   if (!data.cashEntries.length) {
-    return `<p class="muted">Nenhum lançamento de caixa neste período.</p>`;
+    return `<p class="muted">Nenhum lancamento de caixa neste periodo.</p>`;
   }
 
   return `
-    <div class="table-wrap report-table">
-      <table>
-        <thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Categoria</th><th>Valor</th></tr></thead>
-        <tbody>
-          ${data.cashEntries.map(entry => `
-            <tr>
-              <td>${entry.date || ""}</td>
-              <td>${entry.description || ""}</td>
-              <td>${entry.type === "expense" ? "Saída" : "Entrada"}</td>
-              <td>${categoryName(entry.category)}</td>
-              <td>${money(entry.amount)}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
+    <div class="summary">
+      <div class="metric report-metric"><span>Entradas</span><strong>${money(data.income)}</strong></div>
+      <div class="metric report-metric"><span>Saidas</span><strong>${money(data.expenses)}</strong></div>
+      <div class="metric report-metric"><span>Saldo</span><strong class="${data.balance < 0 ? "negative" : "positive"}">${money(data.balance)}</strong></div>
     </div>
   `;
 }
-
 function reportIncomeCashTable(data) {
   if (!data.incomeEntries.length) {
     return `<p class="muted">Nenhuma entrada de caixa neste periodo.</p>`;
   }
 
   return `
-    <div class="table-wrap report-table">
-      <table>
-        <thead><tr><th>Data</th><th>Origem</th><th>Descricao</th><th>Valor</th></tr></thead>
-        <tbody>
-          ${data.incomeEntries.map(entry => `
-            <tr>
-              <td>${entry.date || ""}</td>
-              <td>${categoryName(entry.category)}</td>
-              <td>${entry.description || ""}</td>
-              <td>${money(entry.amount)}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
+    <div class="summary">
+      <div class="metric report-metric">
+        <span>Total de entradas no periodo</span>
+        <strong>${money(data.income)}</strong>
+      </div>
+      ${accountIncomeBreakdown(data).map(([label, value]) => `
+        <div class="metric report-metric">
+          <span>${label}</span>
+          <strong>${value}</strong>
+        </div>
+      `).join("")}
     </div>
   `;
 }
 
 function reportExpenseOutTable(data) {
-  if (!data.expenseEntries.length) {
+  const entries = selectedReportExpenseEntries(data);
+  const total = entries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const topEntries = [...entries]
+    .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
+    .slice(0, 8);
+  const selected = state.reportPeriod.expenseCategory || "all";
+  const selectedLabel = selected === "all" ? "Todas as saidas" : categoryName(selected);
+
+  if (!entries.length) {
     return `<p class="muted">Nenhuma saida neste periodo.</p>`;
   }
 
   return `
+    <div class="summary">
+      <div class="metric report-metric"><span>Filtro</span><strong>${selectedLabel}</strong></div>
+      <div class="metric report-metric"><span>Total filtrado</span><strong>${money(total)}</strong></div>
+      <div class="metric report-metric"><span>Lancamentos</span><strong>${entries.length}</strong></div>
+    </div>
     <div class="table-wrap report-table">
       <table>
         <thead><tr><th>Data</th><th>Motivo</th><th>Descricao</th><th>Valor</th></tr></thead>
         <tbody>
-          ${data.expenseEntries.map(entry => `
+          ${topEntries.map(entry => `
             <tr>
               <td>${entry.date || ""}</td>
               <td>${categoryName(entry.category)}</td>
@@ -3175,6 +3990,7 @@ function reportExpenseOutTable(data) {
         </tbody>
       </table>
     </div>
+    ${entries.length > topEntries.length ? `<p class="muted">Mostrando as ${topEntries.length} maiores saidas deste filtro.</p>` : ""}
   `;
 }
 
@@ -3464,6 +4280,129 @@ function reportTitleSuffix(data) {
   return `de ${reportWeekRangeLabel()}`;
 }
 
+function reportExpenseCategoryOptions(selected = "all") {
+  const categories = [...expenseCategories, ...expenseReasonOptions()];
+  return [
+    `<option value="all" ${selected === "all" ? "selected" : ""}>Todas as saidas</option>`,
+    ...categories.map(([value, label]) => `<option value="${value}" ${selected === value ? "selected" : ""}>${label}</option>`)
+  ].join("");
+}
+
+function selectedReportExpenseEntries(data) {
+  const selected = state.reportPeriod.expenseCategory || "all";
+  if (selected === "all") {
+    return data.expenseEntries;
+  }
+  return data.expenseEntries.filter(entry => {
+    const category = String(entry.category || "");
+    return category === selected || category.replace(/^supplier:/, "reason:") === selected;
+  });
+}
+
+function dueDateDistanceLabel(date) {
+  const today = new Date(`${isoDate(new Date())}T00:00:00`);
+  const due = new Date(`${date}T00:00:00`);
+  const days = Math.round((due - today) / 86400000);
+
+  if (days < 0) {
+    return `Venceu ha ${Math.abs(days)} dia(s)`;
+  }
+  if (days === 0) {
+    return "Vence hoje";
+  }
+  return `Vence em ${days} dia(s)`;
+}
+
+function upcomingBills(limit = 6) {
+  const end = isoDate(new Date(Date.now() + 30 * 86400000));
+
+  return state.cash
+    .filter(entry => entry.type === "expense" && entry.dueDate)
+    .filter(entry => entry.dueDate <= end)
+    .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)))
+    .slice(0, limit);
+}
+
+function upcomingBillsPanel() {
+  const bills = upcomingBills();
+
+  return `
+    <section class="panel report-section">
+      <h2>Próximas contas</h2>
+      ${bills.length ? `
+        <div class="recent-list">
+          ${bills.map(entry => `
+            <span>
+              <b>${money(entry.amount)}</b>
+              ${entry.description || categoryName(entry.category)}
+              <small>${formatIsoDateBr(entry.dueDate)} - ${dueDateDistanceLabel(entry.dueDate)}</small>
+            </span>
+          `).join("")}
+        </div>
+      ` : `<p class="muted">Nenhuma conta com vencimento nos próximos 30 dias.</p>`}
+    </section>
+  `;
+}
+
+function financialPlanningPanel() {
+  const planning = state.financialPlanning || {};
+
+  return `
+    <section class="panel report-section">
+      <h2>Planejamento</h2>
+      <form id="financial-planning-form" class="form-grid">
+        <label>Valor guardado
+          <input name="savings" type="number" min="0" step="0.01" placeholder="0,00" value="${planning.savings || ""}">
+        </label>
+        <label>Próximas melhorias para a loja
+          <textarea name="improvements" rows="5" placeholder="Uma melhoria por linha">${planningText(planning.improvements)}</textarea>
+        </label>
+        <label>Próximos itens para comprar
+          <textarea name="purchases" rows="5" placeholder="Um item por linha">${planningText(planning.purchases)}</textarea>
+        </label>
+        <div class="actions">
+          <button type="submit">Salvar planejamento</button>
+        </div>
+      </form>
+      <div class="summary">
+        <div class="metric"><span>Guardado</span><strong>${money(planning.savings)}</strong></div>
+        <div class="metric"><span>Melhorias</span><strong>${(planning.improvements || []).length}</strong></div>
+        <div class="metric"><span>Compras</span><strong>${(planning.purchases || []).length}</strong></div>
+      </div>
+      <div class="tool-grid">
+        <div>
+          <h3>Melhorias</h3>
+          ${planningItemsHtml(planning.improvements, "Nenhuma melhoria planejada.")}
+        </div>
+        <div>
+          <h3>Itens para comprar</h3>
+          ${planningItemsHtml(planning.purchases, "Nenhum item planejado.")}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function bindFinancialPlanning() {
+  const form = document.querySelector("#financial-planning-form");
+  if (!form) {
+    return;
+  }
+
+  form.addEventListener("submit", event => {
+    event.preventDefault();
+    const values = readForm(event.currentTarget);
+    state.financialPlanning = {
+      savings: values.savings || "",
+      improvements: textLines(values.improvements),
+      purchases: textLines(values.purchases)
+    };
+    recordAudit("Planejamento financeiro", `Guardado ${money(state.financialPlanning.savings)}`);
+    persistState();
+    renderFinance();
+  });
+}
+
 function financeFilterPanel(reportType, weekRange) {
   return `
     <section class="panel report-panel">
@@ -3487,6 +4426,11 @@ function financeFilterPanel(reportType, weekRange) {
         </label>
         <label class="report-week-field">Ate
           <input name="end" type="date" value="${weekRange.end}">
+        </label>
+        <label>Saida
+          <select name="expenseCategory">
+            ${reportExpenseCategoryOptions(state.reportPeriod.expenseCategory || "all")}
+          </select>
         </label>
         <button type="submit">Atualizar</button>
       </form>
@@ -3512,7 +4456,8 @@ function bindReportPeriodForm(renderFn, path) {
       month: Number(values.month || new Date().getMonth() + 1),
       week: Number(state.reportPeriod.week || 1),
       start: values.start || weekRange.start,
-      end: values.end || weekRange.end
+      end: values.end || weekRange.end,
+      expenseCategory: values.expenseCategory || "all"
     };
     localStorage.setItem("reportPeriod", JSON.stringify(state.reportPeriod));
     const weeklyQuery = state.reportPeriod.type === "week" ? `&inicio=${state.reportPeriod.start}&fim=${state.reportPeriod.end}` : "";
@@ -3560,6 +4505,8 @@ function renderFinance() {
       <div class="metric report-metric"><span>Retiradas feitas</span><strong>${money(data.financial.withdrawals.total)}</strong></div>
       <div class="metric report-metric"><span>Disponivel para retirada</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
     </section>
+    ${upcomingBillsPanel()}
+    ${financialPlanningPanel()}
     <section class="panel report-section">
       <h2>Retiradas ${reportTitleSuffix(data)}</h2>
       <div class="summary">
@@ -3586,6 +4533,7 @@ function renderFinance() {
 
   bindReportPeriodForm(renderFinance, "financeiro");
   bindMonthlyClosing(data, renderFinance);
+  bindFinancialPlanning();
 }
 
 function renderReports() {
@@ -3618,6 +4566,11 @@ function renderReports() {
         <label class="report-week-field">Até
           <input name="end" type="date" value="${weekRange.end}">
         </label>
+        <label>Saida
+          <select name="expenseCategory">
+            ${reportExpenseCategoryOptions(state.reportPeriod.expenseCategory || "all")}
+          </select>
+        </label>
         <button type="submit">Atualizar</button>
       </form>
       <div class="report-actions">
@@ -3637,7 +4590,6 @@ function renderReports() {
       <div class="metric report-metric"><span>Cumbucas vendidas</span><strong>${data.totalQuantity}</strong></div>
       <div class="metric report-metric"><span>Cumbucas loja</span><strong>${data.storeQuantity}</strong></div>
       <div class="metric report-metric"><span>Total cumbucas</span><strong>${data.totalSoldQuantity}</strong></div>
-      <div class="metric report-metric"><span>Ticket médio</span><strong>${money(data.averageTicket)}</strong></div>
       <div class="metric report-metric"><span>Frete arrecadado</span><strong>${money(data.deliveryRevenue)}</strong></div>
       <div class="metric report-metric"><span>Entradas no caixa</span><strong>${money(data.income)}</strong></div>
       <div class="metric report-metric"><span>Saídas no caixa</span><strong>${money(data.expenses)}</strong></div>
@@ -3700,7 +4652,8 @@ function renderReports() {
       month: Number(values.month || new Date().getMonth() + 1),
       week: Number(state.reportPeriod.week || 1),
       start: values.start || weekRange.start,
-      end: values.end || weekRange.end
+      end: values.end || weekRange.end,
+      expenseCategory: values.expenseCategory || "all"
     };
     localStorage.setItem("reportPeriod", JSON.stringify(state.reportPeriod));
     const weeklyQuery = state.reportPeriod.type === "week" ? `&inicio=${state.reportPeriod.start}&fim=${state.reportPeriod.end}` : "";
@@ -3736,94 +4689,129 @@ function renderReports() {
 async function renderBackups() {
   title.textContent = "Backups";
   setActive("backups");
+  const years = cleanupYears();
+  const selectedYear = years[0] || String(new Date().getFullYear() - 1);
+  const preview = cleanupPreview(selectedYear);
   app.innerHTML = `
-    <section class="panel report-section">
-      <h2>Backups salvos no Supabase</h2>
-      <p class="muted">Use para baixar uma copia ou restaurar um dia especifico se algo for apagado sem querer.</p>
-      <div id="backup-list" class="backup-list-state">Carregando backups...</div>
+    <section class="panel report-section backup-manual-panel">
+      <h2>Backup manual</h2>
+      <p class="muted">O backup e salvo no seu computador, nao no Supabase. Baixe um JSON antes de mudancas grandes e importe esse arquivo se precisar recuperar os dados.</p>
+      <div class="backup-actions">
+        <button type="button" id="manual-backup-download">Baixar backup JSON</button>
+        <label class="secondary file-action">
+          Importar backup JSON
+          <input id="manual-backup-import" type="file" accept="application/json,.json">
+        </label>
+      </div>
+      <div class="backup-list-state">
+        <strong>Automatico desligado</strong>
+        <span>Nenhum backup novo sera gravado na tabela de backups do Supabase.</span>
+      </div>
+    </section>
+    <section class="panel report-section backup-manual-panel">
+      <h2>Manutencao do banco</h2>
+      <p class="muted">Use para apagar dados antigos depois de baixar um backup JSON. Clientes, precificacao, categorias e configuracoes atuais sao preservados.</p>
+      <div id="db-usage-status">
+        ${databaseUsageHtml(selectedYear)}
+      </div>
+      <div class="backup-list-state">
+        <strong>Tamanho real no Supabase</strong>
+        <span>Consulta direta das tabelas cumbuca_app_state e cumbuca_app_backups.</span>
+      </div>
+      <div id="real-db-usage">
+        <p class="muted">Consultando Supabase...</p>
+      </div>
+      <div class="backup-actions">
+        <button class="danger" type="button" id="delete-old-backups">Apagar backups antigos do Supabase</button>
+      </div>
+      <form id="cleanup-year-form" class="period-picker">
+        <label>Ano para limpar
+          <select name="year" id="cleanup-year">
+            ${years.length
+              ? years.map(year => `<option value="${year}" ${year === selectedYear ? "selected" : ""}>${year}</option>`).join("")
+              : `<option value="${selectedYear}">${selectedYear}</option>`}
+          </select>
+        </label>
+        <button class="secondary" type="button" id="cleanup-backup-first">Baixar backup antes</button>
+        <button class="danger" type="submit">Apagar ano</button>
+      </form>
+      <div id="cleanup-preview" class="cleanup-preview">
+        ${cleanupPreviewHtml(selectedYear, preview)}
+      </div>
     </section>
   `;
 
-  try {
-    const response = await fetch("/api/backups", { cache: "no-store" });
-    const result = await response.json();
-    const backups = result.backups || [];
-    const list = document.querySelector("#backup-list");
-    if (!result.database) {
-      list.innerHTML = `<p class="muted">Banco offline agora. Nao foi possivel consultar backups.</p>`;
+  document.querySelector("#manual-backup-download").addEventListener("click", downloadBackup);
+  loadRealDatabaseUsage();
+  document.querySelector("#manual-backup-import").addEventListener("change", async event => {
+    const file = event.currentTarget.files?.[0];
+    if (!file) {
       return;
     }
-    if (!backups.length) {
-      list.innerHTML = `<p class="muted">Nenhum backup encontrado ainda.</p>`;
+    if (!confirm("Importar este backup? Isso vai substituir os dados atuais.")) {
+      event.currentTarget.value = "";
       return;
     }
+    try {
+      await importBackupFile(file);
+      showToast("Backup importado", "success");
+      renderBackups();
+    } catch (error) {
+      showToast("Arquivo de backup invalido", "warning");
+    }
+  });
 
-    list.innerHTML = `
-      <div class="table-wrap report-table">
-        <table>
-          <thead><tr><th>Data do backup</th><th>Atualizado em</th><th>Acoes</th></tr></thead>
-          <tbody>
-            ${backups.map(backup => {
-              const date = String(backup.backup_date || "").slice(0, 10);
-              return `
-                <tr>
-                  <td>${formatIsoDateBr(date)}</td>
-                  <td>${backup.updated_at ? new Date(backup.updated_at).toLocaleString("pt-BR") : ""}</td>
-                  <td>
-                    <div class="table-actions">
-                      <button class="secondary table-action" type="button" data-download-backup="${date}">Baixar</button>
-                      <button class="danger table-action" type="button" data-restore-backup="${date}">Restaurar</button>
-                    </div>
-                  </td>
-                </tr>
-              `;
-            }).join("")}
-          </tbody>
-        </table>
-      </div>
-    `;
+  const cleanupYearField = document.querySelector("#cleanup-year");
+  const cleanupPreviewBox = document.querySelector("#cleanup-preview");
+  cleanupYearField.addEventListener("change", event => {
+    const year = event.currentTarget.value;
+    cleanupPreviewBox.innerHTML = cleanupPreviewHtml(year, cleanupPreview(year));
+    document.querySelector("#db-usage-status").innerHTML = databaseUsageHtml(year);
+  });
 
-    document.querySelectorAll("[data-download-backup]").forEach(button => {
-      button.addEventListener("click", event => {
-        const date = event.currentTarget.dataset.downloadBackup;
-        const link = document.createElement("a");
-        link.href = `/api/backup?date=${encodeURIComponent(date)}`;
-        link.download = `cumbuca-backup-${date}.json`;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
+  document.querySelector("#cleanup-backup-first").addEventListener("click", downloadBackup);
+  document.querySelector("#delete-old-backups").addEventListener("click", async () => {
+    if (!confirm("Apagar backups antigos do Supabase mantendo apenas os ultimos 30 dias? Baixe um backup JSON antes se tiver duvida.")) {
+      return;
+    }
+    try {
+      const response = await fetch("/api/backups/delete-old", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keepDays: 30 })
       });
-    });
-
-    document.querySelectorAll("[data-restore-backup]").forEach(button => {
-      button.addEventListener("click", async event => {
-        const date = event.currentTarget.dataset.restoreBackup;
-        if (!confirm(`Restaurar o backup de ${formatIsoDateBr(date)}? Isso vai substituir os dados atuais.`)) {
-          return;
-        }
-        if (!confirm("Confirma mesmo? Antes de restaurar, baixe um backup atual pelo botao Backup.")) {
-          return;
-        }
-
-        const restoreResponse = await fetch("/api/restore-backup", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ date })
-        });
-        const restoreResult = await restoreResponse.json();
-        if (!restoreResponse.ok || !restoreResult.restored) {
-          showToast("Nao foi possivel restaurar", "warning");
-          return;
-        }
-        await hydrateState();
-        persistLocal();
-        showToast("Backup restaurado", "success");
-        renderBackups();
-      });
-    });
-  } catch (error) {
-    document.querySelector("#backup-list").innerHTML = `<p class="muted">Nao foi possivel carregar os backups agora.</p>`;
-  }
+      const result = await response.json();
+      if (!response.ok || !result.database) {
+        showToast("Nao foi possivel apagar backups antigos", "warning");
+        return;
+      }
+      showToast(`${result.deleted || 0} backup(s) antigo(s) apagado(s)`, "success");
+      loadRealDatabaseUsage();
+    } catch (error) {
+      showToast("Falha ao apagar backups antigos", "warning");
+    }
+  });
+  document.querySelector("#cleanup-year-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    const year = cleanupYearField.value;
+    const currentPreview = cleanupPreview(year);
+    const total = Object.values(currentPreview).reduce((sum, value) => sum + value, 0);
+    if (!total) {
+      showToast("Nada para apagar nesse ano", "warning");
+      return;
+    }
+    if (!confirm(`Apagar dados de ${year}? Baixe um backup JSON antes de continuar.`)) {
+      return;
+    }
+    const typed = prompt(`Digite ${year} para confirmar a limpeza.`);
+    if (typed !== year) {
+      showToast("Limpeza cancelada", "warning");
+      return;
+    }
+    await cleanupYear(year);
+    showToast(`Ano ${year} apagado`, "success");
+    renderBackups();
+  });
 }
 
 const routes = {

@@ -33,7 +33,8 @@ const stateKeys = [
   "monthlyClosings",
   "pricingIngredients",
   "pricingConfig",
-  "cashFilter"
+  "cashFilter",
+  "financialPlanning"
 ];
 
 const defaultState = {
@@ -54,7 +55,12 @@ const defaultState = {
   monthlyClosings: {},
   pricingIngredients: [],
   pricingConfig: {},
-  cashFilter: { period: "all" }
+  cashFilter: { period: "all" },
+  financialPlanning: {
+    savings: "",
+    improvements: [],
+    purchases: []
+  }
 };
 
 function cloneJson(value) {
@@ -314,6 +320,52 @@ async function listBackups() {
   return { database: true, backups: result.rows };
 }
 
+async function databaseUsage() {
+  if (!await ensureStateTable() || !await ensureBackupTable()) {
+    return { database: false, tables: [] };
+  }
+
+  const result = await db.query(`
+    select
+      table_name,
+      pg_total_relation_size(format('%I.%I', table_schema, table_name)::regclass) as total_bytes,
+      pg_relation_size(format('%I.%I', table_schema, table_name)::regclass) as table_bytes
+    from information_schema.tables
+    where table_schema = 'public'
+      and table_name = any($1::text[])
+    order by table_name
+  `, [["cumbuca_app_state", "cumbuca_app_backups"]]);
+
+  const counts = {};
+  counts.cumbuca_app_state = Number((await db.query("select count(*)::int as count from cumbuca_app_state")).rows[0]?.count || 0);
+  counts.cumbuca_app_backups = Number((await db.query("select count(*)::int as count from cumbuca_app_backups")).rows[0]?.count || 0);
+
+  return {
+    database: true,
+    tables: result.rows.map(row => ({
+      name: row.table_name,
+      rows: counts[row.table_name] || 0,
+      totalBytes: Number(row.total_bytes || 0),
+      tableBytes: Number(row.table_bytes || 0)
+    }))
+  };
+}
+
+async function deleteOldBackups(keepDays = 30) {
+  if (!await ensureBackupTable()) {
+    return { database: false, deleted: 0 };
+  }
+
+  const days = Math.max(0, Math.min(3650, Number(keepDays || 30)));
+  const result = await db.query(
+    `delete from cumbuca_app_backups
+     where backup_date < current_date - ($1::int * interval '1 day')`,
+    [days]
+  );
+
+  return { database: true, deleted: result.rowCount || 0, keepDays: days };
+}
+
 async function readBackup(backupDate) {
   if (!await ensureBackupTable()) {
     return { database: false, backup: null };
@@ -351,7 +403,7 @@ async function restoreBackup(backupDate) {
 }
 
 async function verifyPersistence() {
-  if (!await ensureStateTable() || !await ensureBackupTable()) {
+  if (!await ensureStateTable()) {
     return { database: false };
   }
 
@@ -368,24 +420,13 @@ async function verifyPersistence() {
   );
   const readBack = await db.query("select value, updated_at from cumbuca_app_state where key = $1", ["__healthcheck"]);
   const saved = readBack.rows[0]?.value?.id === marker.id;
-  if (saved) {
-    const currentState = await readAppState();
-    await writeAutomaticBackup(currentState.state || {});
-  }
-  const backups = await db.query(`
-    select backup_date, updated_at, backup_date >= current_date - interval '7 days' as weekly_ok
-    from cumbuca_app_backups
-    order by backup_date desc
-    limit 1
-  `);
 
   return {
     database: true,
     saved,
     checkedAt: marker.checkedAt,
     stateUpdatedAt: readBack.rows[0]?.updated_at || null,
-    lastBackup: backups.rows[0] || null,
-    backupWeeklyOk: Boolean(backups.rows[0]?.weekly_ok)
+    automaticBackup: false
   };
 }
 
@@ -419,9 +460,7 @@ async function writeAppState(payload = {}) {
     );
   }
 
-  await writeAutomaticBackup(payload);
-
-  return { database: true, saved: entries.map(([key]) => key), backup: true };
+  return { database: true, saved: entries.map(([key]) => key), backup: false };
 }
 
 function calculateCashFlow(entries = []) {
@@ -560,8 +599,12 @@ function buildReportPdf(payload = {}) {
   });
 
   doc.y = summary.length > 6 ? 300 : 235;
-  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Entradas");
-  addPdfTable(doc, ["Data", "Descricao", "Valor"], data.incomeRows || [], [82, 320, 110]);
+  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Resumo de entradas");
+  addPdfTable(doc, ["Grupo", "Origem", "Valor"], data.incomeSummaryRows || [
+    ["Conta", "Total da conta", brl(data.accountIncome ?? data.totalIncome ?? 0)],
+    ["Semanal", "Total semanal", brl(data.weeklyRevenue ?? 0)],
+    ["Total", "Conta + semanal", brl(Number(data.accountIncome ?? data.totalIncome ?? 0) + Number(data.weeklyRevenue ?? 0))]
+  ], [90, 260, 110]);
 
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Principais saidas (despesas)");
   addPdfTable(doc, ["Data", "Descricao", "Categoria", "Valor"], data.expenseRows || [], [82, 240, 100, 90]);
@@ -571,9 +614,6 @@ function buildReportPdf(payload = {}) {
 
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Cumbucas vendidas na loja");
   addPdfTable(doc, ["Data", "Quantidade", "Observacao"], data.storeRows || [], [82, 90, 340]);
-
-  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Lancamentos");
-  addPdfTable(doc, ["Data", "Descricao", "Tipo", "Categoria", "Valor"], data.cashRows || [], [72, 210, 70, 80, 80]);
 
   const footerY = 760;
   doc.moveTo(42, footerY).lineTo(250, footerY).stroke("#d1d5db");
@@ -827,6 +867,17 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/backups") {
       sendJson(res, 200, await listBackups());
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/database-usage") {
+      sendJson(res, 200, await databaseUsage());
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/backups/delete-old") {
+      const payload = await collectBody(req);
+      sendJson(res, 200, await deleteOldBackups(payload.keepDays));
       return;
     }
 
