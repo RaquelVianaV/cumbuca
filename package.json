@@ -6,8 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "deploy": "vercel --prod --yes",
-    "deploy:railway": "railway up"
+    "deploy": "vercel --prod --yes"
   },
   "dependencies": {
     "jszip": "^3.10.1",
