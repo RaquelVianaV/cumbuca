@@ -695,8 +695,12 @@ function endOfWeek(date) {
   return copy;
 }
 
+function normalizedCategory(value) {
+  return String(value || "").replace(/^supplier:/, "reason:");
+}
+
 function filterCashEntries(entries) {
-  const { period, date, month, year, search } = state.cashFilter;
+  const { period, date, month, year, search, type, category } = state.cashFilter;
   const query = String(search || "").trim().toLowerCase();
   const searchedEntries = query
     ? entries.filter(entry => [
@@ -707,11 +711,19 @@ function filterCashEntries(entries) {
     ].some(value => String(value || "").toLowerCase().includes(query)))
     : entries;
 
+  const typedEntries = type && type !== "all"
+    ? searchedEntries.filter(entry => (type === "expense" ? entry.type === "expense" : entry.type !== "expense"))
+    : searchedEntries;
+
+  const categorizedEntries = category && category !== "all"
+    ? typedEntries.filter(entry => normalizedCategory(entry.category) === normalizedCategory(category))
+    : typedEntries;
+
   if (!period || period === "all") {
-    return searchedEntries;
+    return categorizedEntries;
   }
 
-  return searchedEntries.filter(entry => {
+  return categorizedEntries.filter(entry => {
     if (!entry.date) {
       return false;
     }
@@ -754,8 +766,32 @@ function expenseReasonOptions() {
     .map(name => [`reason:${name}`, name]);
 }
 
+function cashFilterCategoryOptions(selected = "all") {
+  const normalizedSelected = normalizedCategory(selected || "all");
+  let selectedApplied = normalizedSelected === "all";
+
+  const optionHtml = ([value, label]) => {
+    const normalizedValue = normalizedCategory(value);
+    const shouldSelect = !selectedApplied && normalizedSelected === normalizedValue;
+    if (shouldSelect) {
+      selectedApplied = true;
+    }
+    return `<option value="${value}" ${shouldSelect ? "selected" : ""}>${label}</option>`;
+  };
+
+  return `
+    <option value="all" ${normalizedSelected === "all" ? "selected" : ""}>Todas</option>
+    <optgroup label="Entradas">
+      ${incomeCategories.map(optionHtml).join("")}
+    </optgroup>
+    <optgroup label="Saidas">
+      ${[...expenseCategories, ...expenseReasonOptions()].map(optionHtml).join("")}
+    </optgroup>
+  `;
+}
+
 function cashCategoryOptions(type, selected = "") {
-  const normalizedSelected = String(selected || "").replace(/^supplier:/, "reason:");
+  const normalizedSelected = normalizedCategory(selected);
   const options = type === "expense"
     ? [...expenseCategories, ...expenseReasonOptions()]
     : incomeCategories;
@@ -1471,6 +1507,18 @@ async function renderCash() {
           </label>
           <label class="filter-control filter-year">Ano
             <input name="year" type="number" min="2000" max="2100" step="1" value="${selectedYear}">
+          </label>
+          <label>Tipo
+            <select name="type">
+              <option value="all" ${!state.cashFilter.type || state.cashFilter.type === "all" ? "selected" : ""}>Entradas e saidas</option>
+              <option value="income" ${state.cashFilter.type === "income" ? "selected" : ""}>Entradas</option>
+              <option value="expense" ${state.cashFilter.type === "expense" ? "selected" : ""}>Saidas</option>
+            </select>
+          </label>
+          <label>Origem / categoria
+            <select name="category">
+              ${cashFilterCategoryOptions(state.cashFilter.category || "all")}
+            </select>
           </label>
           <label>Buscar
             <input name="search" placeholder="Nome, motivo ou origem" value="${state.cashFilter.search || ""}">
