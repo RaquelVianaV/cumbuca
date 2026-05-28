@@ -195,9 +195,16 @@ if (logoutButton) {
 const LOW_MONTHLY_QUANTITY = 5;
 const incomeCategories = [
   ["venda", "Venda"],
+  ["cardapio-web", "Cardápio Web"],
   ["ifood", "iFood"],
-  ["99", "99"],
+  ["99", "99 Food"],
+  ["99-food", "99 Food"],
   ["ajuste-conta", "Ajuste da conta"]
+];
+const channelDefinitions = [
+  ["cardapioWeb", "Cardápio Web"],
+  ["ifood", "iFood"],
+  ["food99", "99 Food"]
 ];
 const expenseCategories = [
   ["supermercado", "Supermercado"],
@@ -287,6 +294,7 @@ const state = {
   clients: localValue("clients", []),
   orders: localValue("orders", []),
   storeSales: localValue("storeSales", []),
+  channelReceipts: localValue("channelReceipts", []),
   expenseReasons: seededExpenseReasons(),
   archivedExpenseReasons: localValue("archivedExpenseReasons", []),
   auditLog: localValue("auditLog", []),
@@ -303,6 +311,7 @@ const state = {
   editClientIndex: null,
   editOrderId: null,
   editCashId: null,
+  editChannelReceiptId: null,
   cashPanelTab: "entry",
   editStoreSaleId: null,
   editExpenseReasonIndex: null,
@@ -337,6 +346,7 @@ function appStatePayload() {
     clients: state.clients,
     orders: state.orders,
     storeSales: state.storeSales,
+    channelReceipts: state.channelReceipts,
     expenseReasons: state.expenseReasons,
     archivedExpenseReasons: state.archivedExpenseReasons,
     auditLog: state.auditLog,
@@ -360,6 +370,7 @@ function applyPayloadToState(saved = {}) {
   state.clients = saved.clients || [];
   state.orders = saved.orders || [];
   state.storeSales = saved.storeSales || [];
+  state.channelReceipts = saved.channelReceipts || [];
   state.expenseReasons = Array.isArray(saved.expenseReasons) && saved.expenseReasons.length
     ? saved.expenseReasons
     : seededExpenseReasons();
@@ -562,6 +573,7 @@ function cleanupPreview(year) {
     menus: Object.keys(state.menus || {}).filter(key => yearFromMenuKey(key) === target).length,
     menuDates: Object.keys(state.menuDates || {}).filter(key => yearFromMenuKey(key) === target).length,
     storeSales: state.storeSales.filter(entry => String(entry.date || "").startsWith(target)).length,
+    channelReceipts: state.channelReceipts.filter(entry => String(entry.date || "").startsWith(target)).length,
     monthlyClosings: Object.keys(state.monthlyClosings || {}).filter(key => String(key || "").startsWith(target)).length
   };
 }
@@ -591,6 +603,7 @@ function databaseUsageEstimate() {
     storeSales: state.storeSales.length,
     monthlyClosings: Object.keys(state.monthlyClosings || {}).length,
     clients: state.clients.length,
+    channelReceipts: state.channelReceipts.length,
     pricingIngredients: state.ingredients.length,
     auditLog: state.auditLog.length
   };
@@ -625,6 +638,7 @@ function yearUsageEstimate(year) {
     weeklyMenusByPeriod: Object.fromEntries(Object.entries(state.menus || {}).filter(([key]) => yearFromMenuKey(key) === target)),
     menuDatesByPeriod: Object.fromEntries(Object.entries(state.menuDates || {}).filter(([key]) => yearFromMenuKey(key) === target)),
     storeSales: state.storeSales.filter(entry => String(entry.date || "").startsWith(target)),
+    channelReceipts: state.channelReceipts.filter(entry => String(entry.date || "").startsWith(target)),
     monthlyClosings: Object.fromEntries(Object.entries(state.monthlyClosings || {}).filter(([key]) => String(key || "").startsWith(target)))
   };
 
@@ -710,6 +724,11 @@ function cleanupYears() {
       years.add(String(entry.date || "").slice(0, 4));
     }
   });
+  state.channelReceipts.forEach(entry => {
+    if (String(entry.date || "").slice(0, 4)) {
+      years.add(String(entry.date || "").slice(0, 4));
+    }
+  });
   Object.keys(state.menus || {}).forEach(key => years.add(yearFromMenuKey(key)));
   Object.keys(state.monthlyClosings || {}).forEach(key => years.add(String(key || "").slice(0, 4)));
 
@@ -727,6 +746,7 @@ async function cleanupYear(year) {
   state.cash = state.cash.filter(entry => !String(entry.date || "").startsWith(target));
   state.orders = state.orders.filter(order => yearFromMenuKey(order.menuKey) !== target);
   state.storeSales = state.storeSales.filter(entry => !String(entry.date || "").startsWith(target));
+  state.channelReceipts = state.channelReceipts.filter(entry => !String(entry.date || "").startsWith(target));
   state.menus = Object.fromEntries(Object.entries(state.menus || {}).filter(([key]) => yearFromMenuKey(key) !== target));
   state.menuDates = Object.fromEntries(Object.entries(state.menuDates || {}).filter(([key]) => yearFromMenuKey(key) !== target));
   state.monthlyClosings = Object.fromEntries(Object.entries(state.monthlyClosings || {}).filter(([key]) => !String(key || "").startsWith(target)));
@@ -745,6 +765,7 @@ function cleanupPreviewHtml(year, preview) {
       <div class="metric"><span>Menus</span><strong>${preview.menus}</strong></div>
       <div class="metric"><span>Datas menu</span><strong>${preview.menuDates}</strong></div>
       <div class="metric"><span>Loja</span><strong>${preview.storeSales}</strong></div>
+      <div class="metric"><span>Canais</span><strong>${preview.channelReceipts}</strong></div>
       <div class="metric"><span>Fechamentos</span><strong>${preview.monthlyClosings}</strong></div>
     </div>
     <p class="muted">${total ? `A limpeza de ${year} removerá ${total} grupo(s)/registro(s) antigos.` : `Não há dados de ${year} para apagar.`}</p>
@@ -959,6 +980,104 @@ function cashCategorySummary(entries = []) {
           <strong class="${row.balance < 0 ? "negative" : "positive"}">${money(row.balance)}</strong>
         </span>
       `).join("")}
+    </div>
+  `;
+}
+
+function channelReceiptTotal(entry = {}) {
+  return channelDefinitions.reduce((sum, [key]) => sum + Number(entry[key] || 0), 0);
+}
+
+function channelReceiptTotals(entries = []) {
+  return entries.reduce((totals, entry) => {
+    channelDefinitions.forEach(([key]) => {
+      totals[key] = (totals[key] || 0) + Number(entry[key] || 0);
+    });
+    totals.total += channelReceiptTotal(entry);
+    return totals;
+  }, { total: 0 });
+}
+
+function channelReceiptMonthEntries(month) {
+  return [...(state.channelReceipts || [])]
+    .filter(entry => String(entry.date || "").startsWith(month || ""))
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+}
+
+function channelReceiptTable(entries = []) {
+  if (!entries.length) {
+    return `<p class="muted">Nenhum valor de canal lançado neste período.</p>`;
+  }
+
+  return `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Data</th>
+            ${channelDefinitions.map(([, label]) => `<th>${label}</th>`).join("")}
+            <th>Total do dia</th>
+            <th>Observação</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${entries.map(item => `
+            <tr>
+              <td>${formatIsoDateBr(item.date)}</td>
+              ${channelDefinitions.map(([key]) => `<td>${money(item[key])}</td>`).join("")}
+              <td><strong>${money(channelReceiptTotal(item))}</strong></td>
+              <td>${escapeHtml(item.notes || "-")}</td>
+              <td>
+                <div class="table-actions">
+                  <button class="secondary table-action" type="button" data-edit-channel-receipt="${item.id || ""}">Editar</button>
+                  <button class="danger table-action" type="button" data-delete-channel-receipt="${item.id || ""}">Excluir</button>
+                </div>
+              </td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function channelReceiptsPanel(editing = null, month = isoDate(new Date()).slice(0, 7)) {
+  const monthEntries = channelReceiptMonthEntries(month);
+  const totals = channelReceiptTotals(monthEntries);
+  const dateValue = editing?.date || isoDate(new Date());
+
+  return `
+    <div class="cash-tab-section channel-receipts-panel">
+      <div>
+        <h2>Entradas por canal</h2>
+        <p class="muted-inline">Controle separado do saldo da conta. Use para acompanhar quanto entrou em cada plataforma por dia.</p>
+      </div>
+      <form id="channel-receipt-form" class="form-grid single">
+        <label>Data
+          <input name="date" type="date" value="${dateValue}" required>
+        </label>
+        ${channelDefinitions.map(([key, label]) => `
+          <label>${label}
+            <input name="${key}" type="number" min="0" step="0.01" placeholder="0,00" value="${editing?.[key] || ""}">
+          </label>
+        `).join("")}
+        <label>Observação
+          <input name="notes" placeholder="Ex.: repasse, fechamento, conferência" value="${escapeHtml(editing?.notes || "")}">
+        </label>
+        <div class="actions">
+          <button type="submit">${editing ? "Salvar edição" : "Salvar dia"}</button>
+          ${editing ? `<button class="secondary" type="button" id="cancel-channel-receipt-edit">Cancelar</button>` : ""}
+        </div>
+      </form>
+      <div class="summary channel-summary">
+        ${channelDefinitions.map(([key, label]) => `
+          <div class="metric"><span>${label}</span><strong>${money(totals[key])}</strong></div>
+        `).join("")}
+        <div class="metric"><span>Total do mês</span><strong>${money(totals.total)}</strong></div>
+      </div>
+      <h3>${formatMonthKeyBr(month)}</h3>
+      ${channelReceiptTable(monthEntries)}
     </div>
   `;
 }
@@ -1632,6 +1751,9 @@ async function renderCash() {
   const editing = state.editCashId !== null
     ? state.cash.find(entry => String(entry.id) === String(state.editCashId))
     : null;
+  const editingChannelReceipt = state.editChannelReceiptId !== null
+    ? state.channelReceipts.find(entry => String(entry.id) === String(state.editChannelReceiptId))
+    : null;
   const filteredEntries = filterCashEntries(state.cash);
   const result = await postJson("/api/fluxo-de-caixa", { entries: filteredEntries });
   const today = isoDate(new Date());
@@ -1640,9 +1762,10 @@ async function renderCash() {
   const selectedYear = state.cashFilter.year || today.slice(0, 4);
   const selectedFilterType = state.cashFilter.type || "all";
   const selectedFilterCategory = state.cashFilter.category || "all";
+  const selectedChannelMonth = state.cashFilter.month || today.slice(0, 7);
   const totalCash = cashTotals(state.cash);
   const previewWithdrawal = withdrawalSplit(totalCash.balance);
-  const activeCashPanel = editing ? "entry" : (state.cashPanelTab || "entry");
+  const activeCashPanel = editing ? "entry" : (editingChannelReceipt ? "channels" : (state.cashPanelTab || "entry"));
 
   app.innerHTML = `
     <section class="cash-hero">
@@ -1662,6 +1785,7 @@ async function renderCash() {
         <div class="cash-panel-tabs" role="tablist" aria-label="Ferramentas do caixa">
           ${[
             ["entry", editing ? "Editar" : "Lançamento"],
+            ["channels", "Canais"],
             ["reconciliation", "Conciliação"],
             ["withdrawals", "Retiradas"],
             ["reasons", "Motivos"]
@@ -1704,6 +1828,7 @@ async function renderCash() {
         </form>
         </div>
         ` : ""}
+        ${activeCashPanel === "channels" ? channelReceiptsPanel(editingChannelReceipt, selectedChannelMonth) : ""}
         ${activeCashPanel === "reconciliation" ? `
         <div class="cash-tab-section account-balance-panel">
         <h2>Conciliação da conta</h2>
@@ -1814,6 +1939,9 @@ async function renderCash() {
       if (state.cashPanelTab !== "entry") {
         state.editCashId = null;
       }
+      if (state.cashPanelTab !== "channels") {
+        state.editChannelReceiptId = null;
+      }
       renderCash();
     });
   });
@@ -1869,6 +1997,79 @@ async function renderCash() {
     cashCategoryField.addEventListener("change", updateCashDueDateVisibility);
     updateCashDueDateVisibility();
   }
+
+  const channelReceiptForm = document.querySelector("#channel-receipt-form");
+  if (channelReceiptForm) {
+    channelReceiptForm.addEventListener("submit", event => {
+      event.preventDefault();
+      const values = readForm(event.currentTarget);
+      const receipt = {
+        id: editingChannelReceipt?.id || Date.now(),
+        date: values.date,
+        notes: String(values.notes || "").trim()
+      };
+      channelDefinitions.forEach(([key]) => {
+        receipt[key] = Number(values[key] || 0).toFixed(2);
+      });
+
+      const total = channelReceiptTotal(receipt);
+      if (total <= 0) {
+        showToast("Informe pelo menos um valor de canal.", "error");
+        return;
+      }
+
+      if (editingChannelReceipt) {
+        state.channelReceipts = state.channelReceipts.map(item => String(item.id) === String(editingChannelReceipt.id) ? receipt : item);
+        state.editChannelReceiptId = null;
+        recordAudit("Canais editados", `${formatIsoDateBr(receipt.date)} - ${money(total)}`);
+      } else {
+        const existing = state.channelReceipts.find(item => item.date === receipt.date);
+        if (existing) {
+          receipt.id = existing.id;
+          state.channelReceipts = state.channelReceipts.map(item => item.date === receipt.date ? receipt : item);
+          recordAudit("Canais atualizados", `${formatIsoDateBr(receipt.date)} - ${money(total)}`);
+        } else {
+          state.channelReceipts.push(receipt);
+          recordAudit("Canais lançados", `${formatIsoDateBr(receipt.date)} - ${money(total)}`);
+        }
+      }
+      persistState();
+      renderCash();
+    });
+  }
+
+  const cancelChannelReceiptEdit = document.querySelector("#cancel-channel-receipt-edit");
+  if (cancelChannelReceiptEdit) {
+    cancelChannelReceiptEdit.addEventListener("click", () => {
+      state.editChannelReceiptId = null;
+      renderCash();
+    });
+  }
+
+  document.querySelectorAll("[data-edit-channel-receipt]").forEach(button => {
+    button.addEventListener("click", event => {
+      state.editChannelReceiptId = event.currentTarget.dataset.editChannelReceipt;
+      state.cashPanelTab = "channels";
+      renderCash();
+    });
+  });
+
+  document.querySelectorAll("[data-delete-channel-receipt]").forEach(button => {
+    button.addEventListener("click", event => {
+      const id = event.currentTarget.dataset.deleteChannelReceipt;
+      const removed = state.channelReceipts.find(item => String(item.id) === String(id));
+      if (!removed || !confirm(`Excluir os valores dos canais de ${formatIsoDateBr(removed.date)}?`)) {
+        return;
+      }
+      state.channelReceipts = state.channelReceipts.filter(item => String(item.id) !== String(id));
+      if (String(state.editChannelReceiptId) === String(id)) {
+        state.editChannelReceiptId = null;
+      }
+      recordAudit("Canais excluídos", `${formatIsoDateBr(removed.date)} - ${money(channelReceiptTotal(removed))}`);
+      persistState();
+      renderCash();
+    });
+  });
 
   const expenseReasonForm = document.querySelector("#expense-reason-form");
   if (expenseReasonForm) {
@@ -3720,6 +3921,18 @@ function reportStoreSales(periodKey) {
   });
 }
 
+function reportChannelReceipts(periodKey) {
+  if ((state.reportPeriod.type || "month") !== "week") {
+    return state.channelReceipts.filter(entry => String(entry.date || "").startsWith(periodKey));
+  }
+
+  const { start, end } = reportWeekRange();
+  return state.channelReceipts.filter(entry => {
+    const date = String(entry.date || "");
+    return date >= start && date <= end;
+  });
+}
+
 function reportData() {
   const type = state.reportPeriod.type || "month";
   const periodKey = reportPeriodKey();
@@ -3727,6 +3940,7 @@ function reportData() {
   const weekKey = reportWeekKey();
   const cashEntries = reportCashEntries(periodKey, weekKey);
   const storeSales = reportStoreSales(periodKey);
+  const channelReceipts = reportChannelReceipts(periodKey);
   const orders = type === "week"
     ? state.orders.filter(order => order.menuKey === weekKey)
     : state.orders.filter(order => menuPeriodKeyFromKey(order.menuKey) === periodKey);
@@ -3774,6 +3988,7 @@ function reportData() {
     selectedWeek,
     cashEntries,
     storeSales,
+    channelReceipts,
     incomeEntries,
     expenseEntries,
     orders,
@@ -3882,6 +4097,12 @@ function compactMoneyList(rows, emptyText) {
 function monthlyOriginCategoryPanel(data) {
   const incomeRows = moneyRowsByCategory(data.cashEntries, "income");
   const expenseRows = moneyRowsByCategory(data.cashEntries, "expense");
+  const channelRows = channelDefinitions
+    .map(([key, label]) => [
+      label,
+      data.channelReceipts.reduce((sum, entry) => sum + Number(entry[key] || 0), 0)
+    ])
+    .filter(([, value]) => value > 0);
   const topExpenses = [...data.expenseEntries]
     .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
     .slice(0, 5)
@@ -3900,15 +4121,21 @@ function monthlyOriginCategoryPanel(data) {
         ${compactMoneyList(incomeRows, "Nenhuma entrada no período.")}
       </div>
       <div class="panel dashboard-panel">
-        <h2>Saídas por categoria</h2>
-        ${compactMoneyList(expenseRows, "Nenhuma saída no período.")}
+        <h2>Canais de venda</h2>
+        ${compactMoneyList(channelRows, "Nenhum valor de canal lançado no período.")}
       </div>
     </section>
     <section class="dashboard-lane monthly-breakdown">
       <div class="panel dashboard-panel">
+        <h2>Saídas por categoria</h2>
+        ${compactMoneyList(expenseRows, "Nenhuma saída no período.")}
+      </div>
+      <div class="panel dashboard-panel">
         <h2>Maiores despesas</h2>
         ${compactMoneyList(topExpenses, "Nenhuma despesa no período.")}
       </div>
+    </section>
+    <section class="dashboard-lane monthly-breakdown">
       <div class="panel dashboard-panel">
         <h2>Comparação com ${formatMonthKeyBr(previousKey)}</h2>
         <div class="summary comparison-summary">
