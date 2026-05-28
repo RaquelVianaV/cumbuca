@@ -442,6 +442,51 @@ h2 {
   align-items: start;
 }
 
+.cash-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.cash-command-panel {
+  position: sticky;
+  top: 92px;
+  display: grid;
+  gap: 16px;
+}
+
+.cash-panel-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f3f4f6;
+}
+
+.cash-panel-tabs button {
+  min-height: 36px;
+  padding-inline: 8px;
+  border-color: transparent;
+  background: transparent;
+  color: #4b5563;
+  font-size: 0.82rem;
+}
+
+.cash-panel-tabs button.active,
+.cash-panel-tabs button:hover {
+  background: #ffffff;
+  color: var(--ink);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+
+.cash-tab-section {
+  display: grid;
+  gap: 12px;
+}
+
 .card,
 .panel {
   border: 1px solid var(--line);
@@ -910,8 +955,44 @@ textarea {
 }
 
 .cash-ledger-panel {
-  grid-column: 2;
-  grid-row: 1 / span 3;
+  display: grid;
+  gap: 2px;
+}
+
+.cash-row.income-row td:first-child {
+  border-left: 3px solid var(--green);
+}
+
+.cash-row.expense-row td:first-child {
+  border-left: 3px solid var(--red);
+}
+
+.cash-type-badge,
+.cash-category-badge {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 9px;
+  font-size: 0.75rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.cash-type-badge.income {
+  background: #ecfdf5;
+  color: var(--green-dark);
+}
+
+.cash-type-badge.expense {
+  background: #fff7ed;
+  color: var(--red);
+}
+
+.cash-category-badge {
+  border: 1px solid var(--line);
+  background: #f9fafb;
+  color: #4b5563;
 }
 
 .withdrawal-preview {
@@ -1965,6 +2046,7 @@ td select {
   .home-grid,
   .dashboard-band,
   .dashboard-lane,
+  .cash-layout,
   .tool-grid,
   .summary,
   .report-grid,
@@ -2006,6 +2088,10 @@ td select {
   .section-heading {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .cash-command-panel {
+    position: static;
   }
 
   .withdrawal-panel,

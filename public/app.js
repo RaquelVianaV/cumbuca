@@ -230,6 +230,7 @@ const state = {
   editClientIndex: null,
   editOrderId: null,
   editCashId: null,
+  cashPanelTab: "entry",
   editStoreSaleId: null,
   editExpenseReasonIndex: null,
   ingredients: localValue("pricingIngredients", []),
@@ -886,14 +887,14 @@ function planningItemsHtml(items, emptyText) {
   `;
 }
 
-function expenseReasonsPanel() {
+function expenseReasonsPanel(className = "panel supplier-panel") {
   const editingIndex = state.editExpenseReasonIndex;
   const activeReasons = activeExpenseReasons();
   const archivedReasons = (state.archivedExpenseReasons || []).filter(Boolean);
   const editing = editingIndex !== null ? activeReasons[editingIndex] : "";
 
   return `
-    <section class="panel supplier-panel">
+    <section class="${className}">
       <h2>Motivos de saída</h2>
       <form id="expense-reason-form" class="form-grid single">
         <label>${editing ? "Editar motivo" : "Novo motivo"}
@@ -1533,11 +1534,24 @@ async function renderCash() {
   const selectedFilterCategory = state.cashFilter.category || "all";
   const totalCash = cashTotals(state.cash);
   const previewWithdrawal = withdrawalSplit(totalCash.balance);
+  const activeCashPanel = editing ? "entry" : (state.cashPanelTab || "entry");
 
   app.innerHTML = `
-    <div class="tool-grid">
-      <section class="panel">
-        <h2>${editing ? "Editar lançamento" : "Novo lançamento"}</h2>
+    <div class="cash-layout">
+      <section class="panel cash-command-panel">
+        <div class="cash-panel-tabs" role="tablist" aria-label="Ferramentas do caixa">
+          ${[
+            ["entry", editing ? "Editar" : "Lançamento"],
+            ["reconciliation", "Conciliação"],
+            ["withdrawals", "Retiradas"],
+            ["reasons", "Motivos"]
+          ].map(([tab, label]) => `
+            <button class="${activeCashPanel === tab ? "active" : ""}" type="button" data-cash-panel="${tab}">${label}</button>
+          `).join("")}
+        </div>
+        ${activeCashPanel === "entry" ? `
+        <div class="cash-tab-section">
+          <h2>${editing ? "Editar lançamento" : "Novo lançamento"}</h2>
         <form id="cash-form" class="form-grid single">
           <label>Descrição
             <input name="description" placeholder="Venda, iFood, supermercado, entregador" value="${editing?.description || ""}" required>
@@ -1568,9 +1582,10 @@ async function renderCash() {
             <button class="secondary" type="button" id="clear-cash">Limpar</button>
           </div>
         </form>
-      </section>
-      ${expenseReasonsPanel()}
-      <section class="panel account-balance-panel">
+        </div>
+        ` : ""}
+        ${activeCashPanel === "reconciliation" ? `
+        <div class="cash-tab-section account-balance-panel">
         <h2>Conciliação da conta</h2>
         <form id="account-balance-form" class="form-grid single">
           <div class="summary reconciliation-summary">
@@ -1588,8 +1603,10 @@ async function renderCash() {
         </form>
         <h3>Histórico de ajustes</h3>
         ${accountAdjustmentHistoryHtml()}
-      </section>
-      <section class="panel withdrawal-panel">
+        </div>
+        ` : ""}
+        ${activeCashPanel === "withdrawals" ? `
+        <div class="cash-tab-section withdrawal-panel">
         <h2>Retiradas</h2>
         <form id="withdrawal-form" class="form-grid single">
           <label>Data
@@ -1606,6 +1623,9 @@ async function renderCash() {
           </div>
           <button type="submit" ${totalCash.balance > 0 ? "" : "disabled"}>Registrar retiradas</button>
         </form>
+        </div>
+        ` : ""}
+        ${activeCashPanel === "reasons" ? expenseReasonsPanel("cash-tab-section supplier-panel") : ""}
       </section>
       <section class="panel cash-ledger-panel">
         <form id="cash-filter-form" class="filter-bar">
@@ -1662,7 +1682,19 @@ async function renderCash() {
     </div>
   `;
 
-  document.querySelector("#cash-form").addEventListener("submit", event => {
+  document.querySelectorAll("[data-cash-panel]").forEach(button => {
+    button.addEventListener("click", event => {
+      state.cashPanelTab = event.currentTarget.dataset.cashPanel;
+      if (state.cashPanelTab !== "entry") {
+        state.editCashId = null;
+      }
+      renderCash();
+    });
+  });
+
+  const cashForm = document.querySelector("#cash-form");
+  if (cashForm) {
+    cashForm.addEventListener("submit", event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
     const entry = {
@@ -1680,7 +1712,8 @@ async function renderCash() {
     }
     persistState();
     renderCash();
-  });
+    });
+  }
 
   const cancelCashEdit = document.querySelector("#cancel-cash-edit");
   if (cancelCashEdit) {
@@ -1693,23 +1726,27 @@ async function renderCash() {
   const cashTypeField = document.querySelector("#cash-type");
   const cashCategoryField = document.querySelector("#cash-category");
   const cashDueDateField = document.querySelector("#cash-due-date-field");
-  const updateCashDueDateVisibility = () => {
-    const shouldShow = cashTypeField.value === "expense" && isBillCategory(cashCategoryField.value);
-    cashDueDateField.hidden = !shouldShow;
-    cashDueDateField.querySelector("input").required = shouldShow;
-    if (!shouldShow) {
-      cashDueDateField.querySelector("input").value = "";
-    }
-  };
-  cashTypeField.addEventListener("change", event => {
-    const type = event.currentTarget.value;
-    cashCategoryField.innerHTML = cashCategoryOptions(type, type === "expense" ? "outros" : "venda");
+  if (cashTypeField && cashCategoryField && cashDueDateField) {
+    const updateCashDueDateVisibility = () => {
+      const shouldShow = cashTypeField.value === "expense" && isBillCategory(cashCategoryField.value);
+      cashDueDateField.hidden = !shouldShow;
+      cashDueDateField.querySelector("input").required = shouldShow;
+      if (!shouldShow) {
+        cashDueDateField.querySelector("input").value = "";
+      }
+    };
+    cashTypeField.addEventListener("change", event => {
+      const type = event.currentTarget.value;
+      cashCategoryField.innerHTML = cashCategoryOptions(type, type === "expense" ? "outros" : "venda");
+      updateCashDueDateVisibility();
+    });
+    cashCategoryField.addEventListener("change", updateCashDueDateVisibility);
     updateCashDueDateVisibility();
-  });
-  cashCategoryField.addEventListener("change", updateCashDueDateVisibility);
-  updateCashDueDateVisibility();
+  }
 
-  document.querySelector("#expense-reason-form").addEventListener("submit", event => {
+  const expenseReasonForm = document.querySelector("#expense-reason-form");
+  if (expenseReasonForm) {
+    expenseReasonForm.addEventListener("submit", event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
     const reason = String(values.reason || "").trim();
@@ -1728,7 +1765,8 @@ async function renderCash() {
     }
     persistState();
     renderCash();
-  });
+    });
+  }
 
   const cancelExpenseReasonEdit = document.querySelector("#cancel-expense-reason-edit");
   if (cancelExpenseReasonEdit) {
@@ -1775,17 +1813,18 @@ async function renderCash() {
   });
 
   const accountBalanceForm = document.querySelector("#account-balance-form");
-  accountBalanceForm.addEventListener("input", () => {
-    const adjustment = accountBalanceAdjustment(accountBalanceForm.elements.balance.value, cashTotals(state.cash).balance);
-    const realPreview = document.querySelector("#account-real-preview");
-    const differencePreview = document.querySelector("#account-difference-preview");
-    realPreview.textContent = money(adjustment.target);
-    differencePreview.textContent = `${adjustment.difference < 0 ? "-" : ""}${money(adjustment.amount)}`;
-    differencePreview.classList.toggle("negative", adjustment.difference < 0);
-    differencePreview.classList.toggle("positive", adjustment.difference > 0);
-  });
+  if (accountBalanceForm) {
+    accountBalanceForm.addEventListener("input", () => {
+      const adjustment = accountBalanceAdjustment(accountBalanceForm.elements.balance.value, cashTotals(state.cash).balance);
+      const realPreview = document.querySelector("#account-real-preview");
+      const differencePreview = document.querySelector("#account-difference-preview");
+      realPreview.textContent = money(adjustment.target);
+      differencePreview.textContent = `${adjustment.difference < 0 ? "-" : ""}${money(adjustment.amount)}`;
+      differencePreview.classList.toggle("negative", adjustment.difference < 0);
+      differencePreview.classList.toggle("positive", adjustment.difference > 0);
+    });
 
-  accountBalanceForm.addEventListener("submit", event => {
+    accountBalanceForm.addEventListener("submit", event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
     const adjustment = accountBalanceAdjustment(values.balance, cashTotals(state.cash).balance);
@@ -1806,10 +1845,12 @@ async function renderCash() {
     recordAudit("Valor na conta ajustado", `Conta ${money(adjustment.target)} - ajuste ${money(adjustment.amount)}`);
     persistState();
     renderCash();
-  });
+    });
+  }
 
   const withdrawalForm = document.querySelector("#withdrawal-form");
-  withdrawalForm.addEventListener("input", () => {
+  if (withdrawalForm) {
+    withdrawalForm.addEventListener("input", () => {
     const amount = Number(withdrawalForm.elements.amount.value || 0);
     const split = withdrawalSplit(amount);
     const preview = withdrawalForm.querySelector(".withdrawal-preview");
@@ -1819,9 +1860,9 @@ async function renderCash() {
       <span><b>Vanessa 70%</b>${money(split.vanessa)}</span>
       <span><b>Raquel 30%</b>${money(split.raquel)}</span>
     `;
-  });
+    });
 
-  withdrawalForm.addEventListener("submit", event => {
+    withdrawalForm.addEventListener("submit", event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
     const available = cashTotals(state.cash).balance;
@@ -1867,7 +1908,8 @@ async function renderCash() {
     recordAudit("Retirada registrada", `Total ${money(split.total)} - cofrinho ${money(split.savings)}, Vanessa ${money(split.vanessa)}, Raquel ${money(split.raquel)}`);
     persistState();
     renderCash();
-  });
+    });
+  }
 
   const filterForm = document.querySelector("#cash-filter-form");
   const periodField = document.querySelector("#cash-period");
@@ -1918,7 +1960,9 @@ async function renderCash() {
     });
   });
 
-  document.querySelector("#clear-cash").addEventListener("click", async () => {
+  const clearCashButton = document.querySelector("#clear-cash");
+  if (clearCashButton) {
+    clearCashButton.addEventListener("click", async () => {
     if (!confirm("Antes de limpar o caixa, baixe um backup JSON. Deseja baixar agora?")) {
       return;
     }
@@ -1934,11 +1978,13 @@ async function renderCash() {
     recordAudit("Caixa limpo", `${removedCount} lançamento(s) removido(s) após backup manual`);
     persistState();
     renderCash();
-  });
+    });
+  }
 
   document.querySelectorAll("[data-edit-cash]").forEach(button => {
     button.addEventListener("click", event => {
       state.editCashId = event.currentTarget.dataset.editCash;
+      state.cashPanelTab = "entry";
       renderCash();
     });
   });
@@ -1973,11 +2019,11 @@ function cashTable(entries) {
         <thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Categoria</th><th>Vencimento</th><th>Valor</th><th></th></tr></thead>
         <tbody>
           ${entries.map(item => `
-            <tr>
+            <tr class="cash-row ${item.type === "income" ? "income-row" : "expense-row"}">
               <td>${formatIsoDateBr(item.date)}</td>
               <td>${item.description}</td>
-              <td>${item.type === "income" ? "Entrada" : "Saída"}</td>
-              <td>${categoryName(item.category)}</td>
+              <td><span class="cash-type-badge ${item.type === "income" ? "income" : "expense"}">${item.type === "income" ? "Entrada" : "Saída"}</span></td>
+              <td><span class="cash-category-badge">${categoryName(item.category)}</span></td>
               <td>${item.dueDate ? formatIsoDateBr(item.dueDate) : "-"}</td>
               <td class="${item.type === "income" ? "positive" : "negative"}">${money(item.amount)}</td>
               <td>
