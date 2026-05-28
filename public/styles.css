@@ -39,12 +39,12 @@ a {
 }
 
 .app-header {
-  min-height: 72px;
+  min-height: 76px;
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: auto minmax(520px, 1fr) auto;
   align-items: center;
-  gap: 18px;
-  padding: 0 clamp(18px, 4vw, 54px);
+  gap: clamp(14px, 2vw, 24px);
+  padding: 10px clamp(18px, 4vw, 54px);
   border-bottom: 1px solid rgba(87, 50, 32, 0.08);
   background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(18px);
@@ -79,6 +79,7 @@ a {
 .nav {
   display: inline-flex;
   align-items: center;
+  justify-self: center;
   gap: 5px;
   padding: 5px;
   border: 1px solid rgba(87, 50, 32, 0.08);
@@ -88,7 +89,7 @@ a {
 }
 
 .nav a {
-  min-width: 86px;
+  min-width: 76px;
   min-height: 36px;
   display: inline-flex;
   align-items: center;
@@ -127,33 +128,48 @@ button {
 
 .header-tools {
   justify-self: end;
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
+.status-group,
+.header-actions {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
   justify-content: flex-end;
+  gap: 6px;
+}
+
+.status-group {
+  max-width: min(520px, 42vw);
+  padding: 4px;
+  border: 1px solid rgba(87, 50, 32, 0.08);
+  border-radius: 999px;
+  background: rgba(245, 246, 242, 0.82);
+  overflow: hidden;
 }
 
 .server-status {
-  min-height: 34px;
+  min-height: 28px;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 0 11px;
-  border: 1px solid rgba(87, 50, 32, 0.08);
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid transparent;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.78);
+  background: transparent;
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.73rem;
   font-weight: 850;
   white-space: nowrap;
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+  box-shadow: none;
 }
 
 .server-status::before {
   content: "";
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 999px;
   background: #9ca3af;
 }
@@ -179,10 +195,11 @@ button {
 }
 
 .today-date {
+  min-height: 34px;
   border-color: rgba(87, 50, 32, 0.08);
   background: #ffffff;
   color: #111827;
-  font-size: 0.9rem;
+  font-size: 0.82rem;
   text-transform: capitalize;
   white-space: nowrap;
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
@@ -2300,19 +2317,34 @@ td select {
 @media (max-width: 900px) {
   .app-header {
     height: auto;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: 1fr;
     padding-block: 14px;
   }
 
   .nav {
     grid-column: 1 / -1;
     justify-content: stretch;
-    order: 3;
+    order: 2;
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .brand {
+    justify-self: center;
   }
 
   .header-tools {
-    align-items: flex-end;
-    flex-direction: column;
+    width: 100%;
+    justify-self: stretch;
+    justify-items: stretch;
+    order: 3;
+  }
+
+  .status-group,
+  .header-actions {
+    width: 100%;
+    max-width: none;
+    justify-content: center;
   }
 
   .nav a {
@@ -2458,6 +2490,26 @@ td select {
     grid-template-columns: 1fr;
     align-items: start;
     padding: 16px;
+  }
+
+  .status-group {
+    border-radius: 8px;
+    display: grid;
+    grid-template-columns: 1fr;
+    padding: 6px;
+  }
+
+  .server-status {
+    justify-content: center;
+  }
+
+  .header-actions {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+  }
+
+  .today-date {
+    width: 100%;
   }
 
   .hero-logo {

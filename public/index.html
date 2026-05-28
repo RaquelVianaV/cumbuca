@@ -22,12 +22,16 @@
         <a href="/backups" data-route="backups">Manutenção</a>
       </nav>
       <div class="header-tools">
-        <span class="server-status" id="server-status">Servidor verificando</span>
-        <span class="server-status" id="database-status">Banco verificando</span>
-        <span class="server-status" id="save-status">Salvamento verificando</span>
-        <time class="today-date" id="today-date"></time>
-        <button class="secondary backup-button" type="button" id="backup-button">Backup</button>
-        <button class="secondary logout-button" type="button" id="logout-button">Sair</button>
+        <div class="status-group" aria-label="Status do sistema">
+          <span class="server-status" id="server-status">Servidor verificando</span>
+          <span class="server-status" id="database-status">Banco verificando</span>
+          <span class="server-status" id="save-status">Salvamento verificando</span>
+        </div>
+        <div class="header-actions">
+          <time class="today-date" id="today-date"></time>
+          <button class="secondary backup-button" type="button" id="backup-button">Backup</button>
+          <button class="secondary logout-button" type="button" id="logout-button">Sair</button>
+        </div>
       </div>
     </header>
 
