@@ -402,7 +402,7 @@ h2 {
 
 .workspace {
   display: grid;
-  gap: 18px;
+  gap: 16px;
 }
 
 .dashboard-band {
@@ -1016,7 +1016,7 @@ h2 {
 }
 
 .panel {
-  padding: 20px;
+  padding: 18px;
 }
 
 .form-grid {
@@ -1344,7 +1344,7 @@ textarea {
 
 .report-section {
   display: grid;
-  gap: 12px;
+  gap: 14px;
 }
 
 .report-section h2 {
@@ -1354,15 +1354,13 @@ textarea {
 .maintenance-hero {
   display: grid;
   grid-template-columns: minmax(260px, 1fr) auto;
-  gap: 18px;
+  gap: 16px;
   align-items: center;
-  padding: clamp(18px, 3vw, 26px);
-  border: 1px solid rgba(8, 127, 91, 0.18);
+  padding: 18px;
+  border: 1px solid rgba(8, 127, 91, 0.14);
   border-radius: 8px;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(236, 253, 245, 0.9)),
-    #ffffff;
-  box-shadow: var(--shadow);
+  background: #f8fffb;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.035);
 }
 
 .maintenance-hero span {
@@ -1374,16 +1372,16 @@ textarea {
 
 .maintenance-hero h2 {
   max-width: 640px;
-  margin: 7px 0 8px;
-  font-size: clamp(1.5rem, 3vw, 2.25rem);
-  line-height: 1.04;
+  margin: 6px 0;
+  font-size: clamp(1.3rem, 2.2vw, 1.8rem);
+  line-height: 1.12;
 }
 
 .maintenance-hero p {
   max-width: 660px;
   margin: 0;
   color: var(--muted);
-  line-height: 1.5;
+  line-height: 1.45;
 }
 
 .maintenance-steps {
@@ -1399,19 +1397,19 @@ textarea {
 
 .maintenance-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.2fr);
-  gap: 16px;
+  grid-template-columns: minmax(300px, 0.72fr) minmax(0, 1.28fr);
+  gap: 18px;
   align-items: start;
 }
 
 .backup-list-state {
-  min-height: 82px;
+  min-height: auto;
   display: grid;
-  gap: 4px;
-  padding: 12px;
-  border: 1px dashed var(--line-strong);
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid rgba(87, 50, 32, 0.1);
   border-radius: 8px;
-  background: #f9fafb;
+  background: #ffffff;
   color: var(--muted);
 }
 
@@ -1424,7 +1422,7 @@ textarea {
 .backup-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
 }
 
 .backup-actions button,
@@ -1438,14 +1436,14 @@ textarea {
 
 .db-usage-card {
   display: grid;
-  grid-template-columns: minmax(220px, 0.9fr) minmax(0, 1.4fr);
-  gap: 14px;
+  grid-template-columns: minmax(210px, 0.84fr) minmax(0, 1.16fr);
+  gap: 12px;
   align-items: stretch;
   padding: 14px;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(87, 50, 32, 0.1);
   border-left: 5px solid var(--green);
   border-radius: 8px;
-  background: #f9fafb;
+  background: #ffffff;
 }
 
 .db-usage-card[data-level="medium"] {
@@ -1491,7 +1489,7 @@ textarea {
 .db-usage-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .toast-area {

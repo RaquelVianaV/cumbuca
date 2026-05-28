@@ -636,7 +636,7 @@ async function buildReportXlsx(payload = {}) {
   const data = payload.data || {};
   const zip = new JSZip();
   const summaryRows = [
-    ["Periodo", payload.periodLabel || data.periodKey || ""],
+    ["Período", payload.periodLabel || data.periodKey || ""],
     ["Saldo", data.balance || 0],
     ["Entradas", data.totalIncome || 0],
     ["Saídas", data.expenses || 0],

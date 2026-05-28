@@ -4991,7 +4991,7 @@ function financeFilterPanel(reportType, weekRange) {
   return `
     <section class="panel report-panel">
       <form id="report-filter-form" class="period-picker report-filter" data-period="${reportType}">
-        <label>Periodo
+        <label>Período
           <select name="type" id="report-period-type">
             <option value="month" ${reportType === "month" ? "selected" : ""}>Mês</option>
             <option value="week" ${reportType === "week" ? "selected" : ""}>Semana</option>
@@ -5008,7 +5008,7 @@ function financeFilterPanel(reportType, weekRange) {
         <label class="report-week-field">De
           <input name="start" type="date" value="${weekRange.start}">
         </label>
-        <label class="report-week-field">Ate
+        <label class="report-week-field">Até
           <input name="end" type="date" value="${weekRange.end}">
         </label>
         <label>Saída
@@ -5224,30 +5224,7 @@ function renderReports() {
     ${auditPanel()}
   `;
 
-  const reportFilterForm = document.querySelector("#report-filter-form");
-  const reportTypeField = document.querySelector("#report-period-type");
-
-  reportTypeField.addEventListener("change", event => {
-    reportFilterForm.dataset.period = event.currentTarget.value;
-  });
-
-  reportFilterForm.addEventListener("submit", event => {
-    event.preventDefault();
-    const values = readForm(event.currentTarget);
-    state.reportPeriod = {
-      type: values.type || "month",
-      year: Number(values.year || new Date().getFullYear()),
-      month: Number(values.month || new Date().getMonth() + 1),
-      week: Number(state.reportPeriod.week || 1),
-      start: values.start || weekRange.start,
-      end: values.end || weekRange.end,
-      expenseCategory: values.expenseCategory || "all"
-    };
-    localStorage.setItem("reportPeriod", JSON.stringify(state.reportPeriod));
-    const weeklyQuery = state.reportPeriod.type === "week" ? `&inicio=${state.reportPeriod.start}&fim=${state.reportPeriod.end}` : "";
-    history.replaceState(null, "", `/relatorios?ano=${state.reportPeriod.year}&mes=${state.reportPeriod.month}${weeklyQuery}`);
-    renderReports();
-  });
+  bindReportPeriodForm(renderReports, "relatorios");
 
   document.querySelectorAll("[data-export-report]").forEach(button => {
     button.addEventListener("click", event => {
@@ -5255,24 +5232,7 @@ function renderReports() {
     });
   });
   bindAuditPanel(renderReports);
-
-  const closeMonthButton = document.querySelector("#close-month");
-  if (closeMonthButton) {
-    closeMonthButton.addEventListener("click", () => {
-      if (state.monthlyClosings[data.periodKey] && !confirm(`Atualizar o fechamento de ${formatMonthKeyBr(data.periodKey)}?`)) {
-        return;
-      }
-
-      const closing = monthlyClosingPayload(data);
-      state.monthlyClosings = {
-        ...state.monthlyClosings,
-        [data.periodKey]: closing
-      };
-      recordAudit("Mês fechado", `${formatMonthKeyBr(data.periodKey)} - disponível ${money(closing.availableForWithdrawal)}`);
-      persistState();
-      renderReports();
-    });
-  }
+  bindMonthlyClosing(data, renderReports);
 }
 
 async function renderBackups() {
@@ -5296,52 +5256,52 @@ async function renderBackups() {
     </section>
 
     <section class="maintenance-grid">
-    <section class="panel report-section backup-manual-panel">
-      <h2>Backup e recuperação</h2>
-      <p class="muted">O backup é salvo no seu computador, não no Supabase. Baixe um JSON antes de mudanças grandes e importe esse arquivo se precisar recuperar os dados.</p>
-      <div class="backup-actions">
-        <button type="button" id="manual-backup-download">Baixar backup JSON</button>
-        <label class="secondary file-action">
-          Importar backup JSON
-          <input id="manual-backup-import" type="file" accept="application/json,.json">
-        </label>
-      </div>
-      <div class="backup-list-state">
-        <strong>Automático desligado</strong>
-        <span>Nenhum backup novo será gravado na tabela de backups do Supabase.</span>
-      </div>
-    </section>
-    <section class="panel report-section backup-manual-panel">
-      <h2>Manutenção do banco</h2>
-      <p class="muted">Use para apagar dados antigos depois de baixar um backup JSON. Clientes, precificação, categorias e configurações atuais são preservados.</p>
-      <div id="db-usage-status">
-        ${databaseUsageHtml(selectedYear)}
-      </div>
-      <div class="backup-list-state">
-        <strong>Tamanho real no Supabase</strong>
-        <span>Consulta direta das tabelas cumbuca_app_state e cumbuca_app_backups.</span>
-      </div>
-      <div id="real-db-usage">
-        <p class="muted">Consultando Supabase...</p>
-      </div>
-      <div class="backup-actions">
-        <button class="danger" type="button" id="delete-old-backups">Apagar backups antigos do Supabase</button>
-      </div>
-      <form id="cleanup-year-form" class="period-picker">
-        <label>Ano para limpar
-          <select name="year" id="cleanup-year">
-            ${years.length
-              ? years.map(year => `<option value="${year}" ${year === selectedYear ? "selected" : ""}>${year}</option>`).join("")
-              : `<option value="${selectedYear}">${selectedYear}</option>`}
-          </select>
-        </label>
-        <button class="secondary" type="button" id="cleanup-backup-first">Baixar backup antes</button>
-        <button class="danger" type="submit">Apagar ano</button>
-      </form>
-      <div id="cleanup-preview" class="cleanup-preview">
-        ${cleanupPreviewHtml(selectedYear, preview)}
-      </div>
-    </section>
+      <section class="panel report-section backup-manual-panel">
+        <h2>Backup e recuperação</h2>
+        <p class="muted-inline">O backup é salvo no seu computador, não no Supabase. Baixe um JSON antes de mudanças grandes e importe esse arquivo se precisar recuperar os dados.</p>
+        <div class="backup-actions">
+          <button type="button" id="manual-backup-download">Baixar backup JSON</button>
+          <label class="secondary file-action">
+            Importar backup JSON
+            <input id="manual-backup-import" type="file" accept="application/json,.json">
+          </label>
+        </div>
+        <div class="backup-list-state">
+          <strong>Automático desligado</strong>
+          <span>Nenhum backup novo será gravado na tabela de backups do Supabase.</span>
+        </div>
+      </section>
+      <section class="panel report-section backup-manual-panel">
+        <h2>Manutenção do banco</h2>
+        <p class="muted-inline">Use para apagar dados antigos depois de baixar um backup JSON. Clientes, precificação, categorias e configurações atuais são preservados.</p>
+        <div id="db-usage-status">
+          ${databaseUsageHtml(selectedYear)}
+        </div>
+        <div class="backup-list-state">
+          <strong>Tamanho real no Supabase</strong>
+          <span>Consulta direta das tabelas cumbuca_app_state e cumbuca_app_backups.</span>
+        </div>
+        <div id="real-db-usage">
+          <p class="muted">Consultando Supabase...</p>
+        </div>
+        <div class="backup-actions">
+          <button class="danger" type="button" id="delete-old-backups">Apagar backups antigos do Supabase</button>
+        </div>
+        <form id="cleanup-year-form" class="period-picker">
+          <label>Ano para limpar
+            <select name="year" id="cleanup-year">
+              ${years.length
+                ? years.map(year => `<option value="${year}" ${year === selectedYear ? "selected" : ""}>${year}</option>`).join("")
+                : `<option value="${selectedYear}">${selectedYear}</option>`}
+            </select>
+          </label>
+          <button class="secondary" type="button" id="cleanup-backup-first">Baixar backup antes</button>
+          <button class="danger" type="submit">Apagar ano</button>
+        </form>
+        <div id="cleanup-preview" class="cleanup-preview">
+          ${cleanupPreviewHtml(selectedYear, preview)}
+        </div>
+      </section>
     </section>
   `;
 
