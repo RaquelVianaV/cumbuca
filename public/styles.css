@@ -102,14 +102,17 @@ a {
 
 .nav a.active,
 .nav a:hover {
-  background: #ffffff;
+  background: #ecfdf5;
   color: var(--green-dark);
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.09);
+  box-shadow: 0 8px 18px rgba(8, 127, 91, 0.12);
 }
 
 .nav a.active {
+  background: linear-gradient(135deg, var(--green), var(--green-dark));
   border-left: 3px solid var(--green);
+  color: #ffffff;
   padding-left: 11px;
+  box-shadow: 0 12px 26px rgba(8, 127, 91, 0.22);
 }
 
 .today-date,
@@ -121,12 +124,14 @@ button {
   border: 1px solid transparent;
   border-radius: 8px;
   padding: 0 15px;
-  background: var(--green);
+  background: linear-gradient(135deg, var(--green), var(--green-dark));
   color: #ffffff;
   font: inherit;
   font-weight: 800;
   text-decoration: none;
   cursor: pointer;
+  box-shadow: 0 10px 22px rgba(8, 127, 91, 0.2);
+  transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease, border-color 160ms ease;
 }
 
 .header-tools {
@@ -221,18 +226,21 @@ button {
 }
 
 button:hover {
-  background: var(--green-dark);
+  background: linear-gradient(135deg, var(--green-dark), #034b36);
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px rgba(8, 127, 91, 0.26);
 }
 
 button.secondary {
-  border-color: var(--line);
-  background: #ffffff;
-  color: #374151;
+  border-color: rgba(8, 127, 91, 0.28);
+  background: #ecfdf5;
+  color: var(--green-dark);
+  box-shadow: 0 8px 18px rgba(8, 127, 91, 0.08);
 }
 
 button.secondary:hover {
-  border-color: var(--line-strong);
-  background: #f9fafb;
+  border-color: rgba(8, 127, 91, 0.42);
+  background: #dff8ec;
 }
 
 a.secondary.table-action,
@@ -241,21 +249,25 @@ a.secondary.table-action,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(8, 127, 91, 0.26);
   border-radius: 8px;
   padding: 0 10px;
-  background: #ffffff;
-  color: #374151;
+  background: #ecfdf5;
+  color: var(--green-dark);
   font-size: 0.78rem;
   font-weight: 850;
   text-decoration: none;
   cursor: pointer;
+  box-shadow: 0 8px 18px rgba(8, 127, 91, 0.08);
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
 }
 
 a.secondary.table-action:hover,
 .file-action:hover {
-  border-color: var(--line-strong);
-  background: #f9fafb;
+  border-color: rgba(8, 127, 91, 0.42);
+  background: #dff8ec;
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(8, 127, 91, 0.12);
 }
 
 .file-action input {
@@ -794,11 +806,12 @@ h2 {
   align-items: center;
   justify-content: center;
   padding: 0 12px;
-  border: 1px solid rgba(8, 127, 91, 0.14);
+  border: 1px solid color-mix(in srgb, var(--tool-accent, var(--green)) 35%, transparent);
   border-radius: 999px;
-  background: #ffffff;
+  background: color-mix(in srgb, var(--tool-accent, var(--green)) 12%, #ffffff);
   color: var(--tool-accent, var(--green));
-  transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--tool-accent, var(--green)) 14%, transparent);
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
 .card-footer {
@@ -882,15 +895,15 @@ h2 {
   align-content: center;
   gap: 5px;
   padding: 12px;
-  border: 1px solid rgba(8, 127, 91, 0.18);
+  border: 1px solid rgba(8, 127, 91, 0.26);
   border-radius: 8px;
   background:
-    linear-gradient(180deg, #ffffff 0, #ecfdf5 100%);
+    linear-gradient(135deg, #ecfdf5 0, #dff8ec 100%);
   color: var(--green-dark);
   font-weight: 850;
   text-align: center;
   text-decoration: none;
-  box-shadow: 0 10px 22px rgba(8, 127, 91, 0.06);
+  box-shadow: 0 12px 26px rgba(8, 127, 91, 0.12);
   transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
@@ -905,10 +918,15 @@ h2 {
 }
 
 .quick-actions a:hover {
-  border-color: rgba(8, 127, 91, 0.36);
-  background: #ecfdf5;
+  border-color: rgba(8, 127, 91, 0.48);
+  background: linear-gradient(135deg, var(--green), var(--green-dark));
+  color: #ffffff;
   transform: translateY(-2px);
-  box-shadow: 0 16px 28px rgba(8, 127, 91, 0.1);
+  box-shadow: 0 18px 34px rgba(8, 127, 91, 0.22);
+}
+
+.quick-actions a:hover small {
+  color: rgba(255, 255, 255, 0.78);
 }
 
 .recent-list,
@@ -1921,14 +1939,15 @@ textarea {
 }
 
 button.danger {
-  background: #fff7ed;
-  border-color: #fed7aa;
-  color: var(--red);
-  box-shadow: none;
+  background: linear-gradient(135deg, var(--tomato), var(--red));
+  border-color: rgba(194, 65, 12, 0.34);
+  color: #ffffff;
+  box-shadow: 0 10px 22px rgba(194, 65, 12, 0.22);
 }
 
 button.danger:hover {
-  background: #ffedd5;
+  background: linear-gradient(135deg, #a8322f, #9a3412);
+  box-shadow: 0 14px 30px rgba(194, 65, 12, 0.28);
 }
 
 .order-form {
