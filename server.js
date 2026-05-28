@@ -29,6 +29,7 @@ const stateKeys = [
   "storeSales",
   "suppliers",
   "expenseReasons",
+  "archivedExpenseReasons",
   "auditLog",
   "monthlyClosings",
   "pricingIngredients",
@@ -51,6 +52,7 @@ const defaultState = {
   storeSales: [],
   suppliers: [],
   expenseReasons: [],
+  archivedExpenseReasons: [],
   auditLog: [],
   monthlyClosings: {},
   pricingIngredients: [],
@@ -580,8 +582,8 @@ function buildReportPdf(payload = {}) {
   const summary = [
     ["Total", brl(data.balance)],
     ["Entradas", brl(data.totalIncome)],
-    ["Saidas", brl(data.expenses)],
-    ["Disponivel retirada", brl(data.availableForWithdrawal)],
+    ["Saídas", brl(data.expenses)],
+    ["Disponível retirada", brl(data.availableForWithdrawal)],
     ["Retiradas", brl(data.withdrawalTotal)],
     ["Cumbucas", data.totalSoldQuantity || 0],
     ["Semanal", data.weeklyCashQuantity || 0]
@@ -606,7 +608,7 @@ function buildReportPdf(payload = {}) {
     ["Total", "Conta + semanal", brl(Number(data.accountIncome ?? data.totalIncome ?? 0) + Number(data.weeklyRevenue ?? 0))]
   ], [90, 260, 110]);
 
-  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Principais saidas (despesas)");
+  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Principais saídas (despesas)");
   addPdfTable(doc, ["Data", "Descricao", "Categoria", "Valor"], data.expenseRows || [], [82, 240, 100, 90]);
 
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Retiradas");
@@ -618,7 +620,7 @@ function buildReportPdf(payload = {}) {
   const footerY = 760;
   doc.moveTo(42, footerY).lineTo(250, footerY).stroke("#d1d5db");
   doc.fillColor("#69707d").font("Helvetica").fontSize(8).text("Assinatura / conferencia", 42, footerY + 8);
-  doc.text("Observacoes: conferir contas, despesas maiores e cumbucas vendidas antes do fechamento.", 300, footerY, {
+  doc.text("Observa??es: conferir contas, despesas maiores e cumbucas vendidas antes do fechamento.", 300, footerY, {
     width: 240,
     align: "right"
   });
@@ -637,10 +639,10 @@ async function buildReportXlsx(payload = {}) {
     ["Periodo", payload.periodLabel || data.periodKey || ""],
     ["Saldo", data.balance || 0],
     ["Entradas", data.totalIncome || 0],
-    ["Saidas", data.expenses || 0],
-    ["Saidas operacionais", data.operationalExpenses || 0],
+    ["Saídas", data.expenses || 0],
+    ["Saídas operacionais", data.operationalExpenses || 0],
     ["Retiradas", data.withdrawalTotal || 0],
-    ["Disponivel retirada", data.availableForWithdrawal || 0],
+    ["Disponível retirada", data.availableForWithdrawal || 0],
     ["Cumbucas semanal", data.weeklyCashQuantity || 0],
     ["Cumbucas loja", data.storeQuantity || 0],
     ["Cumbucas total", data.totalSoldQuantity || 0]

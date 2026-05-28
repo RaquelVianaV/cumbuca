@@ -102,13 +102,13 @@ async function updatePersistenceStatus() {
     }
     const result = await response.json();
     if (!result.database || !result.saved) {
-      setSaveStatus("Salvando so local", "offline");
+      setSaveStatus("Salvando só local", "offline");
       return;
     }
 
     setSaveStatus("Supabase ok - backup manual", "online");
   } catch (error) {
-    setSaveStatus("Sem confirmacao do Supabase", "offline");
+    setSaveStatus("Sem confirmação do Supabase", "offline");
   }
 }
 
@@ -215,7 +215,9 @@ const state = {
   orders: localValue("orders", []),
   storeSales: localValue("storeSales", []),
   expenseReasons: seededExpenseReasons(),
+  archivedExpenseReasons: localValue("archivedExpenseReasons", []),
   auditLog: localValue("auditLog", []),
+  auditFilter: localValue("auditFilter", { date: "", action: "all" }),
   monthlyClosings: localValue("monthlyClosings", {}),
   showClients: false,
   showOrders: false,
@@ -262,6 +264,7 @@ function appStatePayload() {
     orders: state.orders,
     storeSales: state.storeSales,
     expenseReasons: state.expenseReasons,
+    archivedExpenseReasons: state.archivedExpenseReasons,
     auditLog: state.auditLog,
     monthlyClosings: state.monthlyClosings,
     pricingIngredients: state.ingredients,
@@ -304,11 +307,11 @@ async function persistState() {
       showToast("Salvo no Supabase", "success");
     } else {
       setSaveStatus("Salvo só neste navegador", "offline");
-      showToast("Salvo so neste navegador", "warning");
+      showToast("Salvo só neste navegador", "warning");
     }
   } catch (error) {
     setSaveStatus("Salvo só neste navegador", "offline");
-    showToast("Sem confirmacao do Supabase", "warning");
+    showToast("Sem confirmação do Supabase", "warning");
     // localStorage keeps the app usable if the network is unavailable.
   }
 }
@@ -333,6 +336,7 @@ async function hydrateState() {
     state.expenseReasons = Array.isArray(saved.expenseReasons) && saved.expenseReasons.length
       ? saved.expenseReasons
       : (Array.isArray(saved.suppliers) && saved.suppliers.length ? saved.suppliers : state.expenseReasons);
+    state.archivedExpenseReasons = saved.archivedExpenseReasons || state.archivedExpenseReasons;
     state.auditLog = saved.auditLog || state.auditLog;
     state.monthlyClosings = saved.monthlyClosings || state.monthlyClosings;
     state.ingredients = saved.pricingIngredients || state.ingredients;
@@ -399,6 +403,7 @@ async function importBackupFile(file) {
   state.orders = data.orders || state.orders;
   state.storeSales = data.storeSales || state.storeSales;
   state.expenseReasons = data.expenseReasons || state.expenseReasons;
+  state.archivedExpenseReasons = data.archivedExpenseReasons || state.archivedExpenseReasons;
   state.auditLog = data.auditLog || state.auditLog;
   state.monthlyClosings = data.monthlyClosings || state.monthlyClosings;
   state.ingredients = data.pricingIngredients || state.ingredients;
@@ -540,7 +545,7 @@ function databaseUsageHtml(selectedYear) {
 
 function realDatabaseUsageHtml(result) {
   if (!result?.database) {
-    return `<p class="muted">Nao foi possivel consultar o tamanho real do Supabase agora.</p>`;
+    return `<p class="muted">Não foi possível consultar o tamanho real do Supabase agora.</p>`;
   }
 
   if (!result.tables?.length) {
@@ -577,7 +582,7 @@ async function loadRealDatabaseUsage() {
     const result = await response.json();
     target.innerHTML = realDatabaseUsageHtml(result);
   } catch (error) {
-    target.innerHTML = `<p class="muted">Nao foi possivel consultar o tamanho real do Supabase agora.</p>`;
+    target.innerHTML = `<p class="muted">Não foi possível consultar o tamanho real do Supabase agora.</p>`;
   }
 }
 
@@ -635,7 +640,7 @@ function cleanupPreviewHtml(year, preview) {
       <div class="metric"><span>Loja</span><strong>${preview.storeSales}</strong></div>
       <div class="metric"><span>Fechamentos</span><strong>${preview.monthlyClosings}</strong></div>
     </div>
-    <p class="muted">${total ? `A limpeza de ${year} removera ${total} grupo(s)/registro(s) antigos.` : `Nao ha dados de ${year} para apagar.`}</p>
+    <p class="muted">${total ? `A limpeza de ${year} removerá ${total} grupo(s)/registro(s) antigos.` : `Não há dados de ${year} para apagar.`}</p>
   `;
 }
 
@@ -883,35 +888,47 @@ function planningItemsHtml(items, emptyText) {
 
 function expenseReasonsPanel() {
   const editingIndex = state.editExpenseReasonIndex;
-  const editing = editingIndex !== null ? state.expenseReasons[editingIndex] : "";
+  const activeReasons = activeExpenseReasons();
+  const archivedReasons = (state.archivedExpenseReasons || []).filter(Boolean);
+  const editing = editingIndex !== null ? activeReasons[editingIndex] : "";
 
   return `
     <section class="panel supplier-panel">
-      <h2>Motivos de saida</h2>
+      <h2>Motivos de saída</h2>
       <form id="expense-reason-form" class="form-grid single">
         <label>${editing ? "Editar motivo" : "Novo motivo"}
           <input name="reason" value="${editing || ""}" placeholder="Ex.: Supermercado, Praso, Frical" required>
         </label>
         <div class="actions">
-          <button type="submit">${editing ? "Salvar edicao" : "Cadastrar"}</button>
+          <button type="submit">${editing ? "Salvar edição" : "Cadastrar"}</button>
           ${editing ? `<button class="secondary" type="button" id="cancel-expense-reason-edit">Cancelar</button>` : ""}
         </div>
       </form>
-      ${state.expenseReasons.length ? `
+      ${activeReasons.length ? `
         <div class="reason-list">
-          ${state.expenseReasons.map((reason, index) => `
+          ${activeReasons.map((reason, index) => `
             <span>
               <b>${reason}</b>
               <button class="secondary table-action" type="button" data-edit-expense-reason="${index}">Editar</button>
-              <button class="danger table-action" type="button" data-delete-expense-reason="${index}">Excluir</button>
+              <button class="secondary table-action" type="button" data-archive-expense-reason="${index}">Arquivar</button>
             </span>
           `).join("")}
         </div>
       ` : `<p class="muted">Nenhum motivo cadastrado.</p>`}
+      ${archivedReasons.length ? `
+        <h3>Arquivados</h3>
+        <div class="reason-list archived-reason-list">
+          ${archivedReasons.map((reason, index) => `
+            <span>
+              <b>${reason}</b>
+              <button class="secondary table-action" type="button" data-reactivate-expense-reason="${index}">Reativar</button>
+            </span>
+          `).join("")}
+        </div>
+      ` : ""}
     </section>
   `;
 }
-
 function cashTotals(entries = state.cash) {
   return entries.reduce((totals, entry) => {
     const amount = Number(entry.amount || 0);
@@ -947,6 +964,32 @@ function accountBalanceAdjustment(targetBalance, currentBalance) {
     type: difference < 0 ? "expense" : "income",
     amount: Math.abs(difference)
   };
+}
+
+function accountAdjustmentEntries(limit = 6) {
+  return [...state.cash]
+    .filter(entry => entry.category === "ajuste-conta" || String(entry.id || "").startsWith("account-adjustment-"))
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || String(b.id || "").localeCompare(String(a.id || "")))
+    .slice(0, limit);
+}
+
+function accountAdjustmentHistoryHtml() {
+  const adjustments = accountAdjustmentEntries();
+  if (!adjustments.length) {
+    return `<p class="muted">Nenhum ajuste de conta registrado.</p>`;
+  }
+
+  return `
+    <div class="recent-list reconciliation-history">
+      ${adjustments.map(entry => `
+        <span>
+          <b class="${entry.type === "expense" ? "negative" : "positive"}">${entry.type === "expense" ? "-" : "+"}${money(entry.amount)}</b>
+          ${entry.description || "Ajuste da conta"}
+          <small>${formatIsoDateBr(entry.date)}</small>
+        </span>
+      `).join("")}
+    </div>
+  `;
 }
 
 function isWithdrawalEntry(entry = {}) {
@@ -1213,6 +1256,11 @@ function homeMetricData() {
     .filter(entry => entry.type === "expense")
     .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
     .slice(0, 3);
+  const topMonthExpenses = [...monthCash]
+    .filter(entry => entry.type === "expense" && !isWithdrawalEntry(entry))
+    .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
+    .slice(0, 5);
+  const monthFinancial = financialSummary(monthCash);
   const storeToday = state.storeSales
     .filter(entry => entry.date === todayKey)
     .reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
@@ -1225,6 +1273,7 @@ function homeMetricData() {
     weekBalance: weekIncome - weekExpenses,
     weekIncome,
     weekExpenses,
+    monthWithdrawals: monthFinancial.withdrawals.total,
     weekStart,
     weekEnd,
     todayOrders,
@@ -1236,6 +1285,7 @@ function homeMetricData() {
     ready: menuItems.filter(item => item.status === "pronto").length,
     storeToday,
     recentExpenses,
+    topMonthExpenses,
     dishTotals: weeklyDishTotals(menuItems, weekOrders),
     pendingPayments: dashboardPendingPayments(weekOrders),
     pendingCashPayments: dashboardPendingCashPayments(),
@@ -1297,7 +1347,7 @@ function home() {
         ["fluxo-de-caixa", "Fluxo de Caixa", "Organize entradas, saídas e saldo previsto."],
         ["menu-semanal", "Menu Semanal", "Planeje pratos, custos e status de preparo."],
         ["loja", "Loja", "Lance cumbucas vendidas no balcão por dia."],
-        ["financeiro", "Financeiro", "Confira entradas, semanal, saidas, retiradas e fechamento."],
+        ["financeiro", "Financeiro", "Confira entradas, semanal, saídas, retiradas e fechamento."],
         ["precificacao", "Precificação", "Calcule preço de venda com margem e taxas."],
         ["relatorios", "Relatórios", "Acompanhe vendas, caixa, clientes e cardápio por mês."]
       ].map(([href, heading, text]) => `
@@ -1320,7 +1370,7 @@ function home() {
     ["fluxo-de-caixa", "Fluxo de Caixa", "Entradas, saídas e saldo", money(metrics.weekBalance), "Saldo da semana"],
     ["menu-semanal", "Menu Semanal", "Pratos, preparo e pedidos", `${metrics.ready}/${metrics.planned || 0}`, "Prontos na semana"],
     ["loja", "Loja", "Vendas do balcão por data", String(metrics.storeToday), "Cumbucas hoje"],
-    ["financeiro", "Financeiro", "Conferencia financeira", money(metrics.balance), "Saldo do mes"],
+    ["financeiro", "Financeiro", "Conferência financeira", money(metrics.balance), "Saldo do mês"],
     ["precificacao", "Precificação", "Ingredientes, margem e venda", String(state.ingredients.length), "Itens cadastrados"],
     ["relatorios", "Relatórios", "Leituras mensais e exportações", String(metrics.bowls), "Cumbucas no mês"]
   ];
@@ -1334,20 +1384,20 @@ function home() {
       </div>
       <div class="dashboard-kpis">
         <div class="metric dashboard-metric is-primary">
-          <span>Saldo da semana</span>
-          <strong class="${metrics.weekBalance < 0 ? "negative" : "positive"}">${money(metrics.weekBalance)}</strong>
+          <span>Saldo do mês</span>
+          <strong class="${metrics.balance < 0 ? "negative" : "positive"}">${money(metrics.balance)}</strong>
         </div>
         <div class="metric dashboard-metric">
-          <span>Pedidos da semana</span>
-          <strong>${weeklyOrders}</strong>
+          <span>Contas a vencer</span>
+          <strong>${metrics.pendingCashPayments.length}</strong>
         </div>
         <div class="metric dashboard-metric">
-          <span>Cumbucas loja hoje</span>
-          <strong>${metrics.storeToday}</strong>
+          <span>Entradas da semana</span>
+          <strong>${money(metrics.weekIncome)}</strong>
         </div>
         <div class="metric dashboard-metric">
-          <span>Semana</span>
-          <strong>${formatIsoDateBr(metrics.weekStart)} a ${formatIsoDateBr(metrics.weekEnd)}</strong>
+          <span>Retiradas no mês</span>
+          <strong>${money(metrics.monthWithdrawals)}</strong>
         </div>
       </div>
     </section>
@@ -1393,7 +1443,7 @@ function home() {
 
     <section class="dashboard-lane">
       <div class="panel dashboard-panel">
-        <h2>Producao por sabor</h2>
+        <h2>Produção por sabor</h2>
         ${metrics.dishTotals.length ? `
           <div class="recent-list">
             ${metrics.dishTotals.map(item => `
@@ -1403,7 +1453,7 @@ function home() {
         ` : `<p class="muted">Nenhuma cumbuca planejada ou pedida nesta semana.</p>`}
       </div>
       <div class="panel dashboard-panel">
-        <h2>Acoes rapidas</h2>
+        <h2>Ações rápidas</h2>
         <div class="quick-actions">
           <a href="/menu-semanal">Pedido</a>
           <a href="/financeiro">Financeiro</a>
@@ -1452,6 +1502,16 @@ function home() {
             `).join("")}
           </div>
         ` : `<p class="muted">Nenhuma despesa lançada ainda.</p>`}
+    </section>
+    <section class="panel dashboard-panel">
+      <h2>Maiores gastos do mês</h2>
+      ${metrics.topMonthExpenses.length ? `
+          <div class="recent-list">
+            ${metrics.topMonthExpenses.map(entry => `
+              <span><b>${money(entry.amount)}</b>${entry.description || categoryName(entry.category)}<small>${categoryName(entry.category)} - ${formatIsoDateBr(entry.date)}</small></span>
+            `).join("")}
+          </div>
+        ` : `<p class="muted">Nenhuma despesa operacional no mês.</p>`}
     </section>
   `;
 }
@@ -1511,17 +1571,23 @@ async function renderCash() {
       </section>
       ${expenseReasonsPanel()}
       <section class="panel account-balance-panel">
-        <h2>Valor na conta</h2>
+        <h2>Conciliação da conta</h2>
         <form id="account-balance-form" class="form-grid single">
+          <div class="summary reconciliation-summary">
+            <div class="metric"><span>Saldo calculado</span><strong>${money(totalCash.balance)}</strong></div>
+            <div class="metric"><span>Saldo real</span><strong id="account-real-preview">${money(Math.max(0, totalCash.balance))}</strong></div>
+            <div class="metric"><span>Diferença</span><strong id="account-difference-preview">${money(0)}</strong></div>
+          </div>
           <label>Saldo real da conta
             <input name="balance" type="number" min="0" step="0.01" placeholder="0,00" value="${Math.max(0, totalCash.balance).toFixed(2)}" required>
           </label>
           <label>Data do ajuste
             <input name="date" type="date" value="${today}" required>
           </label>
-          <p class="muted">Saldo calculado agora: ${money(totalCash.balance)}</p>
           <button type="submit">Ajustar conta</button>
         </form>
+        <h3>Histórico de ajustes</h3>
+        ${accountAdjustmentHistoryHtml()}
       </section>
       <section class="panel withdrawal-panel">
         <h2>Retiradas</h2>
@@ -1651,12 +1717,14 @@ async function renderCash() {
       return;
     }
     if (state.editExpenseReasonIndex !== null) {
-      state.expenseReasons = state.expenseReasons.map((item, index) => index === state.editExpenseReasonIndex ? reason : item);
+      const originalReason = activeExpenseReasons()[state.editExpenseReasonIndex];
+      state.expenseReasons = state.expenseReasons.map(item => item === originalReason ? reason : item);
       state.editExpenseReasonIndex = null;
-      recordAudit("Motivo de saida editado", reason);
+      recordAudit("Motivo de saída editado", reason);
     } else {
       state.expenseReasons = [...new Set([...state.expenseReasons, reason])];
-      recordAudit("Motivo de saida criado", reason);
+      state.archivedExpenseReasons = state.archivedExpenseReasons.filter(item => item !== reason);
+      recordAudit("Motivo de saída criado", reason);
     }
     persistState();
     renderCash();
@@ -1677,24 +1745,47 @@ async function renderCash() {
     });
   });
 
-  document.querySelectorAll("[data-delete-expense-reason]").forEach(button => {
+  document.querySelectorAll("[data-archive-expense-reason]").forEach(button => {
     button.addEventListener("click", event => {
-      const index = Number(event.currentTarget.dataset.deleteExpenseReason);
-      const reason = state.expenseReasons[index];
-      if (!confirm(`Excluir o motivo "${reason}"? Lancamentos antigos continuam salvos com esse nome.`)) {
+      const index = Number(event.currentTarget.dataset.archiveExpenseReason);
+      const reason = activeExpenseReasons()[index];
+      if (!confirm(`Arquivar o motivo "${reason}"? Lançamentos antigos continuam salvos com esse nome.`)) {
         return;
       }
-      state.expenseReasons = state.expenseReasons.filter((_, itemIndex) => itemIndex !== index);
+      state.archivedExpenseReasons = [...new Set([...(state.archivedExpenseReasons || []), reason])];
       if (state.editExpenseReasonIndex === index) {
         state.editExpenseReasonIndex = null;
       }
-      recordAudit("Motivo de saida excluido", reason);
+      recordAudit("Motivo de saída arquivado", reason);
       persistState();
       renderCash();
     });
   });
 
-  document.querySelector("#account-balance-form").addEventListener("submit", event => {
+  document.querySelectorAll("[data-reactivate-expense-reason]").forEach(button => {
+    button.addEventListener("click", event => {
+      const index = Number(event.currentTarget.dataset.reactivateExpenseReason);
+      const reason = (state.archivedExpenseReasons || [])[index];
+      state.archivedExpenseReasons = state.archivedExpenseReasons.filter((_, itemIndex) => itemIndex !== index);
+      state.expenseReasons = [...new Set([...state.expenseReasons, reason])];
+      recordAudit("Motivo de saída reativado", reason);
+      persistState();
+      renderCash();
+    });
+  });
+
+  const accountBalanceForm = document.querySelector("#account-balance-form");
+  accountBalanceForm.addEventListener("input", () => {
+    const adjustment = accountBalanceAdjustment(accountBalanceForm.elements.balance.value, cashTotals(state.cash).balance);
+    const realPreview = document.querySelector("#account-real-preview");
+    const differencePreview = document.querySelector("#account-difference-preview");
+    realPreview.textContent = money(adjustment.target);
+    differencePreview.textContent = `${adjustment.difference < 0 ? "-" : ""}${money(adjustment.amount)}`;
+    differencePreview.classList.toggle("negative", adjustment.difference < 0);
+    differencePreview.classList.toggle("positive", adjustment.difference > 0);
+  });
+
+  accountBalanceForm.addEventListener("submit", event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
     const adjustment = accountBalanceAdjustment(values.balance, cashTotals(state.cash).balance);
@@ -1827,12 +1918,20 @@ async function renderCash() {
     });
   });
 
-  document.querySelector("#clear-cash").addEventListener("click", () => {
-    if (!confirm("Limpar todos os lançamentos do fluxo de caixa?")) {
+  document.querySelector("#clear-cash").addEventListener("click", async () => {
+    if (!confirm("Antes de limpar o caixa, baixe um backup JSON. Deseja baixar agora?")) {
       return;
     }
+    await downloadBackup();
+    const confirmation = prompt('Esta ação apaga todos os lançamentos do fluxo de caixa. Digite "LIMPAR CAIXA" para confirmar.');
+    if (confirmation !== "LIMPAR CAIXA") {
+      showToast("Limpeza cancelada.", "warning");
+      return;
+    }
+    const removedCount = state.cash.length;
     state.cash = [];
     state.editCashId = null;
+    recordAudit("Caixa limpo", `${removedCount} lançamento(s) removido(s) após backup manual`);
     persistState();
     renderCash();
   });
@@ -1865,7 +1964,7 @@ async function renderCash() {
 
 function cashTable(entries) {
   if (!entries.length) {
-    return `<p class="muted">Nenhum lancamento ainda.</p>`;
+    return `<p class="muted">Nenhum lançamento ainda.</p>`;
   }
 
   return `
@@ -2134,7 +2233,7 @@ async function renderMenu() {
     button.addEventListener("click", event => {
       const index = Number(event.currentTarget.dataset.deleteClient);
       const client = state.clients[index];
-      if (!confirm(`Inativar cadastro de ${client.name}? O historico de pedidos sera mantido.`)) {
+      if (!confirm(`Inativar cadastro de ${client.name}? O histórico de pedidos será mantido.`)) {
         return;
       }
       state.clients[index] = {
@@ -2681,7 +2780,7 @@ function clientList(currentKey) {
   return `
     <div class="filter-bar">
       <label>Buscar cliente
-        <input data-client-search placeholder="Nome, telefone, endereco ou observacao" value="${state.clientSearch || ""}">
+        <input data-client-search placeholder="Nome, telefone, endereço ou observação" value="${state.clientSearch || ""}">
       </label>
     </div>
     <div class="table-wrap client-table">
@@ -3143,7 +3242,7 @@ function orderList(plan, currentKey) {
     return `
       <div class="filter-bar">
         <label>Buscar pedido
-          <input data-order-search placeholder="Cliente, telefone, pagamento ou observacao" value="${state.orderSearch || ""}">
+          <input data-order-search placeholder="Cliente, telefone, pagamento ou observação" value="${state.orderSearch || ""}">
         </label>
       </div>
       <p class="muted">Nenhum pedido encontrado nesta semana.</p>
@@ -3153,7 +3252,7 @@ function orderList(plan, currentKey) {
   return `
     <div class="filter-bar">
       <label>Buscar pedido
-        <input data-order-search placeholder="Cliente, telefone, pagamento ou observacao" value="${state.orderSearch || ""}">
+        <input data-order-search placeholder="Cliente, telefone, pagamento ou observação" value="${state.orderSearch || ""}">
       </label>
     </div>
     <div class="table-wrap order-table">
@@ -3576,6 +3675,80 @@ function weeklyRevenueBreakdown(data) {
     .map(([label, value]) => [label, money(value)]);
 }
 
+function previousMonthKeyFromPeriod(periodKey) {
+  const [year, month] = String(periodKey || currentMonthKey()).split("-").map(Number);
+  const date = new Date(year || new Date().getFullYear(), (month || 1) - 2, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function moneyRowsByCategory(entries, type) {
+  const rows = entries
+    .filter(entry => type === "income" ? entry.type !== "expense" : entry.type === "expense")
+    .reduce((acc, entry) => {
+      const label = categoryName(entry.category);
+      acc[label] = (acc[label] || 0) + Number(entry.amount || 0);
+      return acc;
+    }, {});
+
+  return Object.entries(rows)
+    .sort((a, b) => b[1] - a[1])
+    .map(([label, value]) => [label, value]);
+}
+
+function compactMoneyList(rows, emptyText) {
+  if (!rows.length) {
+    return `<p class="muted">${emptyText}</p>`;
+  }
+
+  return `
+    <div class="recent-list compact-money-list">
+      ${rows.map(([label, value]) => `<span><b>${money(value)}</b>${escapeHtml(label)}</span>`).join("")}
+    </div>
+  `;
+}
+
+function monthlyOriginCategoryPanel(data) {
+  const incomeRows = moneyRowsByCategory(data.cashEntries, "income");
+  const expenseRows = moneyRowsByCategory(data.cashEntries, "expense");
+  const topExpenses = [...data.expenseEntries]
+    .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
+    .slice(0, 5)
+    .map(entry => [entry.description || categoryName(entry.category), Number(entry.amount || 0)]);
+  const previousKey = previousMonthKeyFromPeriod(data.periodKey);
+  const previousCash = state.cash.filter(entry => String(entry.date || "").startsWith(previousKey));
+  const previousTotals = cashTotals(previousCash);
+  const incomeDelta = data.income - previousTotals.income;
+  const expenseDelta = data.expenses - previousTotals.expenses;
+  const balanceDelta = data.balance - previousTotals.balance;
+
+  return `
+    <section class="dashboard-lane monthly-breakdown">
+      <div class="panel dashboard-panel">
+        <h2>Entradas por origem</h2>
+        ${compactMoneyList(incomeRows, "Nenhuma entrada no período.")}
+      </div>
+      <div class="panel dashboard-panel">
+        <h2>Saídas por categoria</h2>
+        ${compactMoneyList(expenseRows, "Nenhuma saída no período.")}
+      </div>
+    </section>
+    <section class="dashboard-lane monthly-breakdown">
+      <div class="panel dashboard-panel">
+        <h2>Maiores despesas</h2>
+        ${compactMoneyList(topExpenses, "Nenhuma despesa no período.")}
+      </div>
+      <div class="panel dashboard-panel">
+        <h2>Comparação com ${previousKey}</h2>
+        <div class="summary comparison-summary">
+          <div class="metric"><span>Entradas</span><strong class="${incomeDelta < 0 ? "negative" : "positive"}">${incomeDelta < 0 ? "-" : "+"}${money(Math.abs(incomeDelta))}</strong></div>
+          <div class="metric"><span>Saídas</span><strong class="${expenseDelta > 0 ? "negative" : "positive"}">${expenseDelta < 0 ? "-" : "+"}${money(Math.abs(expenseDelta))}</strong></div>
+          <div class="metric"><span>Saldo</span><strong class="${balanceDelta < 0 ? "negative" : "positive"}">${balanceDelta < 0 ? "-" : "+"}${money(Math.abs(balanceDelta))}</strong></div>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
 function csvValue(value) {
   return `"${String(value ?? "").replace(/"/g, '""')}"`;
 }
@@ -3626,10 +3799,10 @@ function reportCsvRows(kind, data) {
   if (kind === "financial") {
     const rows = [
       { secao: "resumo", data: "", descricao: "Entradas no caixa", tipo: "entrada", categoria: "", valor: data.financial.income },
-      { secao: "resumo", data: "", descricao: "Saidas operacionais", tipo: "saida", categoria: "operacional", valor: data.financial.operationalExpenses },
+      { secao: "resumo", data: "", descricao: "Saídas operacionais", tipo: "saida", categoria: "operacional", valor: data.financial.operationalExpenses },
       { secao: "resumo", data: "", descricao: "Lucro antes das retiradas", tipo: "saldo", categoria: "", valor: data.financial.profitBeforeWithdrawals },
-      { secao: "resumo", data: "", descricao: "Retiradas ja feitas", tipo: "saida", categoria: "retirada", valor: data.financial.withdrawals.total },
-      { secao: "resumo", data: "", descricao: "Disponivel para retirada", tipo: "saldo", categoria: "", valor: data.financial.availableForWithdrawal },
+      { secao: "resumo", data: "", descricao: "Retiradas já feitas", tipo: "saida", categoria: "retirada", valor: data.financial.withdrawals.total },
+      { secao: "resumo", data: "", descricao: "Disponível para retirada", tipo: "saldo", categoria: "", valor: data.financial.availableForWithdrawal },
       { secao: "retiradas", data: "", descricao: "Cofrinho", tipo: "saida", categoria: "retirada", valor: data.financial.withdrawals.savings },
       { secao: "retiradas", data: "", descricao: "Vanessa", tipo: "saida", categoria: "retirada", valor: data.financial.withdrawals.vanessa },
       { secao: "retiradas", data: "", descricao: "Raquel", tipo: "saida", categoria: "retirada", valor: data.financial.withdrawals.raquel }
@@ -4127,13 +4300,13 @@ function reportOrdersTable(data) {
 }
 function reportCashTable(data) {
   if (!data.cashEntries.length) {
-    return `<p class="muted">Nenhum lancamento de caixa neste periodo.</p>`;
+    return `<p class="muted">Nenhum lançamento de caixa neste período.</p>`;
   }
 
   return `
     <div class="summary">
       <div class="metric report-metric"><span>Entradas</span><strong>${money(data.income)}</strong></div>
-      <div class="metric report-metric"><span>Saidas</span><strong>${money(data.expenses)}</strong></div>
+      <div class="metric report-metric"><span>Saídas</span><strong>${money(data.expenses)}</strong></div>
       <div class="metric report-metric"><span>Saldo</span><strong class="${data.balance < 0 ? "negative" : "positive"}">${money(data.balance)}</strong></div>
     </div>
   `;
@@ -4166,10 +4339,10 @@ function reportExpenseOutTable(data) {
     .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
     .slice(0, 8);
   const selected = state.reportPeriod.expenseCategory || "all";
-  const selectedLabel = selected === "all" ? "Todas as saidas" : categoryName(selected);
+  const selectedLabel = selected === "all" ? "Todas as saídas" : categoryName(selected);
 
   if (!entries.length) {
-    return `<p class="muted">Nenhuma saida neste periodo.</p>`;
+    return `<p class="muted">Nenhuma saída neste período.</p>`;
   }
 
   return `
@@ -4180,7 +4353,7 @@ function reportExpenseOutTable(data) {
     </div>
     <div class="table-wrap report-table">
       <table>
-        <thead><tr><th>Data</th><th>Motivo</th><th>Descricao</th><th>Valor</th></tr></thead>
+        <thead><tr><th>Data</th><th>Motivo</th><th>Descrição</th><th>Valor</th></tr></thead>
         <tbody>
           ${topEntries.map(entry => `
             <tr>
@@ -4193,7 +4366,7 @@ function reportExpenseOutTable(data) {
         </tbody>
       </table>
     </div>
-    ${entries.length > topEntries.length ? `<p class="muted">Mostrando as ${topEntries.length} maiores saidas deste filtro.</p>` : ""}
+    ${entries.length > topEntries.length ? `<p class="muted">Mostrando as ${topEntries.length} maiores saídas deste filtro.</p>` : ""}
   `;
 }
 
@@ -4283,35 +4456,77 @@ function storeSalesTable(entries) {
 }
 
 function auditPanel() {
-  const items = state.auditLog.slice(0, 8);
+  const filter = state.auditFilter || { date: "", action: "all" };
+  const actions = [...new Set(state.auditLog.map(item => item.action).filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const items = state.auditLog
+    .filter(item => !filter.date || String(item.at || "").startsWith(filter.date))
+    .filter(item => !filter.action || filter.action === "all" || item.action === filter.action)
+    .slice(0, 30);
 
   return `
     <section class="panel report-section">
-      <h2>Histórico recente</h2>
+      <div class="section-heading">
+        <div>
+          <h2>Auditoria</h2>
+          <p class="muted-inline">Alterações registradas por data, ação e usuário.</p>
+        </div>
+      </div>
+      <form id="audit-filter-form" class="filter-bar audit-filter-bar">
+        <label>Data
+          <input name="date" type="date" value="${filter.date || ""}">
+        </label>
+        <label>Ação
+          <select name="action">
+            <option value="all" ${filter.action === "all" ? "selected" : ""}>Todas</option>
+            ${actions.map(action => `<option value="${escapeHtml(action)}" ${filter.action === action ? "selected" : ""}>${escapeHtml(action)}</option>`).join("")}
+          </select>
+        </label>
+        <button type="submit">Filtrar</button>
+        <button class="secondary" type="button" id="clear-audit-filter">Limpar</button>
+      </form>
       ${items.length ? `
         <div class="audit-list">
           ${items.map(item => `
             <span>
-              <b>${item.action}</b>
-              ${item.detail || ""}${item.user ? ` - ${item.user}` : ""}
+              <b>${escapeHtml(item.action || "Alteração")}</b>
+              ${escapeHtml(item.detail || "")}${item.user ? ` - ${escapeHtml(item.user)}` : ""}
               <small>${new Date(item.at).toLocaleString("pt-BR")}</small>
             </span>
           `).join("")}
         </div>
-      ` : `<p class="muted">Nenhuma alteração registrada ainda.</p>`}
+      ` : `<p class="muted">Nenhuma alteração encontrada para este filtro.</p>`}
     </section>
   `;
 }
 
+function bindAuditPanel(renderFn) {
+  const form = document.querySelector("#audit-filter-form");
+  if (!form) {
+    return;
+  }
+
+  form.addEventListener("submit", event => {
+    event.preventDefault();
+    state.auditFilter = readForm(event.currentTarget);
+    localStorage.setItem("auditFilter", JSON.stringify(state.auditFilter));
+    renderFn();
+  });
+
+  document.querySelector("#clear-audit-filter").addEventListener("click", () => {
+    state.auditFilter = { date: "", action: "all" };
+    localStorage.setItem("auditFilter", JSON.stringify(state.auditFilter));
+    renderFn();
+  });
+}
 function withdrawalReportTable(data) {
   if (!data.financial.withdrawalEntries.length) {
-    return `<p class="muted">Nenhuma retirada neste periodo.</p>`;
+    return `<p class="muted">Nenhuma retirada neste período.</p>`;
   }
 
   return `
     <div class="table-wrap report-table">
       <table>
-        <thead><tr><th>Data</th><th>Destino</th><th>Descricao</th><th>Valor</th></tr></thead>
+        <thead><tr><th>Data</th><th>Destino</th><th>Descrição</th><th>Valor</th></tr></thead>
         <tbody>
           ${data.financial.withdrawalEntries.map(entry => `
             <tr>
@@ -4350,9 +4565,9 @@ function monthlyClosingPanel(data) {
       <div class="section-heading">
         <div>
           <h2>Fechamento mensal</h2>
-          <p class="muted-inline">Calcula faturamento, custos, retiradas e valor disponivel do mes.</p>
+          <p class="muted-inline">Calcula faturamento, custos, retiradas e valor disponível do mês.</p>
         </div>
-        <button type="button" id="close-month">${closing ? "Atualizar fechamento" : "Fechar mes"}</button>
+        <button type="button" id="close-month">${closing ? "Atualizar fechamento" : "Fechar mês"}</button>
       </div>
       <div class="summary">
         <div class="metric"><span>Faturamento</span><strong>${money(data.financial.income)}</strong></div>
@@ -4362,12 +4577,12 @@ function monthlyClosingPanel(data) {
       ${closing ? `
         <div class="closing-record">
           <span><b>Fechado em</b>${new Date(closing.closedAt).toLocaleString("pt-BR")}</span>
-          <span><b>Disponivel registrado</b>${money(closing.availableForWithdrawal)}</span>
+          <span><b>Disponível registrado</b>${money(closing.availableForWithdrawal)}</span>
           <span><b>Cofrinho sugerido</b>${money(closing.suggestedWithdrawal?.savings || 0)}</span>
           <span><b>Vanessa sugerido</b>${money(closing.suggestedWithdrawal?.vanessa || 0)}</span>
           <span><b>Raquel sugerido</b>${money(closing.suggestedWithdrawal?.raquel || 0)}</span>
         </div>
-      ` : `<p class="muted">Este mes ainda nao foi fechado.</p>`}
+      ` : `<p class="muted">Este mês ainda não foi fechado.</p>`}
     </section>
   `;
 }
@@ -4486,7 +4701,7 @@ function reportTitleSuffix(data) {
 function reportExpenseCategoryOptions(selected = "all") {
   const categories = [...expenseCategories, ...expenseReasonOptions()];
   return [
-    `<option value="all" ${selected === "all" ? "selected" : ""}>Todas as saidas</option>`,
+    `<option value="all" ${selected === "all" ? "selected" : ""}>Todas as saídas</option>`,
     ...categories.map(([value, label]) => `<option value="${value}" ${selected === value ? "selected" : ""}>${label}</option>`)
   ].join("");
 }
@@ -4508,7 +4723,7 @@ function dueDateDistanceLabel(date) {
   const days = Math.round((due - today) / 86400000);
 
   if (days < 0) {
-    return `Venceu ha ${Math.abs(days)} dia(s)`;
+    return `Venceu há ${Math.abs(days)} dia(s)`;
   }
   if (days === 0) {
     return "Vence hoje";
@@ -4616,14 +4831,14 @@ function financeFilterPanel(reportType, weekRange) {
       <form id="report-filter-form" class="period-picker report-filter" data-period="${reportType}">
         <label>Periodo
           <select name="type" id="report-period-type">
-            <option value="month" ${reportType === "month" ? "selected" : ""}>Mes</option>
+            <option value="month" ${reportType === "month" ? "selected" : ""}>Mês</option>
             <option value="week" ${reportType === "week" ? "selected" : ""}>Semana</option>
           </select>
         </label>
         <label>Ano
           <input name="year" type="number" min="2020" max="2100" step="1" value="${state.reportPeriod.year}">
         </label>
-        <label>Mes
+        <label>Mês
           <select name="month">
             ${monthOptions(state.reportPeriod.month)}
           </select>
@@ -4634,7 +4849,7 @@ function financeFilterPanel(reportType, weekRange) {
         <label class="report-week-field">Ate
           <input name="end" type="date" value="${weekRange.end}">
         </label>
-        <label>Saida
+        <label>Saída
           <select name="expenseCategory">
             ${reportExpenseCategoryOptions(state.reportPeriod.expenseCategory || "all")}
           </select>
@@ -4689,7 +4904,7 @@ function bindMonthlyClosing(data, renderFn) {
       ...state.monthlyClosings,
       [data.periodKey]: closing
     };
-    recordAudit("Mes fechado", `${data.periodKey} - disponivel ${money(closing.availableForWithdrawal)}`);
+    recordAudit("Mês fechado", `${data.periodKey} - disponível ${money(closing.availableForWithdrawal)}`);
     persistState();
     renderFn();
   });
@@ -4707,11 +4922,12 @@ function renderFinance() {
     <section class="report-grid">
       <div class="metric report-metric"><span>Entrou no caixa</span><strong>${money(data.income)}</strong></div>
       <div class="metric report-metric"><span>Entrou com semanal</span><strong>${money(data.orderRevenue)}</strong></div>
-      <div class="metric report-metric"><span>Saiu em saidas</span><strong>${money(data.expenses)}</strong></div>
-      <div class="metric report-metric"><span>Saidas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
+      <div class="metric report-metric"><span>Saiu em saídas</span><strong>${money(data.expenses)}</strong></div>
+      <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
       <div class="metric report-metric"><span>Retiradas feitas</span><strong>${money(data.financial.withdrawals.total)}</strong></div>
-      <div class="metric report-metric"><span>Disponivel para retirada</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
+      <div class="metric report-metric"><span>Disponível para retirada</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
     </section>
+    ${reportType === "month" ? monthlyOriginCategoryPanel(data) : ""}
     ${upcomingBillsPanel()}
     ${financialPlanningPanel()}
     <section class="panel report-section">
@@ -4733,14 +4949,16 @@ function renderFinance() {
       ${reportOrdersTable(data)}
     </section>
     <section class="panel report-section">
-      <h2>O que saiu em saidas ${reportTitleSuffix(data)}</h2>
+      <h2>O que saiu em saídas ${reportTitleSuffix(data)}</h2>
       ${reportExpenseOutTable(data)}
     </section>
+    ${auditPanel()}
   `;
 
   bindReportPeriodForm(renderFinance, "financeiro");
   bindMonthlyClosing(data, renderFinance);
   bindFinancialPlanning();
+  bindAuditPanel(renderFinance);
 }
 
 function renderReports() {
@@ -4773,7 +4991,7 @@ function renderReports() {
         <label class="report-week-field">Até
           <input name="end" type="date" value="${weekRange.end}">
         </label>
-        <label>Saida
+        <label>Saída
           <select name="expenseCategory">
             ${reportExpenseCategoryOptions(state.reportPeriod.expenseCategory || "all")}
           </select>
@@ -4801,14 +5019,15 @@ function renderReports() {
       <div class="metric report-metric"><span>Entradas no caixa</span><strong>${money(data.income)}</strong></div>
       <div class="metric report-metric"><span>Saídas no caixa</span><strong>${money(data.expenses)}</strong></div>
       <div class="metric report-metric"><span>Saldo do caixa</span><strong class="${data.balance < 0 ? "negative" : "positive"}">${money(data.balance)}</strong></div>
-      <div class="metric report-metric"><span>Saidas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
+      <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
       <div class="metric report-metric"><span>Retiradas feitas</span><strong>${money(data.financial.withdrawals.total)}</strong></div>
-      <div class="metric report-metric"><span>Disponivel para retirada</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
+      <div class="metric report-metric"><span>Disponível para retirada</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
       <div class="metric report-metric"><span>Pedidos pagos</span><strong>${data.paidOrders}</strong></div>
       <div class="metric report-metric"><span>Pedidos pendentes</span><strong>${data.pendingOrders}</strong></div>
       <div class="metric report-metric"><span>Clientes semanais</span><strong>${data.weeklyClients}</strong></div>
       <div class="metric report-metric"><span>Mensalistas</span><strong>${data.monthlyClients}</strong></div>
     </section>
+    ${reportType === "month" ? monthlyOriginCategoryPanel(data) : ""}
 
     <section class="panel report-section">
       <h2>Retiradas ${reportTitleSuffix(data)}</h2>
@@ -4829,7 +5048,7 @@ function renderReports() {
       ${reportOrdersTable(data)}
     </section>
     <section class="panel report-section">
-      <h2>O que saiu em saidas ${reportTitleSuffix(data)}</h2>
+      <h2>O que saiu em saídas ${reportTitleSuffix(data)}</h2>
       ${reportExpenseOutTable(data)}
     </section>
     <section class="panel report-section">
@@ -4873,6 +5092,7 @@ function renderReports() {
       exportReport(event.currentTarget.dataset.exportReport);
     });
   });
+  bindAuditPanel(renderReports);
 
   const closeMonthButton = document.querySelector("#close-month");
   if (closeMonthButton) {
@@ -4886,7 +5106,7 @@ function renderReports() {
         ...state.monthlyClosings,
         [data.periodKey]: closing
       };
-      recordAudit("Mes fechado", `${data.periodKey} - disponivel ${money(closing.availableForWithdrawal)}`);
+      recordAudit("Mês fechado", `${data.periodKey} - disponível ${money(closing.availableForWithdrawal)}`);
       persistState();
       renderReports();
     });
@@ -4978,7 +5198,7 @@ async function renderBackups() {
 
   document.querySelector("#cleanup-backup-first").addEventListener("click", downloadBackup);
   document.querySelector("#delete-old-backups").addEventListener("click", async () => {
-    if (!confirm("Apagar backups antigos do Supabase mantendo apenas os ultimos 30 dias? Baixe um backup JSON antes se tiver duvida.")) {
+    if (!confirm("Apagar backups antigos do Supabase mantendo apenas os últimos 30 dias? Baixe um backup JSON antes se tiver dúvida.")) {
       return;
     }
     try {
@@ -4989,7 +5209,7 @@ async function renderBackups() {
       });
       const result = await response.json();
       if (!response.ok || !result.database) {
-        showToast("Nao foi possivel apagar backups antigos", "warning");
+        showToast("Não foi possível apagar backups antigos", "warning");
         return;
       }
       showToast(`${result.deleted || 0} backup(s) antigo(s) apagado(s)`, "success");

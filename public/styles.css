@@ -667,6 +667,14 @@ h2 {
   font-weight: 800;
 }
 
+.reconciliation-summary {
+  margin-bottom: 4px;
+}
+
+.reconciliation-history span {
+  grid-template-columns: auto 1fr auto;
+}
+
 .audit-list {
   display: grid;
   gap: 8px;
@@ -751,7 +759,7 @@ textarea {
 
 .filter-bar {
   display: grid;
-  grid-template-columns: 150px minmax(150px, 1fr) auto;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
   align-items: end;
   margin-bottom: 16px;
@@ -888,6 +896,11 @@ textarea {
 
 .reason-list b {
   overflow-wrap: anywhere;
+}
+
+.archived-reason-list span {
+  background: #f3f4f6;
+  color: var(--muted);
 }
 
 .withdrawal-panel {
