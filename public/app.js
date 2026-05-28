@@ -873,9 +873,19 @@ function categoryName(value) {
 }
 
 function expenseReasonOptions() {
-  return [...new Set((state.expenseReasons || []).map(name => String(name || "").trim()).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b, "pt-BR"))
-    .map(name => [`reason:${name}`, name]);
+  return activeExpenseReasons().map(name => [`reason:${name}`, name]);
+}
+
+function activeExpenseReasons() {
+  const archived = new Set((state.archivedExpenseReasons || [])
+    .map(name => String(name || "").trim())
+    .filter(Boolean));
+
+  return [...new Set((state.expenseReasons || [])
+    .map(name => String(name || "").trim())
+    .filter(Boolean))]
+    .filter(name => !archived.has(name))
+    .sort((a, b) => a.localeCompare(b, "pt-BR"));
 }
 
 function cashFilterCategoryOptions(selected = "all", type = "all") {
