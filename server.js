@@ -390,7 +390,7 @@ async function restoreBackup(backupDate) {
 
   const backup = backupResult.backup;
   if (!backup) {
-    return { database: true, restored: false, error: "Backup nao encontrado." };
+    return { database: true, restored: false, error: "Backup não encontrado." };
   }
 
   const payload = backup.payload?.data || backup.payload || {};
@@ -609,18 +609,18 @@ function buildReportPdf(payload = {}) {
   ], [90, 260, 110]);
 
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Principais saídas (despesas)");
-  addPdfTable(doc, ["Data", "Descricao", "Categoria", "Valor"], data.expenseRows || [], [82, 240, 100, 90]);
+  addPdfTable(doc, ["Data", "Descrição", "Categoria", "Valor"], data.expenseRows || [], [82, 240, 100, 90]);
 
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Retiradas");
   addPdfTable(doc, ["Destino", "Valor"], data.withdrawalRows || [], [250, 140]);
 
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Cumbucas vendidas na loja");
-  addPdfTable(doc, ["Data", "Quantidade", "Observacao"], data.storeRows || [], [82, 90, 340]);
+  addPdfTable(doc, ["Data", "Quantidade", "Observação"], data.storeRows || [], [82, 90, 340]);
 
   const footerY = 760;
   doc.moveTo(42, footerY).lineTo(250, footerY).stroke("#d1d5db");
-  doc.fillColor("#69707d").font("Helvetica").fontSize(8).text("Assinatura / conferencia", 42, footerY + 8);
-  doc.text("Observa??es: conferir contas, despesas maiores e cumbucas vendidas antes do fechamento.", 300, footerY, {
+  doc.fillColor("#69707d").font("Helvetica").fontSize(8).text("Assinatura / conferência", 42, footerY + 8);
+  doc.text("Observações: conferir contas, despesas maiores e cumbucas vendidas antes do fechamento.", 300, footerY, {
     width: 240,
     align: "right"
   });
@@ -650,11 +650,11 @@ async function buildReportXlsx(payload = {}) {
 
   const sheets = [
     ["Resumo", summaryRows],
-    ["Entradas", [["Data", "Descricao", "Valor"], ...(data.incomeRows || [])]],
-    ["Despesas", [["Data", "Descricao", "Categoria", "Valor"], ...(data.expenseRows || [])]],
+    ["Entradas", [["Data", "Descrição", "Valor"], ...(data.incomeRows || [])]],
+    ["Despesas", [["Data", "Descrição", "Categoria", "Valor"], ...(data.expenseRows || [])]],
     ["Retiradas", [["Destino", "Valor"], ...(data.withdrawalRows || [])]],
-    ["Loja", [["Data", "Quantidade", "Observacao"], ...(data.storeRows || [])]],
-    ["Caixa", [["Data", "Descricao", "Tipo", "Categoria", "Valor"], ...(data.cashRows || [])]]
+    ["Loja", [["Data", "Quantidade", "Observação"], ...(data.storeRows || [])]],
+    ["Caixa", [["Data", "Descrição", "Tipo", "Categoria", "Valor"], ...(data.cashRows || [])]]
   ];
 
   function xml(value) {
@@ -891,7 +891,7 @@ async function handleRequest(req, res) {
       }
       const result = await readBackup(backupDate);
       if (!result.backup) {
-        sendJson(res, 404, { error: "Backup nao encontrado." });
+        sendJson(res, 404, { error: "Backup não encontrado." });
         return;
       }
       const body = JSON.stringify(result.backup.payload, null, 2);

@@ -34,6 +34,11 @@ const shortDateTime = new Intl.DateTimeFormat("pt-BR", {
   minute: "2-digit"
 });
 
+const monthYear = new Intl.DateTimeFormat("pt-BR", {
+  month: "long",
+  year: "numeric"
+});
+
 if (todayDate) {
   const now = new Date();
   todayDate.dateTime = isoDate(now);
@@ -198,7 +203,7 @@ const expenseCategories = [
   ["supermercado", "Supermercado"],
   ["despesas-gerais", "Despesas gerais"],
   ["boleto", "Boleto"],
-  ["funcionarios", "Funcionarios"],
+  ["funcionarios", "Funcionários"],
   ["entregador", "Entregador"],
   ["99-uber", "99/Uber"],
   ["adesivos", "Adesivos"],
@@ -208,30 +213,30 @@ const expenseCategories = [
   ["impostos", "Impostos"],
   ["nubank-cumbuca", "Nubank Cumbuca"],
   ["bee-delivery", "Bee Delivery"],
-  ["gas", "Gas"],
+  ["gas", "Gás"],
   ["vivo", "Vivo"],
   ["retirada", "Retirada"],
   ["vanessa", "Vanessa"],
   ["raquel", "Raquel"],
   ["cofrinho", "Cofrinho"],
   ["troco", "Troco"],
-  ["diferenca", "Diferenca"],
+  ["diferenca", "Diferença"],
   ["ajuste-conta", "Ajuste da conta"],
   ["outros", "Outros"]
 ];
 const defaultExpenseReasons = [
   "Supermercado",
   "Despesas gerais",
-  "Funcionarios",
+  "Funcionários",
   "Entregador",
   "99/Uber",
   "Adesivos",
-  "Jean Veiculos / MARTINS",
+  "Jean Veículos / MARTINS",
   "Gv Distribuidora / IDEAL",
   "Mab",
   "Praso",
   "Frical",
-  "Frigorifico",
+  "Frigorífico",
   "Sanduiches",
   "Sucos",
   "Semear",
@@ -241,13 +246,13 @@ const defaultExpenseReasons = [
   "Impostos",
   "Nubank Cumbuca",
   "Bee Delivery",
-  "Gas",
+  "Gás",
   "Vivo",
   "Vanessa",
   "Raquel",
   "Cofrinho",
   "Troco",
-  "Diferenca"
+  "Diferença"
 ];
 
 function localValue(key, fallback) {
@@ -814,7 +819,7 @@ function filterCashEntries(entries) {
       entry.description,
       entry.category,
       categoryName(entry.category),
-      entry.type === "expense" ? "saida" : "entrada"
+      entry.type === "expense" ? "saída" : "entrada"
     ].some(value => String(value || "").toLowerCase().includes(query)))
     : entries;
 
@@ -1223,6 +1228,14 @@ function formatIsoDateBr(date) {
   return `${day}/${month}/${year}`;
 }
 
+function formatMonthKeyBr(key) {
+  const [year, month] = String(key || "").split("-").map(Number);
+  if (!year || !month) {
+    return key || "";
+  }
+  return monthYear.format(new Date(year, month - 1, 1));
+}
+
 function reportWeekRangeLabel() {
   const { start, end } = reportWeekRange();
   return `${formatIsoDateBr(start)} a ${formatIsoDateBr(end)}`;
@@ -1458,7 +1471,7 @@ function home() {
   app.innerHTML = `
     <section class="dashboard-band">
       <div class="dashboard-copy">
-        <span>Painel ${metrics.monthKey}</span>
+        <span>Painel ${formatMonthKeyBr(metrics.monthKey)}</span>
         <h2>Resumo rápido da operação</h2>
         <p>Caixa, clientes, pedidos e produção em uma visão para abrir o dia com clareza.</p>
       </div>
@@ -1713,7 +1726,7 @@ async function renderCash() {
             <input name="amount" type="number" min="0" max="${Math.max(0, totalCash.balance)}" step="0.01" value="${Math.max(0, totalCash.balance).toFixed(2)}" required>
           </label>
           <div class="withdrawal-preview" aria-live="polite">
-            <span><b>Caixa disponivel</b>${money(totalCash.balance)}</span>
+            <span><b>Caixa disponível</b>${money(totalCash.balance)}</span>
             <span><b>Cofrinho 10%</b>${money(previewWithdrawal.savings)}</span>
             <span><b>Vanessa 70%</b>${money(previewWithdrawal.vanessa)}</span>
             <span><b>Raquel 30%</b>${money(previewWithdrawal.raquel)}</span>
@@ -1958,7 +1971,7 @@ async function renderCash() {
     const split = withdrawalSplit(amount);
     const preview = withdrawalForm.querySelector(".withdrawal-preview");
     preview.innerHTML = `
-      <span><b>Caixa disponivel</b>${money(totalCash.balance)}</span>
+      <span><b>Caixa disponível</b>${money(totalCash.balance)}</span>
       <span><b>Cofrinho 10%</b>${money(split.savings)}</span>
       <span><b>Vanessa 70%</b>${money(split.vanessa)}</span>
       <span><b>Raquel 30%</b>${money(split.raquel)}</span>
@@ -1977,7 +1990,7 @@ async function renderCash() {
     }
 
     if (split.total > available) {
-      showToast("A retirada nao pode ser maior que o caixa disponivel.", "error");
+      showToast("A retirada não pode ser maior que o caixa disponível.", "error");
       return;
     }
 
@@ -3230,7 +3243,7 @@ function deliveryListText(currentKey) {
     .filter(({ client }) => String(client.address || "").trim());
 
   if (!rows.length) {
-    return "Nenhuma entrega com endereco preenchido.";
+    return "Nenhuma entrega com endereço preenchido.";
   }
 
   return [
@@ -3279,7 +3292,7 @@ function deliveryListPanel(currentKey) {
             <span><b>${orderQuantity(order)}</b>${client.name || order.clientPhone}<small>${[client.address, client.complement].filter(Boolean).join(" - ")}</small></span>
           `).join("")}
         </div>
-      ` : `<p class="muted">Nenhuma entrega com endereco preenchido.</p>`}
+      ` : `<p class="muted">Nenhuma entrega com endereço preenchido.</p>`}
     </section>
   `;
 }
@@ -3887,7 +3900,7 @@ function monthlyOriginCategoryPanel(data) {
         ${compactMoneyList(topExpenses, "Nenhuma despesa no período.")}
       </div>
       <div class="panel dashboard-panel">
-        <h2>Comparação com ${previousKey}</h2>
+        <h2>Comparação com ${formatMonthKeyBr(previousKey)}</h2>
         <div class="summary comparison-summary">
           <div class="metric"><span>Entradas</span><strong class="${incomeDelta < 0 ? "negative" : "positive"}">${incomeDelta < 0 ? "-" : "+"}${money(Math.abs(incomeDelta))}</strong></div>
           <div class="metric"><span>Saídas</span><strong class="${expenseDelta > 0 ? "negative" : "positive"}">${expenseDelta < 0 ? "-" : "+"}${money(Math.abs(expenseDelta))}</strong></div>
@@ -3938,8 +3951,8 @@ function reportCsvRows(kind, data) {
   if (kind === "cash") {
     return data.cashEntries.map(entry => ({
       data: entry.date || "",
-      descricao: entry.description || "",
-      tipo: entry.type === "expense" ? "saida" : "entrada",
+      descrição: entry.description || "",
+      tipo: entry.type === "expense" ? "saída" : "entrada",
       categoria: categoryName(entry.category),
       valor: Number(entry.amount || 0)
     }));
@@ -3947,21 +3960,21 @@ function reportCsvRows(kind, data) {
 
   if (kind === "financial") {
     const rows = [
-      { secao: "resumo", data: "", descricao: "Entradas no caixa", tipo: "entrada", categoria: "", valor: data.financial.income },
-      { secao: "resumo", data: "", descricao: "Saídas operacionais", tipo: "saida", categoria: "operacional", valor: data.financial.operationalExpenses },
-      { secao: "resumo", data: "", descricao: "Lucro antes das retiradas", tipo: "saldo", categoria: "", valor: data.financial.profitBeforeWithdrawals },
-      { secao: "resumo", data: "", descricao: "Retiradas já feitas", tipo: "saida", categoria: "retirada", valor: data.financial.withdrawals.total },
-      { secao: "resumo", data: "", descricao: "Disponível para retirada", tipo: "saldo", categoria: "", valor: data.financial.availableForWithdrawal },
-      { secao: "retiradas", data: "", descricao: "Cofrinho", tipo: "saida", categoria: "retirada", valor: data.financial.withdrawals.savings },
-      { secao: "retiradas", data: "", descricao: "Vanessa", tipo: "saida", categoria: "retirada", valor: data.financial.withdrawals.vanessa },
-      { secao: "retiradas", data: "", descricao: "Raquel", tipo: "saida", categoria: "retirada", valor: data.financial.withdrawals.raquel }
+      { seção: "resumo", data: "", descrição: "Entradas no caixa", tipo: "entrada", categoria: "", valor: data.financial.income },
+      { seção: "resumo", data: "", descrição: "Saídas operacionais", tipo: "saída", categoria: "operacional", valor: data.financial.operationalExpenses },
+      { seção: "resumo", data: "", descrição: "Lucro antes das retiradas", tipo: "saldo", categoria: "", valor: data.financial.profitBeforeWithdrawals },
+      { seção: "resumo", data: "", descrição: "Retiradas já feitas", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.total },
+      { seção: "resumo", data: "", descrição: "Disponível para retirada", tipo: "saldo", categoria: "", valor: data.financial.availableForWithdrawal },
+      { seção: "retiradas", data: "", descrição: "Cofrinho", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.savings },
+      { seção: "retiradas", data: "", descrição: "Vanessa", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.vanessa },
+      { seção: "retiradas", data: "", descrição: "Raquel", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.raquel }
     ];
 
     return rows.concat(data.cashEntries.map(entry => ({
-      secao: isWithdrawalEntry(entry) ? "lancamento_retirada" : "lancamento_caixa",
+      seção: isWithdrawalEntry(entry) ? "lançamento retirada" : "lançamento caixa",
       data: entry.date || "",
-      descricao: entry.description || "",
-      tipo: entry.type === "expense" ? "saida" : "entrada",
+      descrição: entry.description || "",
+      tipo: entry.type === "expense" ? "saída" : "entrada",
       categoria: categoryName(entry.category),
       valor: Number(entry.amount || 0)
     })));
@@ -3978,7 +3991,7 @@ function reportCsvRows(kind, data) {
         valor: Number(order.amount || 0),
         frete: Number(order.deliveryFee || 0),
         pagamento: paymentText(order, client),
-        observacao: order.notes || ""
+        observação: order.notes || ""
       };
     });
   }
@@ -3988,7 +4001,7 @@ function reportCsvRows(kind, data) {
       nome: client.name || "",
       contato: client.phone || "",
       plano: client.plan === "mensalista" ? "mensalista" : "semanal",
-      endereco: [client.address, client.complement].filter(Boolean).join(" - "),
+      endereço: [client.address, client.complement].filter(Boolean).join(" - "),
       pacote_mensal: Number(client.monthlyPackage || 0),
       valor_mensal: Number(client.monthlyPrice || 0)
     }));
@@ -4026,7 +4039,7 @@ function reportPdfHtml(data) {
   const generatedAt = fullDate.format(new Date());
   const periodLabel = data.type === "week"
     ? reportWeekRangeLabel()
-    : data.periodKey;
+    : formatMonthKeyBr(data.periodKey);
   const unusedLegacySummary = [
     ["Receita de pedidos", money(data.orderRevenue)],
     ["Cumbucas vendidas", data.totalQuantity],
@@ -4228,7 +4241,7 @@ function oldPrintReportPdfWithPopup() {
 
 async function downloadReportPdf() {
   const data = reportData();
-  const periodLabel = data.type === "week" ? reportWeekRangeLabel() : data.periodKey;
+  const periodLabel = data.type === "week" ? reportWeekRangeLabel() : formatMonthKeyBr(data.periodKey);
   const filename = data.type === "week"
     ? `cumbuca-relatorio-${data.weekKey}.pdf`
     : `cumbuca-relatorio-${data.periodKey}.pdf`;
@@ -4295,7 +4308,7 @@ async function downloadReportPdf() {
 
 async function downloadReportXlsx() {
   const data = reportData();
-  const periodLabel = data.type === "week" ? reportWeekRangeLabel() : data.periodKey;
+  const periodLabel = data.type === "week" ? reportWeekRangeLabel() : formatMonthKeyBr(data.periodKey);
   const filename = data.type === "week"
     ? `cumbuca-relatorio-${data.weekKey}.xlsx`
     : `cumbuca-relatorio-${data.periodKey}.xlsx`;
@@ -4434,7 +4447,7 @@ function exportReport(kind) {
 
 function reportOrdersTable(data) {
   if (!data.orders.length) {
-    return `<p class="muted">Nenhum pedido neste periodo.</p>`;
+    return `<p class="muted">Nenhum pedido neste período.</p>`;
   }
 
   return `
@@ -4462,13 +4475,13 @@ function reportCashTable(data) {
 }
 function reportIncomeCashTable(data) {
   if (!data.incomeEntries.length) {
-    return `<p class="muted">Nenhuma entrada de caixa neste periodo.</p>`;
+    return `<p class="muted">Nenhuma entrada de caixa neste período.</p>`;
   }
 
   return `
     <div class="summary">
       <div class="metric report-metric">
-        <span>Total de entradas no periodo</span>
+        <span>Total de entradas no período</span>
         <strong>${money(data.income)}</strong>
       </div>
       ${accountIncomeBreakdown(data).map(([label, value]) => `
@@ -4841,7 +4854,7 @@ function oldReportTitleSuffix(data) {
 
 function reportTitleSuffix(data) {
   if (data.type !== "week") {
-    return "do mês";
+    return `de ${formatMonthKeyBr(data.periodKey)}`;
   }
 
   return `de ${reportWeekRangeLabel()}`;
@@ -5044,7 +5057,7 @@ function bindMonthlyClosing(data, renderFn) {
   }
 
   closeMonthButton.addEventListener("click", () => {
-    if (state.monthlyClosings[data.periodKey] && !confirm(`Atualizar o fechamento de ${data.periodKey}?`)) {
+    if (state.monthlyClosings[data.periodKey] && !confirm(`Atualizar o fechamento de ${formatMonthKeyBr(data.periodKey)}?`)) {
       return;
     }
 
@@ -5053,7 +5066,7 @@ function bindMonthlyClosing(data, renderFn) {
       ...state.monthlyClosings,
       [data.periodKey]: closing
     };
-    recordAudit("Mês fechado", `${data.periodKey} - disponível ${money(closing.availableForWithdrawal)}`);
+    recordAudit("Mês fechado", `${formatMonthKeyBr(data.periodKey)} - disponível ${money(closing.availableForWithdrawal)}`);
     persistState();
     renderFn();
   });
@@ -5246,7 +5259,7 @@ function renderReports() {
   const closeMonthButton = document.querySelector("#close-month");
   if (closeMonthButton) {
     closeMonthButton.addEventListener("click", () => {
-      if (state.monthlyClosings[data.periodKey] && !confirm(`Atualizar o fechamento de ${data.periodKey}?`)) {
+      if (state.monthlyClosings[data.periodKey] && !confirm(`Atualizar o fechamento de ${formatMonthKeyBr(data.periodKey)}?`)) {
         return;
       }
 
@@ -5255,7 +5268,7 @@ function renderReports() {
         ...state.monthlyClosings,
         [data.periodKey]: closing
       };
-      recordAudit("Mês fechado", `${data.periodKey} - disponível ${money(closing.availableForWithdrawal)}`);
+      recordAudit("Mês fechado", `${formatMonthKeyBr(data.periodKey)} - disponível ${money(closing.availableForWithdrawal)}`);
       persistState();
       renderReports();
     });
@@ -5351,7 +5364,7 @@ async function renderBackups() {
         renderBackups();
       }
     } catch (error) {
-      showToast("Arquivo de backup invalido", "warning");
+      showToast("Arquivo de backup inválido", "warning");
     }
   });
 
