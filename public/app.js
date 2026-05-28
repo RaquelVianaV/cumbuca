@@ -7,6 +7,13 @@ const saveStatus = document.querySelector("#save-status");
 const backupButton = document.querySelector("#backup-button");
 const logoutButton = document.querySelector("#logout-button");
 const navLinks = [...document.querySelectorAll("[data-route]")];
+let systemStatus = {
+  server: false,
+  database: false,
+  persistence: false
+};
+let lastConfirmedPayload = null;
+let offlineAlertOpen = false;
 
 const brl = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -44,6 +51,9 @@ async function updateServerStatus() {
       throw new Error("offline");
     }
     const result = await response.json();
+    systemStatus.server = true;
+    systemStatus.database = Boolean(result.database);
+    state.database = Boolean(result.database);
     serverStatus.textContent = "Servidor online";
     serverStatus.classList.add("online");
     serverStatus.classList.remove("offline");
@@ -51,6 +61,9 @@ async function updateServerStatus() {
     databaseStatus.classList.toggle("online", Boolean(result.database));
     databaseStatus.classList.toggle("offline", !result.database);
   } catch (error) {
+    systemStatus.server = false;
+    systemStatus.database = false;
+    state.database = false;
     serverStatus.textContent = "Servidor offline";
     serverStatus.classList.add("offline");
     serverStatus.classList.remove("online");
@@ -89,6 +102,58 @@ function showToast(text, mode = "success") {
   }, 2600);
 }
 
+function clonePayload(payload) {
+  return JSON.parse(JSON.stringify(payload));
+}
+
+function alertOfflineSave(reason) {
+  const message = reason === "server"
+    ? "Alteração não salva: o sistema está offline. Recarregue quando o servidor voltar."
+    : "Alteração não salva: o banco está offline. Tente novamente quando o Supabase voltar.";
+  setSaveStatus(reason === "server" ? "Servidor offline - nada salvo" : "Banco offline - nada salvo", "offline");
+  showToast(message, "error");
+  if (!offlineAlertOpen) {
+    offlineAlertOpen = true;
+    setTimeout(() => {
+      alert(message);
+      offlineAlertOpen = false;
+    }, 20);
+  }
+}
+
+async function onlineSaveCheck() {
+  try {
+    const healthResponse = await fetch("/api/health", { cache: "no-store" });
+    if (!healthResponse.ok) {
+      return { ok: false, reason: "server" };
+    }
+    const health = await healthResponse.json();
+    systemStatus.server = true;
+    systemStatus.database = Boolean(health.database);
+    state.database = Boolean(health.database);
+    if (!health.database) {
+      return { ok: false, reason: "database" };
+    }
+
+    const persistenceResponse = await fetch("/api/persistence-check", { cache: "no-store" });
+    if (!persistenceResponse.ok) {
+      return { ok: false, reason: "database" };
+    }
+    const persistence = await persistenceResponse.json();
+    systemStatus.persistence = Boolean(persistence.database && persistence.saved);
+    if (!systemStatus.persistence) {
+      return { ok: false, reason: "database" };
+    }
+
+    return { ok: true };
+  } catch (error) {
+    systemStatus.server = false;
+    systemStatus.database = false;
+    systemStatus.persistence = false;
+    return { ok: false, reason: "server" };
+  }
+}
+
 async function updatePersistenceStatus() {
   if (!saveStatus) {
     return;
@@ -102,13 +167,16 @@ async function updatePersistenceStatus() {
     }
     const result = await response.json();
     if (!result.database || !result.saved) {
-      setSaveStatus("Salvando só local", "offline");
+      systemStatus.persistence = false;
+      setSaveStatus("Banco offline - salvamento bloqueado", "offline");
       return;
     }
 
+    systemStatus.persistence = true;
     setSaveStatus("Supabase ok - backup manual", "online");
   } catch (error) {
-    setSaveStatus("Sem confirmação do Supabase", "offline");
+    systemStatus.persistence = false;
+    setSaveStatus("Sem confirmação - salvamento bloqueado", "offline");
   }
 }
 
@@ -275,6 +343,48 @@ function appStatePayload() {
   };
 }
 
+function applyPayloadToState(saved = {}) {
+  state.cash = saved.cashEntries || [];
+  state.menus = saved.weeklyMenusByPeriod || {};
+  state.menuWeek = Number(saved.menuWeek || 1);
+  state.menuPeriod = saved.menuPeriod || {
+    year: new Date().getFullYear(),
+    month: new Date().getMonth() + 1
+  };
+  state.menuDates = saved.menuDatesByPeriod || {};
+  state.clients = saved.clients || [];
+  state.orders = saved.orders || [];
+  state.storeSales = saved.storeSales || [];
+  state.expenseReasons = Array.isArray(saved.expenseReasons) && saved.expenseReasons.length
+    ? saved.expenseReasons
+    : seededExpenseReasons();
+  state.archivedExpenseReasons = saved.archivedExpenseReasons || [];
+  state.auditLog = saved.auditLog || [];
+  state.monthlyClosings = saved.monthlyClosings || {};
+  state.ingredients = saved.pricingIngredients || [];
+  state.pricingConfig = saved.pricingConfig || {};
+  state.cashFilter = saved.cashFilter || { period: "all" };
+  state.financialPlanning = saved.financialPlanning || {
+    savings: "",
+    improvements: [],
+    purchases: []
+  };
+}
+
+function renderCurrentRoute() {
+  const render = routes[routeName()] || home;
+  render();
+}
+
+function rollbackUnsavedChange() {
+  if (!lastConfirmedPayload) {
+    return;
+  }
+  applyPayloadToState(clonePayload(lastConfirmedPayload));
+  persistLocal();
+  setTimeout(renderCurrentRoute, 0);
+}
+
 function persistLocal() {
   Object.entries(appStatePayload()).forEach(([key, value]) => {
     localStorage.setItem(key, JSON.stringify(value));
@@ -293,7 +403,15 @@ function recordAudit(action, detail) {
 }
 
 async function persistState() {
-  persistLocal();
+  setSaveStatus("Conferindo conexão...");
+  const online = await onlineSaveCheck();
+  if (!online.ok) {
+    rollbackUnsavedChange();
+    alertOfflineSave(online.reason);
+    updateServerStatus();
+    return false;
+  }
+
   setSaveStatus("Salvando...");
   try {
     const response = await fetch("/api/state", {
@@ -303,17 +421,21 @@ async function persistState() {
     });
     const result = await response.json();
     if (response.ok && result.database) {
+      persistLocal();
+      lastConfirmedPayload = clonePayload(appStatePayload());
       const now = shortDateTime.format(new Date());
       setSaveStatus(`Salvo no Supabase ${now}`, "online");
       showToast("Salvo no Supabase", "success");
+      return true;
     } else {
-      setSaveStatus("Salvo só neste navegador", "offline");
-      showToast("Salvo só neste navegador", "warning");
+      rollbackUnsavedChange();
+      alertOfflineSave("database");
+      return false;
     }
   } catch (error) {
-    setSaveStatus("Salvo só neste navegador", "offline");
-    showToast("Sem confirmação do Supabase", "warning");
-    // localStorage keeps the app usable if the network is unavailable.
+    rollbackUnsavedChange();
+    alertOfflineSave("server");
+    return false;
   }
 }
 
@@ -321,32 +443,24 @@ async function hydrateState() {
   try {
     const response = await fetch("/api/state", { cache: "no-store" });
     if (!response.ok) {
+      lastConfirmedPayload = clonePayload(appStatePayload());
       return;
     }
     const result = await response.json();
     state.database = Boolean(result.database);
+    systemStatus.database = Boolean(result.database);
     const saved = result.state || {};
-    state.cash = saved.cashEntries || state.cash;
-    state.menus = saved.weeklyMenusByPeriod || state.menus;
-    state.menuWeek = Number(saved.menuWeek || state.menuWeek);
-    state.menuPeriod = saved.menuPeriod || state.menuPeriod;
-    state.menuDates = saved.menuDatesByPeriod || state.menuDates;
-    state.clients = saved.clients || state.clients;
-    state.orders = saved.orders || state.orders;
-    state.storeSales = saved.storeSales || state.storeSales;
-    state.expenseReasons = Array.isArray(saved.expenseReasons) && saved.expenseReasons.length
-      ? saved.expenseReasons
-      : (Array.isArray(saved.suppliers) && saved.suppliers.length ? saved.suppliers : state.expenseReasons);
-    state.archivedExpenseReasons = saved.archivedExpenseReasons || state.archivedExpenseReasons;
-    state.auditLog = saved.auditLog || state.auditLog;
-    state.monthlyClosings = saved.monthlyClosings || state.monthlyClosings;
-    state.ingredients = saved.pricingIngredients || state.ingredients;
-    state.pricingConfig = saved.pricingConfig || state.pricingConfig;
-    state.cashFilter = saved.cashFilter || state.cashFilter;
-    state.financialPlanning = saved.financialPlanning || state.financialPlanning;
-    persistLocal();
+    if (result.database) {
+      applyPayloadToState(saved);
+      persistLocal();
+      lastConfirmedPayload = clonePayload(appStatePayload());
+    } else {
+      lastConfirmedPayload = clonePayload(appStatePayload());
+    }
   } catch (error) {
     state.database = false;
+    systemStatus.database = false;
+    lastConfirmedPayload = clonePayload(appStatePayload());
   }
 }
 
@@ -395,25 +509,12 @@ async function importBackupFile(file) {
   const parsed = JSON.parse(text);
   const data = parsed.data || parsed.state || parsed;
 
-  state.cash = data.cashEntries || state.cash;
-  state.menus = data.weeklyMenusByPeriod || state.menus;
-  state.menuWeek = Number(data.menuWeek || state.menuWeek);
-  state.menuPeriod = data.menuPeriod || state.menuPeriod;
-  state.menuDates = data.menuDatesByPeriod || state.menuDates;
-  state.clients = data.clients || state.clients;
-  state.orders = data.orders || state.orders;
-  state.storeSales = data.storeSales || state.storeSales;
-  state.expenseReasons = data.expenseReasons || state.expenseReasons;
-  state.archivedExpenseReasons = data.archivedExpenseReasons || state.archivedExpenseReasons;
-  state.auditLog = data.auditLog || state.auditLog;
-  state.monthlyClosings = data.monthlyClosings || state.monthlyClosings;
-  state.ingredients = data.pricingIngredients || state.ingredients;
-  state.pricingConfig = data.pricingConfig || state.pricingConfig;
-  state.cashFilter = data.cashFilter || state.cashFilter;
-  state.financialPlanning = data.financialPlanning || state.financialPlanning;
-
+  applyPayloadToState({
+    ...appStatePayload(),
+    ...data
+  });
   recordAudit("backup_importado", file.name || "backup manual");
-  await persistState();
+  return persistState();
 }
 
 async function downloadBackup() {
@@ -626,8 +727,8 @@ async function cleanupYear(year) {
   state.monthlyClosings = Object.fromEntries(Object.entries(state.monthlyClosings || {}).filter(([key]) => !String(key || "").startsWith(target)));
 
   recordAudit("limpeza_ano", `${target}: ${JSON.stringify(preview)}`);
-  await persistState();
-  return preview;
+  const saved = await persistState();
+  return saved ? preview : null;
 }
 
 function cleanupPreviewHtml(year, preview) {
@@ -5244,9 +5345,11 @@ async function renderBackups() {
       return;
     }
     try {
-      await importBackupFile(file);
-      showToast("Backup importado", "success");
-      renderBackups();
+      const saved = await importBackupFile(file);
+      if (saved) {
+        showToast("Backup importado", "success");
+        renderBackups();
+      }
     } catch (error) {
       showToast("Arquivo de backup invalido", "warning");
     }
@@ -5299,9 +5402,11 @@ async function renderBackups() {
       showToast("Limpeza cancelada", "warning");
       return;
     }
-    await cleanupYear(year);
-    showToast(`Ano ${year} apagado`, "success");
-    renderBackups();
+    const cleaned = await cleanupYear(year);
+    if (cleaned) {
+      showToast(`Ano ${year} apagado`, "success");
+      renderBackups();
+    }
   });
 }
 

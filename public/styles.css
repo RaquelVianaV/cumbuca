@@ -1430,6 +1430,12 @@ textarea {
   color: var(--red);
 }
 
+.toast.error {
+  border-color: #fecaca;
+  background: #fff7f7;
+  color: var(--tomato);
+}
+
 .report-table table {
   min-width: 720px;
 }
