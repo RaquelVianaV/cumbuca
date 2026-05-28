@@ -123,7 +123,8 @@ const LOW_MONTHLY_QUANTITY = 5;
 const incomeCategories = [
   ["venda", "Venda"],
   ["ifood", "iFood"],
-  ["99", "99"]
+  ["99", "99"],
+  ["ajuste-conta", "Ajuste da conta"]
 ];
 const expenseCategories = [
   ["supermercado", "Supermercado"],
@@ -147,6 +148,7 @@ const expenseCategories = [
   ["cofrinho", "Cofrinho"],
   ["troco", "Troco"],
   ["diferenca", "Diferenca"],
+  ["ajuste-conta", "Ajuste da conta"],
   ["outros", "Outros"]
 ];
 const defaultExpenseReasons = [
@@ -846,6 +848,20 @@ function withdrawalSplit(amount) {
   return { total, savings, remaining, vanessa, raquel };
 }
 
+function accountBalanceAdjustment(targetBalance, currentBalance) {
+  const target = Number(targetBalance || 0);
+  const current = Number(currentBalance || 0);
+  const difference = target - current;
+
+  return {
+    target,
+    current,
+    difference,
+    type: difference < 0 ? "expense" : "income",
+    amount: Math.abs(difference)
+  };
+}
+
 function isWithdrawalEntry(entry = {}) {
   return entry.category === "retirada" || String(entry.description || "").toLowerCase().startsWith("retirada -");
 }
@@ -1405,6 +1421,19 @@ async function renderCash() {
         </form>
       </section>
       ${expenseReasonsPanel()}
+      <section class="panel account-balance-panel">
+        <h2>Valor na conta</h2>
+        <form id="account-balance-form" class="form-grid single">
+          <label>Saldo real da conta
+            <input name="balance" type="number" min="0" step="0.01" placeholder="0,00" value="${Math.max(0, totalCash.balance).toFixed(2)}" required>
+          </label>
+          <label>Data do ajuste
+            <input name="date" type="date" value="${today}" required>
+          </label>
+          <p class="muted">Saldo calculado agora: ${money(totalCash.balance)}</p>
+          <button type="submit">Ajustar conta</button>
+        </form>
+      </section>
       <section class="panel withdrawal-panel">
         <h2>Retiradas</h2>
         <form id="withdrawal-form" class="form-grid single">
@@ -1560,6 +1589,29 @@ async function renderCash() {
       persistState();
       renderCash();
     });
+  });
+
+  document.querySelector("#account-balance-form").addEventListener("submit", event => {
+    event.preventDefault();
+    const values = readForm(event.currentTarget);
+    const adjustment = accountBalanceAdjustment(values.balance, cashTotals(state.cash).balance);
+
+    if (adjustment.amount <= 0.009) {
+      showToast("O saldo informado ja esta igual ao saldo calculado.", "warning");
+      return;
+    }
+
+    state.cash.push({
+      id: `account-adjustment-${Date.now()}`,
+      description: adjustment.type === "expense" ? "Ajuste do valor na conta" : "Valor existente na conta",
+      date: values.date,
+      type: adjustment.type,
+      category: "ajuste-conta",
+      amount: adjustment.amount.toFixed(2)
+    });
+    recordAudit("Valor na conta ajustado", `Conta ${money(adjustment.target)} - ajuste ${money(adjustment.amount)}`);
+    persistState();
+    renderCash();
   });
 
   const withdrawalForm = document.querySelector("#withdrawal-form");
