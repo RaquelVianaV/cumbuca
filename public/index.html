@@ -12,15 +12,6 @@
         <span class="brand-mark">C</span>
         <span>Cumbuca</span>
       </a>
-      <nav class="nav" aria-label="Ferramentas">
-        <a href="/fluxo-de-caixa" data-route="fluxo-de-caixa">Caixa</a>
-        <a href="/menu-semanal" data-route="menu-semanal">Menu</a>
-        <a href="/loja" data-route="loja">Loja</a>
-        <a href="/financeiro" data-route="financeiro">Financeiro</a>
-        <a href="/precificacao" data-route="precificacao">Preços</a>
-        <a href="/relatorios" data-route="relatorios">Relatórios</a>
-        <a href="/backups" data-route="backups">Manutenção</a>
-      </nav>
       <div class="header-tools">
         <div class="status-group" aria-label="Status do sistema">
           <span class="server-status" id="server-status">Servidor verificando</span>
@@ -35,15 +26,29 @@
       </div>
     </header>
 
-    <main class="shell">
-      <section class="hero">
-        <p class="eyebrow">Operação Cumbuca</p>
-        <img class="hero-logo" src="/logo-cumbuca.svg" alt="Cumbuca comida saudável">
-        <h1 id="page-title">Cumbuca</h1>
-      </section>
+    <div class="app-frame">
+      <aside class="sidebar" aria-label="Ferramentas">
+        <nav class="nav">
+          <a href="/fluxo-de-caixa" data-route="fluxo-de-caixa">Caixa</a>
+          <a href="/menu-semanal" data-route="menu-semanal">Menu</a>
+          <a href="/loja" data-route="loja">Loja</a>
+          <a href="/financeiro" data-route="financeiro">Financeiro</a>
+          <a href="/precificacao" data-route="precificacao">Preços</a>
+          <a href="/relatorios" data-route="relatorios">Relatórios</a>
+          <a href="/backups" data-route="backups">Manutenção</a>
+        </nav>
+      </aside>
 
-      <section id="app" class="workspace" aria-live="polite"></section>
-    </main>
+      <main class="shell">
+        <section class="hero">
+          <p class="eyebrow">Operação Cumbuca</p>
+          <img class="hero-logo" src="/logo-cumbuca.svg" alt="Cumbuca comida saudável">
+          <h1 id="page-title">Cumbuca</h1>
+        </section>
+
+        <section id="app" class="workspace" aria-live="polite"></section>
+      </main>
+    </div>
 
     <script src="/app.js"></script>
   </body>
