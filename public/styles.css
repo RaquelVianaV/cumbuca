@@ -429,6 +429,26 @@ h2 {
   color: var(--red);
 }
 
+.dashboard-section-title {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 2px 0 -4px;
+}
+
+.dashboard-section-title span {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.dashboard-section-title strong {
+  color: var(--ink);
+  font-size: 1.02rem;
+}
+
 .home-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -578,7 +598,22 @@ h2 {
   align-content: stretch;
   gap: 18px;
   text-decoration: none;
+  overflow: hidden;
+  position: relative;
   transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.tool-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  background: var(--tool-accent, var(--green));
+}
+
+.tool-card:hover .card-action {
+  background: var(--tool-accent, var(--green));
+  color: #ffffff;
 }
 
 .card:hover {
@@ -641,6 +676,39 @@ h2 {
   border-color: var(--red);
 }
 
+.tone-cash {
+  --tool-accent: var(--green);
+}
+
+.tone-menu {
+  --tool-accent: #b7791f;
+}
+
+.tone-store {
+  --tool-accent: var(--blue);
+}
+
+.tone-finance {
+  --tool-accent: var(--red);
+}
+
+.tone-price {
+  --tool-accent: #7c3aed;
+}
+
+.tone-report {
+  --tool-accent: var(--earth);
+}
+
+.tone-cash .card-icon::after,
+.tone-menu .card-icon::after,
+.tone-store .card-icon::after,
+.tone-finance .card-icon::after,
+.tone-price .card-icon::after,
+.tone-report .card-icon::after {
+  border-color: var(--tool-accent);
+}
+
 .card h2 {
   margin: 0 0 9px;
   font-size: 1.34rem;
@@ -660,6 +728,19 @@ h2 {
 .card-footer strong {
   color: var(--green);
   font-size: 0.92rem;
+}
+
+.card-action {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border: 1px solid rgba(8, 127, 91, 0.14);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--tool-accent, var(--green));
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
 }
 
 .card-footer {
@@ -734,11 +815,11 @@ h2 {
 }
 
 .quick-actions a {
-  min-height: 48px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 12px;
+  min-height: 76px;
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  padding: 12px;
   border: 1px solid rgba(8, 127, 91, 0.18);
   border-radius: 8px;
   background: #ecfdf5;
@@ -746,6 +827,16 @@ h2 {
   font-weight: 850;
   text-align: center;
   text-decoration: none;
+}
+
+.quick-actions a b,
+.quick-actions a small {
+  display: block;
+}
+
+.quick-actions a small {
+  color: var(--muted);
+  font-size: 0.74rem;
 }
 
 .quick-actions a:hover {
@@ -775,12 +866,25 @@ h2 {
   font-weight: 760;
 }
 
+.recent-list.compact span {
+  min-height: 48px;
+}
+
 .recent-list b {
   color: var(--red);
 }
 
 .alert-list b {
   color: var(--earth);
+}
+
+.alert-list span::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--yellow);
+  box-shadow: 0 0 0 4px rgba(242, 183, 5, 0.13);
 }
 
 .recent-list small {

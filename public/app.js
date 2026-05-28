@@ -1321,7 +1321,7 @@ function dashboardAlerts(metrics, weeklyOrders) {
   }
 
   if (metrics.clientsWithoutAddress.length) {
-    alerts.push(["Cliente sem endereco", `${metrics.clientsWithoutAddress.length} cadastro(s)`]);
+    alerts.push(["Cliente sem endereço", `${metrics.clientsWithoutAddress.length} cadastro(s)`]);
   }
 
   if (metrics.menuWithoutCost.length) {
@@ -1342,38 +1342,16 @@ function dashboardAlerts(metrics, weeklyOrders) {
 function home() {
   title.textContent = "Cumbuca";
   setActive("");
-  app.innerHTML = `
-    <div class="home-grid">
-      ${[
-        ["fluxo-de-caixa", "Fluxo de Caixa", "Organize entradas, saídas e saldo previsto."],
-        ["menu-semanal", "Menu Semanal", "Planeje pratos, custos e status de preparo."],
-        ["loja", "Loja", "Lance cumbucas vendidas no balcão por dia."],
-        ["financeiro", "Financeiro", "Confira entradas, semanal, saídas, retiradas e fechamento."],
-        ["precificacao", "Precificação", "Calcule preço de venda com margem e taxas."],
-        ["relatorios", "Relatórios", "Acompanhe vendas, caixa, clientes e cardápio por mês."]
-      ].map(([href, heading, text]) => `
-        <a class="card" href="/${href}">
-          <span class="card-icon" aria-hidden="true"></span>
-          <div>
-            <h2>${heading}</h2>
-            <p>${text}</p>
-          </div>
-          <strong>Abrir ferramenta</strong>
-        </a>
-      `).join("")}
-    </div>
-  `;
-
   const metrics = homeMetricData();
   const weeklyOrders = state.orders.filter(order => order.menuKey === menuKey(state.menuWeek || 1)).length;
   const alerts = dashboardAlerts(metrics, weeklyOrders);
   const tools = [
-    ["fluxo-de-caixa", "Fluxo de Caixa", "Entradas, saídas e saldo", money(metrics.weekBalance), "Saldo da semana"],
-    ["menu-semanal", "Menu Semanal", "Pratos, preparo e pedidos", `${metrics.ready}/${metrics.planned || 0}`, "Prontos na semana"],
-    ["loja", "Loja", "Vendas do balcão por data", String(metrics.storeToday), "Cumbucas hoje"],
-    ["financeiro", "Financeiro", "Conferência financeira", money(metrics.balance), "Saldo do mês"],
-    ["precificacao", "Precificação", "Ingredientes, margem e venda", String(state.ingredients.length), "Itens cadastrados"],
-    ["relatorios", "Relatórios", "Leituras mensais e exportações", String(metrics.bowls), "Cumbucas no mês"]
+    ["fluxo-de-caixa", "Fluxo de Caixa", "Entradas, saídas e saldo", money(metrics.weekBalance), "Saldo da semana", "cash"],
+    ["menu-semanal", "Menu Semanal", "Pratos, preparo e pedidos", `${metrics.ready}/${metrics.planned || 0}`, "Prontos na semana", "menu"],
+    ["loja", "Loja", "Vendas do balcão por data", String(metrics.storeToday), "Cumbucas hoje", "store"],
+    ["financeiro", "Financeiro", "Conferência financeira", money(metrics.balance), "Saldo do mês", "finance"],
+    ["precificacao", "Precificação", "Ingredientes, margem e venda", String(state.ingredients.length), "Itens cadastrados", "price"],
+    ["relatorios", "Relatórios", "Leituras mensais e exportações", String(metrics.bowls), "Cumbucas no mês", "report"]
   ];
 
   app.innerHTML = `
@@ -1403,9 +1381,13 @@ function home() {
       </div>
     </section>
 
+    <div class="dashboard-section-title">
+      <span>Ferramentas</span>
+      <strong>Atalhos principais</strong>
+    </div>
     <div class="home-grid">
-      ${tools.map(([href, heading, text, value, label]) => `
-        <a class="card" href="/${href}">
+      ${tools.map(([href, heading, text, value, label, tone]) => `
+        <a class="card tool-card tone-${tone}" href="/${href}">
           <span class="card-icon" aria-hidden="true"></span>
           <div>
             <h2>${heading}</h2>
@@ -1416,7 +1398,7 @@ function home() {
               <b>${value}</b>
               ${label}
             </span>
-            <strong>Abrir</strong>
+            <strong class="card-action">Abrir</strong>
           </div>
         </a>
       `).join("")}
@@ -1456,9 +1438,9 @@ function home() {
       <div class="panel dashboard-panel">
         <h2>Ações rápidas</h2>
         <div class="quick-actions">
-          <a href="/menu-semanal">Pedido</a>
-          <a href="/financeiro">Financeiro</a>
-          <a href="/backups">Backup</a>
+          <a href="/menu-semanal"><b>Novo pedido</b><small>Menu semanal</small></a>
+          <a href="/financeiro"><b>Conferir caixa</b><small>Fechamento</small></a>
+          <a href="/backups"><b>Baixar backup</b><small>Segurança</small></a>
         </div>
       </div>
     </section>
@@ -1494,25 +1476,27 @@ function home() {
       </div>
     </section>
 
-    <section class="panel dashboard-panel">
-      <h2>Despesas recentes</h2>
-      ${metrics.recentExpenses.length ? `
-          <div class="recent-list">
-            ${metrics.recentExpenses.map(entry => `
-              <span><b>${money(entry.amount)}</b>${entry.description || "Despesa"}<small>${formatIsoDateBr(entry.date)}</small></span>
-            `).join("")}
-          </div>
-        ` : `<p class="muted">Nenhuma despesa lançada ainda.</p>`}
-    </section>
-    <section class="panel dashboard-panel">
-      <h2>Maiores gastos do mês</h2>
-      ${metrics.topMonthExpenses.length ? `
-          <div class="recent-list">
-            ${metrics.topMonthExpenses.map(entry => `
-              <span><b>${money(entry.amount)}</b>${entry.description || categoryName(entry.category)}<small>${categoryName(entry.category)} - ${formatIsoDateBr(entry.date)}</small></span>
-            `).join("")}
-          </div>
-        ` : `<p class="muted">Nenhuma despesa operacional no mês.</p>`}
+    <section class="dashboard-lane">
+      <div class="panel dashboard-panel">
+        <h2>Despesas recentes</h2>
+        ${metrics.recentExpenses.length ? `
+            <div class="recent-list compact">
+              ${metrics.recentExpenses.map(entry => `
+                <span><b>${money(entry.amount)}</b>${entry.description || "Despesa"}<small>${formatIsoDateBr(entry.date)}</small></span>
+              `).join("")}
+            </div>
+          ` : `<p class="muted">Nenhuma despesa lançada ainda.</p>`}
+      </div>
+      <div class="panel dashboard-panel">
+        <h2>Maiores gastos do mês</h2>
+        ${metrics.topMonthExpenses.length ? `
+            <div class="recent-list compact">
+              ${metrics.topMonthExpenses.map(entry => `
+                <span><b>${money(entry.amount)}</b>${entry.description || categoryName(entry.category)}<small>${categoryName(entry.category)} - ${formatIsoDateBr(entry.date)}</small></span>
+              `).join("")}
+            </div>
+          ` : `<p class="muted">Nenhuma despesa operacional no mês.</p>`}
+      </div>
     </section>
   `;
 }
