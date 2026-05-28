@@ -1537,6 +1537,18 @@ async function renderCash() {
   const activeCashPanel = editing ? "entry" : (state.cashPanelTab || "entry");
 
   app.innerHTML = `
+    <section class="cash-hero">
+      <div>
+        <span>Fluxo de caixa</span>
+        <h2>${money(result.balance)}</h2>
+        <p>${result.entries.length} lançamento(s) no filtro atual</p>
+      </div>
+      <div class="cash-hero-metrics">
+        <span><b>${money(result.income)}</b>Entradas</span>
+        <span><b>${money(result.expenses)}</b>Saídas</span>
+        <span><b>${money(totalCash.balance)}</b>Saldo geral</span>
+      </div>
+    </section>
     <div class="cash-layout">
       <section class="panel cash-command-panel">
         <div class="cash-panel-tabs" role="tablist" aria-label="Ferramentas do caixa">
@@ -1628,6 +1640,12 @@ async function renderCash() {
         ${activeCashPanel === "reasons" ? expenseReasonsPanel("cash-tab-section supplier-panel") : ""}
       </section>
       <section class="panel cash-ledger-panel">
+        <div class="cash-ledger-header">
+          <div>
+            <h2>Extrato</h2>
+            <p class="muted-inline">Filtre, confira categorias e edite lançamentos.</p>
+          </div>
+        </div>
         <form id="cash-filter-form" class="filter-bar">
           <label>Filtrar
             <select name="period" id="cash-period">
