@@ -785,6 +785,32 @@ textarea {
   font-size: 0.82rem;
 }
 
+.category-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+  margin: 0 0 16px;
+}
+
+.category-summary span {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.category-summary b,
+.category-summary strong {
+  font-size: 0.92rem;
+}
+
+.category-summary small {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

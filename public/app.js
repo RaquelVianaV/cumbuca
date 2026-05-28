@@ -766,9 +766,18 @@ function expenseReasonOptions() {
     .map(name => [`reason:${name}`, name]);
 }
 
-function cashFilterCategoryOptions(selected = "all") {
+function cashFilterCategoryOptions(selected = "all", type = "all") {
   const normalizedSelected = normalizedCategory(selected || "all");
   let selectedApplied = normalizedSelected === "all";
+  const groups = [];
+
+  if (!type || type === "all" || type === "income") {
+    groups.push(["Entradas", incomeCategories]);
+  }
+
+  if (!type || type === "all" || type === "expense") {
+    groups.push(["Saídas", [...expenseCategories, ...expenseReasonOptions()]]);
+  }
 
   const optionHtml = ([value, label]) => {
     const normalizedValue = normalizedCategory(value);
@@ -781,12 +790,54 @@ function cashFilterCategoryOptions(selected = "all") {
 
   return `
     <option value="all" ${normalizedSelected === "all" ? "selected" : ""}>Todas</option>
-    <optgroup label="Entradas">
-      ${incomeCategories.map(optionHtml).join("")}
-    </optgroup>
-    <optgroup label="Saidas">
-      ${[...expenseCategories, ...expenseReasonOptions()].map(optionHtml).join("")}
-    </optgroup>
+    ${groups.map(([label, options]) => `
+      <optgroup label="${label}">
+        ${options.map(optionHtml).join("")}
+      </optgroup>
+    `).join("")}
+  `;
+}
+
+function cashCategorySummary(entries = []) {
+  const rows = Object.entries(entries.reduce((acc, entry) => {
+    const key = normalizedCategory(entry.category) || "outros";
+    if (!acc[key]) {
+      acc[key] = {
+        label: categoryName(entry.category),
+        income: 0,
+        expenses: 0
+      };
+    }
+
+    const amount = Number(entry.amount || 0);
+    if (entry.type === "expense") {
+      acc[key].expenses += amount;
+    } else {
+      acc[key].income += amount;
+    }
+    return acc;
+  }, {}))
+    .map(([, row]) => ({
+      ...row,
+      balance: row.income - row.expenses,
+      total: row.income + row.expenses
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  if (!rows.length) {
+    return "";
+  }
+
+  return `
+    <div class="category-summary">
+      ${rows.map(row => `
+        <span>
+          <b>${escapeHtml(row.label)}</b>
+          <small>Entradas ${money(row.income)} - Saídas ${money(row.expenses)}</small>
+          <strong class="${row.balance < 0 ? "negative" : "positive"}">${money(row.balance)}</strong>
+        </span>
+      `).join("")}
+    </div>
   `;
 }
 
@@ -1418,6 +1469,8 @@ async function renderCash() {
   const selectedDate = state.cashFilter.date || today;
   const selectedMonth = state.cashFilter.month || today.slice(0, 7);
   const selectedYear = state.cashFilter.year || today.slice(0, 4);
+  const selectedFilterType = state.cashFilter.type || "all";
+  const selectedFilterCategory = state.cashFilter.category || "all";
   const totalCash = cashTotals(state.cash);
   const previewWithdrawal = withdrawalSplit(totalCash.balance);
 
@@ -1509,21 +1562,22 @@ async function renderCash() {
             <input name="year" type="number" min="2000" max="2100" step="1" value="${selectedYear}">
           </label>
           <label>Tipo
-            <select name="type">
-              <option value="all" ${!state.cashFilter.type || state.cashFilter.type === "all" ? "selected" : ""}>Entradas e saidas</option>
-              <option value="income" ${state.cashFilter.type === "income" ? "selected" : ""}>Entradas</option>
-              <option value="expense" ${state.cashFilter.type === "expense" ? "selected" : ""}>Saidas</option>
+            <select name="type" id="cash-filter-type">
+              <option value="all" ${selectedFilterType === "all" ? "selected" : ""}>Entradas e saídas</option>
+              <option value="income" ${selectedFilterType === "income" ? "selected" : ""}>Entradas</option>
+              <option value="expense" ${selectedFilterType === "expense" ? "selected" : ""}>Saídas</option>
             </select>
           </label>
           <label>Origem / categoria
-            <select name="category">
-              ${cashFilterCategoryOptions(state.cashFilter.category || "all")}
+            <select name="category" id="cash-filter-category">
+              ${cashFilterCategoryOptions(selectedFilterCategory, selectedFilterType)}
             </select>
           </label>
           <label>Buscar
             <input name="search" placeholder="Nome, motivo ou origem" value="${state.cashFilter.search || ""}">
           </label>
           <button type="submit">Aplicar</button>
+          <button class="secondary" type="button" id="clear-cash-filter">Limpar filtros</button>
         </form>
         <div class="quick-filter-bar">
           <button class="secondary" type="button" data-cash-quick="today">Hoje</button>
@@ -1536,6 +1590,7 @@ async function renderCash() {
           <div class="metric"><span>Saídas</span><strong>${money(result.expenses)}</strong></div>
           <div class="metric"><span>Saldo</span><strong class="${result.balance < 0 ? "negative" : "positive"}">${money(result.balance)}</strong></div>
         </div>
+        ${cashCategorySummary(result.entries)}
         ${cashTable(result.entries)}
       </section>
     </div>
@@ -1725,6 +1780,8 @@ async function renderCash() {
 
   const filterForm = document.querySelector("#cash-filter-form");
   const periodField = document.querySelector("#cash-period");
+  const filterTypeField = document.querySelector("#cash-filter-type");
+  const filterCategoryField = document.querySelector("#cash-filter-category");
 
   function updateFilterVisibility() {
     const period = periodField.value;
@@ -1732,11 +1789,20 @@ async function renderCash() {
   }
 
   periodField.addEventListener("change", updateFilterVisibility);
+  filterTypeField.addEventListener("change", event => {
+    filterCategoryField.innerHTML = cashFilterCategoryOptions("all", event.currentTarget.value);
+  });
   updateFilterVisibility();
 
   filterForm.addEventListener("submit", event => {
     event.preventDefault();
     state.cashFilter = readForm(event.currentTarget);
+    persistState();
+    renderCash();
+  });
+
+  document.querySelector("#clear-cash-filter").addEventListener("click", () => {
+    state.cashFilter = { period: "all", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", search: "" };
     persistState();
     renderCash();
   });
