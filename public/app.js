@@ -1440,7 +1440,7 @@ function home() {
         <div class="quick-actions">
           <a href="/menu-semanal"><b>Novo pedido</b><small>Menu semanal</small></a>
           <a href="/financeiro"><b>Conferir caixa</b><small>Fechamento</small></a>
-          <a href="/backups"><b>Baixar backup</b><small>Segurança</small></a>
+          <a href="/backups"><b>Manutenção</b><small>Backup e limpeza</small></a>
         </div>
       </div>
     </section>
@@ -5162,14 +5162,14 @@ function renderReports() {
 }
 
 async function renderBackups() {
-  title.textContent = "Backups";
+  title.textContent = "Manutenção";
   setActive("backups");
   const years = cleanupYears();
   const selectedYear = years[0] || String(new Date().getFullYear() - 1);
   const preview = cleanupPreview(selectedYear);
   app.innerHTML = `
     <section class="panel report-section backup-manual-panel">
-      <h2>Backup manual</h2>
+      <h2>Backup e recuperação</h2>
       <p class="muted">O backup e salvo no seu computador, nao no Supabase. Baixe um JSON antes de mudancas grandes e importe esse arquivo se precisar recuperar os dados.</p>
       <div class="backup-actions">
         <button type="button" id="manual-backup-download">Baixar backup JSON</button>
