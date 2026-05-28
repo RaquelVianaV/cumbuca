@@ -5168,9 +5168,23 @@ async function renderBackups() {
   const selectedYear = years[0] || String(new Date().getFullYear() - 1);
   const preview = cleanupPreview(selectedYear);
   app.innerHTML = `
+    <section class="maintenance-hero">
+      <div>
+        <span>Manutenção</span>
+        <h2>Backup, limpeza e conferência do banco</h2>
+        <p>Use esta área antes de mudanças grandes, limpeza de dados antigos ou restauração de arquivo JSON.</p>
+      </div>
+      <div class="maintenance-steps">
+        <button type="button" id="hero-backup-download">Baixar backup</button>
+        <a class="secondary table-action" href="#cleanup-year-form">Limpar ano</a>
+        <a class="secondary table-action" href="#real-db-usage">Ver banco</a>
+      </div>
+    </section>
+
+    <section class="maintenance-grid">
     <section class="panel report-section backup-manual-panel">
       <h2>Backup e recuperação</h2>
-      <p class="muted">O backup e salvo no seu computador, nao no Supabase. Baixe um JSON antes de mudancas grandes e importe esse arquivo se precisar recuperar os dados.</p>
+      <p class="muted">O backup é salvo no seu computador, não no Supabase. Baixe um JSON antes de mudanças grandes e importe esse arquivo se precisar recuperar os dados.</p>
       <div class="backup-actions">
         <button type="button" id="manual-backup-download">Baixar backup JSON</button>
         <label class="secondary file-action">
@@ -5179,13 +5193,13 @@ async function renderBackups() {
         </label>
       </div>
       <div class="backup-list-state">
-        <strong>Automatico desligado</strong>
-        <span>Nenhum backup novo sera gravado na tabela de backups do Supabase.</span>
+        <strong>Automático desligado</strong>
+        <span>Nenhum backup novo será gravado na tabela de backups do Supabase.</span>
       </div>
     </section>
     <section class="panel report-section backup-manual-panel">
-      <h2>Manutencao do banco</h2>
-      <p class="muted">Use para apagar dados antigos depois de baixar um backup JSON. Clientes, precificacao, categorias e configuracoes atuais sao preservados.</p>
+      <h2>Manutenção do banco</h2>
+      <p class="muted">Use para apagar dados antigos depois de baixar um backup JSON. Clientes, precificação, categorias e configurações atuais são preservados.</p>
       <div id="db-usage-status">
         ${databaseUsageHtml(selectedYear)}
       </div>
@@ -5214,8 +5228,10 @@ async function renderBackups() {
         ${cleanupPreviewHtml(selectedYear, preview)}
       </div>
     </section>
+    </section>
   `;
 
+  document.querySelector("#hero-backup-download").addEventListener("click", downloadBackup);
   document.querySelector("#manual-backup-download").addEventListener("click", downloadBackup);
   loadRealDatabaseUsage();
   document.querySelector("#manual-backup-import").addEventListener("change", async event => {

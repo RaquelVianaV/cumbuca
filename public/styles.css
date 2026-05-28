@@ -1253,6 +1253,59 @@ textarea {
   margin-bottom: 0;
 }
 
+.maintenance-hero {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: clamp(18px, 3vw, 26px);
+  border: 1px solid rgba(8, 127, 91, 0.18);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(236, 253, 245, 0.9)),
+    #ffffff;
+  box-shadow: var(--shadow);
+}
+
+.maintenance-hero span {
+  color: var(--green-dark);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.maintenance-hero h2 {
+  max-width: 640px;
+  margin: 7px 0 8px;
+  font-size: clamp(1.5rem, 3vw, 2.25rem);
+  line-height: 1.04;
+}
+
+.maintenance-hero p {
+  max-width: 660px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.maintenance-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, auto));
+  gap: 10px;
+}
+
+.maintenance-steps .table-action {
+  min-height: 40px;
+  padding-inline: 14px;
+}
+
+.maintenance-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.2fr);
+  gap: 16px;
+  align-items: start;
+}
+
 .backup-list-state {
   min-height: 82px;
   display: grid;
@@ -1267,12 +1320,18 @@ textarea {
 .backup-manual-panel {
   display: grid;
   gap: 14px;
+  align-content: start;
 }
 
 .backup-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.backup-actions button,
+.backup-actions .file-action {
+  min-height: 42px;
 }
 
 .backup-list-state strong {
@@ -2229,6 +2288,8 @@ td select {
   .home-grid,
   .dashboard-band,
   .dashboard-lane,
+  .maintenance-hero,
+  .maintenance-grid,
   .cash-hero,
   .cash-layout,
   .tool-grid,
@@ -2264,6 +2325,7 @@ td select {
 
   .focus-list,
   .quick-actions,
+  .maintenance-steps,
   .db-usage-card,
   .db-usage-metrics,
   .withdrawal-preview,
