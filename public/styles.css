@@ -6,6 +6,7 @@
   --muted: #69707d;
   --line: #e5e7eb;
   --line-strong: #d1d5db;
+  --surface: #f8faf9;
   --green: #087f5b;
   --green-dark: #056246;
   --earth: #573220;
@@ -27,9 +28,7 @@ body {
   min-height: 100vh;
   margin: 0;
   background:
-    radial-gradient(circle at 10% 0, rgba(217, 135, 76, 0.13), transparent 300px),
-    radial-gradient(circle at 92% 4%, rgba(8, 127, 91, 0.12), transparent 300px),
-    linear-gradient(180deg, #fffdf8 0, #f7f7f2 420px, #f4f6f2 100%),
+    linear-gradient(180deg, #fafaf7 0, #f4f6f2 100%),
     var(--bg);
   color: var(--ink);
 }
@@ -46,9 +45,9 @@ a {
   gap: clamp(14px, 2vw, 24px);
   padding: 10px clamp(18px, 4vw, 54px);
   border-bottom: 1px solid rgba(87, 50, 32, 0.08);
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(18px);
-  box-shadow: 0 10px 34px rgba(40, 31, 23, 0.06);
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 24px rgba(40, 31, 23, 0.05);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -82,9 +81,8 @@ a {
   padding: 8px;
   border: 1px solid rgba(87, 50, 32, 0.08);
   border-radius: 8px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(245, 246, 242, 0.82));
-  box-shadow: var(--shadow);
+  background: #ffffff;
+  box-shadow: 0 10px 26px rgba(40, 31, 23, 0.07);
 }
 
 .nav a {
@@ -108,7 +106,7 @@ a {
 }
 
 .nav a.active {
-  background: linear-gradient(135deg, var(--green), var(--green-dark));
+  background: var(--green-dark);
   border-left: 3px solid var(--green);
   color: #ffffff;
   padding-left: 11px;
@@ -124,7 +122,7 @@ button {
   border: 1px solid transparent;
   border-radius: 8px;
   padding: 0 15px;
-  background: linear-gradient(135deg, var(--green), var(--green-dark));
+  background: var(--green-dark);
   color: #ffffff;
   font: inherit;
   font-weight: 800;
@@ -226,7 +224,7 @@ button {
 }
 
 button:hover {
-  background: linear-gradient(135deg, var(--green-dark), #034b36);
+  background: #034b36;
   transform: translateY(-1px);
   box-shadow: 0 14px 30px rgba(8, 127, 91, 0.26);
 }
@@ -359,10 +357,8 @@ a.secondary.table-action:hover,
   padding: clamp(16px, 3vw, 24px);
   border: 1px solid rgba(87, 50, 32, 0.08);
   border-radius: 8px;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.86), rgba(255, 250, 241, 0.74)),
-    rgba(255, 255, 255, 0.74);
-  box-shadow: 0 18px 48px rgba(40, 31, 23, 0.08);
+  background: #ffffff;
+  box-shadow: 0 12px 34px rgba(40, 31, 23, 0.06);
 }
 
 .hero-logo {
@@ -528,21 +524,20 @@ h2 {
 
 .cash-hero {
   display: grid;
-  grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.2fr);
-  gap: 16px;
+  grid-template-columns: minmax(250px, 0.7fr) minmax(0, 1.3fr);
+  gap: 14px;
   align-items: stretch;
-  padding: clamp(18px, 3vw, 24px);
-  border: 1px solid rgba(8, 127, 91, 0.16);
+  padding: 18px;
+  border: 1px solid rgba(87, 50, 32, 0.1);
+  border-left: 5px solid var(--green-dark);
   border-radius: 8px;
-  background:
-    linear-gradient(135deg, rgba(8, 127, 91, 0.96), rgba(87, 50, 32, 0.9)),
-    var(--green);
-  color: #ffffff;
-  box-shadow: 0 22px 52px rgba(8, 69, 55, 0.18);
+  background: #ffffff;
+  color: var(--ink);
+  box-shadow: 0 14px 34px rgba(40, 31, 23, 0.07);
 }
 
 .cash-hero span {
-  color: rgba(255, 255, 255, 0.78);
+  color: var(--muted);
   font-size: 0.74rem;
   font-weight: 850;
   text-transform: uppercase;
@@ -550,14 +545,14 @@ h2 {
 
 .cash-hero h2 {
   margin: 8px 0 4px;
-  color: #ffffff;
-  font-size: clamp(2rem, 4vw, 3.2rem);
+  color: var(--green-dark);
+  font-size: clamp(1.85rem, 3vw, 2.75rem);
   line-height: 1;
 }
 
 .cash-hero p {
   margin: 0;
-  color: rgba(255, 255, 255, 0.78);
+  color: var(--muted);
   font-weight: 760;
 }
 
@@ -571,16 +566,16 @@ h2 {
   display: grid;
   align-content: center;
   gap: 7px;
-  min-height: 86px;
+  min-height: 78px;
   padding: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(87, 50, 32, 0.08);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--surface);
 }
 
 .cash-hero-metrics b {
-  color: #ffffff;
-  font-size: clamp(1.1rem, 2vw, 1.45rem);
+  color: var(--ink);
+  font-size: clamp(1.05rem, 1.8vw, 1.35rem);
   line-height: 1;
 }
 
@@ -596,9 +591,8 @@ h2 {
   top: 92px;
   display: grid;
   gap: 16px;
-  border-color: rgba(87, 50, 32, 0.12);
-  background:
-    linear-gradient(180deg, #ffffff 0, #fffaf1 100%);
+  border-color: rgba(87, 50, 32, 0.1);
+  background: #ffffff;
 }
 
 .cash-panel-tabs {
@@ -608,7 +602,7 @@ h2 {
   padding: 5px;
   border: 1px solid rgba(87, 50, 32, 0.12);
   border-radius: 8px;
-  background: rgba(87, 50, 32, 0.06);
+  background: var(--surface);
 }
 
 .cash-panel-tabs button {
@@ -625,11 +619,12 @@ h2 {
 .cash-panel-tabs button.active,
 .cash-panel-tabs button:hover {
   background: #ffffff;
-  color: var(--ink);
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+  color: var(--green-dark);
+  box-shadow: 0 5px 14px rgba(8, 127, 91, 0.1);
 }
 
 .cash-panel-tabs button.active {
+  border-color: rgba(8, 127, 91, 0.22);
   color: var(--green-dark);
 }
 
@@ -656,10 +651,10 @@ h2 {
 
 .card,
 .panel {
-  border: 1px solid rgba(87, 50, 32, 0.09);
+  border: 1px solid rgba(87, 50, 32, 0.1);
   border-radius: 8px;
   background: var(--panel);
-  box-shadow: var(--shadow);
+  box-shadow: 0 10px 28px rgba(40, 31, 23, 0.06);
 }
 
 .card {
@@ -1021,7 +1016,7 @@ h2 {
 }
 
 .panel {
-  padding: 22px;
+  padding: 20px;
 }
 
 .form-grid {
@@ -1036,23 +1031,25 @@ h2 {
 
 label {
   display: grid;
-  gap: 7px;
+  gap: 6px;
   color: #4b5563;
-  font-size: 0.84rem;
-  font-weight: 760;
+  font-size: 0.78rem;
+  font-weight: 820;
+  text-transform: uppercase;
 }
 
 input,
 select,
 textarea {
   width: 100%;
-  min-height: 42px;
+  min-height: 38px;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
-  padding: 10px 11px;
+  padding: 8px 10px;
   background: #ffffff;
   color: var(--ink);
   font: inherit;
+  font-size: 0.9rem;
   outline: none;
 }
 
@@ -1078,14 +1075,14 @@ textarea {
 .filter-bar {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
+  gap: 10px;
   align-items: end;
   margin-bottom: 16px;
-  padding: 12px;
-  border: 1px solid var(--line);
+  padding: 10px;
+  border: 1px solid rgba(87, 50, 32, 0.1);
   border-radius: 8px;
   background: #ffffff;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.04);
+  box-shadow: none;
 }
 
 .filter-control {
@@ -1123,9 +1120,9 @@ textarea {
   display: grid;
   gap: 4px;
   padding: 12px;
-  border: 1px solid rgba(8, 127, 91, 0.14);
+  border: 1px solid rgba(87, 50, 32, 0.08);
   border-radius: 8px;
-  background: linear-gradient(180deg, #ffffff 0, #f8fffb 100%);
+  background: #ffffff;
 }
 
 .category-summary b,
@@ -1141,7 +1138,7 @@ textarea {
 .summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
   margin-bottom: 16px;
 }
 
@@ -2234,12 +2231,12 @@ select:disabled {
 }
 
 .metric {
-  min-height: 94px;
-  padding: 16px;
+  min-height: 82px;
+  padding: 14px;
   border: 1px solid rgba(87, 50, 32, 0.08);
   border-radius: 8px;
-  background: linear-gradient(180deg, #ffffff 0, #f9fafb 100%);
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+  background: #ffffff;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.035);
 }
 
 .metric span {
@@ -2254,7 +2251,7 @@ select:disabled {
 .metric strong {
   display: block;
   margin-top: 8px;
-  font-size: clamp(1.18rem, 2vw, 1.64rem);
+  font-size: clamp(1.08rem, 1.6vw, 1.45rem);
   line-height: 1.08;
 }
 
@@ -2296,9 +2293,9 @@ select:disabled {
 
 .table-wrap {
   overflow-x: auto;
-  border: 1px solid rgba(87, 50, 32, 0.08);
+  border: 1px solid rgba(87, 50, 32, 0.12);
   border-radius: 8px;
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.035);
 }
 
 table {
@@ -2310,7 +2307,7 @@ table {
 
 th,
 td {
-  padding: 12px;
+  padding: 10px 12px;
   text-align: left;
   border-bottom: 1px solid var(--line);
   vertical-align: middle;
@@ -2321,15 +2318,19 @@ tbody tr:last-child td {
 }
 
 tbody tr:hover {
-  background: #f9fafb;
+  background: #f7fbf9;
 }
 
 th {
-  background: #f8fafc;
-  color: var(--muted);
+  background: #f3f5f1;
+  color: #4b5563;
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0;
+}
+
+td {
+  font-size: 0.9rem;
 }
 
 td input,
