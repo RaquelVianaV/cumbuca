@@ -193,11 +193,10 @@ if (logoutButton) {
 }
 
 const LOW_MONTHLY_QUANTITY = 5;
-const incomeCategories = [
+const defaultIncomeCategories = [
   ["venda", "Venda"],
   ["cardapio-web", "Cardápio Web"],
   ["ifood", "iFood"],
-  ["99", "99 Food"],
   ["99-food", "99 Food"],
   ["ajuste-conta", "Ajuste da conta"]
 ];
@@ -206,7 +205,7 @@ const channelDefinitions = [
   ["ifood", "iFood"],
   ["food99", "99 Food"]
 ];
-const expenseCategories = [
+const defaultExpenseCategories = [
   ["supermercado", "Supermercado"],
   ["despesas-gerais", "Despesas gerais"],
   ["boleto", "Boleto"],
@@ -230,6 +229,9 @@ const expenseCategories = [
   ["diferenca", "Diferença"],
   ["ajuste-conta", "Ajuste da conta"],
   ["outros", "Outros"]
+];
+const legacyCategoryLabels = [
+  ["99", "99 Food"]
 ];
 const defaultExpenseReasons = [
   "Supermercado",
@@ -282,6 +284,43 @@ function seededExpenseReasons() {
   return defaultExpenseReasons;
 }
 
+function slugifyCategory(value) {
+  const slug = String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || `categoria-${Date.now()}`;
+}
+
+function uniqueCategories(categories = []) {
+  const seen = new Set();
+  return categories
+    .map(item => Array.isArray(item)
+      ? [String(item[0] || slugifyCategory(item[1])), String(item[1] || item[0] || "").trim()]
+      : [String(item?.key || slugifyCategory(item?.label)), String(item?.label || item?.key || "").trim()])
+    .filter(([, label]) => Boolean(label))
+    .filter(([key]) => {
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+}
+
+function seededCashCategories(saved = localValue("cashCategories", null)) {
+  const savedIncome = Array.isArray(saved?.income) ? saved.income : [];
+  const savedExpense = Array.isArray(saved?.expense) ? saved.expense : [];
+  const reasonCategories = seededExpenseReasons().map(reason => [slugifyCategory(reason), reason]);
+
+  return {
+    income: uniqueCategories([...defaultIncomeCategories, ...savedIncome]),
+    expense: uniqueCategories([...defaultExpenseCategories, ...reasonCategories, ...savedExpense])
+  };
+}
+
 const state = {
   cash: localValue("cashEntries", []),
   menus: localValue("weeklyMenusByPeriod", {}),
@@ -295,6 +334,8 @@ const state = {
   orders: localValue("orders", []),
   storeSales: localValue("storeSales", []),
   channelReceipts: localValue("channelReceipts", []),
+  cashCategories: seededCashCategories(),
+  archivedCashCategories: localValue("archivedCashCategories", { income: [], expense: [] }),
   expenseReasons: seededExpenseReasons(),
   archivedExpenseReasons: localValue("archivedExpenseReasons", []),
   auditLog: localValue("auditLog", []),
@@ -347,6 +388,8 @@ function appStatePayload() {
     orders: state.orders,
     storeSales: state.storeSales,
     channelReceipts: state.channelReceipts,
+    cashCategories: state.cashCategories,
+    archivedCashCategories: state.archivedCashCategories,
     expenseReasons: state.expenseReasons,
     archivedExpenseReasons: state.archivedExpenseReasons,
     auditLog: state.auditLog,
@@ -371,6 +414,8 @@ function applyPayloadToState(saved = {}) {
   state.orders = saved.orders || [];
   state.storeSales = saved.storeSales || [];
   state.channelReceipts = saved.channelReceipts || [];
+  state.cashCategories = seededCashCategories(saved.cashCategories);
+  state.archivedCashCategories = saved.archivedCashCategories || { income: [], expense: [] };
   state.expenseReasons = Array.isArray(saved.expenseReasons) && saved.expenseReasons.length
     ? saved.expenseReasons
     : seededExpenseReasons();
@@ -832,6 +877,34 @@ function normalizedCategory(value) {
   return String(value || "").replace(/^supplier:/, "reason:");
 }
 
+function archivedCategoryKeys(type) {
+  return new Set((state.archivedCashCategories?.[type] || []).map(String));
+}
+
+function activeIncomeCategories() {
+  const archived = archivedCategoryKeys("income");
+  return uniqueCategories(state.cashCategories?.income || defaultIncomeCategories)
+    .filter(([key]) => !archived.has(key));
+}
+
+function activeExpenseCategories() {
+  const archived = archivedCategoryKeys("expense");
+  return uniqueCategories(state.cashCategories?.expense || defaultExpenseCategories)
+    .filter(([key]) => !archived.has(key));
+}
+
+function allCashCategories() {
+  return uniqueCategories([
+    ...activeIncomeCategories(),
+    ...activeExpenseCategories(),
+    ...(state.cashCategories?.income || []),
+    ...(state.cashCategories?.expense || []),
+    ...defaultIncomeCategories,
+    ...defaultExpenseCategories,
+    ...legacyCategoryLabels
+  ]);
+}
+
 function filterCashEntries(entries) {
   const { period, date, month, year, search, type, category } = state.cashFilter;
   const query = String(search || "").trim().toLowerCase();
@@ -849,7 +922,8 @@ function filterCashEntries(entries) {
     : searchedEntries;
 
   const categorizedEntries = category && category !== "all"
-    ? typedEntries.filter(entry => normalizedCategory(entry.category) === normalizedCategory(category))
+    ? typedEntries.filter(entry => normalizedCategory(entry.category) === normalizedCategory(category)
+      || slugifyCategory(categoryName(entry.category)) === category)
     : typedEntries;
 
   if (!period || period === "all") {
@@ -890,11 +964,11 @@ function categoryName(value) {
   if (String(value || "").startsWith("reason:")) {
     return String(value).replace(/^reason:/, "");
   }
-  return [...incomeCategories, ...expenseCategories].find(([key]) => key === value)?.[1] || "Outros";
+  return allCashCategories().find(([key]) => key === value)?.[1] || "Outros";
 }
 
 function expenseReasonOptions() {
-  return activeExpenseReasons().map(name => [`reason:${name}`, name]);
+  return [];
 }
 
 function activeExpenseReasons() {
@@ -915,11 +989,11 @@ function cashFilterCategoryOptions(selected = "all", type = "all") {
   const groups = [];
 
   if (!type || type === "all" || type === "income") {
-    groups.push(["Entradas", incomeCategories]);
+    groups.push(["Entradas", activeIncomeCategories()]);
   }
 
   if (!type || type === "all" || type === "expense") {
-    groups.push(["Saídas", [...expenseCategories, ...expenseReasonOptions()]]);
+    groups.push(["Saídas", activeExpenseCategories()]);
   }
 
   const optionHtml = ([value, label]) => {
@@ -1085,8 +1159,8 @@ function channelReceiptsPanel(editing = null, month = isoDate(new Date()).slice(
 function cashCategoryOptions(type, selected = "") {
   const normalizedSelected = normalizedCategory(selected);
   const options = type === "expense"
-    ? [...expenseCategories, ...expenseReasonOptions()]
-    : incomeCategories;
+    ? activeExpenseCategories()
+    : activeIncomeCategories();
 
   return options.map(([value, label]) => `
     <option value="${value}" ${normalizedSelected === value ? "selected" : ""}>${label}</option>
@@ -1122,46 +1196,45 @@ function planningItemsHtml(items, emptyText) {
   `;
 }
 
-function expenseReasonsPanel(className = "panel supplier-panel") {
-  const editingIndex = state.editExpenseReasonIndex;
-  const activeReasons = activeExpenseReasons();
-  const archivedReasons = (state.archivedExpenseReasons || []).filter(Boolean);
-  const editing = editingIndex !== null ? activeReasons[editingIndex] : "";
-
+function cashCategoriesPanel(className = "panel supplier-panel") {
   return `
     <section class="${className}">
-      <h2>Motivos de saída</h2>
-      <form id="expense-reason-form" class="form-grid single">
-        <label>${editing ? "Editar motivo" : "Novo motivo"}
-          <input name="reason" value="${editing || ""}" placeholder="Ex.: Supermercado, Praso, Frical" required>
+      <h2>Categorias</h2>
+      <p class="muted-inline">Adicione ou remova categorias usadas nos lançamentos. O histórico antigo continua preservado.</p>
+      <form id="cash-category-admin-form" class="form-grid single">
+        <label>Tipo
+          <select name="type">
+            <option value="income">Entrada</option>
+            <option value="expense">Saída</option>
+          </select>
+        </label>
+        <label>Nome da categoria
+          <input name="label" placeholder="Ex.: Cardápio Web, Mercado, Praso" required>
         </label>
         <div class="actions">
-          <button type="submit">${editing ? "Salvar edição" : "Cadastrar"}</button>
-          ${editing ? `<button class="secondary" type="button" id="cancel-expense-reason-edit">Cancelar</button>` : ""}
+          <button type="submit">Adicionar categoria</button>
         </div>
       </form>
-      ${activeReasons.length ? `
+      <h3>Entradas</h3>
+      <div class="reason-list">
+        ${activeIncomeCategories().map(([key, label]) => `
+          <span>
+            <b>${escapeHtml(label)}</b>
+            <button class="danger table-action" type="button" data-delete-cash-category-type="income" data-delete-cash-category="${key}">Excluir</button>
+          </span>
+        `).join("")}
+      </div>
+      <h3>Saídas</h3>
+      ${activeExpenseCategories().length ? `
         <div class="reason-list">
-          ${activeReasons.map((reason, index) => `
+          ${activeExpenseCategories().map(([key, label]) => `
             <span>
-              <b>${reason}</b>
-              <button class="secondary table-action" type="button" data-edit-expense-reason="${index}">Editar</button>
-              <button class="secondary table-action" type="button" data-archive-expense-reason="${index}">Arquivar</button>
+              <b>${escapeHtml(label)}</b>
+              <button class="danger table-action" type="button" data-delete-cash-category-type="expense" data-delete-cash-category="${key}">Excluir</button>
             </span>
           `).join("")}
         </div>
-      ` : `<p class="muted">Nenhum motivo cadastrado.</p>`}
-      ${archivedReasons.length ? `
-        <h3>Arquivados</h3>
-        <div class="reason-list archived-reason-list">
-          ${archivedReasons.map((reason, index) => `
-            <span>
-              <b>${reason}</b>
-              <button class="secondary table-action" type="button" data-reactivate-expense-reason="${index}">Reativar</button>
-            </span>
-          `).join("")}
-        </div>
-      ` : ""}
+      ` : `<p class="muted">Nenhuma categoria de saída cadastrada.</p>`}
     </section>
   `;
 }
@@ -1788,7 +1861,7 @@ async function renderCash() {
             ["channels", "Canais"],
             ["reconciliation", "Conciliação"],
             ["withdrawals", "Retiradas"],
-            ["reasons", "Motivos"]
+            ["categories", "Categorias"]
           ].map(([tab, label]) => `
             <button class="${activeCashPanel === tab ? "active" : ""}" type="button" data-cash-panel="${tab}">${label}</button>
           `).join("")}
@@ -1870,7 +1943,7 @@ async function renderCash() {
         </form>
         </div>
         ` : ""}
-        ${activeCashPanel === "reasons" ? expenseReasonsPanel("cash-tab-section supplier-panel") : ""}
+        ${activeCashPanel === "categories" ? cashCategoriesPanel("cash-tab-section supplier-panel") : ""}
       </section>
       <section class="panel cash-ledger-panel">
         <div class="cash-ledger-header">
@@ -2066,6 +2139,70 @@ async function renderCash() {
         state.editChannelReceiptId = null;
       }
       recordAudit("Canais excluídos", `${formatIsoDateBr(removed.date)} - ${money(channelReceiptTotal(removed))}`);
+      persistState();
+      renderCash();
+    });
+  });
+
+  const cashCategoryAdminForm = document.querySelector("#cash-category-admin-form");
+  if (cashCategoryAdminForm) {
+    cashCategoryAdminForm.addEventListener("submit", event => {
+      event.preventDefault();
+      const values = readForm(event.currentTarget);
+      const type = values.type === "expense" ? "expense" : "income";
+      const label = String(values.label || "").trim();
+      if (!label) {
+        return;
+      }
+
+      const categoryList = uniqueCategories(state.cashCategories?.[type] || []);
+      const existingLabels = new Set(categoryList.map(([, itemLabel]) => itemLabel.toLowerCase()));
+      if (existingLabels.has(label.toLowerCase())) {
+        showToast("Essa categoria já existe.", "warning");
+        return;
+      }
+
+      const existingKeys = new Set(categoryList.map(([key]) => key));
+      let key = slugifyCategory(label);
+      let suffix = 2;
+      while (existingKeys.has(key)) {
+        key = `${slugifyCategory(label)}-${suffix}`;
+        suffix += 1;
+      }
+
+      state.cashCategories = {
+        ...state.cashCategories,
+        [type]: uniqueCategories([...categoryList, [key, label]])
+      };
+      state.archivedCashCategories = {
+        income: state.archivedCashCategories?.income || [],
+        expense: state.archivedCashCategories?.expense || [],
+        [type]: (state.archivedCashCategories?.[type] || []).filter(item => item !== key)
+      };
+      recordAudit("Categoria criada", `${type === "income" ? "Entrada" : "Saída"} - ${label}`);
+      persistState();
+      renderCash();
+    });
+  }
+
+  document.querySelectorAll("[data-delete-cash-category]").forEach(button => {
+    button.addEventListener("click", event => {
+      const key = event.currentTarget.dataset.deleteCashCategory;
+      const type = event.currentTarget.dataset.deleteCashCategoryType === "expense" ? "expense" : "income";
+      const label = (state.cashCategories?.[type] || []).find(([itemKey]) => itemKey === key)?.[1] || categoryName(key);
+      if (!confirm(`Excluir a categoria "${label}" da lista? Lançamentos antigos continuam com essa categoria no histórico.`)) {
+        return;
+      }
+
+      state.archivedCashCategories = {
+        income: state.archivedCashCategories?.income || [],
+        expense: state.archivedCashCategories?.expense || [],
+        [type]: [...new Set([...(state.archivedCashCategories?.[type] || []), key])]
+      };
+      if (normalizedCategory(state.cashFilter.category) === normalizedCategory(key)) {
+        state.cashFilter.category = "all";
+      }
+      recordAudit("Categoria excluída", `${type === "income" ? "Entrada" : "Saída"} - ${label}`);
       persistState();
       renderCash();
     });
@@ -5098,7 +5235,7 @@ function reportTitleSuffix(data) {
 }
 
 function reportExpenseCategoryOptions(selected = "all") {
-  const categories = [...expenseCategories, ...expenseReasonOptions()];
+  const categories = activeExpenseCategories();
   return [
     `<option value="all" ${selected === "all" ? "selected" : ""}>Todas as saídas</option>`,
     ...categories.map(([value, label]) => `<option value="${value}" ${selected === value ? "selected" : ""}>${label}</option>`)
@@ -5112,7 +5249,9 @@ function selectedReportExpenseEntries(data) {
   }
   return data.expenseEntries.filter(entry => {
     const category = String(entry.category || "");
-    return category === selected || category.replace(/^supplier:/, "reason:") === selected;
+    return category === selected
+      || category.replace(/^supplier:/, "reason:") === selected
+      || slugifyCategory(categoryName(category)) === selected;
   });
 }
 
