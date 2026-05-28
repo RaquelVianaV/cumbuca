@@ -586,7 +586,7 @@ h2 {
 
 .cash-layout {
   display: grid;
-  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  grid-template-columns: minmax(320px, 400px) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
 }
@@ -603,7 +603,7 @@ h2 {
 
 .cash-panel-tabs {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
   gap: 6px;
   padding: 5px;
   border: 1px solid rgba(87, 50, 32, 0.12);
@@ -612,12 +612,14 @@ h2 {
 }
 
 .cash-panel-tabs button {
-  min-height: 36px;
-  padding-inline: 8px;
+  min-height: 40px;
+  min-width: 0;
+  padding-inline: 10px;
   border-color: transparent;
   background: transparent;
   color: #4b5563;
   font-size: 0.82rem;
+  white-space: nowrap;
 }
 
 .cash-panel-tabs button.active,
@@ -629,6 +631,11 @@ h2 {
 
 .cash-panel-tabs button.active {
   color: var(--green-dark);
+}
+
+.cash-panel-tabs button:focus-visible {
+  outline: 2px solid rgba(8, 127, 91, 0.42);
+  outline-offset: 2px;
 }
 
 .cash-tab-section {
@@ -1204,6 +1211,14 @@ textarea {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #f9fafb;
+}
+
+.cash-tab-section .reason-list span {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.cash-tab-section .reason-list .table-action {
+  width: 100%;
 }
 
 .reason-list b {
@@ -2473,6 +2488,10 @@ td select {
     position: static;
   }
 
+  .cash-panel-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .withdrawal-panel,
   .supplier-panel,
   .cash-ledger-panel {
@@ -2502,6 +2521,10 @@ td select {
 }
 
 @media (max-width: 560px) {
+  .cash-panel-tabs {
+    grid-template-columns: 1fr;
+  }
+
   .table-wrap table,
   .table-wrap thead,
   .table-wrap tbody,
