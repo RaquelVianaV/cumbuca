@@ -1779,6 +1779,10 @@ textarea {
   margin-bottom: 12px;
 }
 
+.user-admin-layout {
+  align-items: start;
+}
+
 .planning-summary {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }

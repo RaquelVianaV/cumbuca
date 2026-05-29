@@ -167,7 +167,7 @@ function parseCookies(req) {
     }, {});
 }
 
-function authUsers() {
+function envAuthUsers() {
   const fallback = [{ username: AUTH_USER, password: AUTH_PASSWORD, name: AUTH_USER, role: "admin" }];
   if (!process.env.CUMBUCA_USERS) {
     return fallback;
@@ -195,23 +195,110 @@ function authUsers() {
 function userSessionToken(user) {
   return crypto
     .createHmac("sha256", AUTH_SECRET)
-    .update(`${user.username}:${user.password}`)
+    .update(`${user.username}:${user.sessionSecret || user.password || ""}`)
     .digest("hex");
 }
 
 function sessionToken() {
-  return userSessionToken({ username: AUTH_USER, password: AUTH_PASSWORD });
+  return userSessionToken({ username: AUTH_USER, sessionSecret: AUTH_PASSWORD });
 }
 
-function findAuthUser(username, password) {
-  return authUsers().find(user => user.username === username && user.password === password) || null;
+function passwordHash(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto.pbkdf2Sync(String(password || ""), salt, 120000, 32, "sha256").toString("hex");
+  return `pbkdf2$${salt}$${hash}`;
 }
 
-function currentUser(req) {
+function verifyPassword(password, storedHash) {
+  const [scheme, salt, hash] = String(storedHash || "").split("$");
+  if (scheme !== "pbkdf2" || !salt || !hash) {
+    return false;
+  }
+  const candidate = crypto.pbkdf2Sync(String(password || ""), salt, 120000, 32, "sha256");
+  const expected = Buffer.from(hash, "hex");
+  return expected.length === candidate.length && crypto.timingSafeEqual(expected, candidate);
+}
+
+async function ensureUserTable() {
+  if (!db) {
+    return false;
+  }
+
+  await db.query(`
+    create table if not exists cumbuca_app_users (
+      username text primary key,
+      name text not null,
+      role text not null default 'operator',
+      password_hash text not null,
+      active boolean not null default true,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )
+  `);
+
+  const count = Number((await db.query("select count(*)::int as count from cumbuca_app_users")).rows[0]?.count || 0);
+  if (count === 0) {
+    for (const user of envAuthUsers()) {
+      await db.query(
+        `insert into cumbuca_app_users (username, name, role, password_hash, active, created_at, updated_at)
+         values ($1, $2, $3, $4, true, now(), now())
+         on conflict (username) do nothing`,
+        [user.username, user.name || user.username, user.role === "admin" ? "admin" : "operator", passwordHash(user.password)]
+      );
+    }
+  }
+  return true;
+}
+
+function publicUser(row) {
+  return {
+    username: row.username,
+    name: row.name,
+    role: row.role === "admin" ? "admin" : "operator",
+    active: row.active !== false,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null
+  };
+}
+
+async function findAuthUser(username, password) {
+  if (await ensureUserTable()) {
+    const result = await db.query(
+      "select username, name, role, password_hash, active from cumbuca_app_users where username = $1 and active = true",
+      [username]
+    );
+    const row = result.rows[0];
+    if (row && verifyPassword(password, row.password_hash)) {
+      return {
+        username: row.username,
+        name: row.name,
+        role: row.role === "admin" ? "admin" : "operator",
+        sessionSecret: row.password_hash
+      };
+    }
+    return null;
+  }
+
+  const envUser = envAuthUsers().find(user => user.username === username && user.password === password) || null;
+  return envUser ? { ...envUser, sessionSecret: envUser.password } : null;
+}
+
+async function currentUser(req) {
   const cookieValue = parseCookies(req)[SESSION_COOKIE] || "";
   const [username, token] = cookieValue.split(".");
-  const user = authUsers().find(item => item.username === username);
-  if (user && token === userSessionToken(user)) {
+  if (username && token && await ensureUserTable()) {
+    const result = await db.query(
+      "select username, name, role, password_hash, active from cumbuca_app_users where username = $1 and active = true",
+      [username]
+    );
+    const row = result.rows[0];
+    if (row && token === userSessionToken({ username: row.username, sessionSecret: row.password_hash })) {
+      return { username: row.username, name: row.name, role: row.role === "admin" ? "admin" : "operator" };
+    }
+  }
+
+  const user = envAuthUsers().find(item => item.username === username);
+  if (user && token === userSessionToken({ ...user, sessionSecret: user.password })) {
     return { username: user.username, name: user.name, role: user.role || "operator" };
   }
 
@@ -220,14 +307,6 @@ function currentUser(req) {
   }
 
   return null;
-}
-
-function isAuthenticated(req) {
-  return Boolean(currentUser(req));
-}
-
-function isAdmin(req) {
-  return currentUser(req)?.role === "admin";
 }
 
 function sessionCookie(value, maxAge) {
@@ -340,6 +419,100 @@ async function listEvents(limit = 40) {
     [cappedLimit]
   );
   return { database: true, events: result.rows };
+}
+
+async function listUsers() {
+  if (!await ensureUserTable()) {
+    return {
+      database: false,
+      users: envAuthUsers().map(user => ({
+        username: user.username,
+        name: user.name,
+        role: user.role,
+        active: true,
+        source: "env"
+      }))
+    };
+  }
+
+  const result = await db.query(`
+    select username, name, role, active, created_at, updated_at
+    from cumbuca_app_users
+    order by active desc, name asc, username asc
+  `);
+  return { database: true, users: result.rows.map(publicUser) };
+}
+
+async function upsertUser(payload = {}, actor = null) {
+  if (!await ensureUserTable()) {
+    return { database: false, saved: false, error: "Banco indisponível." };
+  }
+
+  const username = String(payload.username || "").trim().toLowerCase();
+  const name = String(payload.name || username).trim();
+  const role = payload.role === "admin" ? "admin" : "operator";
+  const password = String(payload.password || "");
+  if (!/^[a-z0-9._-]{3,40}$/.test(username)) {
+    return { database: true, saved: false, error: "Usuário deve ter 3 a 40 caracteres, usando letras, números, ponto, hífen ou underline." };
+  }
+  if (!name) {
+    return { database: true, saved: false, error: "Informe o nome." };
+  }
+
+  const existing = await db.query("select username from cumbuca_app_users where username = $1", [username]);
+  if (!existing.rows.length && password.length < 4) {
+    return { database: true, saved: false, error: "Informe uma senha com pelo menos 4 caracteres." };
+  }
+
+  if (existing.rows.length) {
+    if (password) {
+      await db.query(
+        `update cumbuca_app_users
+         set name = $2, role = $3, password_hash = $4, active = true, updated_at = now()
+         where username = $1`,
+        [username, name, role, passwordHash(password)]
+      );
+      await writeEvent("usuario_atualizado", `Usuário ${username} atualizado com nova senha.`, actor);
+    } else {
+      await db.query(
+        `update cumbuca_app_users
+         set name = $2, role = $3, active = true, updated_at = now()
+         where username = $1`,
+        [username, name, role]
+      );
+      await writeEvent("usuario_atualizado", `Usuário ${username} atualizado.`, actor);
+    }
+  } else {
+    await db.query(
+      `insert into cumbuca_app_users (username, name, role, password_hash, active, created_at, updated_at)
+       values ($1, $2, $3, $4, true, now(), now())`,
+      [username, name, role, passwordHash(password)]
+    );
+    await writeEvent("usuario_criado", `Usuário ${username} criado.`, actor);
+  }
+
+  return { database: true, saved: true, user: { username, name, role, active: true } };
+}
+
+async function setUserActive(username, active, actor = null) {
+  if (!await ensureUserTable()) {
+    return { database: false, saved: false, error: "Banco indisponível." };
+  }
+
+  const normalized = String(username || "").trim().toLowerCase();
+  if (actor?.username === normalized && active === false) {
+    return { database: true, saved: false, error: "Você não pode desativar seu próprio usuário." };
+  }
+
+  const result = await db.query(
+    "update cumbuca_app_users set active = $2, updated_at = now() where username = $1",
+    [normalized, Boolean(active)]
+  );
+  if (!result.rowCount) {
+    return { database: true, saved: false, error: "Usuário não encontrado." };
+  }
+  await writeEvent(active ? "usuario_reativado" : "usuario_desativado", `Usuário ${normalized}.`, actor);
+  return { database: true, saved: true };
 }
 
 async function writeAutomaticBackup(payload = {}) {
@@ -852,8 +1025,8 @@ function serveStatic(req, res, pathname) {
 
 async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  const authenticated = isAuthenticated(req);
-  const user = currentUser(req);
+  let user = null;
+  let authenticated = false;
 
   try {
     if (req.method === "GET" && url.pathname === "/api/health") {
@@ -870,6 +1043,9 @@ async function handleRequest(req, res) {
       return;
     }
 
+    user = await currentUser(req);
+    authenticated = Boolean(user);
+
     if (req.method === "GET" && url.pathname === "/api/session") {
       sendJson(res, 200, { authenticated, user });
       return;
@@ -877,9 +1053,9 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/login") {
       const payload = await collectBody(req);
-      const authUser = findAuthUser(String(payload.username || ""), String(payload.password || ""));
+      const authUser = await findAuthUser(String(payload.username || "").trim().toLowerCase(), String(payload.password || ""));
       if (authUser) {
-        sendJson(res, 200, { ok: true, user: { username: authUser.username, name: authUser.name } }, {
+        sendJson(res, 200, { ok: true, user: { username: authUser.username, name: authUser.name, role: authUser.role } }, {
           "Set-Cookie": sessionCookie(`${authUser.username}.${userSessionToken(authUser)}`, 60 * 60 * 24 * 30)
         });
         return;
@@ -940,7 +1116,7 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "POST" && url.pathname === "/api/reset-state") {
-      if (!isAdmin(req)) {
+      if (user?.role !== "admin") {
         sendJson(res, 403, { error: "Acesso restrito ao administrador." });
         return;
       }
@@ -964,7 +1140,7 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "POST" && url.pathname === "/api/backups/delete-old") {
-      if (!isAdmin(req)) {
+      if (user?.role !== "admin") {
         sendJson(res, 403, { error: "Acesso restrito ao administrador." });
         return;
       }
@@ -999,7 +1175,7 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "POST" && url.pathname === "/api/restore-backup") {
-      if (!isAdmin(req)) {
+      if (user?.role !== "admin") {
         sendJson(res, 403, { error: "Acesso restrito ao administrador." });
         return;
       }
@@ -1013,11 +1189,40 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/events") {
-      if (!isAdmin(req)) {
+      if (user?.role !== "admin") {
         sendJson(res, 403, { error: "Acesso restrito ao administrador." });
         return;
       }
       sendJson(res, 200, await listEvents(url.searchParams.get("limit")));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/users") {
+      if (user?.role !== "admin") {
+        sendJson(res, 403, { error: "Acesso restrito ao administrador." });
+        return;
+      }
+      sendJson(res, 200, await listUsers());
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/users") {
+      if (user?.role !== "admin") {
+        sendJson(res, 403, { error: "Acesso restrito ao administrador." });
+        return;
+      }
+      const payload = await collectBody(req);
+      sendJson(res, 200, await upsertUser(payload, user));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/users/active") {
+      if (user?.role !== "admin") {
+        sendJson(res, 403, { error: "Acesso restrito ao administrador." });
+        return;
+      }
+      const payload = await collectBody(req);
+      sendJson(res, 200, await setUserActive(payload.username, payload.active, user));
       return;
     }
 

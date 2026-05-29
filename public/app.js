@@ -387,6 +387,7 @@ const state = {
   cashPanelTab: "entry",
   editStoreSaleId: null,
   editExpenseReasonIndex: null,
+  editUserName: null,
   ingredients: localValue("pricingIngredients", []),
   pricingConfig: localValue("pricingConfig", {}),
   cashFilter: localValue("cashFilter", { period: "all" }),
@@ -6460,6 +6461,13 @@ async function renderBackups() {
       </section>
       ${isAdminUser() ? `
         <section class="panel report-section backup-manual-panel">
+          <h2>Usuários</h2>
+          <p class="muted-inline">Adicione, edite, desative ou troque senha sem mexer nas variáveis do Vercel.</p>
+          <div id="users-admin">
+            <p class="muted">Carregando usuários...</p>
+          </div>
+        </section>
+        <section class="panel report-section backup-manual-panel">
           <h2>Log técnico</h2>
           <p class="muted-inline">Registro administrativo escondido do uso diário. Mostra limpezas, restaurações e manutenções críticas.</p>
           <div id="technical-events">
@@ -6485,6 +6493,7 @@ async function renderBackups() {
   document.querySelector("#manual-backup-download").addEventListener("click", downloadBackup);
   loadRealDatabaseUsage();
   loadAutomaticBackups();
+  loadUsersPanel();
   loadTechnicalEvents();
   document.querySelector("#manual-backup-import").addEventListener("change", async event => {
     const file = event.currentTarget.files?.[0];
@@ -6765,6 +6774,147 @@ async function loadTechnicalEvents() {
   } catch (error) {
     target.innerHTML = `<p class="muted">Log técnico indisponível agora.</p>`;
   }
+}
+
+function usersPanelHtml(result) {
+  if (!result?.database) {
+    return `<p class="muted">Usuários ainda estão vindo das variáveis do Vercel porque o banco não está disponível.</p>`;
+  }
+  const users = result.users || [];
+  const editing = users.find(user => user.username === state.editUserName);
+  return `
+    <div class="dashboard-lane user-admin-layout">
+      <div>
+        <h3>${editing ? "Editar usuário" : "Novo usuário"}</h3>
+        <form id="user-admin-form" class="form-grid single">
+          <label>Usuário
+            <input name="username" value="${editing?.username || ""}" placeholder="nomeusuario" ${editing ? "readonly" : ""} required>
+          </label>
+          <label>Nome
+            <input name="name" value="${escapeHtml(editing?.name || "")}" placeholder="Nome completo" required>
+          </label>
+          <label>Perfil
+            <select name="role">
+              <option value="admin" ${editing?.role === "admin" ? "selected" : ""}>Admin</option>
+              <option value="operator" ${editing?.role === "operator" ? "selected" : ""}>Operação</option>
+            </select>
+          </label>
+          <label>${editing ? "Nova senha" : "Senha"}
+            <input name="password" type="password" autocomplete="new-password" placeholder="${editing ? "Deixe em branco para manter" : "Senha"}" ${editing ? "" : "required"}>
+          </label>
+          <div class="actions">
+            <button type="submit">${editing ? "Salvar usuário" : "Adicionar usuário"}</button>
+            ${editing ? `<button class="secondary" type="button" id="cancel-user-edit">Cancelar</button>` : ""}
+          </div>
+        </form>
+      </div>
+      <div>
+        <h3>Usuários cadastrados</h3>
+        ${users.length ? `
+          <div class="table-wrap report-table">
+            <table>
+              <thead><tr><th>Usuário</th><th>Nome</th><th>Perfil</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+                ${users.map(user => `
+                  <tr>
+                    <td>${escapeHtml(user.username)}</td>
+                    <td>${escapeHtml(user.name)}</td>
+                    <td>${user.role === "admin" ? "Admin" : "Operação"}</td>
+                    <td>${user.active ? "Ativo" : "Inativo"}</td>
+                    <td>
+                      <div class="table-actions">
+                        <button class="secondary table-action" type="button" data-edit-user="${escapeHtml(user.username)}">Editar</button>
+                        ${user.active
+                          ? `<button class="danger table-action" type="button" data-user-active="${escapeHtml(user.username)}" data-active="false">Desativar</button>`
+                          : `<button class="secondary table-action" type="button" data-user-active="${escapeHtml(user.username)}" data-active="true">Reativar</button>`}
+                      </div>
+                    </td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+        ` : `<p class="muted">Nenhum usuário cadastrado.</p>`}
+      </div>
+    </div>
+  `;
+}
+
+async function loadUsersPanel() {
+  const target = document.querySelector("#users-admin");
+  if (!target) {
+    return;
+  }
+  try {
+    const response = await fetch("/api/users", { cache: "no-store" });
+    const result = await response.json();
+    target.innerHTML = usersPanelHtml(result);
+    bindUsersPanel();
+  } catch (error) {
+    target.innerHTML = `<p class="muted">Não foi possível carregar usuários agora.</p>`;
+  }
+}
+
+function bindUsersPanel() {
+  const form = document.querySelector("#user-admin-form");
+  if (form) {
+    form.addEventListener("submit", async event => {
+      event.preventDefault();
+      const values = readForm(event.currentTarget);
+      const response = await fetch("/api/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(values)
+      });
+      const result = await response.json();
+      if (!response.ok || !result.saved) {
+        showToast(result.error || "Não foi possível salvar usuário.", "error");
+        return;
+      }
+      state.editUserName = null;
+      showToast("Usuário salvo.", "success");
+      loadUsersPanel();
+      loadTechnicalEvents();
+    });
+  }
+
+  const cancel = document.querySelector("#cancel-user-edit");
+  if (cancel) {
+    cancel.addEventListener("click", () => {
+      state.editUserName = null;
+      loadUsersPanel();
+    });
+  }
+
+  document.querySelectorAll("[data-edit-user]").forEach(button => {
+    button.addEventListener("click", event => {
+      state.editUserName = event.currentTarget.dataset.editUser;
+      loadUsersPanel();
+    });
+  });
+
+  document.querySelectorAll("[data-user-active]").forEach(button => {
+    button.addEventListener("click", async event => {
+      const username = event.currentTarget.dataset.userActive;
+      const active = event.currentTarget.dataset.active === "true";
+      if (!confirm(`${active ? "Reativar" : "Desativar"} o usuário ${username}?`)) {
+        return;
+      }
+      const response = await fetch("/api/users/active", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, active })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.saved) {
+        showToast(result.error || "Não foi possível alterar usuário.", "error");
+        return;
+      }
+      showToast(active ? "Usuário reativado." : "Usuário desativado.", "success");
+      loadUsersPanel();
+      loadTechnicalEvents();
+    });
+  });
 }
 
 Promise.all([hydrateSession(), hydrateState()]).then(() => {
