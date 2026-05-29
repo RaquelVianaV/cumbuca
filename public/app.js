@@ -6,6 +6,7 @@ const databaseStatus = document.querySelector("#database-status");
 const saveStatus = document.querySelector("#save-status");
 const backupButton = document.querySelector("#backup-button");
 const logoutButton = document.querySelector("#logout-button");
+const currentUserBadge = document.querySelector("#current-user");
 const navLinks = [...document.querySelectorAll("[data-route]")];
 let systemStatus = {
   server: false,
@@ -554,9 +555,19 @@ async function hydrateSession() {
     }
     const result = await response.json();
     state.currentUser = result.user || null;
+    if (currentUserBadge && state.currentUser) {
+      currentUserBadge.textContent = `${state.currentUser.name || state.currentUser.username}${state.currentUser.role === "admin" ? " - admin" : ""}`;
+    }
   } catch (error) {
     state.currentUser = null;
+    if (currentUserBadge) {
+      currentUserBadge.textContent = "";
+    }
   }
+}
+
+function isAdminUser() {
+  return state.currentUser?.role === "admin";
 }
 
 async function latestBackupPayload() {
@@ -821,6 +832,41 @@ async function cleanupYear(year) {
   recordAudit("limpeza_ano", `${target}: ${JSON.stringify(preview)}`);
   const saved = await persistState();
   return saved ? preview : null;
+}
+
+function clearLocalStateCache() {
+  localStateKeys.forEach(key => localStorage.removeItem(key));
+  localStorage.setItem("appDataResetVersion", APP_DATA_RESET_VERSION);
+}
+
+async function resetAllData() {
+  await downloadBackup();
+  if (!confirm("Limpar tudo do sistema online? Um backup foi baixado neste navegador e outro será salvo no Supabase antes da limpeza.")) {
+    return false;
+  }
+  const typed = prompt("Digite LIMPAR para confirmar a limpeza completa.");
+  if (typed !== "LIMPAR") {
+    showToast("Limpeza cancelada", "warning");
+    return false;
+  }
+
+  const response = await fetch("/api/reset-state", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirm: "LIMPAR" })
+  });
+  const result = await response.json();
+  if (!response.ok || !result.database || !result.reset) {
+    showToast(result.error || "Não foi possível limpar o banco.", "error");
+    return false;
+  }
+
+  applyPayloadToState(result.state || {});
+  clearLocalStateCache();
+  persistLocal();
+  lastConfirmedPayload = clonePayload(appStatePayload());
+  showToast("Sistema limpo para começar.", "success");
+  return true;
 }
 
 function cleanupPreviewHtml(year, preview) {
@@ -1766,6 +1812,23 @@ function home() {
       </div>
     </section>
 
+    <section class="panel start-panel">
+      <div class="section-heading">
+        <div>
+          <h2>Começar agora</h2>
+          <p class="muted-inline">Ações mais usadas para operar o dia sem procurar nos menus.</p>
+        </div>
+      </div>
+      <div class="quick-actions start-actions">
+        <a href="/fluxo-de-caixa"><b>Lançar entrada</b><small>Vendas e ajustes da conta</small></a>
+        <a href="/fluxo-de-caixa"><b>Lançar saída</b><small>Compras, boletos e despesas</small></a>
+        <a href="/menu-semanal"><b>Cadastrar cliente</b><small>Semanalista ou mensalista</small></a>
+        <a href="/menu-semanal"><b>Novo pedido</b><small>Pedido por cumbuca</small></a>
+        <a href="/loja"><b>Venda da loja</b><small>Quantidade vendida hoje</small></a>
+        <a href="/backups"><b>Backup</b><small>Baixar antes de mudanças</small></a>
+      </div>
+    </section>
+
     <div class="dashboard-section-title">
       <span>Ferramentas</span>
       <strong>Atalhos principais</strong>
@@ -2098,9 +2161,25 @@ async function renderCash() {
     cashForm.addEventListener("submit", event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
+    const amount = Number(values.amount || 0);
+    if (!values.date || amount <= 0) {
+      showToast("Informe data e valor maior que zero.", "error");
+      return;
+    }
+    const isDuplicate = !editing && state.cash.some(item =>
+      String(item.date || "") === String(values.date || "")
+      && String(item.type || "") === String(values.type || "")
+      && normalizedCategory(item.category) === normalizedCategory(values.category)
+      && String(item.description || "").trim().toLowerCase() === String(values.description || "").trim().toLowerCase()
+      && Number(item.amount || 0) === amount
+    );
+    if (isDuplicate && !confirm("Já existe um lançamento igual. Salvar mesmo assim?")) {
+      return;
+    }
     const entry = {
       id: editing?.id || Date.now(),
-      ...values
+      ...values,
+      amount: amount.toFixed(2)
     };
 
     if (editing) {
@@ -3057,6 +3136,18 @@ async function renderMenu() {
       const paid = client.plan === "semanal" && data.get("paid") === "on";
 
       if (!dishes.length) {
+        showToast("Informe pelo menos uma cumbuca no pedido.", "error");
+        return;
+      }
+      if (!clientPhone) {
+        showToast("Selecione um cliente para o pedido.", "error");
+        return;
+      }
+      const duplicateOrder = !state.editOrderId && state.orders.some(order =>
+        order.menuKey === currentKey
+        && String(order.clientPhone || "") === String(clientPhone || "")
+      );
+      if (duplicateOrder && !confirm("Este cliente já tem pedido nesta semana. Criar outro pedido mesmo assim?")) {
         return;
       }
 
@@ -5343,10 +5434,15 @@ function renderStoreSales() {
   document.querySelector("#store-sale-form").addEventListener("submit", event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
+    const quantity = Number(values.quantity || 0);
+    if (!values.date || quantity <= 0) {
+      showToast("Informe data e quantidade maior que zero.", "error");
+      return;
+    }
     const entry = {
       id: editing?.id || Date.now(),
       date: values.date,
-      quantity: Number(values.quantity || 0),
+      quantity,
       notes: values.notes || ""
     };
     if (editing) {
@@ -5802,6 +5898,7 @@ async function renderBackups() {
       <div class="maintenance-steps">
         <button type="button" id="hero-backup-download">Baixar backup</button>
         <a class="secondary table-action" href="#cleanup-year-form">Limpar ano</a>
+        ${isAdminUser() ? `<a class="danger table-action" href="#reset-all-panel">Limpar tudo</a>` : ""}
         <a class="secondary table-action" href="#real-db-usage">Ver banco</a>
       </div>
     </section>
@@ -5863,6 +5960,19 @@ async function renderBackups() {
           ${cleanupPreviewHtml(selectedYear, preview)}
         </div>
       </section>
+      ${isAdminUser() ? `
+        <section class="panel report-section backup-manual-panel reset-all-panel" id="reset-all-panel">
+          <h2>Limpeza completa</h2>
+          <p class="muted-inline">Use somente para recomeçar a operação do zero. A limpeza baixa um JSON no navegador e salva um backup automático no Supabase antes de apagar.</p>
+          <div class="backup-list-state warning-state">
+            <strong>Apaga dados operacionais</strong>
+            <span>Caixa, pedidos, clientes, loja, canais, menus, precificação e planejamento ficam vazios.</span>
+          </div>
+          <div class="backup-actions">
+            <button class="danger" type="button" id="reset-all-data">Baixar backup e limpar tudo</button>
+          </div>
+        </section>
+      ` : ""}
     </section>
   `;
 
@@ -5898,6 +6008,19 @@ async function renderBackups() {
   });
 
   document.querySelector("#cleanup-backup-first").addEventListener("click", downloadBackup);
+  const resetAllButton = document.querySelector("#reset-all-data");
+  if (resetAllButton) {
+    resetAllButton.addEventListener("click", async () => {
+      resetAllButton.disabled = true;
+      try {
+        if (await resetAllData()) {
+          renderBackups();
+        }
+      } finally {
+        resetAllButton.disabled = false;
+      }
+    });
+  }
   document.querySelector("#delete-old-backups").addEventListener("click", async () => {
     if (!hasRecentManualBackup()) {
       showToast("Baixe um backup JSON antes de apagar backups antigos.", "warning");

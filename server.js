@@ -168,7 +168,7 @@ function parseCookies(req) {
 }
 
 function authUsers() {
-  const fallback = [{ username: AUTH_USER, password: AUTH_PASSWORD, name: AUTH_USER }];
+  const fallback = [{ username: AUTH_USER, password: AUTH_PASSWORD, name: AUTH_USER, role: "admin" }];
   if (!process.env.CUMBUCA_USERS) {
     return fallback;
   }
@@ -183,7 +183,8 @@ function authUsers() {
       .map(user => ({
         username: String(user.username),
         password: String(user.password),
-        name: String(user.name || user.username)
+        name: String(user.name || user.username),
+        role: user.role === "admin" ? "admin" : "operator"
       }));
     return users.length ? users : fallback;
   } catch (error) {
@@ -211,11 +212,11 @@ function currentUser(req) {
   const [username, token] = cookieValue.split(".");
   const user = authUsers().find(item => item.username === username);
   if (user && token === userSessionToken(user)) {
-    return { username: user.username, name: user.name };
+    return { username: user.username, name: user.name, role: user.role || "operator" };
   }
 
   if (cookieValue === sessionToken()) {
-    return { username: AUTH_USER, name: AUTH_USER };
+    return { username: AUTH_USER, name: AUTH_USER, role: "admin" };
   }
 
   return null;
@@ -223,6 +224,10 @@ function currentUser(req) {
 
 function isAuthenticated(req) {
   return Boolean(currentUser(req));
+}
+
+function isAdmin(req) {
+  return currentUser(req)?.role === "admin";
 }
 
 function sessionCookie(value, maxAge) {
@@ -474,8 +479,10 @@ async function resetAppState() {
     return { database: false };
   }
 
+  const current = await readAppState();
+  await writeAutomaticBackup(current.state);
   await db.query("delete from cumbuca_app_state where key = any($1::text[])", [stateKeys]);
-  return { database: true, reset: true, state: normalizeState({}) };
+  return { database: true, reset: true, backup: true, state: normalizeState({}) };
 }
 
 function calculateCashFlow(entries = []) {
@@ -885,6 +892,10 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "POST" && url.pathname === "/api/reset-state") {
+      if (!isAdmin(req)) {
+        sendJson(res, 403, { error: "Acesso restrito ao administrador." });
+        return;
+      }
       const payload = await collectBody(req);
       if (payload.confirm !== "LIMPAR") {
         sendJson(res, 400, { error: "Confirme com LIMPAR para apagar os dados." });
@@ -905,6 +916,10 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "POST" && url.pathname === "/api/backups/delete-old") {
+      if (!isAdmin(req)) {
+        sendJson(res, 403, { error: "Acesso restrito ao administrador." });
+        return;
+      }
       const payload = await collectBody(req);
       sendJson(res, 200, await deleteOldBackups(payload.keepDays));
       return;
@@ -932,6 +947,10 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "POST" && url.pathname === "/api/restore-backup") {
+      if (!isAdmin(req)) {
+        sendJson(res, 403, { error: "Acesso restrito ao administrador." });
+        return;
+      }
       const payload = await collectBody(req);
       sendJson(res, 200, await restoreBackup(payload.date));
       return;
