@@ -1572,6 +1572,25 @@ function reportDate() {
   return state.reportPeriod.date || isoDate(new Date());
 }
 
+function reportPeriodBounds(data = reportData()) {
+  if (data.type === "day") {
+    return { start: data.date, end: data.date };
+  }
+  if (data.type === "week") {
+    return reportWeekRange();
+  }
+  const [year, month] = String(data.periodKey || currentMonthKey()).split("-").map(Number);
+  const start = `${year}-${String(month).padStart(2, "0")}-01`;
+  const endDate = new Date(year, month, 0);
+  return { start, end: isoDate(endDate) };
+}
+
+function daysBetweenInclusive(start, end) {
+  const startDate = new Date(`${start}T00:00:00`);
+  const endDate = new Date(`${end}T00:00:00`);
+  return Math.max(1, Math.round((endDate - startDate) / 86400000) + 1);
+}
+
 function monthOptions(selectedMonth) {
   const months = [
     "Janeiro",
@@ -5973,6 +5992,71 @@ function upcomingBillsPanel() {
   `;
 }
 
+function withdrawalProjection(data) {
+  const bounds = reportPeriodBounds(data);
+  const today = isoDate(new Date());
+  const effectiveEnd = today < bounds.start ? bounds.start : today > bounds.end ? bounds.end : today;
+  const elapsedDays = daysBetweenInclusive(bounds.start, effectiveEnd);
+  const totalDays = daysBetweenInclusive(bounds.start, bounds.end);
+  const remainingDays = Math.max(0, totalDays - elapsedDays);
+  const dailyProfit = data.financial.profitBeforeWithdrawals / elapsedDays;
+  const projectedProfitBeforeWithdrawals = dailyProfit * totalDays;
+  const projectedAvailableForWithdrawal = projectedProfitBeforeWithdrawals - data.financial.withdrawals.total;
+  const currentSplit = withdrawalSplit(Math.max(0, data.financial.availableForWithdrawal));
+  const projectedSplit = withdrawalSplit(Math.max(0, projectedAvailableForWithdrawal));
+
+  return {
+    bounds,
+    elapsedDays,
+    totalDays,
+    remainingDays,
+    dailyProfit,
+    projectedProfitBeforeWithdrawals,
+    projectedAvailableForWithdrawal,
+    currentSplit,
+    projectedSplit
+  };
+}
+
+function withdrawalProjectionPanel(data) {
+  const projection = withdrawalProjection(data);
+  return `
+    <section class="panel report-section withdrawal-projection-panel">
+      <div class="section-heading">
+        <div>
+          <h2>Projeção de retirada</h2>
+          <p class="muted-inline">Estimativa baseada na média diária do período filtrado, antes de novas despesas ou receitas não lançadas.</p>
+        </div>
+      </div>
+      <div class="summary projection-summary">
+        <div class="metric"><span>Período</span><strong>${projection.elapsedDays}/${projection.totalDays} dias</strong></div>
+        <div class="metric"><span>Média diária</span><strong class="${projection.dailyProfit < 0 ? "negative" : "positive"}">${money(projection.dailyProfit)}</strong></div>
+        <div class="metric"><span>Lucro projetado</span><strong class="${projection.projectedProfitBeforeWithdrawals < 0 ? "negative" : "positive"}">${money(projection.projectedProfitBeforeWithdrawals)}</strong></div>
+        <div class="metric"><span>Retirada projetada</span><strong class="${projection.projectedAvailableForWithdrawal < 0 ? "negative" : "positive"}">${money(projection.projectedAvailableForWithdrawal)}</strong></div>
+      </div>
+      <div class="dashboard-lane projection-lane">
+        <div class="panel dashboard-panel">
+          <h2>Se retirar hoje</h2>
+          <div class="recent-list">
+            <span><b>${money(projection.currentSplit.savings)}</b>Cofrinho 10%</span>
+            <span><b>${money(projection.currentSplit.vanessa)}</b>Vanessa 70%</span>
+            <span><b>${money(projection.currentSplit.raquel)}</b>Raquel 30%</span>
+          </div>
+        </div>
+        <div class="panel dashboard-panel">
+          <h2>Projetado até ${formatIsoDateBr(projection.bounds.end)}</h2>
+          <div class="recent-list">
+            <span><b>${money(projection.projectedSplit.savings)}</b>Cofrinho 10%</span>
+            <span><b>${money(projection.projectedSplit.vanessa)}</b>Vanessa 70%</span>
+            <span><b>${money(projection.projectedSplit.raquel)}</b>Raquel 30%</span>
+          </div>
+        </div>
+      </div>
+      <p class="muted">Faltam ${projection.remainingDays} dia(s) no período. A projeção muda conforme novas entradas, saídas e retiradas forem lançadas.</p>
+    </section>
+  `;
+}
+
 function financialPlanningPanel() {
   const planning = state.financialPlanning || {};
 
@@ -6142,6 +6226,7 @@ function renderFinance() {
       <div class="metric report-metric"><span>Disponível para retirada</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
     </section>
     ${reportType === "month" ? monthlyOriginCategoryPanel(data) : ""}
+    ${withdrawalProjectionPanel(data)}
     ${upcomingBillsPanel()}
     ${financialPlanningPanel()}
     <section class="panel report-section">

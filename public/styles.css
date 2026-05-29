@@ -1767,6 +1767,18 @@ textarea {
   gap: 16px;
 }
 
+.withdrawal-projection-panel .dashboard-panel {
+  box-shadow: none;
+}
+
+.projection-summary {
+  margin-bottom: 12px;
+}
+
+.projection-lane {
+  margin-bottom: 12px;
+}
+
 .planning-summary {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
