@@ -1436,7 +1436,7 @@ textarea {
 
 .maintenance-hero {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 16px;
   align-items: center;
   padding: 18px;
@@ -1480,7 +1480,7 @@ textarea {
 
 .maintenance-grid {
   display: grid;
-  grid-template-columns: minmax(300px, 0.72fr) minmax(0, 1.28fr);
+  grid-template-columns: minmax(280px, 400px) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
 }
@@ -1497,6 +1497,7 @@ textarea {
 }
 
 .backup-manual-panel {
+  min-width: 0;
   display: grid;
   gap: 14px;
   align-content: start;
@@ -1511,6 +1512,7 @@ textarea {
 .backup-actions button,
 .backup-actions .file-action {
   min-height: 42px;
+  white-space: normal;
 }
 
 .backup-list-state strong {
@@ -1528,10 +1530,10 @@ textarea {
 
 .db-usage-card {
   display: grid;
-  grid-template-columns: minmax(210px, 0.84fr) minmax(0, 1.16fr);
+  grid-template-columns: 1fr;
   gap: 12px;
   align-items: stretch;
-  padding: 14px;
+  padding: 16px;
   border: 1px solid rgba(87, 50, 32, 0.1);
   border-left: 5px solid var(--green);
   border-radius: 8px;
@@ -1580,8 +1582,41 @@ textarea {
 
 .db-usage-metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+  gap: 10px;
+}
+
+.db-usage-metrics .metric {
+  min-height: 82px;
+  padding: 14px;
+  box-shadow: none;
+}
+
+.db-usage-metrics .metric strong {
+  font-size: clamp(1.08rem, 1.8vw, 1.42rem);
+  overflow-wrap: anywhere;
+}
+
+.maintenance-grid .table-wrap {
+  max-width: 100%;
+}
+
+.maintenance-grid .report-table table {
+  min-width: 520px;
+}
+
+.cleanup-preview .summary {
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  margin-bottom: 10px;
+}
+
+.cleanup-preview .metric {
+  min-height: 76px;
+  padding: 12px;
+}
+
+.cleanup-preview .metric strong {
+  font-size: 1.24rem;
 }
 
 .toast-area {
@@ -2624,6 +2659,26 @@ td select {
 }
 
 @media (max-width: 560px) {
+  .maintenance-hero {
+    padding: 16px;
+  }
+
+  .maintenance-steps,
+  .backup-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .maintenance-steps .table-action,
+  .backup-actions button,
+  .backup-actions .file-action {
+    width: 100%;
+  }
+
+  .maintenance-grid .report-table table {
+    min-width: 460px;
+  }
+
   .cash-panel-tabs {
     grid-template-columns: 1fr;
   }
