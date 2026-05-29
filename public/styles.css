@@ -1296,6 +1296,20 @@ textarea {
   color: var(--muted);
 }
 
+.channel-fieldset {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(87, 50, 32, 0.1);
+  border-radius: 8px;
+  background: #f9fafb;
+}
+
+.channel-fieldset strong {
+  color: var(--green-dark);
+  font-size: 0.9rem;
+}
+
 .withdrawal-panel {
   display: grid;
   grid-column: 1;
@@ -1501,6 +1515,15 @@ textarea {
 
 .backup-list-state strong {
   color: var(--green-dark);
+}
+
+.backup-list-state.warning-state {
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+
+.backup-list-state.warning-state strong {
+  color: var(--red);
 }
 
 .db-usage-card {

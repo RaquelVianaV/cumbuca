@@ -353,6 +353,7 @@ const state = {
   editOrderId: null,
   editCashId: null,
   editChannelReceiptId: null,
+  editCashCategory: null,
   cashPanelTab: "entry",
   editStoreSaleId: null,
   editExpenseReasonIndex: null,
@@ -600,6 +601,8 @@ async function downloadBackup() {
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
+    localStorage.setItem("lastManualBackupAt", new Date().toISOString());
+    showToast("Backup JSON baixado.", "success");
   } finally {
     backupButton.disabled = false;
     backupButton.textContent = originalText;
@@ -1059,13 +1062,25 @@ function cashCategorySummary(entries = []) {
 }
 
 function channelReceiptTotal(entry = {}) {
-  return channelDefinitions.reduce((sum, [key]) => sum + Number(entry[key] || 0), 0);
+  return channelDefinitions.reduce((sum, [key]) => sum + channelReceiptAmount(entry, key, "net"), 0);
+}
+
+function channelReceiptAmount(entry = {}, key, kind = "net") {
+  if (kind === "gross") {
+    return Number(entry[`${key}Gross`] ?? entry[key] ?? 0);
+  }
+  if (kind === "fee") {
+    return Number(entry[`${key}Fee`] ?? 0);
+  }
+  return Number(entry[`${key}Net`] ?? entry[key] ?? 0);
 }
 
 function channelReceiptTotals(entries = []) {
   return entries.reduce((totals, entry) => {
     channelDefinitions.forEach(([key]) => {
-      totals[key] = (totals[key] || 0) + Number(entry[key] || 0);
+      totals[`${key}Gross`] = (totals[`${key}Gross`] || 0) + channelReceiptAmount(entry, key, "gross");
+      totals[`${key}Fee`] = (totals[`${key}Fee`] || 0) + channelReceiptAmount(entry, key, "fee");
+      totals[`${key}Net`] = (totals[`${key}Net`] || 0) + channelReceiptAmount(entry, key, "net");
     });
     totals.total += channelReceiptTotal(entry);
     return totals;
@@ -1089,8 +1104,9 @@ function channelReceiptTable(entries = []) {
         <thead>
           <tr>
             <th>Data</th>
-            ${channelDefinitions.map(([, label]) => `<th>${label}</th>`).join("")}
-            <th>Total do dia</th>
+            ${channelDefinitions.map(([, label]) => `<th>${label} líquido</th>`).join("")}
+            <th>Total líquido</th>
+            <th>Taxas</th>
             <th>Observação</th>
             <th></th>
           </tr>
@@ -1099,8 +1115,9 @@ function channelReceiptTable(entries = []) {
           ${entries.map(item => `
             <tr>
               <td>${formatIsoDateBr(item.date)}</td>
-              ${channelDefinitions.map(([key]) => `<td>${money(item[key])}</td>`).join("")}
+              ${channelDefinitions.map(([key]) => `<td>${money(channelReceiptAmount(item, key, "net"))}</td>`).join("")}
               <td><strong>${money(channelReceiptTotal(item))}</strong></td>
+              <td>${money(channelDefinitions.reduce((sum, [key]) => sum + channelReceiptAmount(item, key, "fee"), 0))}</td>
               <td>${escapeHtml(item.notes || "-")}</td>
               <td>
                 <div class="table-actions">
@@ -1132,9 +1149,18 @@ function channelReceiptsPanel(editing = null, month = isoDate(new Date()).slice(
           <input name="date" type="date" value="${dateValue}" required>
         </label>
         ${channelDefinitions.map(([key, label]) => `
-          <label>${label}
-            <input name="${key}" type="number" min="0" step="0.01" placeholder="0,00" value="${editing?.[key] || ""}">
-          </label>
+          <div class="channel-fieldset">
+            <strong>${label}</strong>
+            <label>Venda bruta
+              <input name="${key}Gross" type="number" min="0" step="0.01" placeholder="0,00" value="${editing ? channelReceiptAmount(editing, key, "gross") || "" : ""}">
+            </label>
+            <label>Desconto / taxa
+              <input name="${key}Fee" type="number" min="0" step="0.01" placeholder="0,00" value="${editing ? channelReceiptAmount(editing, key, "fee") || "" : ""}">
+            </label>
+            <label>Líquido recebido
+              <input name="${key}Net" type="number" min="0" step="0.01" placeholder="0,00" value="${editing ? channelReceiptAmount(editing, key, "net") || "" : ""}">
+            </label>
+          </div>
         `).join("")}
         <label>Observação
           <input name="notes" placeholder="Ex.: repasse, fechamento, conferência" value="${escapeHtml(editing?.notes || "")}">
@@ -1146,9 +1172,9 @@ function channelReceiptsPanel(editing = null, month = isoDate(new Date()).slice(
       </form>
       <div class="summary channel-summary">
         ${channelDefinitions.map(([key, label]) => `
-          <div class="metric"><span>${label}</span><strong>${money(totals[key])}</strong></div>
+          <div class="metric"><span>${label} líquido</span><strong>${money(totals[`${key}Net`])}</strong></div>
         `).join("")}
-        <div class="metric"><span>Total do mês</span><strong>${money(totals.total)}</strong></div>
+        <div class="metric"><span>Total líquido</span><strong>${money(totals.total)}</strong></div>
       </div>
       <h3>${formatMonthKeyBr(month)}</h3>
       ${channelReceiptTable(monthEntries)}
@@ -1197,22 +1223,29 @@ function planningItemsHtml(items, emptyText) {
 }
 
 function cashCategoriesPanel(className = "panel supplier-panel") {
+  const editing = state.editCashCategory;
+  const editList = editing ? uniqueCategories(state.cashCategories?.[editing.type] || []) : [];
+  const editingLabel = editing ? editList.find(([key]) => key === editing.key)?.[1] || "" : "";
+  const archivedIncome = uniqueCategories(state.cashCategories?.income || []).filter(([key]) => archivedCategoryKeys("income").has(key));
+  const archivedExpense = uniqueCategories(state.cashCategories?.expense || []).filter(([key]) => archivedCategoryKeys("expense").has(key));
+
   return `
     <section class="${className}">
       <h2>Categorias</h2>
       <p class="muted-inline">Adicione ou remova categorias usadas nos lançamentos. O histórico antigo continua preservado.</p>
       <form id="cash-category-admin-form" class="form-grid single">
         <label>Tipo
-          <select name="type">
-            <option value="income">Entrada</option>
-            <option value="expense">Saída</option>
+          <select name="type" ${editing ? "disabled" : ""}>
+            <option value="income" ${editing?.type === "income" ? "selected" : ""}>Entrada</option>
+            <option value="expense" ${editing?.type === "expense" ? "selected" : ""}>Saída</option>
           </select>
         </label>
         <label>Nome da categoria
-          <input name="label" placeholder="Ex.: Cardápio Web, Mercado, Praso" required>
+          <input name="label" placeholder="Ex.: Cardápio Web, Mercado, Praso" value="${escapeHtml(editingLabel)}" required>
         </label>
         <div class="actions">
-          <button type="submit">Adicionar categoria</button>
+          <button type="submit">${editing ? "Salvar edição" : "Adicionar categoria"}</button>
+          ${editing ? `<button class="secondary" type="button" id="cancel-cash-category-edit">Cancelar</button>` : ""}
         </div>
       </form>
       <h3>Entradas</h3>
@@ -1220,6 +1253,7 @@ function cashCategoriesPanel(className = "panel supplier-panel") {
         ${activeIncomeCategories().map(([key, label]) => `
           <span>
             <b>${escapeHtml(label)}</b>
+            <button class="secondary table-action" type="button" data-edit-cash-category-type="income" data-edit-cash-category="${key}">Editar</button>
             <button class="danger table-action" type="button" data-delete-cash-category-type="income" data-delete-cash-category="${key}">Excluir</button>
           </span>
         `).join("")}
@@ -1230,11 +1264,27 @@ function cashCategoriesPanel(className = "panel supplier-panel") {
           ${activeExpenseCategories().map(([key, label]) => `
             <span>
               <b>${escapeHtml(label)}</b>
+              <button class="secondary table-action" type="button" data-edit-cash-category-type="expense" data-edit-cash-category="${key}">Editar</button>
               <button class="danger table-action" type="button" data-delete-cash-category-type="expense" data-delete-cash-category="${key}">Excluir</button>
             </span>
           `).join("")}
         </div>
       ` : `<p class="muted">Nenhuma categoria de saída cadastrada.</p>`}
+      ${archivedIncome.length || archivedExpense.length ? `
+        <h3>Excluídas</h3>
+        <div class="reason-list archived-reason-list">
+          ${[
+            ...archivedIncome.map(([key, label]) => ["income", key, label]),
+            ...archivedExpense.map(([key, label]) => ["expense", key, label])
+          ].map(([type, key, label]) => `
+            <span>
+              <b>${escapeHtml(label)}</b>
+              <small>${type === "income" ? "Entrada" : "Saída"}</small>
+              <button class="secondary table-action" type="button" data-reactivate-cash-category-type="${type}" data-reactivate-cash-category="${key}">Reativar</button>
+            </span>
+          `).join("")}
+        </div>
+      ` : ""}
     </section>
   `;
 }
@@ -1754,6 +1804,8 @@ function home() {
       <div class="panel dashboard-panel">
         <h2>Ações rápidas</h2>
         <div class="quick-actions">
+          <a href="/fluxo-de-caixa"><b>Lançar canal</b><small>Cardápio, iFood e 99 Food</small></a>
+          <a href="/fluxo-de-caixa"><b>Lançar saída</b><small>Caixa</small></a>
           <a href="/menu-semanal"><b>Novo pedido</b><small>Menu semanal</small></a>
           <a href="/financeiro"><b>Conferir caixa</b><small>Fechamento</small></a>
           <a href="/backups"><b>Manutenção</b><small>Backup e limpeza</small></a>
@@ -2015,6 +2067,9 @@ async function renderCash() {
       if (state.cashPanelTab !== "channels") {
         state.editChannelReceiptId = null;
       }
+      if (state.cashPanelTab !== "categories") {
+        state.editCashCategory = null;
+      }
       renderCash();
     });
   });
@@ -2082,7 +2137,14 @@ async function renderCash() {
         notes: String(values.notes || "").trim()
       };
       channelDefinitions.forEach(([key]) => {
-        receipt[key] = Number(values[key] || 0).toFixed(2);
+        const gross = Number(values[`${key}Gross`] || 0);
+        const fee = Number(values[`${key}Fee`] || 0);
+        const netValue = values[`${key}Net`] === "" || values[`${key}Net`] === undefined
+          ? Math.max(0, gross - fee)
+          : Number(values[`${key}Net`] || 0);
+        receipt[`${key}Gross`] = gross.toFixed(2);
+        receipt[`${key}Fee`] = fee.toFixed(2);
+        receipt[`${key}Net`] = netValue.toFixed(2);
       });
 
       const total = channelReceiptTotal(receipt);
@@ -2149,41 +2211,71 @@ async function renderCash() {
     cashCategoryAdminForm.addEventListener("submit", event => {
       event.preventDefault();
       const values = readForm(event.currentTarget);
-      const type = values.type === "expense" ? "expense" : "income";
+      const type = state.editCashCategory?.type || (values.type === "expense" ? "expense" : "income");
       const label = String(values.label || "").trim();
       if (!label) {
         return;
       }
 
       const categoryList = uniqueCategories(state.cashCategories?.[type] || []);
-      const existingLabels = new Set(categoryList.map(([, itemLabel]) => itemLabel.toLowerCase()));
+      const existingLabels = new Set(categoryList
+        .filter(([key]) => key !== state.editCashCategory?.key)
+        .map(([, itemLabel]) => itemLabel.toLowerCase()));
       if (existingLabels.has(label.toLowerCase())) {
         showToast("Essa categoria já existe.", "warning");
         return;
       }
 
-      const existingKeys = new Set(categoryList.map(([key]) => key));
-      let key = slugifyCategory(label);
-      let suffix = 2;
-      while (existingKeys.has(key)) {
-        key = `${slugifyCategory(label)}-${suffix}`;
-        suffix += 1;
-      }
+      if (state.editCashCategory) {
+        const oldLabel = categoryList.find(([key]) => key === state.editCashCategory.key)?.[1] || "";
+        state.cashCategories = {
+          ...state.cashCategories,
+          [type]: categoryList.map(item => item[0] === state.editCashCategory.key ? [item[0], label] : item)
+        };
+        recordAudit("Categoria editada", `${type === "income" ? "Entrada" : "Saída"} - ${oldLabel} -> ${label}`);
+        state.editCashCategory = null;
+      } else {
+        const existingKeys = new Set(categoryList.map(([key]) => key));
+        let key = slugifyCategory(label);
+        let suffix = 2;
+        while (existingKeys.has(key)) {
+          key = `${slugifyCategory(label)}-${suffix}`;
+          suffix += 1;
+        }
 
-      state.cashCategories = {
-        ...state.cashCategories,
-        [type]: uniqueCategories([...categoryList, [key, label]])
-      };
-      state.archivedCashCategories = {
-        income: state.archivedCashCategories?.income || [],
-        expense: state.archivedCashCategories?.expense || [],
-        [type]: (state.archivedCashCategories?.[type] || []).filter(item => item !== key)
-      };
-      recordAudit("Categoria criada", `${type === "income" ? "Entrada" : "Saída"} - ${label}`);
+        state.cashCategories = {
+          ...state.cashCategories,
+          [type]: uniqueCategories([...categoryList, [key, label]])
+        };
+        state.archivedCashCategories = {
+          income: state.archivedCashCategories?.income || [],
+          expense: state.archivedCashCategories?.expense || [],
+          [type]: (state.archivedCashCategories?.[type] || []).filter(item => item !== key)
+        };
+        recordAudit("Categoria criada", `${type === "income" ? "Entrada" : "Saída"} - ${label}`);
+      }
       persistState();
       renderCash();
     });
   }
+
+  const cancelCashCategoryEdit = document.querySelector("#cancel-cash-category-edit");
+  if (cancelCashCategoryEdit) {
+    cancelCashCategoryEdit.addEventListener("click", () => {
+      state.editCashCategory = null;
+      renderCash();
+    });
+  }
+
+  document.querySelectorAll("[data-edit-cash-category]").forEach(button => {
+    button.addEventListener("click", event => {
+      state.editCashCategory = {
+        type: event.currentTarget.dataset.editCashCategoryType === "expense" ? "expense" : "income",
+        key: event.currentTarget.dataset.editCashCategory
+      };
+      renderCash();
+    });
+  });
 
   document.querySelectorAll("[data-delete-cash-category]").forEach(button => {
     button.addEventListener("click", event => {
@@ -2203,6 +2295,22 @@ async function renderCash() {
         state.cashFilter.category = "all";
       }
       recordAudit("Categoria excluída", `${type === "income" ? "Entrada" : "Saída"} - ${label}`);
+      persistState();
+      renderCash();
+    });
+  });
+
+  document.querySelectorAll("[data-reactivate-cash-category]").forEach(button => {
+    button.addEventListener("click", event => {
+      const key = event.currentTarget.dataset.reactivateCashCategory;
+      const type = event.currentTarget.dataset.reactivateCashCategoryType === "expense" ? "expense" : "income";
+      const label = (state.cashCategories?.[type] || []).find(([itemKey]) => itemKey === key)?.[1] || categoryName(key);
+      state.archivedCashCategories = {
+        income: state.archivedCashCategories?.income || [],
+        expense: state.archivedCashCategories?.expense || [],
+        [type]: (state.archivedCashCategories?.[type] || []).filter(item => item !== key)
+      };
+      recordAudit("Categoria reativada", `${type === "income" ? "Entrada" : "Saída"} - ${label}`);
       persistState();
       renderCash();
     });
@@ -4231,6 +4339,82 @@ function compactMoneyList(rows, emptyText) {
   `;
 }
 
+function channelPeriodSummary(entries = []) {
+  const totals = channelReceiptTotals(entries);
+  const activeDays = new Set(entries.map(entry => entry.date).filter(Boolean)).size || 1;
+  return {
+    entries,
+    totals,
+    activeDays,
+    averageNet: totals.total / activeDays
+  };
+}
+
+function previousChannelEntries(data) {
+  if (data.type === "week") {
+    const start = new Date(`${reportWeekRange().start}T00:00:00`);
+    const end = new Date(`${reportWeekRange().end}T00:00:00`);
+    const days = Math.max(1, Math.round((end - start) / 86400000) + 1);
+    start.setDate(start.getDate() - days);
+    end.setDate(end.getDate() - days);
+    const startKey = isoDate(start);
+    const endKey = isoDate(end);
+    return state.channelReceipts.filter(entry => {
+      const date = String(entry.date || "");
+      return date >= startKey && date <= endKey;
+    });
+  }
+
+  const previousKey = previousMonthKeyFromPeriod(data.periodKey);
+  return state.channelReceipts.filter(entry => String(entry.date || "").startsWith(previousKey));
+}
+
+function channelReportPanel(data) {
+  const current = channelPeriodSummary(data.channelReceipts);
+  const previous = channelPeriodSummary(previousChannelEntries(data));
+  const delta = current.totals.total - previous.totals.total;
+  const dailyRows = [...data.channelReceipts]
+    .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")))
+    .map(entry => [
+      formatIsoDateBr(entry.date),
+      ...channelDefinitions.map(([key]) => money(channelReceiptAmount(entry, key, "net"))),
+      money(channelDefinitions.reduce((sum, [key]) => sum + channelReceiptAmount(entry, key, "fee"), 0)),
+      money(channelReceiptTotal(entry))
+    ]);
+
+  return `
+    <section class="panel report-section">
+      <h2>Relatório de canais ${reportTitleSuffix(data)}</h2>
+      <div class="summary">
+        <div class="metric"><span>Total líquido</span><strong>${money(current.totals.total)}</strong></div>
+        <div class="metric"><span>Taxas / descontos</span><strong>${money(channelDefinitions.reduce((sum, [key]) => sum + (current.totals[`${key}Fee`] || 0), 0))}</strong></div>
+        <div class="metric"><span>Média diária</span><strong>${money(current.averageNet)}</strong></div>
+        <div class="metric"><span>Comparação anterior</span><strong class="${delta < 0 ? "negative" : "positive"}">${delta < 0 ? "-" : "+"}${money(Math.abs(delta))}</strong></div>
+      </div>
+      <div class="dashboard-lane monthly-breakdown">
+        ${channelDefinitions.map(([key, label]) => `
+          <div class="panel dashboard-panel">
+            <h2>${label}</h2>
+            <div class="summary">
+              <div class="metric"><span>Bruto</span><strong>${money(current.totals[`${key}Gross`])}</strong></div>
+              <div class="metric"><span>Taxa</span><strong>${money(current.totals[`${key}Fee`])}</strong></div>
+              <div class="metric"><span>Líquido</span><strong>${money(current.totals[`${key}Net`])}</strong></div>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+      ${dailyRows.length ? `
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Dia</th>${channelDefinitions.map(([, label]) => `<th>${label}</th>`).join("")}<th>Taxas</th><th>Total</th></tr></thead>
+            <tbody>${dailyRows.map(row => `<tr>${row.map(cell => `<td>${cell}</td>`).join("")}</tr>`).join("")}</tbody>
+          </table>
+        </div>
+      ` : `<p class="muted">Nenhum valor de canal lançado no período.</p>`}
+    </section>
+  `;
+}
+
 function monthlyOriginCategoryPanel(data) {
   const incomeRows = moneyRowsByCategory(data.cashEntries, "income");
   const expenseRows = moneyRowsByCategory(data.cashEntries, "expense");
@@ -4367,6 +4551,23 @@ function reportCsvRows(kind, data) {
         pagamento: paymentText(order, client),
         observação: order.notes || ""
       };
+    });
+  }
+
+  if (kind === "channels") {
+    return data.channelReceipts.map(entry => {
+      const row = {
+        data: entry.date || "",
+        observação: entry.notes || "",
+        total_liquido: channelReceiptTotal(entry),
+        total_taxas: channelDefinitions.reduce((sum, [key]) => sum + channelReceiptAmount(entry, key, "fee"), 0)
+      };
+      channelDefinitions.forEach(([key, label]) => {
+        row[`${label} bruto`] = channelReceiptAmount(entry, key, "gross");
+        row[`${label} taxa`] = channelReceiptAmount(entry, key, "fee");
+        row[`${label} líquido`] = channelReceiptAmount(entry, key, "net");
+      });
+      return row;
     });
   }
 
@@ -4647,6 +4848,12 @@ async function downloadReportPdf() {
       storeQuantity: data.storeQuantity,
       incomeRows: data.incomeEntries.map(entry => [entry.date || "", entry.description || "", money(entry.amount)]),
       expenseRows: data.topExpenses.map(entry => [entry.date || "", entry.description || "", categoryName(entry.category), money(entry.amount)]),
+      channelRows: data.channelReceipts.map(entry => [
+        entry.date || "",
+        ...channelDefinitions.map(([key]) => money(channelReceiptAmount(entry, key, "net"))),
+        money(channelDefinitions.reduce((sum, [key]) => sum + channelReceiptAmount(entry, key, "fee"), 0)),
+        money(channelReceiptTotal(entry))
+      ]),
       storeRows: data.storeSales.map(entry => [entry.date || "", Number(entry.quantity || 0), entry.notes || ""]),
       cashRows: data.cashEntries.map(entry => [
         entry.date || "",
@@ -4707,6 +4914,15 @@ async function downloadReportXlsx() {
       storeQuantity: data.storeQuantity,
       incomeRows: data.incomeEntries.map(entry => [entry.date || "", entry.description || "", Number(entry.amount || 0)]),
       expenseRows: data.topExpenses.map(entry => [entry.date || "", entry.description || "", categoryName(entry.category), Number(entry.amount || 0)]),
+      channelRows: data.channelReceipts.map(entry => [
+        entry.date || "",
+        ...channelDefinitions.flatMap(([key]) => [
+          channelReceiptAmount(entry, key, "gross"),
+          channelReceiptAmount(entry, key, "fee"),
+          channelReceiptAmount(entry, key, "net")
+        ]),
+        channelReceiptTotal(entry)
+      ]),
       storeRows: data.storeSales.map(entry => [entry.date || "", Number(entry.quantity || 0), entry.notes || ""]),
       cashRows: data.cashEntries.map(entry => [
         entry.date || "",
@@ -5540,6 +5756,7 @@ function renderReports() {
         <button class="secondary" type="button" data-export-report="orders">Pedidos CSV</button>
         <button class="secondary" type="button" data-export-report="cash">Caixa CSV</button>
         <button class="secondary" type="button" data-export-report="financial">Financeiro CSV</button>
+        <button class="secondary" type="button" data-export-report="channels">Canais CSV</button>
         <button class="secondary" type="button" data-export-report="clients">Clientes CSV</button>
         <button class="secondary" type="button" data-export-report="menu">Cardápio CSV</button>
         <button type="button" data-export-report="json">Relatório JSON</button>
@@ -5566,6 +5783,7 @@ function renderReports() {
       <div class="metric report-metric"><span>Mensalistas</span><strong>${data.monthlyClients}</strong></div>
     </section>
     ${reportType === "month" ? monthlyOriginCategoryPanel(data) : ""}
+    ${channelReportPanel(data)}
 
     <section class="panel report-section">
       <h2>Retiradas ${reportTitleSuffix(data)}</h2>
@@ -5617,6 +5835,11 @@ async function renderBackups() {
   const years = cleanupYears();
   const selectedYear = years[0] || String(new Date().getFullYear() - 1);
   const preview = cleanupPreview(selectedYear);
+  const lastBackupAt = localStorage.getItem("lastManualBackupAt") || "";
+  const backupAgeDays = lastBackupAt ? Math.floor((Date.now() - new Date(lastBackupAt).getTime()) / 86400000) : null;
+  const backupStatus = lastBackupAt
+    ? `${shortDateTime.format(new Date(lastBackupAt))}${backupAgeDays >= 7 ? " - backup antigo" : " - em dia"}`
+    : "Nenhum backup manual registrado neste navegador";
   app.innerHTML = `
     <section class="maintenance-hero">
       <div>
@@ -5642,6 +5865,16 @@ async function renderBackups() {
             <input id="manual-backup-import" type="file" accept="application/json,.json">
           </label>
         </div>
+        <div class="backup-list-state">
+          <strong>Último backup manual</strong>
+          <span>${backupStatus}</span>
+        </div>
+        ${backupAgeDays === null || backupAgeDays >= 7 ? `
+          <div class="backup-list-state warning-state">
+            <strong>Baixe um backup JSON</strong>
+            <span>Recomendado antes de limpar dados ou fazer mudanças grandes.</span>
+          </div>
+        ` : ""}
         <div class="backup-list-state">
           <strong>Automático desligado</strong>
           <span>Nenhum backup novo será gravado na tabela de backups do Supabase.</span>
@@ -5714,6 +5947,10 @@ async function renderBackups() {
 
   document.querySelector("#cleanup-backup-first").addEventListener("click", downloadBackup);
   document.querySelector("#delete-old-backups").addEventListener("click", async () => {
+    if (!hasRecentManualBackup()) {
+      showToast("Baixe um backup JSON antes de apagar backups antigos.", "warning");
+      return;
+    }
     if (!confirm("Apagar backups antigos do Supabase mantendo apenas os últimos 30 dias? Baixe um backup JSON antes se tiver dúvida.")) {
       return;
     }
@@ -5743,6 +5980,10 @@ async function renderBackups() {
       showToast("Nada para apagar nesse ano", "warning");
       return;
     }
+    if (!hasRecentManualBackup()) {
+      showToast("Baixe um backup JSON antes de apagar o ano.", "warning");
+      return;
+    }
     if (!confirm(`Apagar dados de ${year}? Baixe um backup JSON antes de continuar.`)) {
       return;
     }
@@ -5757,6 +5998,14 @@ async function renderBackups() {
       renderBackups();
     }
   });
+}
+
+function hasRecentManualBackup(maxAgeHours = 24) {
+  const last = localStorage.getItem("lastManualBackupAt");
+  if (!last) {
+    return false;
+  }
+  return Date.now() - new Date(last).getTime() <= maxAgeHours * 60 * 60 * 1000;
 }
 
 const routes = {

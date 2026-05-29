@@ -617,6 +617,9 @@ function buildReportPdf(payload = {}) {
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Principais saídas (despesas)");
   addPdfTable(doc, ["Data", "Descrição", "Categoria", "Valor"], data.expenseRows || [], [82, 240, 100, 90]);
 
+  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Canais de venda");
+  addPdfTable(doc, ["Data", "Cardápio", "iFood", "99 Food", "Taxas", "Total"], data.channelRows || [], [72, 82, 82, 82, 82, 82]);
+
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Retiradas");
   addPdfTable(doc, ["Destino", "Valor"], data.withdrawalRows || [], [250, 140]);
 
@@ -658,6 +661,7 @@ async function buildReportXlsx(payload = {}) {
     ["Resumo", summaryRows],
     ["Entradas", [["Data", "Descrição", "Valor"], ...(data.incomeRows || [])]],
     ["Despesas", [["Data", "Descrição", "Categoria", "Valor"], ...(data.expenseRows || [])]],
+    ["Canais", [["Data", "Cardápio bruto", "Cardápio taxa", "Cardápio líquido", "iFood bruto", "iFood taxa", "iFood líquido", "99 Food bruto", "99 Food taxa", "99 Food líquido", "Total líquido"], ...(data.channelRows || [])]],
     ["Retiradas", [["Destino", "Valor"], ...(data.withdrawalRows || [])]],
     ["Loja", [["Data", "Quantidade", "Observação"], ...(data.storeRows || [])]],
     ["Caixa", [["Data", "Descrição", "Tipo", "Categoria", "Valor"], ...(data.cashRows || [])]]
