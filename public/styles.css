@@ -1057,33 +1057,6 @@ h2 {
   grid-template-columns: auto 1fr auto;
 }
 
-.audit-list {
-  display: grid;
-  gap: 8px;
-}
-
-.audit-list span {
-  display: grid;
-  grid-template-columns: 150px minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #f9fafb;
-  color: #374151;
-}
-
-.audit-list b {
-  color: var(--earth);
-}
-
-.audit-list small {
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 800;
-}
-
 .panel {
   padding: 22px;
 }
@@ -2612,8 +2585,7 @@ td select {
   .db-usage-metrics,
   .withdrawal-preview,
   .closing-record,
-  .reason-list span,
-  .audit-list span {
+  .reason-list span {
     grid-template-columns: 1fr;
   }
 

@@ -33,7 +33,6 @@ const stateKeys = [
   "suppliers",
   "expenseReasons",
   "archivedExpenseReasons",
-  "auditLog",
   "monthlyClosings",
   "pricingIngredients",
   "pricingConfig",
@@ -59,7 +58,6 @@ const defaultState = {
   suppliers: [],
   expenseReasons: [],
   archivedExpenseReasons: [],
-  auditLog: [],
   monthlyClosings: {},
   pricingIngredients: [],
   pricingConfig: {},
@@ -471,6 +469,15 @@ async function writeAppState(payload = {}) {
   return { database: true, saved: entries.map(([key]) => key), backup: false };
 }
 
+async function resetAppState() {
+  if (!await ensureStateTable()) {
+    return { database: false };
+  }
+
+  await db.query("delete from cumbuca_app_state where key = any($1::text[])", [stateKeys]);
+  return { database: true, reset: true, state: normalizeState({}) };
+}
+
 function calculateCashFlow(entries = []) {
   const normalized = entries.map(item => {
     const amount = Math.abs(number(item.amount));
@@ -874,6 +881,16 @@ async function handleRequest(req, res) {
     if (req.method === "POST" && url.pathname === "/api/state") {
       const payload = await collectBody(req);
       sendJson(res, 200, await writeAppState(payload.state || payload));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/reset-state") {
+      const payload = await collectBody(req);
+      if (payload.confirm !== "LIMPAR") {
+        sendJson(res, 400, { error: "Confirme com LIMPAR para apagar os dados." });
+        return;
+      }
+      sendJson(res, 200, await resetAppState());
       return;
     }
 

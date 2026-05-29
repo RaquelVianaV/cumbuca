@@ -14,6 +14,37 @@ let systemStatus = {
 };
 let lastConfirmedPayload = null;
 let offlineAlertOpen = false;
+const APP_DATA_RESET_VERSION = "2026-05-29-clean-start";
+const localStateKeys = [
+  "cashEntries",
+  "weeklyMenusByPeriod",
+  "menuWeek",
+  "menuPeriod",
+  "menuDatesByPeriod",
+  "clients",
+  "orders",
+  "storeSales",
+  "channelReceipts",
+  "cashCategories",
+  "archivedCashCategories",
+  "suppliers",
+  "expenseReasons",
+  "archivedExpenseReasons",
+  "auditLog",
+  "auditFilter",
+  "monthlyClosings",
+  "pricingIngredients",
+  "pricingConfig",
+  "cashFilter",
+  "financialPlanning",
+  "reportPeriod",
+  "lastManualBackupAt"
+];
+
+if (localStorage.getItem("appDataResetVersion") !== APP_DATA_RESET_VERSION) {
+  localStateKeys.forEach(key => localStorage.removeItem(key));
+  localStorage.setItem("appDataResetVersion", APP_DATA_RESET_VERSION);
+}
 
 const brl = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -338,8 +369,6 @@ const state = {
   archivedCashCategories: localValue("archivedCashCategories", { income: [], expense: [] }),
   expenseReasons: seededExpenseReasons(),
   archivedExpenseReasons: localValue("archivedExpenseReasons", []),
-  auditLog: localValue("auditLog", []),
-  auditFilter: localValue("auditFilter", { date: "", action: "all" }),
   monthlyClosings: localValue("monthlyClosings", {}),
   showClients: false,
   showOrders: false,
@@ -393,7 +422,6 @@ function appStatePayload() {
     archivedCashCategories: state.archivedCashCategories,
     expenseReasons: state.expenseReasons,
     archivedExpenseReasons: state.archivedExpenseReasons,
-    auditLog: state.auditLog,
     monthlyClosings: state.monthlyClosings,
     pricingIngredients: state.ingredients,
     pricingConfig: state.pricingConfig,
@@ -421,7 +449,6 @@ function applyPayloadToState(saved = {}) {
     ? saved.expenseReasons
     : seededExpenseReasons();
   state.archivedExpenseReasons = saved.archivedExpenseReasons || [];
-  state.auditLog = saved.auditLog || [];
   state.monthlyClosings = saved.monthlyClosings || {};
   state.ingredients = saved.pricingIngredients || [];
   state.pricingConfig = saved.pricingConfig || {};
@@ -454,14 +481,7 @@ function persistLocal() {
 }
 
 function recordAudit(action, detail) {
-  state.auditLog.unshift({
-    id: Date.now(),
-    at: new Date().toISOString(),
-    action,
-    detail,
-    user: state.currentUser?.name || state.currentUser?.username || ""
-  });
-  state.auditLog = state.auditLog.slice(0, 120);
+  return null;
 }
 
 async function persistState() {
@@ -652,8 +672,7 @@ function databaseUsageEstimate() {
     monthlyClosings: Object.keys(state.monthlyClosings || {}).length,
     clients: state.clients.length,
     channelReceipts: state.channelReceipts.length,
-    pricingIngredients: state.ingredients.length,
-    auditLog: state.auditLog.length
+    pricingIngredients: state.ingredients.length
   };
   const totalRecords = Object.values(records).reduce((sum, value) => sum + value, 0);
   const level = sizeBytes >= 5 * 1024 * 1024 || totalRecords >= 10000
@@ -5207,69 +5226,6 @@ function storeSalesTable(entries) {
   `;
 }
 
-function auditPanel() {
-  const filter = state.auditFilter || { date: "", action: "all" };
-  const actions = [...new Set(state.auditLog.map(item => item.action).filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt-BR"));
-  const items = state.auditLog
-    .filter(item => !filter.date || String(item.at || "").startsWith(filter.date))
-    .filter(item => !filter.action || filter.action === "all" || item.action === filter.action)
-    .slice(0, 30);
-
-  return `
-    <section class="panel report-section">
-      <div class="section-heading">
-        <div>
-          <h2>Auditoria</h2>
-          <p class="muted-inline">Alterações registradas por data, ação e usuário.</p>
-        </div>
-      </div>
-      <form id="audit-filter-form" class="filter-bar audit-filter-bar">
-        <label>Data
-          <input name="date" type="date" value="${filter.date || ""}">
-        </label>
-        <label>Ação
-          <select name="action">
-            <option value="all" ${filter.action === "all" ? "selected" : ""}>Todas</option>
-            ${actions.map(action => `<option value="${escapeHtml(action)}" ${filter.action === action ? "selected" : ""}>${escapeHtml(action)}</option>`).join("")}
-          </select>
-        </label>
-        <button type="submit">Filtrar</button>
-        <button class="secondary" type="button" id="clear-audit-filter">Limpar</button>
-      </form>
-      ${items.length ? `
-        <div class="audit-list">
-          ${items.map(item => `
-            <span>
-              <b>${escapeHtml(item.action || "Alteração")}</b>
-              ${escapeHtml(item.detail || "")}${item.user ? ` - ${escapeHtml(item.user)}` : ""}
-              <small>${new Date(item.at).toLocaleString("pt-BR")}</small>
-            </span>
-          `).join("")}
-        </div>
-      ` : `<p class="muted">Nenhuma alteração encontrada para este filtro.</p>`}
-    </section>
-  `;
-}
-
-function bindAuditPanel(renderFn) {
-  const form = document.querySelector("#audit-filter-form");
-  if (!form) {
-    return;
-  }
-
-  form.addEventListener("submit", event => {
-    event.preventDefault();
-    state.auditFilter = readForm(event.currentTarget);
-    localStorage.setItem("auditFilter", JSON.stringify(state.auditFilter));
-    renderFn();
-  });
-
-  document.querySelector("#clear-audit-filter").addEventListener("click", () => {
-    state.auditFilter = { date: "", action: "all" };
-    localStorage.setItem("auditFilter", JSON.stringify(state.auditFilter));
-    renderFn();
-  });
-}
 function withdrawalReportTable(data) {
   if (!data.financial.withdrawalEntries.length) {
     return `<p class="muted">Nenhuma retirada neste período.</p>`;
@@ -5706,13 +5662,11 @@ function renderFinance() {
       <h2>O que saiu em saídas ${reportTitleSuffix(data)}</h2>
       ${reportExpenseOutTable(data)}
     </section>
-    ${auditPanel()}
   `;
 
   bindReportPeriodForm(renderFinance, "financeiro");
   bindMonthlyClosing(data, renderFinance);
   bindFinancialPlanning();
-  bindAuditPanel(renderFinance);
 }
 
 function renderReports() {
@@ -5815,7 +5769,6 @@ function renderReports() {
       <h2>Cardápio e produção</h2>
       ${reportMenuTable(data)}
     </section>
-    ${auditPanel()}
   `;
 
   bindReportPeriodForm(renderReports, "relatorios");
@@ -5825,7 +5778,6 @@ function renderReports() {
       exportReport(event.currentTarget.dataset.exportReport);
     });
   });
-  bindAuditPanel(renderReports);
   bindMonthlyClosing(data, renderReports);
 }
 
