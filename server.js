@@ -296,6 +296,52 @@ async function ensureBackupTable() {
   return true;
 }
 
+async function ensureEventTable() {
+  if (!db) {
+    return false;
+  }
+
+  await db.query(`
+    create table if not exists cumbuca_app_events (
+      id bigserial primary key,
+      event_type text not null,
+      detail text not null default '',
+      username text not null default '',
+      created_at timestamptz not null default now()
+    )
+  `);
+  return true;
+}
+
+async function writeEvent(eventType, detail = "", user = null) {
+  if (!await ensureEventTable()) {
+    return false;
+  }
+
+  await db.query(
+    `insert into cumbuca_app_events (event_type, detail, username, created_at)
+     values ($1, $2, $3, now())`,
+    [String(eventType || "evento"), String(detail || ""), String(user?.username || user?.name || "sistema")]
+  );
+  return true;
+}
+
+async function listEvents(limit = 40) {
+  if (!await ensureEventTable()) {
+    return { database: false, events: [] };
+  }
+
+  const cappedLimit = Math.max(1, Math.min(100, Number(limit || 40)));
+  const result = await db.query(
+    `select id, event_type, detail, username, created_at
+     from cumbuca_app_events
+     order by created_at desc
+     limit $1`,
+    [cappedLimit]
+  );
+  return { database: true, events: result.rows };
+}
+
 async function writeAutomaticBackup(payload = {}) {
   if (!await ensureBackupTable()) {
     return false;
@@ -471,10 +517,11 @@ async function writeAppState(payload = {}) {
     );
   }
 
-  return { database: true, saved: entries.map(([key]) => key), backup: false };
+  await writeAutomaticBackup(payload);
+  return { database: true, saved: entries.map(([key]) => key), backup: true };
 }
 
-async function resetAppState() {
+async function resetAppState(user = null) {
   if (!await ensureStateTable()) {
     return { database: false };
   }
@@ -482,6 +529,7 @@ async function resetAppState() {
   const current = await readAppState();
   await writeAutomaticBackup(current.state);
   await db.query("delete from cumbuca_app_state where key = any($1::text[])", [stateKeys]);
+  await writeEvent("limpeza_completa", "Estado do sistema apagado apos backup automatico.", user);
   return { database: true, reset: true, backup: true, state: normalizeState({}) };
 }
 
@@ -857,7 +905,7 @@ async function handleRequest(req, res) {
       return;
     }
 
-    const publicFiles = ["/styles.css", "/login.js", "/logo-cumbuca.svg"];
+    const publicFiles = ["/styles.css", "/login.js", "/logo-cumbuca.svg", "/manifest.json", "/sw.js"];
     if (!authenticated) {
       if (req.method === "GET" && publicFiles.includes(url.pathname)) {
         serveStatic(req, res, url.pathname);
@@ -901,7 +949,7 @@ async function handleRequest(req, res) {
         sendJson(res, 400, { error: "Confirme com LIMPAR para apagar os dados." });
         return;
       }
-      sendJson(res, 200, await resetAppState());
+      sendJson(res, 200, await resetAppState(user));
       return;
     }
 
@@ -921,7 +969,11 @@ async function handleRequest(req, res) {
         return;
       }
       const payload = await collectBody(req);
-      sendJson(res, 200, await deleteOldBackups(payload.keepDays));
+      const result = await deleteOldBackups(payload.keepDays);
+      if (result.database) {
+        await writeEvent("backups_antigos_apagados", `${result.deleted || 0} backup(s) apagado(s).`, user);
+      }
+      sendJson(res, 200, result);
       return;
     }
 
@@ -952,7 +1004,20 @@ async function handleRequest(req, res) {
         return;
       }
       const payload = await collectBody(req);
-      sendJson(res, 200, await restoreBackup(payload.date));
+      const result = await restoreBackup(payload.date);
+      if (result.database && result.restored) {
+        await writeEvent("backup_restaurado", `Backup ${payload.date} restaurado.`, user);
+      }
+      sendJson(res, 200, result);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/events") {
+      if (!isAdmin(req)) {
+        sendJson(res, 403, { error: "Acesso restrito ao administrador." });
+        return;
+      }
+      sendJson(res, 200, await listEvents(url.searchParams.get("limit")));
       return;
     }
 

@@ -2147,6 +2147,22 @@ button.danger:hover {
   color: #9a3412;
 }
 
+.payment-badge.partial {
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.report-filter .report-week-field,
+.report-filter .report-day-field {
+  display: none;
+}
+
+.report-filter[data-period="week"] .report-week-field,
+.report-filter[data-period="day"] .report-day-field {
+  display: grid;
+}
+
 .order-summary {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-bottom: 0;

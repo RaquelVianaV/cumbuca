@@ -400,9 +400,15 @@ const state = {
     year: new Date().getFullYear(),
     month: new Date().getMonth() + 1,
     week: 1,
+    date: isoDate(new Date()),
     start: "",
     end: "",
     expenseCategory: "all"
+  }),
+  orderFilter: localValue("orderFilter", {
+    search: "",
+    payment: "all",
+    delivery: "all"
   }),
   currentUser: null,
   database: false
@@ -893,6 +899,10 @@ updateServerStatus();
 updatePersistenceStatus();
 setInterval(updateServerStatus, 30000);
 setInterval(updatePersistenceStatus, 120000);
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
 
 function routeName() {
   return location.pathname.replace("/", "") || "home";
@@ -1558,6 +1568,10 @@ function reportWeekRangeLabel() {
   return `${formatIsoDateBr(start)} a ${formatIsoDateBr(end)}`;
 }
 
+function reportDate() {
+  return state.reportPeriod.date || isoDate(new Date());
+}
+
 function monthOptions(selectedMonth) {
   const months = [
     "Janeiro",
@@ -1602,7 +1616,7 @@ function weeklyDishTotals(menuItems, orders) {
 function dashboardPendingPayments(orders) {
   return orders.filter(order => {
     const client = clientByPhone(order.clientPhone);
-    return client.plan === "semanal" && !order.paid;
+    return client.plan === "semanal" && !isOrderPaid(order);
   });
 }
 
@@ -1949,6 +1963,196 @@ function home() {
       </div>
     </section>
   `;
+}
+
+function todayOperationData() {
+  const today = isoDate(new Date());
+  const currentKey = menuKey(state.menuWeek || 1);
+  const todayCash = state.cash.filter(entry => entry.date === today);
+  const todayStoreSales = state.storeSales.filter(entry => entry.date === today);
+  const weekOrders = weeklyOrders(currentKey);
+  const pendingPayments = weekOrders.filter(order => {
+    const client = clientByPhone(order.clientPhone);
+    return client.plan === "semanal" && !isOrderPaid(order);
+  });
+  const pendingDelivery = weekOrders.filter(order => !order.delivered);
+  const billsDue = state.cash
+    .filter(entry => entry.type === "expense" && entry.dueDate && !entry.paidAt)
+    .filter(entry => entry.dueDate <= today)
+    .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
+
+  return {
+    today,
+    currentKey,
+    todayCash,
+    todayStoreSales,
+    weekOrders,
+    pendingPayments,
+    pendingDelivery,
+    billsDue,
+    income: todayCash.filter(entry => entry.type !== "expense").reduce((sum, entry) => sum + Number(entry.amount || 0), 0),
+    expenses: todayCash.filter(entry => entry.type === "expense").reduce((sum, entry) => sum + Number(entry.amount || 0), 0),
+    storeQuantity: todayStoreSales.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0)
+  };
+}
+
+function renderToday() {
+  title.textContent = "Hoje";
+  setActive("hoje");
+  const data = todayOperationData();
+
+  app.innerHTML = `
+    <section class="dashboard-band today-band">
+      <div class="dashboard-copy">
+        <span>${formatIsoDateBr(data.today)}</span>
+        <h2>Operação do dia</h2>
+        <p>Vendas da loja, caixa rápido, pedidos da semana, contas e pendências em uma tela.</p>
+      </div>
+      <div class="dashboard-kpis">
+        <div class="metric dashboard-metric is-primary"><span>Loja hoje</span><strong>${data.storeQuantity}</strong></div>
+        <div class="metric dashboard-metric"><span>Entradas hoje</span><strong>${money(data.income)}</strong></div>
+        <div class="metric dashboard-metric"><span>Saídas hoje</span><strong>${money(data.expenses)}</strong></div>
+        <div class="metric dashboard-metric"><span>Pendências</span><strong>${data.pendingPayments.length + data.pendingDelivery.length + data.billsDue.length}</strong></div>
+      </div>
+    </section>
+
+    <section class="dashboard-lane">
+      <div class="panel dashboard-panel">
+        <h2>Entrada rápida</h2>
+        <form id="today-income-form" class="form-grid single">
+          <label>Descrição
+            <input name="description" placeholder="Venda, pix, ajuste" required>
+          </label>
+          <label>Valor
+            <input name="amount" type="number" min="0" step="0.01" placeholder="0,00" required>
+          </label>
+          <button type="submit">Salvar entrada</button>
+        </form>
+      </div>
+      <div class="panel dashboard-panel">
+        <h2>Saída rápida</h2>
+        <form id="today-expense-form" class="form-grid single">
+          <label>Descrição
+            <input name="description" placeholder="Mercado, boleto, entregador" required>
+          </label>
+          <label>Valor
+            <input name="amount" type="number" min="0" step="0.01" placeholder="0,00" required>
+          </label>
+          <button type="submit">Salvar saída</button>
+        </form>
+      </div>
+    </section>
+
+    <section class="dashboard-lane">
+      <div class="panel dashboard-panel">
+        <h2>Venda da loja</h2>
+        <form id="today-store-form" class="form-grid single">
+          <label>Quantidade de cumbucas
+            <input name="quantity" type="number" min="1" step="1" placeholder="0" required>
+          </label>
+          <label>Observação
+            <input name="notes" placeholder="Opcional">
+          </label>
+          <button type="submit">Salvar venda</button>
+        </form>
+      </div>
+      <div class="panel dashboard-panel">
+        <h2>Pedidos da semana</h2>
+        ${data.weekOrders.length ? `
+          <div class="recent-list">
+            ${data.weekOrders.slice(0, 8).map(order => {
+              const client = clientByPhone(order.clientPhone);
+              return `<span><b>${orderQuantity(order)}</b>${client.name || order.clientPhone}<small>${isOrderPaid(order) ? "Pago" : "Pagamento pendente"} - ${order.delivered ? "Entregue" : "Entrega pendente"}</small></span>`;
+            }).join("")}
+          </div>
+        ` : `<p class="muted">Nenhum pedido na semana aberta.</p>`}
+      </div>
+    </section>
+
+    <section class="dashboard-lane">
+      <div class="panel dashboard-panel">
+        <h2>Contas a pagar</h2>
+        ${data.billsDue.length ? `
+          <div class="recent-list">
+            ${data.billsDue.slice(0, 8).map(entry => `<span><b>${money(entry.amount)}</b>${entry.description || categoryName(entry.category)}<small>${dueDateDistanceLabel(entry.dueDate)}</small></span>`).join("")}
+          </div>
+        ` : `<p class="muted">Nenhuma conta vencida ou vencendo hoje.</p>`}
+      </div>
+      <div class="panel dashboard-panel">
+        <h2>Pendências</h2>
+        <div class="alert-list">
+          <span><b>Pagamentos</b>${data.pendingPayments.length} pedido(s)</span>
+          <span><b>Entregas</b>${data.pendingDelivery.length} pedido(s)</span>
+          <span><b>Contas</b>${data.billsDue.length} conta(s)</span>
+        </div>
+      </div>
+    </section>
+  `;
+
+  bindTodayForms(data.today);
+}
+
+function bindTodayForms(today) {
+  document.querySelector("#today-income-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    const values = readForm(event.currentTarget);
+    const amount = Number(values.amount || 0);
+    if (amount <= 0) {
+      showToast("Informe valor maior que zero.", "error");
+      return;
+    }
+    state.cash.push({
+      id: Date.now(),
+      date: today,
+      type: "income",
+      category: "venda",
+      description: values.description,
+      amount: amount.toFixed(2)
+    });
+    if (await persistState()) {
+      renderToday();
+    }
+  });
+
+  document.querySelector("#today-expense-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    const values = readForm(event.currentTarget);
+    const amount = Number(values.amount || 0);
+    if (amount <= 0) {
+      showToast("Informe valor maior que zero.", "error");
+      return;
+    }
+    state.cash.push({
+      id: Date.now(),
+      date: today,
+      type: "expense",
+      category: "outros",
+      description: values.description,
+      amount: amount.toFixed(2)
+    });
+    if (await persistState()) {
+      renderToday();
+    }
+  });
+
+  document.querySelector("#today-store-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    const values = readForm(event.currentTarget);
+    const quantity = Number(values.quantity || 0);
+    if (quantity <= 0) {
+      showToast("Informe quantidade maior que zero.", "error");
+      return;
+    }
+    state.storeSales.push({
+      id: Date.now(),
+      date: today,
+      quantity,
+      notes: values.notes || ""
+    });
+    if (await persistState()) {
+      renderToday();
+    }
+  });
 }
 
 async function renderCash() {
@@ -3176,6 +3380,9 @@ async function renderMenu() {
         amount: client.plan === "mensalista" ? monthlyValue : weeklyValue,
         deliveryFee,
         paid,
+        paidAmount: editing?.paidAmount || (paid ? weeklyValue : 0),
+        delivered: editing?.delivered || false,
+        deliveredAt: editing?.deliveredAt || "",
         totalQuantity: undefined,
         notes: String(data.get("notes") || "").trim(),
         createdAt: state.editOrderId
@@ -3209,10 +3416,24 @@ async function renderMenu() {
       button.addEventListener("click", event => {
         const id = Number(event.currentTarget.dataset.togglePaidOrder);
         state.orders = state.orders.map(order => (
-          Number(order.id) === id ? { ...order, paid: !order.paid } : order
+          Number(order.id) === id ? { ...order, paid: !isOrderPaid(order), paidAmount: !isOrderPaid(order) ? Number(order.amount || 0) : 0 } : order
         ));
         persistState();
         renderMenu();
+      });
+    });
+
+    document.querySelectorAll("[data-partial-paid-order]").forEach(button => {
+      button.addEventListener("click", event => {
+        const id = Number(event.currentTarget.dataset.partialPaidOrder);
+        updateOrderPartialPayment(id);
+      });
+    });
+
+    document.querySelectorAll("[data-toggle-delivered-order]").forEach(button => {
+      button.addEventListener("click", event => {
+        const id = Number(event.currentTarget.dataset.toggleDeliveredOrder);
+        toggleOrderDelivered(id);
       });
     });
 
@@ -3266,17 +3487,57 @@ async function renderMenu() {
     button.addEventListener("click", event => {
       const id = Number(event.currentTarget.dataset.togglePaidOrder);
       state.orders = state.orders.map(order => (
-        Number(order.id) === id ? { ...order, paid: !order.paid } : order
+        Number(order.id) === id ? { ...order, paid: !isOrderPaid(order), paidAmount: !isOrderPaid(order) ? Number(order.amount || 0) : 0 } : order
       ));
       persistState();
       renderMenu();
     });
   });
 
+  document.querySelectorAll("[data-partial-paid-order]").forEach(button => {
+    button.addEventListener("click", event => {
+      const id = Number(event.currentTarget.dataset.partialPaidOrder);
+      updateOrderPartialPayment(id);
+    });
+  });
+
+  document.querySelectorAll("[data-toggle-delivered-order]").forEach(button => {
+    button.addEventListener("click", event => {
+      const id = Number(event.currentTarget.dataset.toggleDeliveredOrder);
+      toggleOrderDelivered(id);
+    });
+  });
+
+  const orderFilterForm = document.querySelector("#order-filter-form");
+  if (orderFilterForm) {
+    orderFilterForm.addEventListener("submit", event => {
+      event.preventDefault();
+      state.orderFilter = {
+        ...state.orderFilter,
+        ...readForm(event.currentTarget)
+      };
+      localStorage.setItem("orderFilter", JSON.stringify(state.orderFilter));
+      renderMenu();
+    });
+  }
+
+  const clearOrderFilters = document.querySelector("#clear-order-filters");
+  if (clearOrderFilters) {
+    clearOrderFilters.addEventListener("click", () => {
+      state.orderFilter = { search: "", payment: "all", delivery: "all" };
+      localStorage.setItem("orderFilter", JSON.stringify(state.orderFilter));
+      renderMenu();
+    });
+  }
+
   const orderSearch = document.querySelector("[data-order-search]");
   if (orderSearch) {
     orderSearch.addEventListener("input", event => {
-      state.orderSearch = event.currentTarget.value;
+      state.orderFilter = {
+        ...(state.orderFilter || { payment: "all", delivery: "all" }),
+        search: event.currentTarget.value
+      };
+      localStorage.setItem("orderFilter", JSON.stringify(state.orderFilter));
       renderMenu();
     });
   }
@@ -3949,13 +4210,105 @@ function orderFormPanel(plan, currentKey, editing, availableClients) {
   `;
 }
 
+function isOrderPaid(order = {}) {
+  const total = Number(order.amount || 0);
+  return Boolean(order.paid) || (total > 0 && Number(order.paidAmount || 0) >= total);
+}
+
+function paymentBadge(order, client) {
+  if (client.plan === "mensalista") {
+    return `<span class="payment-badge paid">Mensalista</span>`;
+  }
+  if (isOrderPaid(order)) {
+    return `<span class="payment-badge paid">Pago</span>`;
+  }
+  if (Number(order.paidAmount || 0) > 0) {
+    return `<span class="payment-badge partial">Parcial ${money(order.paidAmount)}</span>`;
+  }
+  return `<span class="payment-badge pending">Aguardando pagamento</span>`;
+}
+
+function deliveryBadge(order) {
+  return order.delivered
+    ? `<span class="payment-badge paid">Entregue</span>`
+    : `<span class="payment-badge pending">Pendente</span>`;
+}
+
+function updateOrderPartialPayment(id) {
+  const order = state.orders.find(item => Number(item.id) === Number(id));
+  if (!order) {
+    return;
+  }
+  const value = prompt("Valor pago até agora:", String(order.paidAmount || ""));
+  if (value === null) {
+    return;
+  }
+  const paidAmount = Math.max(0, Number(String(value).replace(",", ".") || 0));
+  state.orders = state.orders.map(item => Number(item.id) === Number(id)
+    ? { ...item, paidAmount, paid: Number(item.amount || 0) > 0 && paidAmount >= Number(item.amount || 0) }
+    : item);
+  persistState();
+  renderMenu();
+}
+
+function toggleOrderDelivered(id) {
+  state.orders = state.orders.map(order => Number(order.id) === Number(id)
+    ? { ...order, delivered: !order.delivered, deliveredAt: !order.delivered ? new Date().toISOString() : "" }
+    : order);
+  persistState();
+  renderMenu();
+}
+
+function orderFilterHtml(filter) {
+  return `
+    <form id="order-filter-form" class="filter-bar">
+      <label>Buscar pedido
+        <input name="search" data-order-search placeholder="Cliente, telefone, pagamento ou observação" value="${filter.search || ""}">
+      </label>
+      <label>Pagamento
+        <select name="payment">
+          <option value="all" ${filter.payment === "all" ? "selected" : ""}>Todos</option>
+          <option value="paid" ${filter.payment === "paid" ? "selected" : ""}>Pagos</option>
+          <option value="partial" ${filter.payment === "partial" ? "selected" : ""}>Parciais</option>
+          <option value="pending" ${filter.payment === "pending" ? "selected" : ""}>Pendentes</option>
+        </select>
+      </label>
+      <label>Entrega
+        <select name="delivery">
+          <option value="all" ${filter.delivery === "all" ? "selected" : ""}>Todas</option>
+          <option value="delivered" ${filter.delivery === "delivered" ? "selected" : ""}>Entregues</option>
+          <option value="pending" ${filter.delivery === "pending" ? "selected" : ""}>Pendentes</option>
+        </select>
+      </label>
+      <button type="submit">Filtrar</button>
+      <button class="secondary" type="button" id="clear-order-filters">Limpar</button>
+    </form>
+  `;
+}
+
 function orderList(plan, currentKey) {
-  const query = String(state.orderSearch || "").trim().toLowerCase();
+  const filter = state.orderFilter || { search: "", payment: "all", delivery: "all" };
+  const query = String(filter.search || state.orderSearch || "").trim().toLowerCase();
   const orders = weeklyOrders(currentKey).filter(order => {
+    const client = clientByPhone(order.clientPhone);
+    if (filter.payment === "paid" && !isOrderPaid(order)) {
+      return false;
+    }
+    if (filter.payment === "partial" && !(Number(order.paidAmount || 0) > 0 && !isOrderPaid(order))) {
+      return false;
+    }
+    if (filter.payment === "pending" && (isOrderPaid(order) || client.plan === "mensalista")) {
+      return false;
+    }
+    if (filter.delivery === "delivered" && !order.delivered) {
+      return false;
+    }
+    if (filter.delivery === "pending" && order.delivered) {
+      return false;
+    }
     if (!query) {
       return true;
     }
-    const client = clientByPhone(order.clientPhone);
     return [
       client.name,
       client.phone || order.clientPhone,
@@ -3968,24 +4321,16 @@ function orderList(plan, currentKey) {
 
   if (!orders.length) {
     return `
-      <div class="filter-bar">
-        <label>Buscar pedido
-          <input data-order-search placeholder="Cliente, telefone, pagamento ou observação" value="${state.orderSearch || ""}">
-        </label>
-      </div>
+      ${orderFilterHtml(filter)}
       <p class="muted">Nenhum pedido encontrado nesta semana.</p>
     `;
   }
 
   return `
-    <div class="filter-bar">
-      <label>Buscar pedido
-        <input data-order-search placeholder="Cliente, telefone, pagamento ou observação" value="${state.orderSearch || ""}">
-      </label>
-    </div>
+    ${orderFilterHtml(filter)}
     <div class="table-wrap order-table">
       <table>
-        <thead><tr><th>Cliente</th><th>Contato</th><th>Endereço</th><th>Pedido</th><th>Total</th><th>Valor em real</th><th>Valor em frete</th><th>Pagamento</th><th>Obs.</th><th></th></tr></thead>
+        <thead><tr><th>Cliente</th><th>Contato</th><th>Endereço</th><th>Pedido</th><th>Total</th><th>Valor em real</th><th>Valor em frete</th><th>Pagamento</th><th>Entrega</th><th>Obs.</th><th></th></tr></thead>
         <tbody>
           ${orders.map(order => {
             const client = clientByPhone(order.clientPhone);
@@ -3998,12 +4343,15 @@ function orderList(plan, currentKey) {
                 <td>${orderQuantity(order)}</td>
                 <td>${Number(order.amount || 0) > 0 ? money(order.amount) : ""}</td>
                 <td>${Number(order.deliveryFee || 0) > 0 ? money(order.deliveryFee) : ""}</td>
-                <td>${client.plan === "semanal" ? (order.paid ? `<span class="payment-badge paid">Pago</span>` : `<span class="payment-badge pending">Aguardando pagamento</span>`) : ""}</td>
+                <td>${paymentBadge(order, client)}</td>
+                <td>${deliveryBadge(order)}</td>
                 <td>${order.notes || ""}</td>
                 <td>
                   <div class="table-actions">
                     <button class="secondary table-action" type="button" data-edit-order="${order.id}">Editar</button>
-                    ${client.plan === "semanal" ? `<button class="secondary table-action" type="button" data-toggle-paid-order="${order.id}">${order.paid ? "Marcar pendente" : "Marcar pago"}</button>` : ""}
+                    ${client.plan === "semanal" ? `<button class="secondary table-action" type="button" data-toggle-paid-order="${order.id}">${isOrderPaid(order) ? "Marcar pendente" : "Marcar pago"}</button>` : ""}
+                    ${client.plan === "semanal" ? `<button class="secondary table-action" type="button" data-partial-paid-order="${order.id}">Parcial</button>` : ""}
+                    <button class="secondary table-action" type="button" data-toggle-delivered-order="${order.id}">${order.delivered ? "Desfazer entrega" : "Entregue"}</button>
                     <a class="secondary table-action" href="${orderWhatsAppUrl(order, plan)}" target="_blank" rel="noopener">WhatsApp</a>
                     <button class="danger table-action" type="button" data-delete-order="${order.id}">Excluir</button>
                   </div>
@@ -4022,7 +4370,13 @@ function paymentText(order, client) {
     return "Mensalista";
   }
 
-  return order.paid ? "Pago" : "Aguardando pagamento";
+  if (isOrderPaid(order)) {
+    return "Pago";
+  }
+  if (Number(order.paidAmount || 0) > 0) {
+    return `Parcial ${money(order.paidAmount)}`;
+  }
+  return "Aguardando pagamento";
 }
 
 function orderOverviewPanel(plan, currentKey) {
@@ -4046,6 +4400,7 @@ function orderOverviewPanel(plan, currentKey) {
               <th>Valor em frete</th>
               <th>Endereço</th>
               <th>Pagamento</th>
+              <th>Entrega</th>
               <th>Tipo</th>
             </tr>
           </thead>
@@ -4061,6 +4416,7 @@ function orderOverviewPanel(plan, currentKey) {
                   <td>${Number(order.deliveryFee || 0) > 0 ? money(order.deliveryFee) : ""}</td>
                   <td>${[client.address, client.complement].filter(Boolean).join(" - ")}</td>
                   <td>${paymentText(order, client)}</td>
+                  <td>${order.delivered ? "Entregue" : "Pendente"}</td>
                   <td>${client.plan === "mensalista" ? "Mensalista" : "Semanal"}</td>
                 </tr>
               `;
@@ -4252,7 +4608,11 @@ function ingredientList() {
 }
 
 function reportCashEntries(periodKey, weekKey) {
-  if ((state.reportPeriod.type || "month") !== "week") {
+  const type = state.reportPeriod.type || "month";
+  if (type === "day") {
+    return state.cash.filter(entry => String(entry.date || "") === reportDate());
+  }
+  if (type !== "week") {
     return state.cash.filter(entry => String(entry.date || "").startsWith(periodKey));
   }
 
@@ -4265,7 +4625,11 @@ function reportCashEntries(periodKey, weekKey) {
 }
 
 function reportStoreSales(periodKey) {
-  if ((state.reportPeriod.type || "month") !== "week") {
+  const type = state.reportPeriod.type || "month";
+  if (type === "day") {
+    return state.storeSales.filter(entry => String(entry.date || "") === reportDate());
+  }
+  if (type !== "week") {
     return state.storeSales.filter(entry => String(entry.date || "").startsWith(periodKey));
   }
 
@@ -4277,7 +4641,11 @@ function reportStoreSales(periodKey) {
 }
 
 function reportChannelReceipts(periodKey) {
-  if ((state.reportPeriod.type || "month") !== "week") {
+  const type = state.reportPeriod.type || "month";
+  if (type === "day") {
+    return state.channelReceipts.filter(entry => String(entry.date || "") === reportDate());
+  }
+  if (type !== "week") {
     return state.channelReceipts.filter(entry => String(entry.date || "").startsWith(periodKey));
   }
 
@@ -4296,10 +4664,12 @@ function reportData() {
   const cashEntries = reportCashEntries(periodKey, weekKey);
   const storeSales = reportStoreSales(periodKey);
   const channelReceipts = reportChannelReceipts(periodKey);
-  const orders = type === "week"
+  const orders = type === "day"
+    ? state.orders.filter(order => String(order.createdAt || "").startsWith(reportDate()))
+    : type === "week"
     ? state.orders.filter(order => order.menuKey === weekKey)
     : state.orders.filter(order => menuPeriodKeyFromKey(order.menuKey) === periodKey);
-  const weeks = type === "week" ? [selectedWeek] : [1, 2, 3, 4, 5];
+  const weeks = type === "week" ? [selectedWeek] : type === "day" ? [] : [1, 2, 3, 4, 5];
   const menuWeeks = weeks.map(week => {
     const key = `${periodKey}-semana-${week}`;
     const dishes = state.menus[key] || [];
@@ -4333,13 +4703,14 @@ function reportData() {
   const totalIncome = income;
   const paidOrders = orders.filter(order => {
     const client = clientByPhone(order.clientPhone);
-    return client.plan === "mensalista" || order.paid;
+    return client.plan === "mensalista" || isOrderPaid(order);
   }).length;
 
   return {
     type,
     periodKey,
     weekKey,
+    date: reportDate(),
     selectedWeek,
     cashEntries,
     storeSales,
@@ -4397,13 +4768,13 @@ function weeklyRevenueBreakdown(data) {
     ["Pedidos semanais pagos", data.orders
       .filter(order => {
         const client = clientByPhone(order.clientPhone);
-        return client.plan === "semanal" && order.paid;
+        return client.plan === "semanal" && isOrderPaid(order);
       })
       .reduce((sum, order) => sum + Number(order.amount || 0), 0)],
     ["Pedidos semanais pendentes", data.orders
       .filter(order => {
         const client = clientByPhone(order.clientPhone);
-        return client.plan === "semanal" && !order.paid;
+        return client.plan === "semanal" && !isOrderPaid(order);
       })
       .reduce((sum, order) => sum + Number(order.amount || 0), 0)],
     ["Mensalistas", data.orders
@@ -4742,6 +5113,8 @@ function reportPdfHtml(data) {
     ["Total", money(data.balance)],
     ["Entradas", money(data.totalIncome)],
     ["Saídas", money(data.expenses)],
+    ["Lucro antes retiradas", money(data.financial.profitBeforeWithdrawals)],
+    ["Disponível retirada", money(data.financial.availableForWithdrawal)],
     ["Cumbucas vendidas", data.totalSoldQuantity],
     ["Semanal", data.weeklyCashQuantity],
     ["Loja", data.storeQuantity],
@@ -5108,7 +5481,9 @@ function exportReport(kind) {
   }
 
   const data = reportData();
-  const baseName = data.type === "week"
+  const baseName = data.type === "day"
+    ? `cumbuca-relatorio-${data.date}`
+    : data.type === "week"
     ? `cumbuca-relatorio-${data.weekKey}`
     : `cumbuca-relatorio-${data.periodKey}`;
 
@@ -5158,6 +5533,29 @@ function reportOrdersTable(data) {
       <div class="metric report-metric"><span>Pedidos pagos</span><strong>${data.paidOrders}</strong></div>
       <div class="metric report-metric"><span>Pedidos pendentes</span><strong>${data.pendingOrders}</strong></div>
     </div>
+  `;
+}
+
+function dishRankingPanel(data) {
+  const totals = data.orders.reduce((acc, order) => {
+    (order.dishes || []).forEach(dish => {
+      const key = `${order.menuKey || ""}-${dish.slot}`;
+      const name = dishNameForSlot(state.menus[order.menuKey] || [], dish.slot);
+      acc[key] = acc[key] || { name: name || `Cumbuca ${dish.slot}`, quantity: 0 };
+      acc[key].quantity += Number(dish.quantity || 0);
+    });
+    return acc;
+  }, {});
+  const rows = Object.values(totals).sort((a, b) => b.quantity - a.quantity).slice(0, 8);
+  return `
+    <section class="panel report-section">
+      <h2>Ranking de cumbucas ${reportTitleSuffix(data)}</h2>
+      ${rows.length ? `
+        <div class="recent-list">
+          ${rows.map((item, index) => `<span><b>${index + 1}. ${item.quantity}</b>${escapeHtml(item.name)}</span>`).join("")}
+        </div>
+      ` : `<p class="muted">Nenhuma cumbuca vendida no período.</p>`}
+    </section>
   `;
 }
 function reportCashTable(data) {
@@ -5495,6 +5893,9 @@ function oldReportTitleSuffix(data) {
 }
 
 function reportTitleSuffix(data) {
+  if (data.type === "day") {
+    return `de ${formatIsoDateBr(data.date)}`;
+  }
   if (data.type !== "week") {
     return `de ${formatMonthKeyBr(data.periodKey)}`;
   }
@@ -5639,7 +6040,11 @@ function financeFilterPanel(reportType, weekRange) {
           <select name="type" id="report-period-type">
             <option value="month" ${reportType === "month" ? "selected" : ""}>Mês</option>
             <option value="week" ${reportType === "week" ? "selected" : ""}>Semana</option>
+            <option value="day" ${reportType === "day" ? "selected" : ""}>Dia</option>
           </select>
+        </label>
+        <label class="report-day-field">Dia
+          <input name="date" type="date" value="${reportDate()}">
         </label>
         <label>Ano
           <input name="year" type="number" min="2020" max="2100" step="1" value="${state.reportPeriod.year}">
@@ -5683,13 +6088,15 @@ function bindReportPeriodForm(renderFn, path) {
       year: Number(values.year || new Date().getFullYear()),
       month: Number(values.month || new Date().getMonth() + 1),
       week: Number(state.reportPeriod.week || 1),
+      date: values.date || reportDate(),
       start: values.start || weekRange.start,
       end: values.end || weekRange.end,
       expenseCategory: values.expenseCategory || "all"
     };
     localStorage.setItem("reportPeriod", JSON.stringify(state.reportPeriod));
     const weeklyQuery = state.reportPeriod.type === "week" ? `&inicio=${state.reportPeriod.start}&fim=${state.reportPeriod.end}` : "";
-    history.replaceState(null, "", `/${path}?ano=${state.reportPeriod.year}&mes=${state.reportPeriod.month}${weeklyQuery}`);
+    const dayQuery = state.reportPeriod.type === "day" ? `&dia=${state.reportPeriod.date}` : "";
+    history.replaceState(null, "", `/${path}?ano=${state.reportPeriod.year}&mes=${state.reportPeriod.month}${weeklyQuery}${dayQuery}`);
     renderFn();
   });
 }
@@ -5730,6 +6137,7 @@ function renderFinance() {
       <div class="metric report-metric"><span>Entrou com semanal</span><strong>${money(data.orderRevenue)}</strong></div>
       <div class="metric report-metric"><span>Saiu em saídas</span><strong>${money(data.expenses)}</strong></div>
       <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
+      <div class="metric report-metric"><span>Lucro antes retiradas</span><strong class="${data.financial.profitBeforeWithdrawals < 0 ? "negative" : "positive"}">${money(data.financial.profitBeforeWithdrawals)}</strong></div>
       <div class="metric report-metric"><span>Retiradas feitas</span><strong>${money(data.financial.withdrawals.total)}</strong></div>
       <div class="metric report-metric"><span>Disponível para retirada</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
     </section>
@@ -5779,7 +6187,11 @@ function renderReports() {
           <select name="type" id="report-period-type">
             <option value="month" ${reportType === "month" ? "selected" : ""}>Mês</option>
             <option value="week" ${reportType === "week" ? "selected" : ""}>Semana</option>
+            <option value="day" ${reportType === "day" ? "selected" : ""}>Dia</option>
           </select>
+        </label>
+        <label class="report-day-field">Dia
+          <input name="date" type="date" value="${reportDate()}">
         </label>
         <label>Ano
           <input name="year" type="number" min="2020" max="2100" step="1" value="${state.reportPeriod.year}">
@@ -5825,6 +6237,7 @@ function renderReports() {
       <div class="metric report-metric"><span>Saídas no caixa</span><strong>${money(data.expenses)}</strong></div>
       <div class="metric report-metric"><span>Saldo do caixa</span><strong class="${data.balance < 0 ? "negative" : "positive"}">${money(data.balance)}</strong></div>
       <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
+      <div class="metric report-metric"><span>Lucro antes retiradas</span><strong class="${data.financial.profitBeforeWithdrawals < 0 ? "negative" : "positive"}">${money(data.financial.profitBeforeWithdrawals)}</strong></div>
       <div class="metric report-metric"><span>Retiradas feitas</span><strong>${money(data.financial.withdrawals.total)}</strong></div>
       <div class="metric report-metric"><span>Disponível para retirada</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
       <div class="metric report-metric"><span>Pedidos pagos</span><strong>${data.paidOrders}</strong></div>
@@ -5834,6 +6247,7 @@ function renderReports() {
     </section>
     ${reportType === "month" ? monthlyOriginCategoryPanel(data) : ""}
     ${channelReportPanel(data)}
+    ${dishRankingPanel(data)}
 
     <section class="panel report-section">
       <h2>Retiradas ${reportTitleSuffix(data)}</h2>
@@ -5924,9 +6338,8 @@ async function renderBackups() {
             <span>Recomendado antes de limpar dados ou fazer mudanças grandes.</span>
           </div>
         ` : ""}
-        <div class="backup-list-state">
-          <strong>Automático desligado</strong>
-          <span>Nenhum backup novo será gravado na tabela de backups do Supabase.</span>
+        <div id="automatic-backups">
+          <p class="muted">Consultando backups automáticos...</p>
         </div>
       </section>
       <section class="panel report-section backup-manual-panel">
@@ -5961,6 +6374,13 @@ async function renderBackups() {
         </div>
       </section>
       ${isAdminUser() ? `
+        <section class="panel report-section backup-manual-panel">
+          <h2>Log técnico</h2>
+          <p class="muted-inline">Registro administrativo escondido do uso diário. Mostra limpezas, restaurações e manutenções críticas.</p>
+          <div id="technical-events">
+            <p class="muted">Consultando eventos...</p>
+          </div>
+        </section>
         <section class="panel report-section backup-manual-panel reset-all-panel" id="reset-all-panel">
           <h2>Limpeza completa</h2>
           <p class="muted-inline">Use somente para recomeçar a operação do zero. A limpeza baixa um JSON no navegador e salva um backup automático no Supabase antes de apagar.</p>
@@ -5979,6 +6399,8 @@ async function renderBackups() {
   document.querySelector("#hero-backup-download").addEventListener("click", downloadBackup);
   document.querySelector("#manual-backup-download").addEventListener("click", downloadBackup);
   loadRealDatabaseUsage();
+  loadAutomaticBackups();
+  loadTechnicalEvents();
   document.querySelector("#manual-backup-import").addEventListener("change", async event => {
     const file = event.currentTarget.files?.[0];
     if (!file) {
@@ -6086,6 +6508,7 @@ function hasRecentManualBackup(maxAgeHours = 24) {
 const routes = {
   home,
   "fluxo-de-caixa": renderCash,
+  hoje: renderToday,
   "menu-semanal": renderMenu,
   loja: renderStoreSales,
   financeiro: renderFinance,
@@ -6110,6 +6533,7 @@ function applyRouteParams() {
   const monthParam = params.get("mes");
   const startParam = params.get("inicio");
   const endParam = params.get("fim");
+  const dayParam = params.get("dia");
   const reportWeekParam = weekParam && Number(weekParam) >= 1 && Number(weekParam) <= 5 ? Number(weekParam) : null;
   if (yearParam && monthParam) {
     state.menuPeriod = {
@@ -6122,10 +6546,139 @@ function applyRouteParams() {
         year: Number(yearParam),
         month: Number(monthParam),
         week: reportWeekParam || Number(state.reportPeriod.week || 1),
+        date: dayParam || state.reportPeriod.date || isoDate(new Date()),
         start: startParam || state.reportPeriod.start || "",
         end: endParam || state.reportPeriod.end || ""
       };
     }
+  }
+
+  if (dayParam && (routeName() === "relatorios" || routeName() === "financeiro")) {
+    const [year, month] = dayParam.split("-").map(Number);
+    state.reportPeriod = {
+      ...state.reportPeriod,
+      type: "day",
+      date: dayParam,
+      year: year || state.reportPeriod.year,
+      month: month || state.reportPeriod.month
+    };
+  }
+}
+
+function automaticBackupsHtml(result) {
+  if (!result?.database) {
+    return `<p class="muted">Não foi possível consultar os backups automáticos agora.</p>`;
+  }
+  if (!result.backups?.length) {
+    return `<p class="muted">Nenhum backup automático encontrado ainda.</p>`;
+  }
+  const latest = result.backups[0];
+  return `
+    <div class="backup-list-state">
+      <strong>Último backup automático</strong>
+      <span>${formatIsoDateBr(String(latest.backup_date || "").slice(0, 10))} - atualizado ${new Date(latest.updated_at || latest.created_at).toLocaleString("pt-BR")}</span>
+    </div>
+    <div class="table-wrap report-table">
+      <table>
+        <thead><tr><th>Data</th><th>Criado</th><th>Atualizado</th><th></th></tr></thead>
+        <tbody>
+          ${result.backups.slice(0, 10).map(backup => {
+            const date = String(backup.backup_date || "").slice(0, 10);
+            return `
+              <tr>
+                <td>${formatIsoDateBr(date)}</td>
+                <td>${new Date(backup.created_at).toLocaleString("pt-BR")}</td>
+                <td>${new Date(backup.updated_at).toLocaleString("pt-BR")}</td>
+                <td>
+                  <div class="table-actions">
+                    <a class="secondary table-action" href="/api/backup?date=${date}" target="_blank" rel="noopener">Baixar</a>
+                    ${isAdminUser() ? `<button class="danger table-action" type="button" data-restore-auto-backup="${date}">Restaurar</button>` : ""}
+                  </div>
+                </td>
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function loadAutomaticBackups() {
+  const target = document.querySelector("#automatic-backups");
+  if (!target) {
+    return;
+  }
+  try {
+    const response = await fetch("/api/backups", { cache: "no-store" });
+    const result = await response.json();
+    target.innerHTML = automaticBackupsHtml(result);
+    bindRestoreBackupButtons();
+  } catch (error) {
+    target.innerHTML = `<p class="muted">Não foi possível consultar os backups automáticos agora.</p>`;
+  }
+}
+
+function bindRestoreBackupButtons() {
+  document.querySelectorAll("[data-restore-auto-backup]").forEach(button => {
+    button.addEventListener("click", async event => {
+      const date = event.currentTarget.dataset.restoreAutoBackup;
+      if (!confirm(`Restaurar o backup automático de ${formatIsoDateBr(date)}? Os dados atuais serão substituídos.`)) {
+        return;
+      }
+      const typed = prompt(`Digite ${date} para confirmar a restauração.`);
+      if (typed !== date) {
+        showToast("Restauração cancelada", "warning");
+        return;
+      }
+      const response = await fetch("/api/restore-backup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.restored) {
+        showToast(result.error || "Não foi possível restaurar o backup.", "error");
+        return;
+      }
+      await hydrateState();
+      showToast("Backup restaurado.", "success");
+      renderBackups();
+    });
+  });
+}
+
+function technicalEventsHtml(result) {
+  if (!result?.database) {
+    return `<p class="muted">Log técnico indisponível agora.</p>`;
+  }
+  if (!result.events?.length) {
+    return `<p class="muted">Nenhum evento técnico registrado.</p>`;
+  }
+  return `
+    <div class="recent-list">
+      ${result.events.map(event => `
+        <span>
+          <b>${escapeHtml(event.event_type)}</b>
+          ${escapeHtml(event.detail || "")}
+          <small>${escapeHtml(event.username || "")} - ${new Date(event.created_at).toLocaleString("pt-BR")}</small>
+        </span>
+      `).join("")}
+    </div>
+  `;
+}
+
+async function loadTechnicalEvents() {
+  const target = document.querySelector("#technical-events");
+  if (!target) {
+    return;
+  }
+  try {
+    const response = await fetch("/api/events?limit=30", { cache: "no-store" });
+    const result = await response.json();
+    target.innerHTML = technicalEventsHtml(result);
+  } catch (error) {
+    target.innerHTML = `<p class="muted">Log técnico indisponível agora.</p>`;
   }
 }
 
