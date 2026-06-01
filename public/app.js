@@ -411,6 +411,7 @@ const state = {
     payment: "all",
     delivery: "all"
   }),
+  maintenanceTab: localValue("maintenanceTab", "backup"),
   currentUser: null,
   database: false
 };
@@ -575,6 +576,15 @@ async function hydrateSession() {
 
 function isAdminUser() {
   return state.currentUser?.role === "admin";
+}
+
+function canAccessMaintenanceTab(tab) {
+  return !["users", "events", "reset"].includes(tab) || isAdminUser();
+}
+
+function setMaintenanceTab(tab) {
+  state.maintenanceTab = canAccessMaintenanceTab(tab) ? tab : "backup";
+  localStorage.setItem("maintenanceTab", JSON.stringify(state.maintenanceTab));
 }
 
 async function latestBackupPayload() {
@@ -2082,7 +2092,17 @@ function renderToday() {
           <div class="recent-list">
             ${data.weekOrders.slice(0, 8).map(order => {
               const client = clientByPhone(order.clientPhone);
-              return `<span><b>${orderQuantity(order)}</b>${client.name || order.clientPhone}<small>${isOrderPaid(order) ? "Pago" : "Pagamento pendente"} - ${order.delivered ? "Entregue" : "Entrega pendente"}</small></span>`;
+              return `
+                <span class="today-order-item">
+                  <b>${orderQuantity(order)}</b>
+                  ${client.name || order.clientPhone}
+                  <small>${isOrderPaid(order) ? "Pago" : "Pagamento pendente"} - ${order.delivered ? "Entregue" : "Entrega pendente"}</small>
+                  <span class="today-order-actions">
+                    ${client.plan === "semanal" && !isOrderPaid(order) ? `<button class="secondary table-action" type="button" data-today-paid-order="${order.id}">Pago</button>` : ""}
+                    ${!order.delivered ? `<button class="secondary table-action" type="button" data-today-delivered-order="${order.id}">Entregue</button>` : ""}
+                  </span>
+                </span>
+              `;
             }).join("")}
           </div>
         ` : `<p class="muted">Nenhum pedido na semana aberta.</p>`}
@@ -2110,6 +2130,35 @@ function renderToday() {
   `;
 
   bindTodayForms(data.today);
+  bindTodayOrderActions();
+}
+
+function bindTodayOrderActions() {
+  document.querySelectorAll("[data-today-paid-order]").forEach(button => {
+    button.addEventListener("click", async event => {
+      const id = Number(event.currentTarget.dataset.todayPaidOrder);
+      state.orders = state.orders.map(order => Number(order.id) === id
+        ? { ...order, paid: true, paidAmount: Number(order.amount || 0), paidAt: new Date().toISOString() }
+        : order);
+      if (await persistState()) {
+        showToast("Pedido marcado como pago.", "success");
+        renderToday();
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-today-delivered-order]").forEach(button => {
+    button.addEventListener("click", async event => {
+      const id = Number(event.currentTarget.dataset.todayDeliveredOrder);
+      state.orders = state.orders.map(order => Number(order.id) === id
+        ? { ...order, delivered: true, deliveredAt: new Date().toISOString() }
+        : order);
+      if (await persistState()) {
+        showToast("Pedido marcado como entregue.", "success");
+        renderToday();
+      }
+    });
+  });
 }
 
 function bindTodayForms(today) {
@@ -6380,6 +6429,10 @@ function renderReports() {
 async function renderBackups() {
   title.textContent = "Manutenção";
   setActive("backups");
+  if (!canAccessMaintenanceTab(state.maintenanceTab)) {
+    setMaintenanceTab("backup");
+  }
+  const activeTab = state.maintenanceTab || "backup";
   const years = cleanupYears();
   const selectedYear = years[0] || String(new Date().getFullYear() - 1);
   const preview = cleanupPreview(selectedYear);
@@ -6403,8 +6456,22 @@ async function renderBackups() {
       </div>
     </section>
 
+    <section class="panel maintenance-tabs-panel">
+      <div class="maintenance-tabs" role="tablist" aria-label="Manutencao">
+        ${[
+          ["backup", "Backup"],
+          ["database", "Banco"],
+          ["users", "UsuÃ¡rios"],
+          ["events", "Log"],
+          ["reset", "Limpeza"]
+        ].filter(([tab]) => canAccessMaintenanceTab(tab)).map(([tab, label]) => `
+          <button class="secondary ${activeTab === tab ? "active" : ""}" type="button" data-maintenance-tab="${tab}">${label}</button>
+        `).join("")}
+      </div>
+    </section>
+
     <section class="maintenance-grid">
-      <section class="panel report-section backup-manual-panel">
+      <section class="panel report-section backup-manual-panel maintenance-pane" data-maintenance-pane="backup" ${activeTab === "backup" ? "" : "hidden"}>
         <h2>Backup e recuperação</h2>
         <p class="muted-inline">O backup é salvo no seu computador, não no Supabase. Baixe um JSON antes de mudanças grandes e importe esse arquivo se precisar recuperar os dados.</p>
         <div class="backup-actions">
@@ -6428,7 +6495,7 @@ async function renderBackups() {
           <p class="muted">Consultando backups automáticos...</p>
         </div>
       </section>
-      <section class="panel report-section backup-manual-panel">
+      <section class="panel report-section backup-manual-panel maintenance-pane" data-maintenance-pane="database" ${activeTab === "database" ? "" : "hidden"}>
         <h2>Manutenção do banco</h2>
         <p class="muted-inline">Use para apagar dados antigos depois de baixar um backup JSON. Clientes, precificação, categorias e configurações atuais são preservados.</p>
         <div id="db-usage-status">
@@ -6460,21 +6527,21 @@ async function renderBackups() {
         </div>
       </section>
       ${isAdminUser() ? `
-        <section class="panel report-section backup-manual-panel">
+        <section class="panel report-section backup-manual-panel maintenance-pane" data-maintenance-pane="users" ${activeTab === "users" ? "" : "hidden"}>
           <h2>Usuários</h2>
           <p class="muted-inline">Adicione, edite, desative ou troque senha sem mexer nas variáveis do Vercel.</p>
           <div id="users-admin">
             <p class="muted">Carregando usuários...</p>
           </div>
         </section>
-        <section class="panel report-section backup-manual-panel">
+        <section class="panel report-section backup-manual-panel maintenance-pane" data-maintenance-pane="events" ${activeTab === "events" ? "" : "hidden"}>
           <h2>Log técnico</h2>
           <p class="muted-inline">Registro administrativo escondido do uso diário. Mostra limpezas, restaurações e manutenções críticas.</p>
           <div id="technical-events">
             <p class="muted">Consultando eventos...</p>
           </div>
         </section>
-        <section class="panel report-section backup-manual-panel reset-all-panel" id="reset-all-panel">
+        <section class="panel report-section backup-manual-panel reset-all-panel maintenance-pane" data-maintenance-pane="reset" id="reset-all-panel" ${activeTab === "reset" ? "" : "hidden"}>
           <h2>Limpeza completa</h2>
           <p class="muted-inline">Use somente para recomeçar a operação do zero. A limpeza baixa um JSON no navegador e salva um backup automático no Supabase antes de apagar.</p>
           <div class="backup-list-state warning-state">
@@ -6488,6 +6555,13 @@ async function renderBackups() {
       ` : ""}
     </section>
   `;
+
+  document.querySelectorAll("[data-maintenance-tab]").forEach(button => {
+    button.addEventListener("click", event => {
+      setMaintenanceTab(event.currentTarget.dataset.maintenanceTab);
+      renderBackups();
+    });
+  });
 
   document.querySelector("#hero-backup-download").addEventListener("click", downloadBackup);
   document.querySelector("#manual-backup-download").addEventListener("click", downloadBackup);
@@ -6608,7 +6682,8 @@ const routes = {
   financeiro: renderFinance,
   precificacao: renderPricing,
   relatorios: renderReports,
-  backups: renderBackups
+  backups: renderBackups,
+  "minha-conta": renderAccount
 };
 
 function applyRouteParams() {
@@ -6774,6 +6849,66 @@ async function loadTechnicalEvents() {
   } catch (error) {
     target.innerHTML = `<p class="muted">Log técnico indisponível agora.</p>`;
   }
+}
+
+function renderAccount() {
+  title.textContent = "Minha conta";
+  setActive("minha-conta");
+  const user = state.currentUser || {};
+  app.innerHTML = `
+    <section class="panel report-section account-panel">
+      <div class="section-heading">
+        <div>
+          <h2>Minha conta</h2>
+          <p class="muted-inline">Troque sua senha sem alterar variaveis do Vercel.</p>
+        </div>
+        <div class="client-count">
+          <span>Perfil</span>
+          <strong>${user.role === "admin" ? "Admin" : "Operacao"}</strong>
+        </div>
+      </div>
+      <div class="summary">
+        <div class="metric"><span>Usuario</span><strong>${escapeHtml(user.username || "")}</strong></div>
+        <div class="metric"><span>Nome</span><strong>${escapeHtml(user.name || user.username || "")}</strong></div>
+        <div class="metric"><span>Acesso</span><strong>${user.role === "admin" ? "Total" : "Operacao"}</strong></div>
+      </div>
+      <form id="change-password-form" class="form-grid">
+        <label>Senha atual
+          <input name="currentPassword" type="password" autocomplete="current-password" required>
+        </label>
+        <label>Nova senha
+          <input name="newPassword" type="password" autocomplete="new-password" minlength="4" required>
+        </label>
+        <label>Confirmar nova senha
+          <input name="confirmPassword" type="password" autocomplete="new-password" minlength="4" required>
+        </label>
+        <div class="actions">
+          <button type="submit">Alterar senha</button>
+        </div>
+      </form>
+    </section>
+  `;
+
+  document.querySelector("#change-password-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    const values = readForm(event.currentTarget);
+    if (values.newPassword !== values.confirmPassword) {
+      showToast("A confirmacao nao confere.", "warning");
+      return;
+    }
+    const response = await fetch("/api/change-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(values)
+    });
+    const result = await response.json();
+    if (!response.ok || !result.saved) {
+      showToast(result.error || "Nao foi possivel alterar a senha.", "error");
+      return;
+    }
+    event.currentTarget.reset();
+    showToast("Senha alterada.", "success");
+  });
 }
 
 function usersPanelHtml(result) {

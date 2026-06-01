@@ -515,6 +515,42 @@ async function setUserActive(username, active, actor = null) {
   return { database: true, saved: true };
 }
 
+async function changeOwnPassword(user, payload = {}) {
+  if (!user?.username) {
+    return { database: false, saved: false, error: "Sessao invalida." };
+  }
+  if (!await ensureUserTable()) {
+    return { database: false, saved: false, error: "Banco indisponivel." };
+  }
+
+  const currentPassword = String(payload.currentPassword || "");
+  const newPassword = String(payload.newPassword || "");
+  if (newPassword.length < 4) {
+    return { database: true, saved: false, error: "A nova senha precisa ter pelo menos 4 caracteres." };
+  }
+
+  const result = await db.query(
+    "select username, password_hash from cumbuca_app_users where username = $1 and active = true",
+    [user.username]
+  );
+  const row = result.rows[0];
+  if (!row || !verifyPassword(currentPassword, row.password_hash)) {
+    return { database: true, saved: false, error: "Senha atual incorreta." };
+  }
+
+  const nextHash = passwordHash(newPassword);
+  await db.query(
+    "update cumbuca_app_users set password_hash = $2, updated_at = now() where username = $1",
+    [user.username, nextHash]
+  );
+  await writeEvent("senha_alterada", `Usuario ${user.username} alterou a propria senha.`, user);
+  return {
+    database: true,
+    saved: true,
+    session: `${user.username}.${userSessionToken({ username: user.username, sessionSecret: nextHash })}`
+  };
+}
+
 async function writeAutomaticBackup(payload = {}) {
   if (!await ensureBackupTable()) {
     return false;
@@ -1223,6 +1259,16 @@ async function handleRequest(req, res) {
       }
       const payload = await collectBody(req);
       sendJson(res, 200, await setUserActive(payload.username, payload.active, user));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/change-password") {
+      const payload = await collectBody(req);
+      const result = await changeOwnPassword(user, payload);
+      const headers = result.saved && result.session
+        ? { "Set-Cookie": sessionCookie(result.session, 60 * 60 * 24 * 30) }
+        : {};
+      sendJson(res, result.saved ? 200 : 400, result, headers);
       return;
     }
 

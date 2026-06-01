@@ -3,8 +3,29 @@
   "short_name": "Cumbuca",
   "start_url": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#fffdf8",
   "theme_color": "#087f5b",
+  "shortcuts": [
+    {
+      "name": "Hoje",
+      "short_name": "Hoje",
+      "url": "/hoje",
+      "description": "Abrir a operaÃ§Ã£o do dia"
+    },
+    {
+      "name": "Caixa",
+      "short_name": "Caixa",
+      "url": "/fluxo-de-caixa",
+      "description": "Registrar entradas e saÃ­das"
+    },
+    {
+      "name": "Pedidos",
+      "short_name": "Pedidos",
+      "url": "/menu-semanal",
+      "description": "Abrir pedidos e menu semanal"
+    }
+  ],
   "icons": [
     {
       "src": "/logo-cumbuca.svg",

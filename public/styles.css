@@ -329,7 +329,8 @@ button {
 }
 
 .backup-button,
-.logout-button {
+.logout-button,
+.account-button {
   min-height: 34px;
   padding-inline: 11px;
   font-size: 0.82rem;
@@ -1107,6 +1108,27 @@ h2 {
   min-height: 48px;
 }
 
+.recent-list .today-order-item {
+  align-items: start;
+}
+
+.recent-list .today-order-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.today-order-actions .table-action {
+  min-height: 30px;
+  padding-inline: 10px;
+  font-size: 0.78rem;
+}
+
 .recent-list b {
   color: var(--red);
 }
@@ -1591,6 +1613,31 @@ textarea {
 .backup-actions .file-action {
   min-height: 42px;
   white-space: normal;
+}
+
+.maintenance-tabs-panel {
+  padding: 10px;
+}
+
+.maintenance-tabs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 8px;
+}
+
+.maintenance-tabs button {
+  min-height: 42px;
+  box-shadow: none;
+}
+
+.maintenance-tabs button.active {
+  background: var(--green-dark);
+  color: #ffffff;
+  border-color: var(--green-dark);
+}
+
+.maintenance-pane[hidden] {
+  display: none;
 }
 
 .maintenance-grid .table-wrap {
@@ -2995,7 +3042,7 @@ td select {
 
   .header-actions {
     display: grid;
-    grid-template-columns: 1fr auto auto;
+    grid-template-columns: 1fr repeat(3, auto);
   }
 
   .today-date {
