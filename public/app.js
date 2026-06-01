@@ -378,6 +378,7 @@ const state = {
   clientTab: "form",
   orderTab: "form",
   clientSearch: "",
+  clientHistoryPhone: "",
   orderSearch: "",
   editClientIndex: null,
   editOrderId: null,
@@ -3224,6 +3225,22 @@ async function renderMenu() {
     });
   });
 
+  document.querySelectorAll("[data-client-history]").forEach(button => {
+    button.addEventListener("click", event => {
+      state.clientHistoryPhone = event.currentTarget.dataset.clientHistory;
+      state.clientTab = "list";
+      renderMenu();
+    });
+  });
+
+  const closeClientHistory = document.querySelector("#close-client-history");
+  if (closeClientHistory) {
+    closeClientHistory.addEventListener("click", () => {
+      state.clientHistoryPhone = "";
+      renderMenu();
+    });
+  }
+
   document.querySelectorAll("[data-delete-client]").forEach(button => {
     button.addEventListener("click", event => {
       const index = Number(event.currentTarget.dataset.deleteClient);
@@ -3866,6 +3883,7 @@ function clientList(currentKey) {
               <td>
                 <div class="table-actions">
                   <button class="secondary table-action" type="button" data-edit-client="${index}">Editar</button>
+                  <button class="secondary table-action" type="button" data-client-history="${client.phone || ""}">Histórico</button>
                   ${client.inactive
                     ? `<button class="secondary table-action" type="button" data-reactivate-client="${index}">Reativar</button>`
                     : `<button class="danger table-action" type="button" data-delete-client="${index}">Inativar</button>`}
@@ -3876,6 +3894,7 @@ function clientList(currentKey) {
         </tbody>
       </table>
     </div>
+    ${state.clientHistoryPhone ? clientHistoryPanel(state.clientHistoryPhone, currentKey) : ""}
   `;
 }
 
@@ -4285,6 +4304,18 @@ function orderFormPanel(plan, currentKey, editing, availableClients) {
   `;
 }
 
+async function renderQuickOrders() {
+  state.showOrders = true;
+  state.showClients = false;
+  state.showPlanning = false;
+  if (!["orders", "production", "delivery", "form"].includes(state.orderTab)) {
+    state.orderTab = "orders";
+  }
+  await renderMenu();
+  title.textContent = "Pedidos";
+  setActive("pedidos");
+}
+
 function isOrderPaid(order = {}) {
   const total = Number(order.amount || 0);
   return Boolean(order.paid) || (total > 0 && Number(order.paidAmount || 0) >= total);
@@ -4520,54 +4551,6 @@ function orderPanel(plan, currentKey) {
       <div class="order-tab-panel">
         ${orderTabContent(plan, currentKey, editing, availableClients)}
       </div>
-      <!--
-      <form id="order-form" class="order-form">
-        <label>Cliente
-          <select name="clientPhone" ${availableClients.length ? "required" : "disabled"}>
-            ${availableClients.length
-              ? `<option value="">Selecione um cliente</option>${availableClients.map(client => `
-                  <option value="${client.phone}" ${editing?.clientPhone === client.phone ? "selected" : ""}>${client.name} - ${client.phone}${client.plan === "mensalista" ? ` - restam ${clientRemainingQuantity(client, currentKey, editing?.id)}/${clientMonthlyCapacity(client, currentKey, editing?.id)}${clientChargedPackageCount(client, currentKey, editing?.id) > 1 ? ` - ${clientChargedPackageCount(client, currentKey, editing?.id)} pacotes` : ""}${isLowMonthlyQuantity(client, currentKey) ? " - perto de acabar" : clientRemainingQuantity(client, currentKey, editing?.id) <= 0 ? " - pode renovar" : ""}` : ""}</option>
-                `).join("")}`
-              : `<option value="">Cadastre ou reative um cliente primeiro</option>`}
-          </select>
-        </label>
-        <div class="dish-picker">
-          ${plan.map(item => `
-            <label class="dish-option">
-              <div class="dish-option-title">
-                <span>Cumbuca ${item.slot}</span>
-                <strong>${item.dish || ""}</strong>
-              </div>
-              <input data-dish-quantity type="number" name="dish-${item.slot}" min="0" step="1" value="${editing ? orderDishQuantity(editing, item.slot) : 0}" aria-label="Quantidade da Cumbuca ${item.slot}">
-            </label>
-          `).join("")}
-        </div>
-        <div class="weekly-order-fields" id="weekly-order-fields" hidden>
-          <label>Valor em real deste pedido
-            <input name="weeklyValue" type="number" min="0" step="0.01" placeholder="0,00" value="${editing?.amount || ""}" disabled>
-          </label>
-          <label>Valor em frete
-            <input name="orderDeliveryFee" type="number" min="0" step="0.01" placeholder="0,00" value="${editing?.deliveryFee || ""}" disabled>
-          </label>
-          <label class="checkbox-field">
-            <input name="paid" type="checkbox" ${editing?.paid ? "checked" : ""} disabled>
-            <span>Pago</span>
-          </label>
-        </div>
-        <label>Observação
-          <input name="notes" placeholder="Retirada, entrega, restrição ou detalhe do pedido" value="${editing?.notes || ""}">
-        </label>
-        <div class="order-total">
-          <span>Total de cumbucas</span>
-          <strong id="order-total">0</strong>
-        </div>
-        <div class="actions">
-          <button type="submit" ${availableClients.length ? "" : "disabled"}>${editing ? "Salvar edição" : "Salvar pedido"}</button>
-          ${editing ? `<button class="secondary" type="button" id="cancel-order-edit">Cancelar</button>` : ""}
-        </div>
-      </form>
-      ${orderList(plan, currentKey)}
-      -->
     </section>
   `;
 }
@@ -4892,6 +4875,45 @@ function compactMoneyList(rows, emptyText) {
     <div class="recent-list compact-money-list">
       ${rows.map(([label, value]) => `<span><b>${money(value)}</b>${escapeHtml(label)}</span>`).join("")}
     </div>
+  `;
+}
+
+function clientHistoryPanel(phone, currentKey) {
+  const client = clientByPhone(phone);
+  const orders = state.orders
+    .filter(order => order.clientPhone === phone)
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  const totalQuantity = orders.reduce((sum, order) => sum + orderQuantity(order), 0);
+  const pending = orders.filter(order => client.plan === "semanal" && !isOrderPaid(order));
+  return `
+    <section class="panel report-section client-history-panel">
+      <div class="section-heading">
+        <div>
+          <h2>Histórico de ${escapeHtml(client.name || phone)}</h2>
+          <p class="muted-inline">${orders.length} pedido(s), ${totalQuantity} cumbuca(s), ${pending.length} pagamento(s) pendente(s).</p>
+        </div>
+        <button class="secondary" type="button" id="close-client-history">Fechar</button>
+      </div>
+      ${orders.length ? `
+        <div class="table-wrap report-table">
+          <table>
+            <thead><tr><th>Semana</th><th>Quantidade</th><th>Valor</th><th>Pagamento</th><th>Entrega</th><th>Obs.</th></tr></thead>
+            <tbody>
+              ${orders.slice(0, 20).map(order => `
+                <tr>
+                  <td>${order.menuKey || ""}</td>
+                  <td>${orderQuantity(order)}</td>
+                  <td>${Number(order.amount || 0) > 0 ? money(order.amount) : ""}</td>
+                  <td>${paymentText(order, client)}</td>
+                  <td>${order.delivered ? "Entregue" : "Pendente"}</td>
+                  <td>${escapeHtml(order.notes || "")}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      ` : `<p class="muted">Nenhum pedido registrado para este cliente.</p>`}
+    </section>
   `;
 }
 
@@ -6743,6 +6765,7 @@ const routes = {
   home,
   "fluxo-de-caixa": renderCash,
   hoje: renderToday,
+  pedidos: renderQuickOrders,
   "menu-semanal": renderMenu,
   loja: renderStoreSales,
   financeiro: renderFinance,
@@ -6827,6 +6850,7 @@ function automaticBackupsHtml(result) {
                 <td>
                   <div class="table-actions">
                     <a class="secondary table-action" href="/api/backup?date=${date}" target="_blank" rel="noopener">Baixar</a>
+                    ${isAdminUser() ? `<button class="secondary table-action" type="button" data-preview-auto-backup="${date}">Prévia</button>` : ""}
                     ${isAdminUser() ? `<button class="danger table-action" type="button" data-restore-auto-backup="${date}">Restaurar</button>` : ""}
                   </div>
                 </td>
@@ -6855,6 +6879,16 @@ async function loadAutomaticBackups() {
 }
 
 function bindRestoreBackupButtons() {
+  document.querySelectorAll("[data-preview-auto-backup]").forEach(button => {
+    button.addEventListener("click", async event => {
+      const date = event.currentTarget.dataset.previewAutoBackup;
+      const preview = await fetchBackupPreview(date);
+      if (preview) {
+        alert(backupPreviewText(preview));
+      }
+    });
+  });
+
   document.querySelectorAll("[data-restore-auto-backup]").forEach(button => {
     button.addEventListener("click", async event => {
       const date = event.currentTarget.dataset.restoreAutoBackup;
@@ -6881,6 +6915,37 @@ function bindRestoreBackupButtons() {
       renderBackups();
     });
   });
+}
+
+async function fetchBackupPreview(date) {
+  try {
+    const response = await fetch(`/api/backup-preview?date=${encodeURIComponent(date)}`, { cache: "no-store" });
+    const result = await response.json();
+    if (!response.ok || !result.preview) {
+      showToast(result.error || "Não foi possível consultar a prévia.", "error");
+      return null;
+    }
+    return result;
+  } catch (error) {
+    showToast("Falha ao consultar a prévia do backup.", "error");
+    return null;
+  }
+}
+
+function backupPreviewText(result) {
+  const preview = result.preview || {};
+  return [
+    `Backup ${formatIsoDateBr(result.backupDate)}`,
+    `Atualizado: ${new Date(result.updatedAt || result.createdAt).toLocaleString("pt-BR")}`,
+    "",
+    `Caixa: ${preview.cash || 0}`,
+    `Pedidos: ${preview.orders || 0}`,
+    `Clientes: ${preview.clients || 0}`,
+    `Menus: ${preview.menus || 0}`,
+    `Loja: ${preview.storeSales || 0}`,
+    `Canais: ${preview.channelReceipts || 0}`,
+    `Fechamentos: ${preview.monthlyClosings || 0}`
+  ].join("\n");
 }
 
 function technicalEventsHtml(result) {

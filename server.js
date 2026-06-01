@@ -18,6 +18,7 @@ const AUTH_PASSWORD = process.env.CUMBUCA_PASSWORD || "cumbuca2026";
 const AUTH_SECRET = process.env.CUMBUCA_AUTH_SECRET || "cumbuca-local-secret";
 const SESSION_COOKIE = "cumbuca_session";
 const DATABASE_URL = process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL || process.env.DATABASE_URL;
+const loginAttempts = new Map();
 const stateKeys = [
   "cashEntries",
   "weeklyMenusByPeriod",
@@ -312,6 +313,34 @@ async function currentUser(req) {
 function sessionCookie(value, maxAge) {
   const secure = process.env.VERCEL ? "; Secure" : "";
   return `${SESSION_COOKIE}=${encodeURIComponent(value)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${secure}`;
+}
+
+function loginAttemptKey(req, username) {
+  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  return `${forwarded || req.socket.remoteAddress || "local"}:${username || ""}`;
+}
+
+function loginBlocked(req, username) {
+  const key = loginAttemptKey(req, username);
+  const attempt = loginAttempts.get(key);
+  if (!attempt || attempt.blockedUntil <= Date.now()) {
+    return false;
+  }
+  return true;
+}
+
+function registerLoginFailure(req, username) {
+  const key = loginAttemptKey(req, username);
+  const current = loginAttempts.get(key) || { count: 0, blockedUntil: 0 };
+  const count = current.count + 1;
+  loginAttempts.set(key, {
+    count,
+    blockedUntil: count >= 5 ? Date.now() + 10 * 60 * 1000 : 0
+  });
+}
+
+function clearLoginFailures(req, username) {
+  loginAttempts.delete(loginAttemptKey(req, username));
 }
 
 function collectBody(req) {
@@ -665,6 +694,20 @@ async function restoreBackup(backupDate) {
     restored: true,
     backupDate: backup.backup_date,
     keys: result.saved || []
+  };
+}
+
+function backupPreview(payload = {}) {
+  const data = normalizeState(payload.data || payload);
+  return {
+    cash: Array.isArray(data.cashEntries) ? data.cashEntries.length : 0,
+    orders: Array.isArray(data.orders) ? data.orders.length : 0,
+    clients: Array.isArray(data.clients) ? data.clients.length : 0,
+    menus: data.weeklyMenusByPeriod && typeof data.weeklyMenusByPeriod === "object" ? Object.keys(data.weeklyMenusByPeriod).length : 0,
+    menuDates: data.menuDatesByPeriod && typeof data.menuDatesByPeriod === "object" ? Object.keys(data.menuDatesByPeriod).length : 0,
+    storeSales: Array.isArray(data.storeSales) ? data.storeSales.length : 0,
+    channelReceipts: Array.isArray(data.channelReceipts) ? data.channelReceipts.length : 0,
+    monthlyClosings: data.monthlyClosings && typeof data.monthlyClosings === "object" ? Object.keys(data.monthlyClosings).length : 0
   };
 }
 
@@ -1089,19 +1132,30 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/login") {
       const payload = await collectBody(req);
-      const authUser = await findAuthUser(String(payload.username || "").trim().toLowerCase(), String(payload.password || ""));
+      const username = String(payload.username || "").trim().toLowerCase();
+      if (loginBlocked(req, username)) {
+        sendJson(res, 429, { error: "Muitas tentativas. Aguarde alguns minutos e tente novamente." });
+        return;
+      }
+      const authUser = await findAuthUser(username, String(payload.password || ""));
       if (authUser) {
+        clearLoginFailures(req, username);
+        await writeEvent("login", `Usuario ${authUser.username} entrou no sistema.`, authUser);
         sendJson(res, 200, { ok: true, user: { username: authUser.username, name: authUser.name, role: authUser.role } }, {
           "Set-Cookie": sessionCookie(`${authUser.username}.${userSessionToken(authUser)}`, 60 * 60 * 24 * 30)
         });
         return;
       }
-
+      registerLoginFailure(req, username);
+      await writeEvent("login_falhou", `Tentativa invalida para ${username || "usuario vazio"}.`, { username: username || "" });
       sendJson(res, 401, { error: "Login ou senha inválidos." });
       return;
     }
 
     if (req.method === "POST" && url.pathname === "/api/logout") {
+      if (user) {
+        await writeEvent("logout", `Usuario ${user.username} saiu do sistema.`, user);
+      }
       sendJson(res, 200, { ok: true }, {
         "Set-Cookie": sessionCookie("", 0)
       });
@@ -1207,6 +1261,27 @@ async function handleRequest(req, res) {
         "Content-Length": Buffer.byteLength(body)
       });
       res.end(body);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/backup-preview") {
+      const backupDate = url.searchParams.get("date");
+      if (!backupDate) {
+        sendJson(res, 400, { error: "Informe a data do backup." });
+        return;
+      }
+      const result = await readBackup(backupDate);
+      if (!result.backup) {
+        sendJson(res, 404, { error: "Backup não encontrado." });
+        return;
+      }
+      sendJson(res, 200, {
+        database: result.database,
+        backupDate,
+        createdAt: result.backup.created_at,
+        updatedAt: result.backup.updated_at,
+        preview: backupPreview(result.backup.payload)
+      });
       return;
     }
 
