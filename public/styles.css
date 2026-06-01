@@ -1933,6 +1933,53 @@ textarea {
   box-shadow: none;
 }
 
+.finance-dashboard {
+  display: grid;
+  gap: 14px;
+}
+
+.finance-spotlight {
+  display: grid;
+  gap: 8px;
+  padding: clamp(18px, 3vw, 26px);
+  border: 1px solid rgba(8, 127, 91, 0.16);
+  border-left: 6px solid var(--green-dark);
+  border-radius: 8px;
+  background: linear-gradient(135deg, #ffffff 0, #f0fdf4 100%);
+  box-shadow: var(--shadow);
+}
+
+.finance-spotlight span {
+  color: var(--green-dark);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.finance-spotlight h2 {
+  margin: 0;
+  color: var(--green-dark);
+  font-size: clamp(2rem, 4vw, 3.2rem);
+  line-height: 1;
+}
+
+.finance-spotlight p {
+  max-width: 680px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.finance-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.finance-dashboard-lane {
+  margin-bottom: 4px;
+}
+
 .projection-summary {
   margin-bottom: 12px;
 }
@@ -2821,6 +2868,10 @@ td select {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .finance-dashboard-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .cash-hero-metrics {
     grid-template-columns: 1fr;
   }
@@ -2918,6 +2969,53 @@ td select {
 }
 
 @media (max-width: 560px) {
+  body {
+    padding-bottom: 128px;
+  }
+
+  .app-frame {
+    width: min(100% - 18px, 1180px);
+  }
+
+  .sidebar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+    background: rgba(255, 255, 255, 0.96);
+    border-top: 1px solid rgba(87, 50, 32, 0.12);
+    box-shadow: 0 -12px 30px rgba(15, 23, 42, 0.12);
+  }
+
+  .nav {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 5px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    overflow: visible;
+  }
+
+  .nav a {
+    min-width: 0;
+    min-height: 44px;
+    padding: 0 4px;
+    gap: 4px;
+    flex-direction: column;
+    font-size: 0.68rem;
+    line-height: 1;
+  }
+
+  .nav a::before {
+    width: 8px;
+    height: 8px;
+  }
+
   .start-actions {
     grid-template-columns: 1fr;
   }
@@ -3042,10 +3140,14 @@ td select {
 
   .header-actions {
     display: grid;
-    grid-template-columns: 1fr repeat(3, auto);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .today-date {
+  .current-user,
+  .today-date,
+  .account-button,
+  .backup-button,
+  .logout-button {
     width: 100%;
   }
 
@@ -3054,6 +3156,10 @@ td select {
   }
 
   .dashboard-kpis {
+    grid-template-columns: 1fr;
+  }
+
+  .finance-dashboard-grid {
     grid-template-columns: 1fr;
   }
 

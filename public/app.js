@@ -948,6 +948,12 @@ function isoDate(date) {
   return `${year}-${month}-${day}`;
 }
 
+function addDays(dateKey, days) {
+  const date = new Date(`${dateKey}T00:00:00`);
+  date.setDate(date.getDate() + Number(days || 0));
+  return isoDate(date);
+}
+
 function startOfWeek(date) {
   const copy = new Date(date);
   const day = copy.getDay() || 7;
@@ -6257,6 +6263,65 @@ function bindMonthlyClosing(data, renderFn) {
   });
 }
 
+function financeDashboardPanel(data) {
+  const projection = withdrawalProjection(data);
+  const savings = Number(state.financialPlanning?.savings || 0);
+  const availableAfterSavings = data.financial.availableForWithdrawal + savings;
+  const dueSoon = state.cash
+    .filter(entry => entry.type === "expense" && entry.dueDate && !entry.paidAt)
+    .filter(entry => entry.dueDate <= addDays(isoDate(new Date()), 7))
+    .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
+  const expenseRanking = Object.entries(
+    data.expenseEntries.reduce((totals, entry) => {
+      const key = categoryName(entry.category);
+      totals[key] = (totals[key] || 0) + Number(entry.amount || 0);
+      return totals;
+    }, {})
+  )
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+  const alerts = [
+    data.financial.availableForWithdrawal < 0 ? ["Retirada negativa", "As saídas e retiradas passaram do lucro do período."] : null,
+    dueSoon.length ? ["Contas próximas", `${dueSoon.length} conta(s) vencidas ou vencendo em até 7 dias.`] : null,
+    projection.dailyProfit < 0 ? ["Média negativa", "O período está fechando com prejuízo médio diário."] : null,
+    !expenseRanking.length ? ["Sem custos", "Nenhuma saída operacional no período filtrado."] : null
+  ].filter(Boolean);
+
+  return `
+    <section class="finance-dashboard">
+      <div class="finance-spotlight">
+        <span>Dashboard financeiro</span>
+        <h2>${money(data.financial.availableForWithdrawal)}</h2>
+        <p>Disponível para retirada no período filtrado, depois das retiradas já lançadas.</p>
+      </div>
+      <div class="finance-dashboard-grid">
+        <div class="metric"><span>Lucro antes retiradas</span><strong class="${data.financial.profitBeforeWithdrawals < 0 ? "negative" : "positive"}">${money(data.financial.profitBeforeWithdrawals)}</strong></div>
+        <div class="metric"><span>Retirada projetada</span><strong class="${projection.projectedAvailableForWithdrawal < 0 ? "negative" : "positive"}">${money(projection.projectedAvailableForWithdrawal)}</strong></div>
+        <div class="metric"><span>Guardado + disponível</span><strong class="${availableAfterSavings < 0 ? "negative" : "positive"}">${money(availableAfterSavings)}</strong></div>
+        <div class="metric"><span>Contas próximas</span><strong>${dueSoon.length}</strong></div>
+      </div>
+      <div class="dashboard-lane finance-dashboard-lane">
+        <div class="panel dashboard-panel">
+          <h2>Maiores saídas</h2>
+          ${expenseRanking.length ? `
+            <div class="recent-list">
+              ${expenseRanking.map(([label, total]) => `<span><b>${money(total)}</b>${escapeHtml(label)}<small>${Math.round((total / Math.max(1, data.financial.operationalExpenses)) * 100)}% das saídas operacionais</small></span>`).join("")}
+            </div>
+          ` : `<p class="muted">Nenhuma saída operacional no período.</p>`}
+        </div>
+        <div class="panel dashboard-panel">
+          <h2>Alertas</h2>
+          ${alerts.length ? `
+            <div class="alert-list">
+              ${alerts.map(([title, detail]) => `<span><b>${title}</b>${detail}</span>`).join("")}
+            </div>
+          ` : `<p class="muted">Nenhum alerta financeiro para o período.</p>`}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
 function renderFinance() {
   title.textContent = "Financeiro";
   setActive("financeiro");
@@ -6266,6 +6331,7 @@ function renderFinance() {
 
   app.innerHTML = `
     ${financeFilterPanel(reportType, weekRange)}
+    ${financeDashboardPanel(data)}
     <section class="report-grid">
       <div class="metric report-metric"><span>Entrou no caixa</span><strong>${money(data.income)}</strong></div>
       <div class="metric report-metric"><span>Entrou com semanal</span><strong>${money(data.orderRevenue)}</strong></div>

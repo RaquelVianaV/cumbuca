@@ -1,4 +1,4 @@
-const CACHE_NAME = "cumbuca-v1";
+const CACHE_NAME = "cumbuca-v4";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -8,7 +8,11 @@ const APP_SHELL = [
   "/app.js",
   "/login.js",
   "/logo-cumbuca.svg",
-  "/manifest.json"
+  "/manifest.json",
+  "/hoje",
+  "/fluxo-de-caixa",
+  "/menu-semanal",
+  "/financeiro"
 ];
 
 self.addEventListener("install", event => {
@@ -32,10 +36,12 @@ self.addEventListener("fetch", event => {
   event.respondWith(
     fetch(request)
       .then(response => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then(cache => cache.put(request, copy));
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(request, copy));
+        }
         return response;
       })
-      .catch(() => caches.match(request).then(response => response || caches.match("/index.html")))
+      .catch(() => caches.match(request).then(response => response || caches.match("/") || caches.match("/index.html")))
   );
 });
