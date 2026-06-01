@@ -1332,11 +1332,25 @@ textarea {
 }
 
 .cash-tab-section .reason-list span {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  padding: 10px;
 }
 
 .cash-tab-section .reason-list .table-action {
   width: 100%;
+  min-height: 38px;
+  padding-inline: 10px;
+  white-space: normal;
+}
+
+.cash-tab-section .reason-list b,
+.cash-tab-section .reason-list small {
+  grid-column: 1 / -1;
+}
+
+.cash-tab-section .reason-list b {
+  line-height: 1.25;
 }
 
 .reason-list b {
