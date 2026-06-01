@@ -1685,7 +1685,7 @@ textarea {
 }
 
 .maintenance-grid .report-table table {
-  min-width: 0;
+  min-width: 560px;
 }
 
 .cleanup-preview .summary {
@@ -1863,6 +1863,27 @@ textarea {
 
 .user-admin-layout {
   align-items: start;
+}
+
+.user-admin-layout {
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+}
+
+.user-admin-layout .report-table {
+  overflow-x: auto;
+}
+
+.user-admin-layout .report-table table {
+  min-width: 640px;
+}
+
+.user-admin-layout .table-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(96px, 1fr));
+}
+
+.user-admin-layout .table-action {
+  width: 100%;
 }
 
 .planning-summary {
@@ -2785,6 +2806,12 @@ td select {
 
   .maintenance-grid .table-wrap {
     overflow-x: auto;
+  }
+}
+
+@media (max-width: 1200px) {
+  .user-admin-layout {
+    grid-template-columns: 1fr;
   }
 }
 
