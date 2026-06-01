@@ -53,7 +53,8 @@ a,
 button,
 td,
 th {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 img,
@@ -651,7 +652,7 @@ h2 {
 
 .tool-grid {
   display: grid;
-  grid-template-columns: 360px minmax(0, 1fr);
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
 }
@@ -715,7 +716,7 @@ h2 {
 
 .cash-layout {
   display: grid;
-  grid-template-columns: minmax(320px, 400px) minmax(0, 1fr);
+  grid-template-columns: minmax(340px, 420px) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
 }
@@ -747,7 +748,7 @@ h2 {
   background: transparent;
   color: #4b5563;
   font-size: 0.82rem;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .cash-panel-tabs button.active,
@@ -1456,7 +1457,7 @@ textarea {
 }
 
 .report-filter {
-  grid-template-columns: 140px 120px minmax(150px, 1fr) 150px 150px auto;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   margin-bottom: 0;
 }
 
@@ -1476,7 +1477,7 @@ textarea {
 
 .store-sale-form {
   display: grid;
-  grid-template-columns: 150px 140px minmax(180px, 1fr) auto;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
   align-items: end;
 }
@@ -1991,7 +1992,7 @@ textarea {
 .ingredient-list-title,
 .ingredient-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 118px 42px;
+  grid-template-columns: minmax(150px, 1fr) minmax(96px, 118px) 42px;
   gap: 10px;
   align-items: center;
 }
@@ -2145,7 +2146,7 @@ textarea {
 
 .client-form {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
   align-items: end;
 }
@@ -2153,6 +2154,7 @@ textarea {
 .client-address,
 .client-notes {
   grid-column: span 2;
+  min-width: 0;
 }
 
 .client-form-actions {
@@ -2206,6 +2208,7 @@ textarea {
 
 .table-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -2393,7 +2396,7 @@ button.danger:hover {
 
 .dish-picker {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
 }
 
@@ -2823,6 +2826,18 @@ td select {
   }
 }
 
+@media (max-width: 1280px) {
+  .cash-layout,
+  .tool-grid,
+  .dashboard-lane {
+    grid-template-columns: 1fr;
+  }
+
+  .cash-command-panel {
+    position: static;
+  }
+}
+
 @media (max-width: 1200px) {
   .user-admin-layout {
     grid-template-columns: 1fr;
@@ -2891,6 +2906,38 @@ td select {
 
   .table-actions {
     flex-wrap: wrap;
+  }
+
+  .actions,
+  .table-actions,
+  .client-form-actions,
+  .report-actions,
+  .quick-filter-bar {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .actions button,
+  .table-actions button,
+  .table-actions a,
+  .client-form-actions button,
+  .report-actions button,
+  .quick-filter-bar button {
+    width: 100%;
+  }
+
+  .ingredient-list-title {
+    display: none;
+  }
+
+  .ingredient-row {
+    grid-template-columns: minmax(0, 1fr) 86px 42px;
+    gap: 8px;
+  }
+
+  .client-address,
+  .client-notes {
+    grid-column: auto;
   }
 
   .shell {
