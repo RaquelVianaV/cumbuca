@@ -24,6 +24,10 @@
   box-sizing: border-box;
 }
 
+html {
+  overflow-x: hidden;
+}
+
 body {
   min-height: 100vh;
   margin: 0;
@@ -33,6 +37,37 @@ body {
     linear-gradient(180deg, #fffdf8 0, #f7f7f2 420px, #f4f6f2 100%),
     var(--bg);
   color: var(--ink);
+  overflow-x: hidden;
+}
+
+h1,
+h2,
+h3,
+p,
+span,
+strong,
+b,
+small,
+label,
+a,
+button,
+td,
+th {
+  overflow-wrap: anywhere;
+}
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
+
+button,
+a.secondary.table-action,
+.file-action {
+  max-width: 100%;
+  text-align: center;
 }
 
 a {
@@ -376,6 +411,22 @@ a.secondary.table-action:hover,
   width: 100%;
   min-width: 0;
   padding: 0;
+}
+
+.workspace,
+.workspace > *,
+.panel,
+.card,
+.metric,
+.table-wrap,
+.summary > *,
+.report-grid > *,
+.dashboard-lane > *,
+.tool-grid > *,
+.cash-layout > *,
+.maintenance-grid > *,
+.section-heading > * {
+  min-width: 0;
 }
 
 .login-page {
@@ -1470,7 +1521,7 @@ textarea {
 
 .maintenance-steps {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, auto));
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
   gap: 10px;
 }
 
@@ -1481,7 +1532,7 @@ textarea {
 
 .maintenance-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
 }
@@ -1499,6 +1550,8 @@ textarea {
   border-radius: 8px;
   background: #ffffff;
   color: var(--muted);
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .backup-manual-panel {
@@ -1509,8 +1562,8 @@ textarea {
 }
 
 .backup-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
   gap: 8px;
 }
 
@@ -1522,10 +1575,11 @@ textarea {
 
 .maintenance-grid .table-wrap {
   max-width: 100%;
+  min-width: 0;
 }
 
 .maintenance-grid table {
-  min-width: 460px;
+  min-width: 0;
 }
 
 .maintenance-grid th,
@@ -1541,6 +1595,7 @@ textarea {
   min-height: 32px;
   padding-inline: 10px;
   font-size: 0.82rem;
+  white-space: normal;
 }
 
 .backup-list-state strong {
@@ -1630,7 +1685,7 @@ textarea {
 }
 
 .maintenance-grid .report-table table {
-  min-width: 520px;
+  min-width: 0;
 }
 
 .cleanup-preview .summary {
@@ -2477,6 +2532,8 @@ select:disabled {
 }
 
 .table-wrap {
+  width: 100%;
+  max-width: 100%;
   overflow-x: auto;
   border: 1px solid rgba(87, 50, 32, 0.08);
   border-radius: 8px;
@@ -2718,6 +2775,16 @@ td select {
     width: 100%;
     justify-content: space-between;
     margin-left: 0;
+  }
+}
+
+@media (max-width: 1500px) {
+  .maintenance-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .maintenance-grid .table-wrap {
+    overflow-x: auto;
   }
 }
 
