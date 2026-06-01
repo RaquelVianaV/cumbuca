@@ -11,13 +11,13 @@
       "name": "Hoje",
       "short_name": "Hoje",
       "url": "/hoje",
-      "description": "Abrir a operaÃ§Ã£o do dia"
+      "description": "Abrir a operação do dia"
     },
     {
       "name": "Caixa",
       "short_name": "Caixa",
       "url": "/fluxo-de-caixa",
-      "description": "Registrar entradas e saÃ­das"
+      "description": "Registrar entradas e saídas"
     },
     {
       "name": "Pedidos",

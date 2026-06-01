@@ -6461,7 +6461,7 @@ async function renderBackups() {
         ${[
           ["backup", "Backup"],
           ["database", "Banco"],
-          ["users", "UsuÃ¡rios"],
+          ["users", "Usuários"],
           ["events", "Log"],
           ["reset", "Limpeza"]
         ].filter(([tab]) => canAccessMaintenanceTab(tab)).map(([tab, label]) => `
