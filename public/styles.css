@@ -1470,7 +1470,7 @@ textarea {
 
 .maintenance-steps {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, auto));
+  grid-template-columns: repeat(auto-fit, minmax(120px, auto));
   gap: 10px;
 }
 
@@ -1481,9 +1481,13 @@ textarea {
 
 .maintenance-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 400px) minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr));
   gap: 18px;
   align-items: start;
+}
+
+.maintenance-grid > .panel {
+  min-width: 0;
 }
 
 .backup-list-state {
@@ -1514,6 +1518,29 @@ textarea {
 .backup-actions .file-action {
   min-height: 42px;
   white-space: normal;
+}
+
+.maintenance-grid .table-wrap {
+  max-width: 100%;
+}
+
+.maintenance-grid table {
+  min-width: 460px;
+}
+
+.maintenance-grid th,
+.maintenance-grid td {
+  padding: 10px 12px;
+}
+
+.maintenance-grid .table-actions {
+  flex-wrap: wrap;
+}
+
+.maintenance-grid .table-action {
+  min-height: 32px;
+  padding-inline: 10px;
+  font-size: 0.82rem;
 }
 
 .backup-list-state strong {
