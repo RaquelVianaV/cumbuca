@@ -1549,13 +1549,16 @@ textarea {
 
 .maintenance-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   align-items: start;
 }
 
 .maintenance-grid > .panel {
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
+  overflow: hidden;
 }
 
 .backup-list-state {
@@ -1591,8 +1594,11 @@ textarea {
 }
 
 .maintenance-grid .table-wrap {
+  display: block;
+  width: 100%;
   max-width: 100%;
   min-width: 0;
+  overflow-x: auto;
 }
 
 .maintenance-grid table {
@@ -1703,6 +1709,16 @@ textarea {
 
 .maintenance-grid .report-table table {
   min-width: 560px;
+}
+
+.maintenance-grid .period-picker {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.maintenance-grid .backup-list-state,
+.maintenance-grid .muted,
+.maintenance-grid .muted-inline {
+  max-width: 100%;
 }
 
 .cleanup-preview .summary {
