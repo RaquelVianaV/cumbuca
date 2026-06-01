@@ -1333,21 +1333,23 @@ textarea {
 }
 
 .cash-tab-section .reason-list span {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: stretch;
-  padding: 10px;
+  grid-template-columns: minmax(120px, 1fr) minmax(86px, auto) minmax(86px, auto);
+  align-items: center;
+  min-height: 48px;
+  padding: 8px 10px;
 }
 
 .cash-tab-section .reason-list .table-action {
   width: 100%;
-  min-height: 38px;
+  min-height: 34px;
   padding-inline: 10px;
+  font-size: 0.82rem;
   white-space: normal;
 }
 
 .cash-tab-section .reason-list b,
 .cash-tab-section .reason-list small {
-  grid-column: 1 / -1;
+  grid-column: auto;
 }
 
 .cash-tab-section .reason-list b {
@@ -2775,6 +2777,14 @@ td select {
     grid-template-columns: 1fr;
   }
 
+  .cash-tab-section .reason-list span {
+    grid-template-columns: minmax(120px, 1fr) minmax(82px, auto) minmax(82px, auto);
+  }
+
+  .cash-tab-section .archived-reason-list span {
+    grid-template-columns: minmax(120px, 1fr) minmax(70px, auto) minmax(82px, auto);
+  }
+
   .section-heading {
     align-items: stretch;
     flex-direction: column;
@@ -2906,6 +2916,11 @@ td select {
 
   .table-actions {
     flex-wrap: wrap;
+  }
+
+  .cash-tab-section .reason-list span,
+  .cash-tab-section .archived-reason-list span {
+    grid-template-columns: 1fr;
   }
 
   .actions,
