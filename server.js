@@ -965,7 +965,7 @@ function buildReportPdf(payload = {}) {
   addPdfTable(doc, ["Pos.", "Cumbuca", "Qtd."], data.dishRows || [], [55, 300, 80]);
 
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Comparativo mensal");
-  addPdfTable(doc, ["Indicador", "Atual", "Anterior", "Diferenca"], data.comparisonRows || [], [110, 110, 110, 110]);
+  addPdfTable(doc, ["Indicador", "Atual", "Anterior", "Diferença"], data.comparisonRows || [], [110, 110, 110, 110]);
 
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Clientes");
   addPdfTable(doc, ["Cliente", "Perfil", "Pedidos", "Qtd.", "Total", "Pend."], data.clientRows || [], [140, 70, 60, 50, 90, 50]);
@@ -979,8 +979,8 @@ function buildReportPdf(payload = {}) {
   const footerY = 760;
   doc.moveTo(42, footerY).lineTo(245, footerY).stroke("#d1d5db");
   doc.moveTo(295, footerY).lineTo(510, footerY).stroke("#d1d5db");
-  doc.fillColor("#69707d").font("Helvetica").fontSize(8).text("Responsavel pelo fechamento", 42, footerY + 8);
-  doc.text("Conferencia financeira", 295, footerY + 8);
+  doc.fillColor("#69707d").font("Helvetica").fontSize(8).text("Responsável pelo fechamento", 42, footerY + 8);
+  doc.text("Conferência financeira", 295, footerY + 8);
   doc.text("Observações: conferir contas, despesas maiores e cumbucas vendidas antes do fechamento.", 300, footerY, {
     width: 240,
     align: "right"
@@ -1014,9 +1014,9 @@ async function buildReportXlsx(payload = {}) {
     ["Entradas", [["Data", "Descrição", "Valor"], ...(data.incomeRows || [])]],
     ["Despesas", [["Data", "Descrição", "Categoria", "Valor"], ...(data.expenseRows || [])]],
     ["Canais", [["Data", "Cardápio bruto", "Cardápio taxa", "Cardápio líquido", "iFood bruto", "iFood taxa", "iFood líquido", "99 Food bruto", "99 Food taxa", "99 Food líquido", "Total líquido"], ...(data.channelRows || [])]],
-    ["Ranking", [["Posicao", "Cumbuca", "Quantidade"], ...(data.dishRows || [])]],
-    ["Comparativo", [["Indicador", "Atual", "Anterior", "Diferenca"], ...(data.comparisonRows || [])]],
-    ["Clientes", [["Cliente", "Telefone", "Perfil", "Pedidos", "Cumbucas", "Total", "Pendencias"], ...(data.clientRows || [])]],
+    ["Ranking", [["Posição", "Cumbuca", "Quantidade"], ...(data.dishRows || [])]],
+    ["Comparativo", [["Indicador", "Atual", "Anterior", "Diferença"], ...(data.comparisonRows || [])]],
+    ["Clientes", [["Cliente", "Telefone", "Perfil", "Pedidos", "Cumbucas", "Total", "Pendências"], ...(data.clientRows || [])]],
     ["Retiradas", [["Destino", "Valor"], ...(data.withdrawalRows || [])]],
     ["Loja", [["Data", "Quantidade", "Observação"], ...(data.storeRows || [])]],
     ["Caixa", [["Data", "Descrição", "Tipo", "Categoria", "Valor"], ...(data.cashRows || [])]]

@@ -1018,7 +1018,7 @@ function blockClosedMonth(dateKey, action = "alterar") {
   if (!isMonthClosed(dateKey)) {
     return false;
   }
-  showToast(`Mes ${formatMonthKeyBr(key)} fechado. Destrave o fechamento antes de ${action}.`, "warning");
+  showToast(`Mês ${formatMonthKeyBr(key)} fechado. Destrave o fechamento antes de ${action}.`, "warning");
   return true;
 }
 
@@ -2087,12 +2087,12 @@ function home() {
         </div>
       </div>
       <div class="panel dashboard-panel">
-        <h2>Notificacoes</h2>
+        <h2>Notificações</h2>
         ${notifications.length ? `
           <div class="alert-list">
             ${notifications.slice(0, 6).map(item => `<span><b>${item.title}</b>${item.detail}<a class="secondary table-action" href="${item.action}">Abrir</a></span>`).join("")}
           </div>
-        ` : `<p class="muted">Nenhuma notificacao agora.</p>`}
+        ` : `<p class="muted">Nenhuma notificação agora.</p>`}
       </div>
     </section>
 
@@ -2380,7 +2380,7 @@ function bindTodayForms(today) {
       showToast("Informe valor maior que zero.", "error");
       return;
     }
-    if (blockClosedMonth(today, "lancar saida rapida")) {
+    if (blockClosedMonth(today, "lançar saída rápida")) {
       return;
     }
     state.cash.push({
@@ -4352,7 +4352,7 @@ function orderWhatsAppUrl(order, plan) {
 function clientChargeWhatsAppUrl(client, amount = 0) {
   return whatsappUrl(client.phone, [
     `Oi, ${client.name || "tudo bem"}!`,
-    "Passando para lembrar da pendencia da Cumbuca.",
+    "Passando para lembrar da pendência da Cumbuca.",
     Number(amount || 0) > 0 ? `Valor: ${money(amount)}.` : "",
     "Pode me confirmar quando fizer o pagamento?"
   ].filter(Boolean).join(" "));
@@ -4372,11 +4372,11 @@ function monthlyRenewalWhatsAppUrl(client, currentKey) {
 function productionListText(plan, currentKey) {
   const totals = weeklyDishTotals(plan, weeklyOrders(currentKey));
   if (!totals.length) {
-    return "Sem pedidos para producao.";
+    return "Sem pedidos para produção.";
   }
 
   return [
-    `Lista de producao - ${currentKey}`,
+    `Lista de produção - ${currentKey}`,
     "",
     ...totals.map(item => `${item.quantity}x ${item.dish} (Cumbuca ${item.slot})`)
   ].join("\n");
@@ -4409,14 +4409,14 @@ function productionListPanel(plan, currentKey) {
   return `
     <section class="order-overview-panel">
       <div class="section-heading">
-        <h2>Lista de producao</h2>
+        <h2>Lista de produção</h2>
         <button class="secondary" type="button" data-download-production>Baixar TXT</button>
       </div>
       ${totals.length ? `
         <div class="recent-list">
           ${totals.map(item => `<span><b>${item.quantity}</b>${item.dish}<small>Cumbuca ${item.slot}</small></span>`).join("")}
         </div>
-      ` : `<p class="muted">Sem pedidos para producao ainda.</p>`}
+      ` : `<p class="muted">Sem pedidos para produção ainda.</p>`}
     </section>
   `;
 }
@@ -4446,7 +4446,7 @@ function orderTabs() {
   const tabs = [
     ["form", state.editOrderId ? "Editar pedido" : "Novo pedido"],
     ["orders", "Pedidos"],
-    ["production", "Producao"],
+    ["production", "Produção"],
     ["delivery", "Entrega"]
   ];
 
@@ -4949,11 +4949,11 @@ function technicalSheetPanel(config = state.pricingConfig) {
   const rows = technicalSheetRows(config).slice(0, 12);
   return `
     <section class="panel report-section technical-sheet-panel">
-      <h2>Ficha tecnica por cumbuca</h2>
+      <h2>Ficha técnica por cumbuca</h2>
       ${rows.length ? `
         <div class="table-wrap report-table">
           <table>
-            <thead><tr><th>Semana</th><th>Cumbuca</th><th>Ingredientes</th><th>Custo</th><th>Preco sugerido</th><th>Lucro</th></tr></thead>
+            <thead><tr><th>Semana</th><th>Cumbuca</th><th>Ingredientes</th><th>Custo</th><th>Preço sugerido</th><th>Lucro</th></tr></thead>
             <tbody>
               ${rows.map(row => `
                 <tr>
@@ -4968,7 +4968,7 @@ function technicalSheetPanel(config = state.pricingConfig) {
             </tbody>
           </table>
         </div>
-      ` : `<p class="muted">Cadastre ingredientes no planejamento do Menu Semanal para gerar a ficha tecnica.</p>`}
+      ` : `<p class="muted">Cadastre ingredientes no planejamento do Menu Semanal para gerar a ficha técnica.</p>`}
     </section>
   `;
 }
@@ -6036,7 +6036,7 @@ function clientReportPanel(data) {
       ${rows.length ? `
         <div class="table-wrap report-table">
           <table>
-            <thead><tr><th>Cliente</th><th>Perfil</th><th>Pedidos</th><th>Cumbucas</th><th>Total</th><th>Pendencias</th></tr></thead>
+            <thead><tr><th>Cliente</th><th>Perfil</th><th>Pedidos</th><th>Cumbucas</th><th>Total</th><th>Pendências</th></tr></thead>
             <tbody>
               ${rows.slice(0, 20).map(row => `
                 <tr>
@@ -6767,7 +6767,7 @@ function bindMonthlyClosing(data, renderFn) {
           lockUpdatedAt: new Date().toISOString()
         }
       };
-      recordAudit(locked ? "Mes destravado" : "Mes travado", formatMonthKeyBr(data.periodKey));
+      recordAudit(locked ? "Mês destravado" : "Mês travado", formatMonthKeyBr(data.periodKey));
       persistState();
       renderFn();
     });
@@ -6816,7 +6816,7 @@ function financeDashboardPanel(data) {
       </div>
       ${monthlyGoal > 0 ? `
         <div class="backup-list-state ${projectedVsGoal >= 0 ? "" : "warning-state"}">
-          <strong>Projecao da meta</strong>
+          <strong>Projeção da meta</strong>
           <span>${projectedVsGoal >= 0 ? "Acima da meta" : "Abaixo da meta"} em ${money(Math.abs(projectedVsGoal))}. Meta: ${money(monthlyGoal)}.</span>
         </div>
       ` : ""}
@@ -7045,7 +7045,7 @@ async function renderBackups() {
     </section>
 
     <section class="panel maintenance-tabs-panel">
-      <div class="maintenance-tabs" role="tablist" aria-label="Manutencao">
+      <div class="maintenance-tabs" role="tablist" aria-label="Manutenção">
         ${[
           ["backup", "Backup"],
           ["database", "Banco"],
@@ -7281,7 +7281,7 @@ async function saveManualBackupToSupabase() {
     });
     const result = await response.json();
     if (!response.ok || !result.database || !result.saved) {
-      showToast(result.error || "Nao foi possivel salvar no Supabase.", "error");
+      showToast(result.error || "Não foi possível salvar no Supabase.", "error");
       return;
     }
     localStorage.setItem("lastManualBackupAt", new Date().toISOString());
@@ -7438,7 +7438,7 @@ async function runSystemCheck() {
   const ok = checks.every(item => item.ok);
   panel.innerHTML = `
     <div class="backup-list-state ${ok ? "" : "warning-state"}">
-      <strong>${ok ? "Sistema verificado" : "Sistema com pendencias"}</strong>
+      <strong>${ok ? "Sistema verificado" : "Sistema com pendências"}</strong>
       <span>${new Date().toLocaleString("pt-BR")}</span>
     </div>
     <div class="system-check-list">
@@ -7483,8 +7483,8 @@ function renderAlerts() {
     <section class="dashboard-band alerts-band">
       <div class="dashboard-copy">
         <span>Central</span>
-        <h2>Pendencias da operacao</h2>
-        <p>Pagamentos, entregas, contas e cadastros que precisam de atencao.</p>
+        <h2>Pendências da operação</h2>
+        <p>Pagamentos, entregas, contas e cadastros que precisam de atenção.</p>
       </div>
       <div class="dashboard-kpis">
         <div class="metric dashboard-metric is-primary">
@@ -7513,9 +7513,9 @@ function renderAlerts() {
             </article>
           `).join("")}
         </div>
-      ` : `<p class="muted">Nenhuma pendencia critica agora.</p>`}
+      ` : `<p class="muted">Nenhuma pendência crítica agora.</p>`}
       ${notifications.length ? `
-        <h2>Notificacoes recentes</h2>
+        <h2>Notificações recentes</h2>
         <div class="alert-list">
           ${notifications.slice(0, 8).map(item => `<span><b>${item.title}</b>${item.detail}<a class="secondary table-action" href="${item.action}">Abrir</a></span>`).join("")}
         </div>
@@ -7523,14 +7523,14 @@ function renderAlerts() {
       <div class="start-actions">
         <a class="secondary table-action" href="/pedidos" data-route="pedidos">Ver pedidos</a>
         <a class="secondary table-action" href="/financeiro" data-route="financeiro">Ver financeiro</a>
-        <a class="secondary table-action" href="/backups" data-route="backups">Ver manutencao</a>
+        <a class="secondary table-action" href="/backups" data-route="backups">Ver manutenção</a>
       </div>
     </section>
   `;
 }
 
 function renderSettings() {
-  title.textContent = "Configuracoes";
+  title.textContent = "Configurações";
   setActive("configuracoes");
   const config = {
     ...defaultAppConfig,
@@ -7538,7 +7538,7 @@ function renderSettings() {
   };
   app.innerHTML = `
     <section class="panel settings-panel">
-      <h2>Configuracoes</h2>
+      <h2>Configurações</h2>
       <form id="settings-form" class="settings-form">
         <label>Nome da loja
           <input name="storeName" value="${config.storeName || ""}" placeholder="Cumbuca">
@@ -7557,7 +7557,7 @@ function renderSettings() {
         <label>Raquel (%)
           <input name="splitRaquelPercent" type="number" min="0" max="100" step="1" value="${Number(config.splitRaquelPercent || 0)}">
         </label>
-        <button type="submit">Salvar configuracoes</button>
+        <button type="submit">Salvar configurações</button>
       </form>
     </section>
   `;
@@ -7582,13 +7582,13 @@ function renderMore() {
   title.textContent = "Mais";
   setActive("mais");
   const links = [
-    ["menu-semanal", "Menu", "Cardapio, producao e pedidos"],
-    ["loja", "Loja", "Vendas do balcao"],
-    ["precificacao", "Precos", "Ingredientes e margem"],
-    ["relatorios", "Relatorios", "PDF, Excel e ranking"],
-    ["alertas", "Alertas", "Pendencias da operacao"],
+    ["menu-semanal", "Menu", "Cardápio, produção e pedidos"],
+    ["loja", "Loja", "Vendas do balcão"],
+    ["precificacao", "Preços", "Ingredientes e margem"],
+    ["relatorios", "Relatórios", "PDF, Excel e ranking"],
+    ["alertas", "Alertas", "Pendências da operação"],
     ["configuracoes", "Config.", "Tela inicial e retiradas"],
-    ["backups", "Manutencao", "Backup, usuarios e banco"]
+    ["backups", "Manutenção", "Backup, usuários e banco"]
   ];
   app.innerHTML = `
     <section class="panel start-panel">
@@ -7831,9 +7831,9 @@ async function restoreAutomaticBackup(date) {
   if (!confirm(`Restaurar o backup automatico de ${formatIsoDateBr(date)}? Os dados atuais serao substituidos.`)) {
     return;
   }
-  const typed = prompt(`Digite ${date} para confirmar a restauracao.`);
+  const typed = prompt(`Digite ${date} para confirmar a restauração.`);
   if (typed !== date) {
-    showToast("Restauracao cancelada", "warning");
+    showToast("Restauração cancelada", "warning");
     return;
   }
   const response = await fetch("/api/restore-backup", {
@@ -7843,7 +7843,7 @@ async function restoreAutomaticBackup(date) {
   });
   const result = await response.json();
   if (!response.ok || !result.restored) {
-    showToast(result.error || "Nao foi possivel restaurar o backup.", "error");
+    showToast(result.error || "Não foi possível restaurar o backup.", "error");
     return;
   }
   closeModal();
@@ -7944,7 +7944,7 @@ function renderAccount() {
     event.preventDefault();
     const values = readForm(event.currentTarget);
     if (values.newPassword !== values.confirmPassword) {
-      showToast("A confirmacao nao confere.", "warning");
+      showToast("A confirmação não confere.", "warning");
       return;
     }
     const response = await fetch("/api/change-password", {
@@ -7954,7 +7954,7 @@ function renderAccount() {
     });
     const result = await response.json();
     if (!response.ok || !result.saved) {
-      showToast(result.error || "Nao foi possivel alterar a senha.", "error");
+      showToast(result.error || "Não foi possível alterar a senha.", "error");
       return;
     }
     event.currentTarget.reset();
