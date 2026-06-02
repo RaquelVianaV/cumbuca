@@ -1364,6 +1364,25 @@ function isBillCategory(value) {
   return normalized === "boleto" || normalized === "reason:boleto" || normalized.includes("boleto");
 }
 
+function isBillEntry(entry = {}) {
+  return entry.type === "expense" && (entry.dueDate || isBillCategory(entry.category));
+}
+
+function isPendingBill(entry = {}) {
+  return isBillEntry(entry) && !entry.paidAt;
+}
+
+function cashAccountingDate(entry = {}) {
+  if (isBillEntry(entry) && entry.paidAt) {
+    return String(entry.paidAt).slice(0, 10);
+  }
+  return String(entry.date || "");
+}
+
+function accountingCashEntries(entries = state.cash) {
+  return entries.filter(entry => !isPendingBill(entry));
+}
+
 function textLines(value) {
   return String(value || "")
     .split(/\r?\n/)
@@ -1455,7 +1474,7 @@ function cashCategoriesPanel(className = "panel supplier-panel") {
   `;
 }
 function cashTotals(entries = state.cash) {
-  return entries.reduce((totals, entry) => {
+  return accountingCashEntries(entries).reduce((totals, entry) => {
     const amount = Number(entry.amount || 0);
     if (entry.type === "expense") {
       totals.expenses += amount;
@@ -1557,7 +1576,7 @@ function financialSummary(cashEntries = []) {
     withdrawalEntries: []
   };
 
-  cashEntries.forEach(entry => {
+  accountingCashEntries(cashEntries).forEach(entry => {
     const amount = Number(entry.amount || 0);
     if (entry.type !== "expense") {
       summary.income += amount;
@@ -1717,6 +1736,11 @@ function currentMonthKey() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function currentMonthEndDate() {
+  const now = new Date();
+  return isoDate(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+}
+
 function dishNameForSlot(menuItems, slot) {
   return menuItems.find(item => Number(item.slot) === Number(slot))?.dish || `Cumbuca ${slot}`;
 }
@@ -1750,15 +1774,15 @@ function paymentReminderDate(entry) {
 }
 
 function dashboardPendingCashPayments(limit = 5) {
-  const end = isoDate(new Date(Date.now() + 30 * 86400000));
+  const monthEnd = currentMonthEndDate();
 
   return state.cash
-    .filter(entry => entry.type === "expense")
+    .filter(isPendingBill)
     .map(entry => ({
       ...entry,
       reminderDate: paymentReminderDate(entry)
     }))
-    .filter(entry => entry.reminderDate && entry.reminderDate <= end)
+    .filter(entry => entry.reminderDate && entry.reminderDate <= monthEnd)
     .sort((a, b) => String(a.reminderDate).localeCompare(String(b.reminderDate)))
     .slice(0, limit);
 }
@@ -1788,14 +1812,14 @@ function homeMetricData() {
   const menuItems = state.menus[currentMenuKey] || [];
   const weekOrders = state.orders.filter(order => order.menuKey === currentMenuKey);
   const monthOrders = state.orders.filter(order => menuPeriodKeyFromKey(order.menuKey) === monthKey);
-  const monthCash = state.cash.filter(entry => String(entry.date || "").startsWith(monthKey));
+  const monthCash = accountingCashEntries(state.cash).filter(entry => cashAccountingDate(entry).startsWith(monthKey));
   const todayKey = isoDate(new Date());
-  const todayCash = state.cash.filter(entry => entry.date === todayKey);
+  const todayCash = accountingCashEntries(state.cash).filter(entry => cashAccountingDate(entry) === todayKey);
   const todayOrders = weekOrders.filter(order => String(order.createdAt || "").slice(0, 10) === todayKey);
   const weekStart = isoDate(startOfWeek(new Date()));
   const weekEnd = isoDate(endOfWeek(new Date()));
-  const weekCash = state.cash.filter(entry => {
-    const date = String(entry.date || "");
+  const weekCash = accountingCashEntries(state.cash).filter(entry => {
+    const date = cashAccountingDate(entry);
     return date >= weekStart && date <= weekEnd;
   });
   const income = monthCash
@@ -1816,9 +1840,9 @@ function homeMetricData() {
   const weekExpenses = weekCash
     .filter(entry => entry.type === "expense")
     .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-  const recentExpenses = [...state.cash]
+  const recentExpenses = accountingCashEntries(state.cash)
     .filter(entry => entry.type === "expense")
-    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
+    .sort((a, b) => cashAccountingDate(b).localeCompare(cashAccountingDate(a)))
     .slice(0, 3);
   const topMonthExpenses = [...monthCash]
     .filter(entry => entry.type === "expense" && !isWithdrawalEntry(entry))
@@ -2161,7 +2185,7 @@ function home() {
         ${metrics.recentExpenses.length ? `
             <div class="recent-list compact">
               ${metrics.recentExpenses.map(entry => `
-                <span><b>${money(entry.amount)}</b>${entry.description || "Despesa"}<small>${formatIsoDateBr(entry.date)}</small></span>
+                <span><b>${money(entry.amount)}</b>${entry.description || "Despesa"}<small>${formatIsoDateBr(cashAccountingDate(entry))}</small></span>
               `).join("")}
             </div>
           ` : `<p class="muted">Nenhuma despesa lançada ainda.</p>`}
@@ -2171,7 +2195,7 @@ function home() {
         ${metrics.topMonthExpenses.length ? `
             <div class="recent-list compact">
               ${metrics.topMonthExpenses.map(entry => `
-                <span><b>${money(entry.amount)}</b>${entry.description || categoryName(entry.category)}<small>${categoryName(entry.category)} - ${formatIsoDateBr(entry.date)}</small></span>
+                <span><b>${money(entry.amount)}</b>${entry.description || categoryName(entry.category)}<small>${categoryName(entry.category)} - ${formatIsoDateBr(cashAccountingDate(entry))}</small></span>
               `).join("")}
             </div>
           ` : `<p class="muted">Nenhuma despesa operacional no mês.</p>`}
@@ -2182,8 +2206,9 @@ function home() {
 
 function todayOperationData() {
   const today = isoDate(new Date());
+  const monthEnd = currentMonthEndDate();
   const currentKey = menuKey(state.menuWeek || 1);
-  const todayCash = state.cash.filter(entry => entry.date === today);
+  const todayCash = accountingCashEntries(state.cash).filter(entry => cashAccountingDate(entry) === today);
   const todayStoreSales = state.storeSales.filter(entry => entry.date === today);
   const weekOrders = weeklyOrders(currentKey);
   const pendingPayments = weekOrders.filter(order => {
@@ -2192,9 +2217,12 @@ function todayOperationData() {
   });
   const pendingDelivery = weekOrders.filter(order => !order.delivered);
   const billsDue = state.cash
-    .filter(entry => entry.type === "expense" && entry.dueDate && !entry.paidAt)
-    .filter(entry => entry.dueDate <= today)
-    .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
+    .filter(isPendingBill)
+    .filter(entry => {
+      const date = String(entry.dueDate || entry.date || "");
+      return date && date <= monthEnd;
+    })
+    .sort((a, b) => String(a.dueDate || a.date || "").localeCompare(String(b.dueDate || b.date || "")));
 
   return {
     today,
@@ -2214,6 +2242,7 @@ function todayOperationData() {
 function renderToday() {
   title.textContent = "Hoje";
   setActive("hoje");
+  ensureCashEntryIds();
   const data = todayOperationData();
 
   app.innerHTML = `
@@ -2296,12 +2325,21 @@ function renderToday() {
 
     <section class="dashboard-lane">
       <div class="panel dashboard-panel">
-        <h2>Contas a pagar</h2>
+        <h2>Contas a pagar do mês</h2>
         ${data.billsDue.length ? `
           <div class="recent-list">
-            ${data.billsDue.slice(0, 8).map(entry => `<span><b>${money(entry.amount)}</b>${entry.description || categoryName(entry.category)}<small>${dueDateDistanceLabel(entry.dueDate)}</small></span>`).join("")}
+            ${data.billsDue.slice(0, 8).map(entry => `
+              <span class="today-order-item">
+                <b>${money(entry.amount)}</b>
+                ${entry.description || categoryName(entry.category)}
+                <small>${entry.dueDate ? dueDateDistanceLabel(entry.dueDate) : formatIsoDateBr(entry.date)}</small>
+                <span class="today-order-actions">
+                  <button class="secondary table-action" type="button" data-pay-bill="${entry.id || ""}">Marcar pago</button>
+                </span>
+              </span>
+            `).join("")}
           </div>
-        ` : `<p class="muted">Nenhuma conta vencida ou vencendo hoje.</p>`}
+        ` : `<p class="muted">Nenhuma conta a pagar até o fim deste mês.</p>`}
       </div>
       <div class="panel dashboard-panel">
         <h2>Pendências</h2>
@@ -2316,6 +2354,7 @@ function renderToday() {
 
   bindTodayForms(data.today);
   bindTodayOrderActions();
+  bindBillPaymentButtons(renderToday);
 }
 
 function bindTodayOrderActions() {
@@ -2341,6 +2380,35 @@ function bindTodayOrderActions() {
       if (await persistState()) {
         showToast("Pedido marcado como entregue.", "success");
         renderToday();
+      }
+    });
+  });
+}
+
+function bindBillPaymentButtons(afterPay = renderCurrentRoute) {
+  document.querySelectorAll("[data-pay-bill]").forEach(button => {
+    button.addEventListener("click", async event => {
+      const id = event.currentTarget.dataset.payBill;
+      const bill = state.cash.find(entry => String(entry.id) === String(id));
+      if (!bill) {
+        return;
+      }
+
+      const paidDate = isoDate(new Date());
+      if (blockClosedMonth(paidDate, "pagar conta")) {
+        return;
+      }
+      if (!confirm(`Marcar ${bill.description || categoryName(bill.category)} como pago hoje?`)) {
+        return;
+      }
+
+      state.cash = state.cash.map(entry => String(entry.id) === String(id)
+        ? { ...entry, paidAt: new Date().toISOString() }
+        : entry);
+      recordAudit("Conta paga", `${bill.description || categoryName(bill.category)} - ${money(bill.amount)}`);
+      if (await persistState()) {
+        showToast("Conta marcada como paga.", "success");
+        afterPay();
       }
     });
   });
@@ -3160,6 +3228,8 @@ async function renderCash() {
       renderCash();
     });
   });
+
+  bindBillPaymentButtons(renderCash);
 }
 
 function cashTable(entries) {
@@ -3178,10 +3248,14 @@ function cashTable(entries) {
               <td>${item.description}</td>
               <td><span class="cash-type-badge ${item.type === "income" ? "income" : "expense"}">${item.type === "income" ? "Entrada" : "Saída"}</span></td>
               <td><span class="cash-category-badge">${categoryName(item.category)}</span></td>
-              <td>${item.dueDate ? formatIsoDateBr(item.dueDate) : "-"}</td>
+              <td>
+                ${item.dueDate ? formatIsoDateBr(item.dueDate) : "-"}
+                ${isBillEntry(item) ? `<br><small>${item.paidAt ? `Pago em ${formatIsoDateBr(cashAccountingDate(item))}` : "A pagar"}</small>` : ""}
+              </td>
               <td class="${item.type === "income" ? "positive" : "negative"}">${money(item.amount)}</td>
               <td>
                 <div class="table-actions">
+                  ${isPendingBill(item) ? `<button class="secondary table-action" type="button" data-pay-bill="${item.id || ""}">Marcar pago</button>` : ""}
                   <button class="secondary table-action" type="button" data-edit-cash="${item.id || ""}">Editar</button>
                   <button class="danger table-action" type="button" data-delete-cash="${item.id || ""}">Excluir</button>
                 </div>
@@ -4999,17 +5073,18 @@ function ingredientList() {
 
 function reportCashEntries(periodKey, weekKey) {
   const type = state.reportPeriod.type || "month";
+  const entries = accountingCashEntries(state.cash);
   if (type === "day") {
-    return state.cash.filter(entry => String(entry.date || "") === reportDate());
+    return entries.filter(entry => cashAccountingDate(entry) === reportDate());
   }
   if (type !== "week") {
-    return state.cash.filter(entry => String(entry.date || "").startsWith(periodKey));
+    return entries.filter(entry => cashAccountingDate(entry).startsWith(periodKey));
   }
 
   const { start, end } = reportWeekRange();
 
-  return state.cash.filter(entry => {
-    const date = String(entry.date || "");
+  return entries.filter(entry => {
+    const date = cashAccountingDate(entry);
     return date >= start && date <= end;
   });
 }
@@ -5339,7 +5414,7 @@ function monthlyOriginCategoryPanel(data) {
     .slice(0, 5)
     .map(entry => [entry.description || categoryName(entry.category), Number(entry.amount || 0)]);
   const previousKey = previousMonthKeyFromPeriod(data.periodKey);
-  const previousCash = state.cash.filter(entry => String(entry.date || "").startsWith(previousKey));
+  const previousCash = accountingCashEntries(state.cash).filter(entry => cashAccountingDate(entry).startsWith(previousKey));
   const previousTotals = cashTotals(previousCash);
   const incomeDelta = data.income - previousTotals.income;
   const expenseDelta = data.expenses - previousTotals.expenses;
@@ -6058,7 +6133,7 @@ function clientReportPanel(data) {
 
 function comparisonReportRows(data) {
   const previousKey = previousMonthKeyFromPeriod(data.periodKey);
-  const previousCash = state.cash.filter(entry => String(entry.date || "").startsWith(previousKey));
+  const previousCash = accountingCashEntries(state.cash).filter(entry => cashAccountingDate(entry).startsWith(previousKey));
   const previousOrders = state.orders.filter(order => menuPeriodKeyFromKey(order.menuKey) === previousKey);
   const previousStore = state.storeSales.filter(entry => String(entry.date || "").startsWith(previousKey));
   const previousTotals = cashTotals(previousCash);
@@ -6493,7 +6568,7 @@ function upcomingBills(limit = 6) {
   const end = isoDate(new Date(Date.now() + 30 * 86400000));
 
   return state.cash
-    .filter(entry => entry.type === "expense")
+    .filter(isPendingBill)
     .map(entry => ({
       ...entry,
       reminderDate: paymentReminderDate(entry)
