@@ -15,6 +15,7 @@ let systemStatus = {
 };
 let lastConfirmedPayload = null;
 let offlineAlertOpen = false;
+let suppressIssueLog = false;
 const APP_DATA_RESET_VERSION = "2026-05-29-clean-start";
 const defaultAppConfig = {
   storeName: "Cumbuca",
@@ -137,6 +138,9 @@ function setSaveStatus(text, mode = "checking") {
 }
 
 function showToast(text, mode = "success") {
+  if ((mode === "error" || mode === "warning") && !suppressIssueLog) {
+    recordSystemIssue(mode, text);
+  }
   let area = document.querySelector(".toast-area");
   if (!area) {
     area = document.createElement("div");
@@ -457,6 +461,23 @@ function appStatePayload() {
     financialPlanning: state.financialPlanning,
     appConfig: state.appConfig
   };
+}
+
+function systemIssues() {
+  return localValue("systemIssues", []);
+}
+
+function recordSystemIssue(type, message, detail = "") {
+  const issue = {
+    id: Date.now(),
+    type,
+    message: String(message || ""),
+    detail: String(detail || ""),
+    route: routeName(),
+    createdAt: new Date().toISOString()
+  };
+  const issues = [issue, ...systemIssues()].slice(0, 40);
+  localStorage.setItem("systemIssues", JSON.stringify(issues));
 }
 
 function applyPayloadToState(saved = {}) {
@@ -966,6 +987,14 @@ function readForm(form) {
 
 function money(value) {
   return brl.format(Number(value || 0));
+}
+
+function whatsappUrl(phone, text) {
+  const cleanPhone = String(phone || "").replace(/\D/g, "");
+  if (!cleanPhone) {
+    return "#";
+  }
+  return `https://wa.me/55${cleanPhone}?text=${encodeURIComponent(text)}`;
 }
 
 function isoDate(date) {
@@ -1873,6 +1902,98 @@ function dashboardAlerts(metrics, weeklyOrders) {
   return alerts;
 }
 
+function monthlyClientRows(currentKey = menuKey(state.menuWeek || 1)) {
+  return state.clients
+    .filter(client => client.plan === "mensalista" && !client.inactive)
+    .map(client => {
+      const capacity = clientMonthlyCapacity(client, currentKey);
+      const remaining = clientRemainingQuantity(client, currentKey);
+      const used = Math.max(0, capacity - remaining);
+      return {
+        client,
+        capacity,
+        used,
+        remaining,
+        value: clientMonthlyValue(client, currentKey),
+        packages: clientChargedPackageCount(client, currentKey)
+      };
+    })
+    .sort((a, b) => a.remaining - b.remaining);
+}
+
+function monthlyClientsPanel(currentKey = menuKey(state.menuWeek || 1)) {
+  const rows = monthlyClientRows(currentKey);
+  return `
+    <div class="panel dashboard-panel">
+      <h2>Controle de mensalistas</h2>
+      ${rows.length ? `
+        <div class="recent-list compact">
+          ${rows.slice(0, 8).map(row => `
+            <span>
+              <b>${row.remaining}/${row.capacity}</b>
+              ${row.client.name || row.client.phone}
+              <small>${money(row.value)} - usados ${row.used}${row.packages > 1 ? ` - ${row.packages} pacotes` : ""}</small>
+              ${row.client.phone ? `<a class="secondary table-action" href="${monthlyRenewalWhatsAppUrl(row.client, currentKey)}" target="_blank" rel="noopener">WhatsApp</a>` : ""}
+            </span>
+          `).join("")}
+        </div>
+      ` : `<p class="muted">Nenhum mensalista ativo cadastrado.</p>`}
+    </div>
+  `;
+}
+
+function growthMetrics() {
+  const currentKey = currentMonthKey();
+  const previousKey = previousMonthKeyFromPeriod(currentKey);
+  const currentOrders = state.orders.filter(order => menuPeriodKeyFromKey(order.menuKey) === currentKey);
+  const previousOrders = state.orders.filter(order => menuPeriodKeyFromKey(order.menuKey) === previousKey);
+  const currentStore = state.storeSales.filter(entry => String(entry.date || "").startsWith(currentKey));
+  const previousStore = state.storeSales.filter(entry => String(entry.date || "").startsWith(previousKey));
+  const currentRevenue = currentOrders.reduce((sum, order) => sum + Number(order.amount || 0) + Number(order.deliveryFee || 0), 0);
+  const previousRevenue = previousOrders.reduce((sum, order) => sum + Number(order.amount || 0) + Number(order.deliveryFee || 0), 0);
+  const currentBowls = currentOrders.reduce((sum, order) => sum + orderQuantity(order), 0) + currentStore.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+  const previousBowls = previousOrders.reduce((sum, order) => sum + orderQuantity(order), 0) + previousStore.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+  const currentClients = new Set(currentOrders.map(order => order.clientPhone).filter(Boolean)).size;
+  const previousClients = new Set(previousOrders.map(order => order.clientPhone).filter(Boolean)).size;
+  return {
+    currentKey,
+    previousKey,
+    revenue: currentRevenue,
+    revenueDelta: currentRevenue - previousRevenue,
+    bowls: currentBowls,
+    bowlsDelta: currentBowls - previousBowls,
+    clients: currentClients,
+    clientsDelta: currentClients - previousClients,
+    averageTicket: currentOrders.length ? currentRevenue / currentOrders.length : 0
+  };
+}
+
+function growthDashboardPanel() {
+  const growth = growthMetrics();
+  return `
+    <div class="panel dashboard-panel growth-panel">
+      <h2>Crescimento</h2>
+      <div class="summary">
+        <div class="metric"><span>Receita pedidos</span><strong>${money(growth.revenue)}</strong><small>${growth.revenueDelta < 0 ? "-" : "+"}${money(Math.abs(growth.revenueDelta))}</small></div>
+        <div class="metric"><span>Cumbucas</span><strong>${growth.bowls}</strong><small>${growth.bowlsDelta < 0 ? "" : "+"}${growth.bowlsDelta}</small></div>
+        <div class="metric"><span>Clientes ativos</span><strong>${growth.clients}</strong><small>${growth.clientsDelta < 0 ? "" : "+"}${growth.clientsDelta}</small></div>
+        <div class="metric"><span>Ticket medio</span><strong>${money(growth.averageTicket)}</strong></div>
+      </div>
+      <p class="muted">Comparado com ${formatMonthKeyBr(growth.previousKey)}.</p>
+    </div>
+  `;
+}
+
+function notificationRows(metrics = homeMetricData(), weeklyOrders = 0) {
+  const backupAt = localStorage.getItem("lastManualBackupAt") || "";
+  const backupOld = !backupAt || (Date.now() - new Date(backupAt).getTime()) > 7 * 86400000;
+  return [
+    ...dashboardAlerts(metrics, weeklyOrders).map(([title, detail]) => ({ type: "alerta", title, detail, action: "/alertas" })),
+    backupOld ? { type: "backup", title: "Backup manual antigo", detail: "Baixe ou salve um backup no Supabase.", action: "/backups" } : null,
+    ...systemIssues().slice(0, 3).map(issue => ({ type: issue.type, title: issue.message, detail: new Date(issue.createdAt).toLocaleString("pt-BR"), action: "/backups" }))
+  ].filter(Boolean);
+}
+
 function home() {
   title.textContent = "Cumbuca";
   setActive("");
@@ -1966,13 +2087,18 @@ function home() {
         </div>
       </div>
       <div class="panel dashboard-panel">
-        <h2>Alertas</h2>
-        ${alerts.length ? `
+        <h2>Notificacoes</h2>
+        ${notifications.length ? `
           <div class="alert-list">
-            ${alerts.map(([label, detail]) => `<span><b>${label}</b>${detail}</span>`).join("")}
+            ${notifications.slice(0, 6).map(item => `<span><b>${item.title}</b>${item.detail}<a class="secondary table-action" href="${item.action}">Abrir</a></span>`).join("")}
           </div>
-        ` : `<p class="muted">Nenhum alerta agora.</p>`}
+        ` : `<p class="muted">Nenhuma notificacao agora.</p>`}
       </div>
+    </section>
+
+    <section class="dashboard-lane">
+      ${growthDashboardPanel()}
+      ${monthlyClientsPanel(menuKey(state.menuWeek || 1))}
     </section>
 
     <section class="dashboard-lane">
@@ -3962,6 +4088,7 @@ function clientList(currentKey) {
                 <div class="table-actions">
                   <button class="secondary table-action" type="button" data-edit-client="${index}">Editar</button>
                   <button class="secondary table-action" type="button" data-client-history="${client.phone || ""}">Histórico</button>
+                  ${client.phone ? `<a class="secondary table-action" href="${client.plan === "mensalista" ? monthlyRenewalWhatsAppUrl(client, currentKey) : clientChargeWhatsAppUrl(client)}" target="_blank" rel="noopener">WhatsApp</a>` : ""}
                   ${client.inactive
                     ? `<button class="secondary table-action" type="button" data-reactivate-client="${index}">Reativar</button>`
                     : `<button class="danger table-action" type="button" data-delete-client="${index}">Inativar</button>`}
@@ -4219,8 +4346,27 @@ function orderWhatsAppText(order, plan) {
 }
 
 function orderWhatsAppUrl(order, plan) {
-  const phone = String(order.clientPhone || "").replace(/\D/g, "");
-  return `https://wa.me/55${phone}?text=${encodeURIComponent(orderWhatsAppText(order, plan))}`;
+  return whatsappUrl(order.clientPhone, orderWhatsAppText(order, plan));
+}
+
+function clientChargeWhatsAppUrl(client, amount = 0) {
+  return whatsappUrl(client.phone, [
+    `Oi, ${client.name || "tudo bem"}!`,
+    "Passando para lembrar da pendencia da Cumbuca.",
+    Number(amount || 0) > 0 ? `Valor: ${money(amount)}.` : "",
+    "Pode me confirmar quando fizer o pagamento?"
+  ].filter(Boolean).join(" "));
+}
+
+function monthlyRenewalWhatsAppUrl(client, currentKey) {
+  const remaining = clientRemainingQuantity(client, currentKey);
+  return whatsappUrl(client.phone, [
+    `Oi, ${client.name || "tudo bem"}!`,
+    remaining <= 0
+      ? "Seu pacote mensal da Cumbuca acabou. Quer renovar para este mes?"
+      : `Seu pacote mensal esta com ${remaining} cumbuca(s) restante(s).`,
+    `Pacote atual: ${clientMonthlyCapacity(client, currentKey)} cumbuca(s).`
+  ].join(" "));
 }
 
 function productionListText(plan, currentKey) {
@@ -4742,6 +4888,7 @@ async function renderPricing() {
           <div class="metric"><span>Lucro previsto</span><strong>${money(result.profit)}</strong></div>
         </div>
       </section>
+      ${technicalSheetPanel(savedConfig)}
     </div>
   `;
 
@@ -4765,6 +4912,65 @@ async function renderPricing() {
     persistState();
     renderPricing();
   });
+}
+
+function recipePricing(item, config = {}) {
+  const ingredientCost = Number(item.cost || 0) || planningIngredientTotal(item.ingredients || []);
+  const packaging = Number(config.packaging || 0);
+  const labor = Number(config.labor || 0);
+  const overhead = Number(config.overhead || 0);
+  const lossPercent = Math.max(0, Number(config.lossPercent || 0));
+  const feePercent = Math.max(0, Number(config.feePercent || 0));
+  const marginPercent = Math.max(0, Number(config.marginPercent || 0));
+  const baseCost = ingredientCost + packaging + labor + overhead;
+  const totalCost = baseCost + baseCost * (lossPercent / 100);
+  const divisor = 1 - (feePercent + marginPercent) / 100;
+  const suggestedPrice = divisor > 0 ? totalCost / divisor : 0;
+  const profit = suggestedPrice - totalCost - suggestedPrice * (feePercent / 100);
+  return { ingredientCost, totalCost, suggestedPrice, profit };
+}
+
+function technicalSheetRows(config = state.pricingConfig) {
+  return Object.entries(state.menus || {})
+    .flatMap(([key, items]) => (items || []).map(item => ({ key, item })))
+    .filter(({ item }) => String(item.dish || "").trim())
+    .map(({ key, item }) => ({
+      key,
+      slot: item.slot,
+      dish: item.dish,
+      status: item.status || "planejado",
+      ingredients: item.ingredients || [],
+      ...recipePricing(item, config)
+    }))
+    .sort((a, b) => String(b.key).localeCompare(String(a.key)) || Number(a.slot || 0) - Number(b.slot || 0));
+}
+
+function technicalSheetPanel(config = state.pricingConfig) {
+  const rows = technicalSheetRows(config).slice(0, 12);
+  return `
+    <section class="panel report-section technical-sheet-panel">
+      <h2>Ficha tecnica por cumbuca</h2>
+      ${rows.length ? `
+        <div class="table-wrap report-table">
+          <table>
+            <thead><tr><th>Semana</th><th>Cumbuca</th><th>Ingredientes</th><th>Custo</th><th>Preco sugerido</th><th>Lucro</th></tr></thead>
+            <tbody>
+              ${rows.map(row => `
+                <tr>
+                  <td>${row.key}</td>
+                  <td>${escapeHtml(row.dish)}<br><small>Cumbuca ${row.slot} - ${row.status}</small></td>
+                  <td>${row.ingredients.length ? row.ingredients.map(item => `${escapeHtml(item.name || "")}: ${money(item.value)}`).join("<br>") : "Sem ingredientes"}</td>
+                  <td>${money(row.totalCost)}</td>
+                  <td>${money(row.suggestedPrice)}</td>
+                  <td class="${row.profit < 0 ? "negative" : "positive"}">${money(row.profit)}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      ` : `<p class="muted">Cadastre ingredientes no planejamento do Menu Semanal para gerar a ficha tecnica.</p>`}
+    </section>
+  `;
 }
 
 function ingredientList() {
@@ -6868,6 +7074,9 @@ async function renderBackups() {
         <div id="system-check-panel" class="system-check-panel">
           <p class="muted">Use a verificacao antes de operar ou depois de publicar mudancas.</p>
         </div>
+        <div id="system-issues-panel">
+          ${systemIssuesHtml()}
+        </div>
         <div class="backup-list-state">
           <strong>Último backup manual</strong>
           <span>${backupStatus}</span>
@@ -6954,6 +7163,7 @@ async function renderBackups() {
   document.querySelector("#manual-backup-download").addEventListener("click", downloadBackup);
   document.querySelector("#manual-backup-supabase").addEventListener("click", saveManualBackupToSupabase);
   document.querySelector("#system-check-run").addEventListener("click", runSystemCheck);
+  bindSystemIssuesPanel();
   loadRealDatabaseUsage();
   loadAutomaticBackups();
   loadUsersPanel();
@@ -7088,6 +7298,45 @@ async function saveManualBackupToSupabase() {
   }
 }
 
+function systemIssuesHtml() {
+  const issues = systemIssues();
+  return `
+    <div class="backup-list-state ${issues.length ? "warning-state" : ""}">
+      <strong>Erros recentes</strong>
+      <span>${issues.length ? `${issues.length} ocorrencia(s) locais` : "Nenhum erro recente neste navegador"}</span>
+      ${issues.length ? `<button class="secondary table-action" type="button" id="clear-system-issues">Limpar erros</button>` : ""}
+    </div>
+    ${issues.length ? `
+      <div class="system-check-list">
+        ${issues.slice(0, 8).map(issue => `
+          <span class="${issue.type === "error" ? "offline" : "online"}">
+            <b>${issue.type === "error" ? "Erro" : "Aviso"}</b>
+            ${escapeHtml(issue.message)}
+            <small>${new Date(issue.createdAt).toLocaleString("pt-BR")} - ${issue.route}</small>
+          </span>
+        `).join("")}
+      </div>
+    ` : ""}
+  `;
+}
+
+function bindSystemIssuesPanel() {
+  const button = document.querySelector("#clear-system-issues");
+  if (!button) {
+    return;
+  }
+  button.addEventListener("click", () => {
+    suppressIssueLog = true;
+    localStorage.setItem("systemIssues", JSON.stringify([]));
+    showToast("Erros recentes limpos.", "success");
+    suppressIssueLog = false;
+    const panel = document.querySelector("#system-issues-panel");
+    if (panel) {
+      panel.innerHTML = systemIssuesHtml();
+    }
+  });
+}
+
 function reportExportPayload(data = reportData()) {
   const periodLabel = data.type === "week" ? reportWeekRangeLabel() : formatMonthKeyBr(data.periodKey);
   return {
@@ -7215,13 +7464,18 @@ function renderAlerts() {
   const metrics = homeMetricData();
   const weeklyOrders = state.orders.filter(order => order.menuKey === menuKey(state.menuWeek || 1)).length;
   const alerts = dashboardAlerts(metrics, weeklyOrders);
+  const notifications = notificationRows(metrics, weeklyOrders);
   const today = todayOperationData();
   const urgent = [
     ...alerts.map(([label, detail]) => ({ label, detail, type: "warning" })),
+    ...metrics.pendingPayments.map(order => {
+      const client = clientByPhone(order.clientPhone);
+      return { label: "Cobrar cliente", detail: `${client.name || order.clientPhone} - ${money(order.amount)}`, type: "danger", href: clientChargeWhatsAppUrl(client, order.amount), action: "WhatsApp" };
+    }),
     ...today.billsDue.map(item => ({ label: "Conta para pagar", detail: `${item.description || "Despesa"} - ${money(item.amount)}`, type: "danger" })),
     ...today.pendingDelivery.map(order => {
       const client = clientByPhone(order.clientPhone);
-      return { label: "Entrega pendente", detail: client.name || order.clientPhone || "Cliente", type: "warning" };
+      return { label: "Entrega pendente", detail: client.name || order.clientPhone || "Cliente", type: "warning", href: orderWhatsAppUrl(order, state.menus[order.menuKey] || []), action: "WhatsApp" };
     })
   ];
 
@@ -7255,10 +7509,17 @@ function renderAlerts() {
             <article class="alert-card ${item.type}">
               <strong>${item.label}</strong>
               <span>${item.detail}</span>
+              ${item.href ? `<a class="secondary table-action" href="${item.href}" target="_blank" rel="noopener">${item.action || "Abrir"}</a>` : ""}
             </article>
           `).join("")}
         </div>
       ` : `<p class="muted">Nenhuma pendencia critica agora.</p>`}
+      ${notifications.length ? `
+        <h2>Notificacoes recentes</h2>
+        <div class="alert-list">
+          ${notifications.slice(0, 8).map(item => `<span><b>${item.title}</b>${item.detail}<a class="secondary table-action" href="${item.action}">Abrir</a></span>`).join("")}
+        </div>
+      ` : ""}
       <div class="start-actions">
         <a class="secondary table-action" href="/pedidos" data-route="pedidos">Ver pedidos</a>
         <a class="secondary table-action" href="/financeiro" data-route="financeiro">Ver financeiro</a>

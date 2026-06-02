@@ -1169,6 +1169,11 @@ h2 {
   font-weight: 760;
 }
 
+.recent-list span .table-action,
+.alert-list span .table-action {
+  justify-self: end;
+}
+
 .order-card {
   display: grid;
   gap: 12px;
