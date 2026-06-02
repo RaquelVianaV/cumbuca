@@ -66,6 +66,7 @@ const defaultState = {
   cashFilter: { period: "all" },
   financialPlanning: {
     savings: "",
+    monthlyGoal: "",
     improvements: [],
     purchases: []
   },
@@ -899,6 +900,24 @@ function buildReportPdf(payload = {}) {
 
   doc.on("data", chunk => chunks.push(chunk));
 
+  doc.rect(0, 0, 595.28, 841.89).fill("#fffdf8");
+  doc.rect(0, 0, 595.28, 150).fill("#087f5b");
+  doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(28).text("CUMBUCA", 42, 42);
+  doc.font("Helvetica").fontSize(15).text("Relatorio financeiro e operacional", 42, 82);
+  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(22).text(payload.periodLabel || data.periodKey || "", 42, 205);
+  doc.fillColor("#69707d").font("Helvetica").fontSize(11).text(`Gerado em ${new Date().toLocaleString("pt-BR")}`, 42, 238);
+  doc.roundedRect(42, 310, 510, 120, 8).stroke("#d1d5db");
+  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(12).text("Resumo da capa", 62, 330);
+  doc.fillColor("#121417").font("Helvetica").fontSize(11)
+    .text(`Saldo: ${brl(data.balance)}`, 62, 358)
+    .text(`Entradas: ${brl(data.totalIncome)}`, 62, 382)
+    .text(`Saidas: ${brl(data.expenses)}`, 62, 406);
+  doc.fillColor("#69707d").fontSize(9).text("Conferir os lancamentos e assinar o fechamento ao final do relatorio.", 42, 760, {
+    width: 510,
+    align: "center"
+  });
+  doc.addPage();
+
   doc.rect(0, 0, 595.28, 86).fill("#573220");
   doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(21).text("RELATORIO FINANCEIRO", 42, 28);
   doc.font("Helvetica").fontSize(10).text(payload.periodLabel || data.periodKey || "", 42, 55);
@@ -945,6 +964,12 @@ function buildReportPdf(payload = {}) {
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Ranking de cumbucas");
   addPdfTable(doc, ["Pos.", "Cumbuca", "Qtd."], data.dishRows || [], [55, 300, 80]);
 
+  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Comparativo mensal");
+  addPdfTable(doc, ["Indicador", "Atual", "Anterior", "Diferenca"], data.comparisonRows || [], [110, 110, 110, 110]);
+
+  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Clientes");
+  addPdfTable(doc, ["Cliente", "Perfil", "Pedidos", "Qtd.", "Total", "Pend."], data.clientRows || [], [140, 70, 60, 50, 90, 50]);
+
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Retiradas");
   addPdfTable(doc, ["Destino", "Valor"], data.withdrawalRows || [], [250, 140]);
 
@@ -952,8 +977,10 @@ function buildReportPdf(payload = {}) {
   addPdfTable(doc, ["Data", "Quantidade", "Observação"], data.storeRows || [], [82, 90, 340]);
 
   const footerY = 760;
-  doc.moveTo(42, footerY).lineTo(250, footerY).stroke("#d1d5db");
-  doc.fillColor("#69707d").font("Helvetica").fontSize(8).text("Assinatura / conferência", 42, footerY + 8);
+  doc.moveTo(42, footerY).lineTo(245, footerY).stroke("#d1d5db");
+  doc.moveTo(295, footerY).lineTo(510, footerY).stroke("#d1d5db");
+  doc.fillColor("#69707d").font("Helvetica").fontSize(8).text("Responsavel pelo fechamento", 42, footerY + 8);
+  doc.text("Conferencia financeira", 295, footerY + 8);
   doc.text("Observações: conferir contas, despesas maiores e cumbucas vendidas antes do fechamento.", 300, footerY, {
     width: 240,
     align: "right"
@@ -988,6 +1015,8 @@ async function buildReportXlsx(payload = {}) {
     ["Despesas", [["Data", "Descrição", "Categoria", "Valor"], ...(data.expenseRows || [])]],
     ["Canais", [["Data", "Cardápio bruto", "Cardápio taxa", "Cardápio líquido", "iFood bruto", "iFood taxa", "iFood líquido", "99 Food bruto", "99 Food taxa", "99 Food líquido", "Total líquido"], ...(data.channelRows || [])]],
     ["Ranking", [["Posicao", "Cumbuca", "Quantidade"], ...(data.dishRows || [])]],
+    ["Comparativo", [["Indicador", "Atual", "Anterior", "Diferenca"], ...(data.comparisonRows || [])]],
+    ["Clientes", [["Cliente", "Telefone", "Perfil", "Pedidos", "Cumbucas", "Total", "Pendencias"], ...(data.clientRows || [])]],
     ["Retiradas", [["Destino", "Valor"], ...(data.withdrawalRows || [])]],
     ["Loja", [["Data", "Quantidade", "Observação"], ...(data.storeRows || [])]],
     ["Caixa", [["Data", "Descrição", "Tipo", "Categoria", "Valor"], ...(data.cashRows || [])]]

@@ -1139,6 +1139,36 @@ h2 {
   gap: 12px;
 }
 
+.system-check-panel,
+.system-check-list {
+  display: grid;
+  gap: 10px;
+}
+
+.system-check-list span {
+  display: grid;
+  grid-template-columns: 64px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.system-check-list b {
+  color: var(--green-dark);
+}
+
+.system-check-list .offline b {
+  color: var(--danger);
+}
+
+.system-check-list small {
+  color: var(--muted);
+  font-weight: 760;
+}
+
 .order-card {
   display: grid;
   gap: 12px;
@@ -3340,6 +3370,10 @@ td select {
   .order-card-actions,
   .modal-actions {
     display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .system-check-list span {
     grid-template-columns: 1fr;
   }
 

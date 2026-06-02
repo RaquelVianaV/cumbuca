@@ -410,6 +410,7 @@ const state = {
   cashFilter: localValue("cashFilter", { period: "all" }),
   financialPlanning: localValue("financialPlanning", {
     savings: "",
+    monthlyGoal: "",
     improvements: [],
     purchases: []
   }),
@@ -481,10 +482,12 @@ function applyPayloadToState(saved = {}) {
   state.ingredients = saved.pricingIngredients || [];
   state.pricingConfig = saved.pricingConfig || {};
   state.cashFilter = saved.cashFilter || { period: "all" };
-  state.financialPlanning = saved.financialPlanning || {
+  state.financialPlanning = {
     savings: "",
+    monthlyGoal: "",
     improvements: [],
-    purchases: []
+    purchases: [],
+    ...(saved.financialPlanning || {})
   };
   state.appConfig = {
     ...defaultAppConfig,
@@ -970,6 +973,24 @@ function isoDate(date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function monthKeyFromDate(dateKey) {
+  return String(dateKey || "").slice(0, 7);
+}
+
+function isMonthClosed(dateKey) {
+  const key = monthKeyFromDate(dateKey);
+  return Boolean(key && state.monthlyClosings?.[key]?.locked !== false && state.monthlyClosings?.[key]);
+}
+
+function blockClosedMonth(dateKey, action = "alterar") {
+  const key = monthKeyFromDate(dateKey);
+  if (!isMonthClosed(dateKey)) {
+    return false;
+  }
+  showToast(`Mes ${formatMonthKeyBr(key)} fechado. Destrave o fechamento antes de ${action}.`, "warning");
+  return true;
 }
 
 function addDays(dateKey, days) {
@@ -2208,6 +2229,10 @@ function bindTodayForms(today) {
       showToast("Informe valor maior que zero.", "error");
       return;
     }
+    if (blockClosedMonth(today, "lancar entrada rapida")) {
+      return;
+    }
+
     state.cash.push({
       id: Date.now(),
       date: today,
@@ -2229,6 +2254,9 @@ function bindTodayForms(today) {
       showToast("Informe valor maior que zero.", "error");
       return;
     }
+    if (blockClosedMonth(today, "lancar saida rapida")) {
+      return;
+    }
     state.cash.push({
       id: Date.now(),
       date: today,
@@ -2248,6 +2276,9 @@ function bindTodayForms(today) {
     const quantity = Number(values.quantity || 0);
     if (quantity <= 0) {
       showToast("Informe quantidade maior que zero.", "error");
+      return;
+    }
+    if (blockClosedMonth(today, "lancar venda da loja")) {
       return;
     }
     state.storeSales.push({
@@ -2477,6 +2508,9 @@ async function renderCash() {
       showToast("Informe data e valor maior que zero.", "error");
       return;
     }
+    if (blockClosedMonth(values.date, editing ? "editar lancamentos" : "lancar no caixa")) {
+      return;
+    }
     const isDuplicate = !editing && state.cash.some(item =>
       String(item.date || "") === String(values.date || "")
       && String(item.type || "") === String(values.type || "")
@@ -2545,6 +2579,9 @@ async function renderCash() {
         date: values.date,
         notes: String(values.notes || "").trim()
       };
+      if (blockClosedMonth(receipt.date, editingChannelReceipt ? "editar canais" : "lancar canais")) {
+        return;
+      }
       channelDefinitions.forEach(([key]) => {
         const gross = Number(values[`${key}Gross`] || 0);
         const fee = Number(values[`${key}Fee`] || 0);
@@ -2603,6 +2640,9 @@ async function renderCash() {
       const id = event.currentTarget.dataset.deleteChannelReceipt;
       const removed = state.channelReceipts.find(item => String(item.id) === String(id));
       if (!removed || !confirm(`Excluir os valores dos canais de ${formatIsoDateBr(removed.date)}?`)) {
+        return;
+      }
+      if (blockClosedMonth(removed.date, "excluir canais")) {
         return;
       }
       state.channelReceipts = state.channelReceipts.filter(item => String(item.id) !== String(id));
@@ -2859,6 +2899,10 @@ async function renderCash() {
       return;
     }
 
+    if (blockClosedMonth(values.date, "registrar retiradas")) {
+      return;
+    }
+
     const idBase = Date.now();
     state.cash.push(
       {
@@ -2978,6 +3022,9 @@ async function renderCash() {
 
       const id = event.currentTarget.dataset.deleteCash;
       const removed = state.cash.find(item => String(item.id) === String(id));
+      if (blockClosedMonth(removed?.date, "excluir lancamentos")) {
+        return;
+      }
       state.cash = state.cash.filter(item => String(item.id) !== String(id));
       if (String(state.editCashId) === String(id)) {
         state.editCashId = null;
@@ -5506,6 +5553,13 @@ async function downloadReportPdf() {
       weeklyCashQuantity: data.weeklyCashQuantity,
       storeQuantity: data.storeQuantity,
       dishRows: dishRankingRows(data).map((item, index) => [index + 1, item.name, item.quantity]),
+      clientRows: clientReportRows(data).slice(0, 12).map(row => [row.name, row.plan, row.orders, row.quantity, money(row.amount), row.pending]),
+      comparisonRows: comparisonReportRows(data).map(row => [
+        row.label,
+        row.label === "Pedidos" || row.label === "Cumbucas" ? row.current : money(row.current),
+        row.label === "Pedidos" || row.label === "Cumbucas" ? row.previous : money(row.previous),
+        row.label === "Pedidos" || row.label === "Cumbucas" ? row.delta : money(row.delta)
+      ]),
       incomeRows: data.incomeEntries.map(entry => [entry.date || "", entry.description || "", money(entry.amount)]),
       expenseRows: data.topExpenses.map(entry => [entry.date || "", entry.description || "", categoryName(entry.category), money(entry.amount)]),
       channelRows: data.channelReceipts.map(entry => [
@@ -5573,6 +5627,8 @@ async function downloadReportXlsx() {
       weeklyCashQuantity: data.weeklyCashQuantity,
       storeQuantity: data.storeQuantity,
       dishRows: dishRankingRows(data).map((item, index) => [index + 1, item.name, item.quantity]),
+      clientRows: clientReportRows(data).slice(0, 50).map(row => [row.name, row.phone, row.plan, row.orders, row.quantity, Number(row.amount || 0), row.pending]),
+      comparisonRows: comparisonReportRows(data).map(row => [row.label, row.current, row.previous, row.delta]),
       incomeRows: data.incomeEntries.map(entry => [entry.date || "", entry.description || "", Number(entry.amount || 0)]),
       expenseRows: data.topExpenses.map(entry => [entry.date || "", entry.description || "", categoryName(entry.category), Number(entry.amount || 0)]),
       channelRows: data.channelReceipts.map(entry => [
@@ -5740,6 +5796,101 @@ function dishRankingPanel(data) {
     </section>
   `;
 }
+
+function clientReportRows(data) {
+  const rows = data.orders.reduce((acc, order) => {
+    const client = clientByPhone(order.clientPhone);
+    const key = client.phone || order.clientPhone || `cliente-${order.id}`;
+    acc[key] = acc[key] || {
+      name: client.name || order.clientPhone || "Cliente",
+      phone: client.phone || order.clientPhone || "",
+      plan: client.plan === "mensalista" ? "Mensalista" : "Semanal",
+      orders: 0,
+      quantity: 0,
+      amount: 0,
+      pending: 0
+    };
+    acc[key].orders += 1;
+    acc[key].quantity += orderQuantity(order);
+    acc[key].amount += Number(order.amount || 0) + Number(order.deliveryFee || 0);
+    if (client.plan !== "mensalista" && !isOrderPaid(order)) {
+      acc[key].pending += 1;
+    }
+    return acc;
+  }, {});
+
+  return Object.values(rows).sort((a, b) => b.amount - a.amount);
+}
+
+function clientReportPanel(data) {
+  const rows = clientReportRows(data);
+  return `
+    <section class="panel report-section">
+      <h2>Relatorio de clientes ${reportTitleSuffix(data)}</h2>
+      ${rows.length ? `
+        <div class="table-wrap report-table">
+          <table>
+            <thead><tr><th>Cliente</th><th>Perfil</th><th>Pedidos</th><th>Cumbucas</th><th>Total</th><th>Pendencias</th></tr></thead>
+            <tbody>
+              ${rows.slice(0, 20).map(row => `
+                <tr>
+                  <td>${escapeHtml(row.name)}<br><small>${escapeHtml(row.phone)}</small></td>
+                  <td>${row.plan}</td>
+                  <td>${row.orders}</td>
+                  <td>${row.quantity}</td>
+                  <td>${money(row.amount)}</td>
+                  <td>${row.pending}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      ` : `<p class="muted">Nenhum pedido de cliente neste periodo.</p>`}
+    </section>
+  `;
+}
+
+function comparisonReportRows(data) {
+  const previousKey = previousMonthKeyFromPeriod(data.periodKey);
+  const previousCash = state.cash.filter(entry => String(entry.date || "").startsWith(previousKey));
+  const previousOrders = state.orders.filter(order => menuPeriodKeyFromKey(order.menuKey) === previousKey);
+  const previousStore = state.storeSales.filter(entry => String(entry.date || "").startsWith(previousKey));
+  const previousTotals = cashTotals(previousCash);
+  const previousOrderQuantity = previousOrders.reduce((sum, order) => sum + orderQuantity(order), 0);
+  const previousStoreQuantity = previousStore.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+  return [
+    ["Entradas", data.income, previousTotals.income],
+    ["Saidas", data.expenses, previousTotals.expenses],
+    ["Saldo", data.balance, previousTotals.balance],
+    ["Pedidos", data.orders.length, previousOrders.length],
+    ["Cumbucas", data.totalSoldQuantity, previousOrderQuantity + previousStoreQuantity]
+  ].map(([label, current, previous]) => ({
+    label,
+    current,
+    previous,
+    delta: Number(current || 0) - Number(previous || 0)
+  }));
+}
+
+function comparisonReportPanel(data) {
+  const rows = comparisonReportRows(data);
+  const previousKey = previousMonthKeyFromPeriod(data.periodKey);
+  return `
+    <section class="panel report-section">
+      <h2>Comparativo com ${formatMonthKeyBr(previousKey)}</h2>
+      <div class="summary comparison-summary">
+        ${rows.map(row => `
+          <div class="metric">
+            <span>${row.label}</span>
+            <strong class="${row.delta < 0 ? "negative" : "positive"}">${row.delta < 0 ? "-" : "+"}${row.label === "Pedidos" || row.label === "Cumbucas" ? Math.abs(row.delta) : money(Math.abs(row.delta))}</strong>
+            <small>Atual: ${row.label === "Pedidos" || row.label === "Cumbucas" ? row.current : money(row.current)} | Anterior: ${row.label === "Pedidos" || row.label === "Cumbucas" ? row.previous : money(row.previous)}</small>
+          </div>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
 function reportCashTable(data) {
   if (!data.cashEntries.length) {
     return `<p class="muted">Nenhum lançamento de caixa neste período.</p>`;
@@ -5932,12 +6083,14 @@ function monthlyClosingPayload(data) {
     withdrawals: data.financial.withdrawals,
     availableForWithdrawal: data.financial.availableForWithdrawal,
     suggestedWithdrawal: data.financial.suggestedWithdrawal,
-    cashEntries: data.cashEntries.length
+    cashEntries: data.cashEntries.length,
+    locked: true
   };
 }
 
 function monthlyClosingPanel(data) {
   const closing = state.monthlyClosings[data.periodKey];
+  const locked = isMonthClosed(`${data.periodKey}-01`);
 
   return `
     <section class="panel report-section">
@@ -5946,7 +6099,10 @@ function monthlyClosingPanel(data) {
           <h2>Fechamento mensal</h2>
           <p class="muted-inline">Calcula faturamento, custos, retiradas e valor disponível do mês.</p>
         </div>
-        <button type="button" id="close-month">${closing ? "Atualizar fechamento" : "Fechar mês"}</button>
+        <div class="actions">
+          <button type="button" id="close-month">${closing ? "Atualizar fechamento" : "Fechar mês"}</button>
+          ${closing && isAdminUser() ? `<button class="secondary" type="button" id="unlock-month">${locked ? "Destravar mes" : "Travar mes"}</button>` : ""}
+        </div>
       </div>
       <div class="summary">
         <div class="metric"><span>Faturamento</span><strong>${money(data.financial.income)}</strong></div>
@@ -5960,6 +6116,7 @@ function monthlyClosingPanel(data) {
           <span><b>Cofrinho sugerido</b>${money(closing.suggestedWithdrawal?.savings || 0)}</span>
           <span><b>Vanessa sugerido</b>${money(closing.suggestedWithdrawal?.vanessa || 0)}</span>
           <span><b>Raquel sugerido</b>${money(closing.suggestedWithdrawal?.raquel || 0)}</span>
+          <span><b>Status</b>${locked ? "Travado" : "Destravado"}</span>
         </div>
       ` : `<p class="muted">Este mês ainda não foi fechado.</p>`}
     </section>
@@ -6019,6 +6176,9 @@ function renderStoreSales() {
       showToast("Informe data e quantidade maior que zero.", "error");
       return;
     }
+    if (blockClosedMonth(values.date, editing ? "editar venda da loja" : "lancar venda da loja")) {
+      return;
+    }
     const entry = {
       id: editing?.id || Date.now(),
       date: values.date,
@@ -6059,6 +6219,9 @@ function renderStoreSales() {
       }
       const id = Number(event.currentTarget.dataset.deleteStoreSale);
       const removed = state.storeSales.find(entry => Number(entry.id) === id);
+      if (blockClosedMonth(removed?.date, "excluir venda da loja")) {
+        return;
+      }
       state.storeSales = state.storeSales.filter(entry => Number(entry.id) !== id);
       if (String(state.editStoreSaleId) === String(id)) {
         state.editStoreSaleId = null;
@@ -6230,6 +6393,9 @@ function financialPlanningPanel() {
         <label>Valor guardado
           <input name="savings" type="number" min="0" step="0.01" placeholder="0,00" value="${planning.savings || ""}">
         </label>
+        <label>Meta de lucro mensal
+          <input name="monthlyGoal" type="number" min="0" step="0.01" placeholder="0,00" value="${planning.monthlyGoal || ""}">
+        </label>
         <label>Próximas melhorias para a loja
           <textarea name="improvements" rows="5" placeholder="Uma melhoria por linha">${planningText(planning.improvements)}</textarea>
         </label>
@@ -6242,6 +6408,7 @@ function financialPlanningPanel() {
       </form>
       <div class="summary">
         <div class="metric"><span>Guardado</span><strong>${money(planning.savings)}</strong></div>
+        <div class="metric"><span>Meta mensal</span><strong>${money(planning.monthlyGoal)}</strong></div>
         <div class="metric"><span>Melhorias</span><strong>${(planning.improvements || []).length}</strong></div>
         <div class="metric"><span>Compras</span><strong>${(planning.purchases || []).length}</strong></div>
       </div>
@@ -6270,6 +6437,7 @@ function bindFinancialPlanning() {
     const values = readForm(event.currentTarget);
     state.financialPlanning = {
       savings: values.savings || "",
+      monthlyGoal: values.monthlyGoal || "",
       improvements: textLines(values.improvements),
       purchases: textLines(values.purchases)
     };
@@ -6355,6 +6523,10 @@ function bindMonthlyClosing(data, renderFn) {
   }
 
   closeMonthButton.addEventListener("click", () => {
+    if (state.monthlyClosings[data.periodKey] && !isAdminUser()) {
+      showToast("Somente admin pode atualizar um mes fechado.", "warning");
+      return;
+    }
     if (state.monthlyClosings[data.periodKey] && !confirm(`Atualizar o fechamento de ${formatMonthKeyBr(data.periodKey)}?`)) {
       return;
     }
@@ -6368,11 +6540,40 @@ function bindMonthlyClosing(data, renderFn) {
     persistState();
     renderFn();
   });
+
+  const unlockMonthButton = document.querySelector("#unlock-month");
+  if (unlockMonthButton) {
+    unlockMonthButton.addEventListener("click", () => {
+      const closing = state.monthlyClosings[data.periodKey];
+      if (!closing) {
+        return;
+      }
+      const locked = isMonthClosed(`${data.periodKey}-01`);
+      const action = locked ? "destravar" : "travar";
+      if (!confirm(`Deseja ${action} ${formatMonthKeyBr(data.periodKey)}?`)) {
+        return;
+      }
+      state.monthlyClosings = {
+        ...state.monthlyClosings,
+        [data.periodKey]: {
+          ...closing,
+          locked: !locked,
+          lockUpdatedAt: new Date().toISOString()
+        }
+      };
+      recordAudit(locked ? "Mes destravado" : "Mes travado", formatMonthKeyBr(data.periodKey));
+      persistState();
+      renderFn();
+    });
+  }
 }
 
 function financeDashboardPanel(data) {
   const projection = withdrawalProjection(data);
   const savings = Number(state.financialPlanning?.savings || 0);
+  const monthlyGoal = Number(state.financialPlanning?.monthlyGoal || 0);
+  const projectedVsGoal = monthlyGoal > 0 ? projection.projectedProfitBeforeWithdrawals - monthlyGoal : 0;
+  const goalProgress = monthlyGoal > 0 ? Math.min(999, Math.round((data.financial.profitBeforeWithdrawals / monthlyGoal) * 100)) : 0;
   const availableAfterSavings = data.financial.availableForWithdrawal + savings;
   const dueSoon = state.cash
     .filter(entry => entry.type === "expense" && entry.dueDate && !entry.paidAt)
@@ -6405,8 +6606,14 @@ function financeDashboardPanel(data) {
         <div class="metric"><span>Lucro antes retiradas</span><strong class="${data.financial.profitBeforeWithdrawals < 0 ? "negative" : "positive"}">${money(data.financial.profitBeforeWithdrawals)}</strong></div>
         <div class="metric"><span>Retirada projetada</span><strong class="${projection.projectedAvailableForWithdrawal < 0 ? "negative" : "positive"}">${money(projection.projectedAvailableForWithdrawal)}</strong></div>
         <div class="metric"><span>Guardado + disponível</span><strong class="${availableAfterSavings < 0 ? "negative" : "positive"}">${money(availableAfterSavings)}</strong></div>
-        <div class="metric"><span>Contas próximas</span><strong>${dueSoon.length}</strong></div>
+        <div class="metric"><span>Meta mensal</span><strong>${monthlyGoal > 0 ? `${goalProgress}%` : "Sem meta"}</strong></div>
       </div>
+      ${monthlyGoal > 0 ? `
+        <div class="backup-list-state ${projectedVsGoal >= 0 ? "" : "warning-state"}">
+          <strong>Projecao da meta</strong>
+          <span>${projectedVsGoal >= 0 ? "Acima da meta" : "Abaixo da meta"} em ${money(Math.abs(projectedVsGoal))}. Meta: ${money(monthlyGoal)}.</span>
+        </div>
+      ` : ""}
       <div class="dashboard-lane finance-dashboard-lane">
         <div class="panel dashboard-panel">
           <h2>Maiores saídas</h2>
@@ -6554,8 +6761,10 @@ function renderReports() {
       <div class="metric report-metric"><span>Mensalistas</span><strong>${data.monthlyClients}</strong></div>
     </section>
     ${reportType === "month" ? monthlyOriginCategoryPanel(data) : ""}
+    ${reportType === "month" ? comparisonReportPanel(data) : ""}
     ${channelReportPanel(data)}
     ${dishRankingPanel(data)}
+    ${clientReportPanel(data)}
 
     <section class="panel report-section">
       <h2>Retiradas ${reportTitleSuffix(data)}</h2>
@@ -6650,10 +6859,14 @@ async function renderBackups() {
         <div class="backup-actions">
           <button type="button" id="manual-backup-download">Baixar backup JSON</button>
           <button class="secondary" type="button" id="manual-backup-supabase">Salvar no Supabase</button>
+          <button class="secondary" type="button" id="system-check-run">Verificar sistema</button>
           <label class="secondary file-action">
             Importar backup JSON
             <input id="manual-backup-import" type="file" accept="application/json,.json">
           </label>
+        </div>
+        <div id="system-check-panel" class="system-check-panel">
+          <p class="muted">Use a verificacao antes de operar ou depois de publicar mudancas.</p>
         </div>
         <div class="backup-list-state">
           <strong>Último backup manual</strong>
@@ -6740,6 +6953,7 @@ async function renderBackups() {
   document.querySelector("#hero-backup-download").addEventListener("click", downloadBackup);
   document.querySelector("#manual-backup-download").addEventListener("click", downloadBackup);
   document.querySelector("#manual-backup-supabase").addEventListener("click", saveManualBackupToSupabase);
+  document.querySelector("#system-check-run").addEventListener("click", runSystemCheck);
   loadRealDatabaseUsage();
   loadAutomaticBackups();
   loadUsersPanel();
@@ -6872,6 +7086,122 @@ async function saveManualBackupToSupabase() {
   } catch (error) {
     showToast("Falha ao salvar backup no Supabase.", "error");
   }
+}
+
+function reportExportPayload(data = reportData()) {
+  const periodLabel = data.type === "week" ? reportWeekRangeLabel() : formatMonthKeyBr(data.periodKey);
+  return {
+    periodLabel,
+    data: {
+      periodKey: data.periodKey,
+      balance: data.balance,
+      totalIncome: data.totalIncome,
+      expenses: data.expenses,
+      operationalExpenses: data.financial.operationalExpenses,
+      availableForWithdrawal: data.financial.availableForWithdrawal,
+      withdrawalTotal: data.financial.withdrawals.total,
+      withdrawalRows: [
+        ["Cofrinho", money(data.financial.withdrawals.savings)],
+        ["Vanessa", money(data.financial.withdrawals.vanessa)],
+        ["Raquel", money(data.financial.withdrawals.raquel)]
+      ],
+      accountIncome: data.income,
+      weeklyRevenue: data.orderRevenue,
+      incomeSummaryRows: [
+        ...accountIncomeBreakdown(data).map(([label, value]) => ["Conta", label, value]),
+        ...weeklyRevenueBreakdown(data).map(([label, value]) => ["Semanal", label, value]),
+        ["Total", "Conta + semanal", money(data.income + data.orderRevenue)]
+      ],
+      totalSoldQuantity: data.totalSoldQuantity,
+      weeklyCashQuantity: data.weeklyCashQuantity,
+      storeQuantity: data.storeQuantity,
+      dishRows: dishRankingRows(data).map((item, index) => [index + 1, item.name, item.quantity]),
+      clientRows: clientReportRows(data).slice(0, 12).map(row => [row.name, row.plan, row.orders, row.quantity, money(row.amount), row.pending]),
+      comparisonRows: comparisonReportRows(data).map(row => [
+        row.label,
+        row.label === "Pedidos" || row.label === "Cumbucas" ? row.current : money(row.current),
+        row.label === "Pedidos" || row.label === "Cumbucas" ? row.previous : money(row.previous),
+        row.label === "Pedidos" || row.label === "Cumbucas" ? row.delta : money(row.delta)
+      ]),
+      incomeRows: data.incomeEntries.map(entry => [entry.date || "", entry.description || "", money(entry.amount)]),
+      expenseRows: data.topExpenses.map(entry => [entry.date || "", entry.description || "", categoryName(entry.category), money(entry.amount)]),
+      channelRows: data.channelReceipts.map(entry => [
+        entry.date || "",
+        ...channelDefinitions.map(([key]) => money(channelReceiptAmount(entry, key, "net"))),
+        money(channelDefinitions.reduce((sum, [key]) => sum + channelReceiptAmount(entry, key, "fee"), 0)),
+        money(channelReceiptTotal(entry))
+      ]),
+      storeRows: data.storeSales.map(entry => [entry.date || "", Number(entry.quantity || 0), entry.notes || ""]),
+      cashRows: data.cashEntries.map(entry => [
+        entry.date || "",
+        entry.description || "",
+        entry.type === "expense" ? "Saida" : "Entrada",
+        categoryName(entry.category),
+        money(entry.amount)
+      ])
+    }
+  };
+}
+
+async function checkFetch(label, url, options = {}, validate = response => response.ok) {
+  const startedAt = performance.now();
+  try {
+    const response = await fetch(url, { cache: "no-store", ...options });
+    const ok = await validate(response);
+    return { label, ok, detail: `${Math.round(performance.now() - startedAt)} ms` };
+  } catch (error) {
+    return { label, ok: false, detail: "Falhou" };
+  }
+}
+
+async function runSystemCheck() {
+  const panel = document.querySelector("#system-check-panel");
+  if (!panel) {
+    return;
+  }
+  panel.innerHTML = `<p class="muted">Verificando...</p>`;
+  const payload = reportExportPayload();
+  const checks = [
+    await checkFetch("Sessao/login", "/api/session"),
+    await checkFetch("Servidor e Supabase", "/api/health", {}, async response => {
+      const result = await response.json();
+      return response.ok && result.status === "online" && Boolean(result.database);
+    }),
+    await checkFetch("Persistencia", "/api/persistence-check", {}, async response => {
+      const result = await response.json();
+      return response.ok && Boolean(result.database && result.saved);
+    }),
+    await checkFetch("Backups automaticos", "/api/backups", {}, async response => {
+      const result = await response.json();
+      return response.ok && Boolean(result.database);
+    }),
+    await checkFetch("PDF", "/api/report-pdf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }, response => response.ok && String(response.headers.get("content-type") || "").includes("application/pdf")),
+    await checkFetch("Excel", "/api/report-xlsx", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }, response => response.ok && String(response.headers.get("content-type") || "").includes("spreadsheet"))
+  ];
+  const ok = checks.every(item => item.ok);
+  panel.innerHTML = `
+    <div class="backup-list-state ${ok ? "" : "warning-state"}">
+      <strong>${ok ? "Sistema verificado" : "Sistema com pendencias"}</strong>
+      <span>${new Date().toLocaleString("pt-BR")}</span>
+    </div>
+    <div class="system-check-list">
+      ${checks.map(item => `
+        <span class="${item.ok ? "online" : "offline"}">
+          <b>${item.ok ? "OK" : "Falha"}</b>
+          ${item.label}
+          <small>${item.detail}</small>
+        </span>
+      `).join("")}
+    </div>
+  `;
 }
 
 function configuredDefaultRoute() {
