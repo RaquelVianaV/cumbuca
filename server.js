@@ -38,7 +38,8 @@ const stateKeys = [
   "pricingIngredients",
   "pricingConfig",
   "cashFilter",
-  "financialPlanning"
+  "financialPlanning",
+  "appConfig"
 ];
 
 const defaultState = {
@@ -67,6 +68,13 @@ const defaultState = {
     savings: "",
     improvements: [],
     purchases: []
+  },
+  appConfig: {
+    storeName: "Cumbuca",
+    defaultRoute: "hoje",
+    splitSavingsPercent: 10,
+    splitVanessaPercent: 70,
+    splitRaquelPercent: 30
   }
 };
 
@@ -934,6 +942,9 @@ function buildReportPdf(payload = {}) {
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Canais de venda");
   addPdfTable(doc, ["Data", "Cardápio", "iFood", "99 Food", "Taxas", "Total"], data.channelRows || [], [72, 82, 82, 82, 82, 82]);
 
+  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Ranking de cumbucas");
+  addPdfTable(doc, ["Pos.", "Cumbuca", "Qtd."], data.dishRows || [], [55, 300, 80]);
+
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Retiradas");
   addPdfTable(doc, ["Destino", "Valor"], data.withdrawalRows || [], [250, 140]);
 
@@ -976,6 +987,7 @@ async function buildReportXlsx(payload = {}) {
     ["Entradas", [["Data", "Descrição", "Valor"], ...(data.incomeRows || [])]],
     ["Despesas", [["Data", "Descrição", "Categoria", "Valor"], ...(data.expenseRows || [])]],
     ["Canais", [["Data", "Cardápio bruto", "Cardápio taxa", "Cardápio líquido", "iFood bruto", "iFood taxa", "iFood líquido", "99 Food bruto", "99 Food taxa", "99 Food líquido", "Total líquido"], ...(data.channelRows || [])]],
+    ["Ranking", [["Posicao", "Cumbuca", "Quantidade"], ...(data.dishRows || [])]],
     ["Retiradas", [["Destino", "Valor"], ...(data.withdrawalRows || [])]],
     ["Loja", [["Data", "Quantidade", "Observação"], ...(data.storeRows || [])]],
     ["Caixa", [["Data", "Descrição", "Tipo", "Categoria", "Valor"], ...(data.cashRows || [])]]
@@ -1221,6 +1233,20 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/backups") {
       sendJson(res, 200, await listBackups());
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/manual-backup") {
+      const payload = await collectBody(req);
+      const statePayload = normalizeState(payload.state || payload);
+      const result = await writeAutomaticBackup(statePayload);
+      if (result.database && result.saved) {
+        await writeEvent("backup_manual_supabase", "Backup manual salvo no Supabase.", user);
+      }
+      sendJson(res, 200, {
+        ...result,
+        preview: backupPreview(statePayload)
+      });
       return;
     }
 

@@ -16,6 +16,21 @@ let systemStatus = {
 let lastConfirmedPayload = null;
 let offlineAlertOpen = false;
 const APP_DATA_RESET_VERSION = "2026-05-29-clean-start";
+const defaultAppConfig = {
+  storeName: "Cumbuca",
+  defaultRoute: "hoje",
+  splitSavingsPercent: 10,
+  splitVanessaPercent: 70,
+  splitRaquelPercent: 30
+};
+const configRouteOptions = [
+  ["home", "Painel"],
+  ["hoje", "Hoje"],
+  ["pedidos", "Pedidos"],
+  ["fluxo-de-caixa", "Caixa"],
+  ["financeiro", "Financeiro"],
+  ["alertas", "Alertas"]
+];
 const localStateKeys = [
   "cashEntries",
   "weeklyMenusByPeriod",
@@ -38,6 +53,7 @@ const localStateKeys = [
   "pricingConfig",
   "cashFilter",
   "financialPlanning",
+  "appConfig",
   "reportPeriod",
   "lastManualBackupAt"
 ];
@@ -397,6 +413,7 @@ const state = {
     improvements: [],
     purchases: []
   }),
+  appConfig: localValue("appConfig", defaultAppConfig),
   reportPeriod: localValue("reportPeriod", {
     type: "month",
     year: new Date().getFullYear(),
@@ -436,7 +453,8 @@ function appStatePayload() {
     pricingIngredients: state.ingredients,
     pricingConfig: state.pricingConfig,
     cashFilter: state.cashFilter,
-    financialPlanning: state.financialPlanning
+    financialPlanning: state.financialPlanning,
+    appConfig: state.appConfig
   };
 }
 
@@ -467,6 +485,10 @@ function applyPayloadToState(saved = {}) {
     savings: "",
     improvements: [],
     purchases: []
+  };
+  state.appConfig = {
+    ...defaultAppConfig,
+    ...(saved.appConfig || {})
   };
 }
 
@@ -921,8 +943,9 @@ function routeName() {
 }
 
 function setActive(route) {
+  const moreRoutes = new Set(["menu-semanal", "loja", "precificacao", "relatorios", "alertas", "configuracoes", "backups"]);
   navLinks.forEach(link => {
-    link.classList.toggle("active", link.dataset.route === route);
+    link.classList.toggle("active", link.dataset.route === route || (link.dataset.route === "mais" && moreRoutes.has(route)));
   });
 }
 
@@ -1396,10 +1419,18 @@ function cashTotals(entries = state.cash) {
 
 function withdrawalSplit(amount) {
   const total = Math.max(0, Number(amount || 0));
-  const savings = total * 0.10;
+  const config = {
+    ...defaultAppConfig,
+    ...(state.appConfig || {})
+  };
+  const savingsPercent = Math.max(0, Number(config.splitSavingsPercent || 0));
+  const vanessaPercent = Math.max(0, Number(config.splitVanessaPercent || 0));
+  const raquelPercent = Math.max(0, Number(config.splitRaquelPercent || 0));
+  const partnersTotal = vanessaPercent + raquelPercent || 100;
+  const savings = total * (savingsPercent / 100);
   const remaining = total - savings;
-  const vanessa = remaining * 0.70;
-  const raquel = remaining * 0.30;
+  const vanessa = remaining * (vanessaPercent / partnersTotal);
+  const raquel = remaining * (raquelPercent / partnersTotal);
 
   return { total, savings, remaining, vanessa, raquel };
 }
@@ -4392,6 +4423,50 @@ function orderFilterHtml(filter) {
   `;
 }
 
+function orderCardsHtml(orders, plan) {
+  return `
+    <div class="order-card-grid">
+      ${orders.map(order => {
+        const client = clientByPhone(order.clientPhone);
+        const address = [client.address, client.complement].filter(Boolean).join(" - ");
+        const total = Number(order.amount || 0) + Number(order.deliveryFee || 0);
+        return `
+          <article class="order-card ${order.delivered ? "is-delivered" : ""}">
+            <div class="order-card-head">
+              <div>
+                <strong>${client.name || "Cliente removido"}</strong>
+                <span>${client.phone || order.clientPhone || "Sem telefone"}</span>
+              </div>
+              <div class="order-card-badges">
+                ${paymentBadge(order, client)}
+                ${deliveryBadge(order)}
+              </div>
+            </div>
+            <div class="order-card-body">
+              <p>${orderDishesText(order, plan) || "Pedido sem itens"}</p>
+              <div class="mini-metrics">
+                <span><b>${orderQuantity(order)}</b><small>Cumbucas</small></span>
+                <span><b>${total > 0 ? money(total) : "-"}</b><small>Total</small></span>
+                <span><b>${client.plan === "mensalista" ? "Mensal" : "Semanal"}</b><small>Perfil</small></span>
+              </div>
+              ${address ? `<small class="muted-inline">${address}</small>` : ""}
+              ${order.notes ? `<small class="muted-inline">${order.notes}</small>` : ""}
+            </div>
+            <div class="order-card-actions">
+              <button class="secondary table-action" type="button" data-edit-order="${order.id}">Editar</button>
+              ${client.plan === "semanal" ? `<button class="secondary table-action" type="button" data-toggle-paid-order="${order.id}">${isOrderPaid(order) ? "Pendente" : "Pago"}</button>` : ""}
+              ${client.plan === "semanal" ? `<button class="secondary table-action" type="button" data-partial-paid-order="${order.id}">Parcial</button>` : ""}
+              <button class="secondary table-action" type="button" data-toggle-delivered-order="${order.id}">${order.delivered ? "Desfazer" : "Entregue"}</button>
+              <a class="secondary table-action" href="${orderWhatsAppUrl(order, plan)}" target="_blank" rel="noopener">WhatsApp</a>
+              <button class="danger table-action" type="button" data-delete-order="${order.id}">Excluir</button>
+            </div>
+          </article>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
 function orderList(plan, currentKey) {
   const filter = state.orderFilter || { search: "", payment: "all", delivery: "all" };
   const query = String(filter.search || state.orderSearch || "").trim().toLowerCase();
@@ -4434,7 +4509,10 @@ function orderList(plan, currentKey) {
 
   return `
     ${orderFilterHtml(filter)}
-    <div class="table-wrap order-table">
+    ${orderCardsHtml(orders, plan)}
+    <details class="details-block order-detail-table">
+      <summary>Tabela detalhada</summary>
+      <div class="table-wrap order-table">
       <table>
         <thead><tr><th>Cliente</th><th>Contato</th><th>Endereço</th><th>Pedido</th><th>Total</th><th>Valor em real</th><th>Valor em frete</th><th>Pagamento</th><th>Entrega</th><th>Obs.</th><th></th></tr></thead>
         <tbody>
@@ -4467,7 +4545,8 @@ function orderList(plan, currentKey) {
           }).join("")}
         </tbody>
       </table>
-    </div>
+      </div>
+    </details>
   `;
 }
 
@@ -5426,6 +5505,7 @@ async function downloadReportPdf() {
       totalSoldQuantity: data.totalSoldQuantity,
       weeklyCashQuantity: data.weeklyCashQuantity,
       storeQuantity: data.storeQuantity,
+      dishRows: dishRankingRows(data).map((item, index) => [index + 1, item.name, item.quantity]),
       incomeRows: data.incomeEntries.map(entry => [entry.date || "", entry.description || "", money(entry.amount)]),
       expenseRows: data.topExpenses.map(entry => [entry.date || "", entry.description || "", categoryName(entry.category), money(entry.amount)]),
       channelRows: data.channelReceipts.map(entry => [
@@ -5492,6 +5572,7 @@ async function downloadReportXlsx() {
       totalSoldQuantity: data.totalSoldQuantity,
       weeklyCashQuantity: data.weeklyCashQuantity,
       storeQuantity: data.storeQuantity,
+      dishRows: dishRankingRows(data).map((item, index) => [index + 1, item.name, item.quantity]),
       incomeRows: data.incomeEntries.map(entry => [entry.date || "", entry.description || "", Number(entry.amount || 0)]),
       expenseRows: data.topExpenses.map(entry => [entry.date || "", entry.description || "", categoryName(entry.category), Number(entry.amount || 0)]),
       channelRows: data.channelReceipts.map(entry => [
@@ -5633,7 +5714,7 @@ function reportOrdersTable(data) {
   `;
 }
 
-function dishRankingPanel(data) {
+function dishRankingRows(data) {
   const totals = data.orders.reduce((acc, order) => {
     (order.dishes || []).forEach(dish => {
       const key = `${order.menuKey || ""}-${dish.slot}`;
@@ -5643,7 +5724,11 @@ function dishRankingPanel(data) {
     });
     return acc;
   }, {});
-  const rows = Object.values(totals).sort((a, b) => b.quantity - a.quantity).slice(0, 8);
+  return Object.values(totals).sort((a, b) => b.quantity - a.quantity).slice(0, 8);
+}
+
+function dishRankingPanel(data) {
+  const rows = dishRankingRows(data);
   return `
     <section class="panel report-section">
       <h2>Ranking de cumbucas ${reportTitleSuffix(data)}</h2>
@@ -6564,6 +6649,7 @@ async function renderBackups() {
         <p class="muted-inline">O backup é salvo no seu computador, não no Supabase. Baixe um JSON antes de mudanças grandes e importe esse arquivo se precisar recuperar os dados.</p>
         <div class="backup-actions">
           <button type="button" id="manual-backup-download">Baixar backup JSON</button>
+          <button class="secondary" type="button" id="manual-backup-supabase">Salvar no Supabase</button>
           <label class="secondary file-action">
             Importar backup JSON
             <input id="manual-backup-import" type="file" accept="application/json,.json">
@@ -6653,6 +6739,7 @@ async function renderBackups() {
 
   document.querySelector("#hero-backup-download").addEventListener("click", downloadBackup);
   document.querySelector("#manual-backup-download").addEventListener("click", downloadBackup);
+  document.querySelector("#manual-backup-supabase").addEventListener("click", saveManualBackupToSupabase);
   loadRealDatabaseUsage();
   loadAutomaticBackups();
   loadUsersPanel();
@@ -6761,6 +6848,172 @@ function hasRecentManualBackup(maxAgeHours = 24) {
   return Date.now() - new Date(last).getTime() <= maxAgeHours * 60 * 60 * 1000;
 }
 
+async function saveManualBackupToSupabase() {
+  try {
+    const response = await fetch("/api/manual-backup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state: appStatePayload() })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.database || !result.saved) {
+      showToast(result.error || "Nao foi possivel salvar no Supabase.", "error");
+      return;
+    }
+    localStorage.setItem("lastManualBackupAt", new Date().toISOString());
+    showToast("Backup salvo no Supabase.", "success");
+    showBackupPreviewModal({
+      backupDate: isoDate(new Date()),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      preview: result.preview || {}
+    });
+    loadAutomaticBackups();
+  } catch (error) {
+    showToast("Falha ao salvar backup no Supabase.", "error");
+  }
+}
+
+function configuredDefaultRoute() {
+  const route = state.appConfig?.defaultRoute || defaultAppConfig.defaultRoute;
+  return configRouteOptions.some(([value]) => value === route) ? route : defaultAppConfig.defaultRoute;
+}
+
+function renderAlerts() {
+  title.textContent = "Alertas";
+  setActive("alertas");
+  const metrics = homeMetricData();
+  const weeklyOrders = state.orders.filter(order => order.menuKey === menuKey(state.menuWeek || 1)).length;
+  const alerts = dashboardAlerts(metrics, weeklyOrders);
+  const today = todayOperationData();
+  const urgent = [
+    ...alerts.map(([label, detail]) => ({ label, detail, type: "warning" })),
+    ...today.billsDue.map(item => ({ label: "Conta para pagar", detail: `${item.description || "Despesa"} - ${money(item.amount)}`, type: "danger" })),
+    ...today.pendingDelivery.map(order => {
+      const client = clientByPhone(order.clientPhone);
+      return { label: "Entrega pendente", detail: client.name || order.clientPhone || "Cliente", type: "warning" };
+    })
+  ];
+
+  app.innerHTML = `
+    <section class="dashboard-band alerts-band">
+      <div class="dashboard-copy">
+        <span>Central</span>
+        <h2>Pendencias da operacao</h2>
+        <p>Pagamentos, entregas, contas e cadastros que precisam de atencao.</p>
+      </div>
+      <div class="dashboard-kpis">
+        <div class="metric dashboard-metric is-primary">
+          <span>Alertas ativos</span>
+          <strong>${urgent.length}</strong>
+        </div>
+        <div class="metric dashboard-metric">
+          <span>Pagamentos pendentes</span>
+          <strong>${metrics.pendingPayments.length}</strong>
+        </div>
+        <div class="metric dashboard-metric">
+          <span>Entregas hoje</span>
+          <strong>${today.pendingDelivery.length}</strong>
+        </div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Lista de alertas</h2>
+      ${urgent.length ? `
+        <div class="alert-card-list">
+          ${urgent.map(item => `
+            <article class="alert-card ${item.type}">
+              <strong>${item.label}</strong>
+              <span>${item.detail}</span>
+            </article>
+          `).join("")}
+        </div>
+      ` : `<p class="muted">Nenhuma pendencia critica agora.</p>`}
+      <div class="start-actions">
+        <a class="secondary table-action" href="/pedidos" data-route="pedidos">Ver pedidos</a>
+        <a class="secondary table-action" href="/financeiro" data-route="financeiro">Ver financeiro</a>
+        <a class="secondary table-action" href="/backups" data-route="backups">Ver manutencao</a>
+      </div>
+    </section>
+  `;
+}
+
+function renderSettings() {
+  title.textContent = "Configuracoes";
+  setActive("configuracoes");
+  const config = {
+    ...defaultAppConfig,
+    ...(state.appConfig || {})
+  };
+  app.innerHTML = `
+    <section class="panel settings-panel">
+      <h2>Configuracoes</h2>
+      <form id="settings-form" class="settings-form">
+        <label>Nome da loja
+          <input name="storeName" value="${config.storeName || ""}" placeholder="Cumbuca">
+        </label>
+        <label>Tela inicial
+          <select name="defaultRoute">
+            ${configRouteOptions.map(([value, label]) => `<option value="${value}" ${config.defaultRoute === value ? "selected" : ""}>${label}</option>`).join("")}
+          </select>
+        </label>
+        <label>Reserva (%)
+          <input name="splitSavingsPercent" type="number" min="0" max="100" step="1" value="${Number(config.splitSavingsPercent || 0)}">
+        </label>
+        <label>Vanessa (%)
+          <input name="splitVanessaPercent" type="number" min="0" max="100" step="1" value="${Number(config.splitVanessaPercent || 0)}">
+        </label>
+        <label>Raquel (%)
+          <input name="splitRaquelPercent" type="number" min="0" max="100" step="1" value="${Number(config.splitRaquelPercent || 0)}">
+        </label>
+        <button type="submit">Salvar configuracoes</button>
+      </form>
+    </section>
+  `;
+
+  document.querySelector("#settings-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    const form = readForm(event.currentTarget);
+    state.appConfig = {
+      ...defaultAppConfig,
+      storeName: String(form.storeName || "Cumbuca").trim() || "Cumbuca",
+      defaultRoute: String(form.defaultRoute || defaultAppConfig.defaultRoute),
+      splitSavingsPercent: Number(form.splitSavingsPercent || 0),
+      splitVanessaPercent: Number(form.splitVanessaPercent || 0),
+      splitRaquelPercent: Number(form.splitRaquelPercent || 0)
+    };
+    await persistState();
+    renderSettings();
+  });
+}
+
+function renderMore() {
+  title.textContent = "Mais";
+  setActive("mais");
+  const links = [
+    ["menu-semanal", "Menu", "Cardapio, producao e pedidos"],
+    ["loja", "Loja", "Vendas do balcao"],
+    ["precificacao", "Precos", "Ingredientes e margem"],
+    ["relatorios", "Relatorios", "PDF, Excel e ranking"],
+    ["alertas", "Alertas", "Pendencias da operacao"],
+    ["configuracoes", "Config.", "Tela inicial e retiradas"],
+    ["backups", "Manutencao", "Backup, usuarios e banco"]
+  ];
+  app.innerHTML = `
+    <section class="panel start-panel">
+      <h2>Mais ferramentas</h2>
+      <div class="quick-actions start-actions">
+        ${links.map(([route, label, detail]) => `
+          <a href="/${route}" data-route="${route}">
+            <b>${label}</b>
+            <small>${detail}</small>
+          </a>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
 const routes = {
   home,
   "fluxo-de-caixa": renderCash,
@@ -6771,6 +7024,9 @@ const routes = {
   financeiro: renderFinance,
   precificacao: renderPricing,
   relatorios: renderReports,
+  alertas: renderAlerts,
+  configuracoes: renderSettings,
+  mais: renderMore,
   backups: renderBackups,
   "minha-conta": renderAccount
 };
@@ -6884,7 +7140,7 @@ function bindRestoreBackupButtons() {
       const date = event.currentTarget.dataset.previewAutoBackup;
       const preview = await fetchBackupPreview(date);
       if (preview) {
-        alert(backupPreviewText(preview));
+        showBackupPreviewModal(preview, date);
       }
     });
   });
@@ -6930,6 +7186,79 @@ async function fetchBackupPreview(date) {
     showToast("Falha ao consultar a prévia do backup.", "error");
     return null;
   }
+}
+
+function closeModal() {
+  document.querySelector(".modal-backdrop")?.remove();
+}
+
+function showBackupPreviewModal(result, restoreDate = "") {
+  const preview = result.preview || {};
+  closeModal();
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Previa do backup">
+      <div class="modal-header">
+        <div>
+          <span class="eyebrow">Backup</span>
+          <h2>Previa de ${formatIsoDateBr(result.backupDate || restoreDate || isoDate(new Date()))}</h2>
+        </div>
+        <button class="secondary table-action" type="button" data-close-modal>Fechar</button>
+      </div>
+      <div class="backup-preview-grid">
+        <span><b>${preview.clients || 0}</b><small>Clientes</small></span>
+        <span><b>${preview.orders || 0}</b><small>Pedidos</small></span>
+        <span><b>${preview.cashEntries || 0}</b><small>Caixa</small></span>
+        <span><b>${preview.storeSales || 0}</b><small>Loja</small></span>
+        <span><b>${preview.menuItems || 0}</b><small>Menu</small></span>
+        <span><b>${preview.ingredients || 0}</b><small>Ingredientes</small></span>
+      </div>
+      <p class="muted">Atualizado: ${result.updatedAt ? new Date(result.updatedAt).toLocaleString("pt-BR") : new Date().toLocaleString("pt-BR")}</p>
+      <div class="modal-actions">
+        ${restoreDate && isAdminUser() ? `<button class="danger" type="button" data-modal-restore="${restoreDate}">Restaurar este backup</button>` : ""}
+        <button class="secondary" type="button" data-close-modal>Fechar</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+  backdrop.querySelectorAll("[data-close-modal]").forEach(button => {
+    button.addEventListener("click", closeModal);
+  });
+  backdrop.addEventListener("click", event => {
+    if (event.target === backdrop) {
+      closeModal();
+    }
+  });
+  const restoreButton = backdrop.querySelector("[data-modal-restore]");
+  if (restoreButton) {
+    restoreButton.addEventListener("click", () => restoreAutomaticBackup(restoreButton.dataset.modalRestore));
+  }
+}
+
+async function restoreAutomaticBackup(date) {
+  if (!confirm(`Restaurar o backup automatico de ${formatIsoDateBr(date)}? Os dados atuais serao substituidos.`)) {
+    return;
+  }
+  const typed = prompt(`Digite ${date} para confirmar a restauracao.`);
+  if (typed !== date) {
+    showToast("Restauracao cancelada", "warning");
+    return;
+  }
+  const response = await fetch("/api/restore-backup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ date })
+  });
+  const result = await response.json();
+  if (!response.ok || !result.restored) {
+    showToast(result.error || "Nao foi possivel restaurar o backup.", "error");
+    return;
+  }
+  closeModal();
+  await hydrateState();
+  showToast("Backup restaurado.", "success");
+  renderBackups();
 }
 
 function backupPreviewText(result) {
@@ -7185,5 +7514,11 @@ function bindUsersPanel() {
 
 Promise.all([hydrateSession(), hydrateState()]).then(() => {
   applyRouteParams();
+  if (routeName() === "home") {
+    const defaultRoute = configuredDefaultRoute();
+    if (defaultRoute !== "home" && routes[defaultRoute]) {
+      history.replaceState(null, "", `/${defaultRoute}`);
+    }
+  }
   routes[routeName()] ? routes[routeName()]() : home();
 });
