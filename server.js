@@ -864,7 +864,7 @@ function pdfText(value) {
 }
 
 function addPdfTable(doc, headers, rows, widths) {
-  const startX = doc.x;
+  const startX = doc.page.margins.left;
   let y = doc.y;
   const rowHeight = 20;
 
@@ -890,7 +890,14 @@ function addPdfTable(doc, headers, rows, widths) {
 
   drawRow(headers, true);
   rows.forEach(row => drawRow(row));
+  doc.x = startX;
   doc.y = y + 10;
+}
+
+function addPdfSectionTitle(doc, title) {
+  doc.x = doc.page.margins.left;
+  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text(title);
+  doc.x = doc.page.margins.left;
 }
 
 function buildReportPdf(payload = {}) {
@@ -948,37 +955,37 @@ function buildReportPdf(payload = {}) {
   });
 
   doc.y = summary.length > 6 ? 300 : 235;
-  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Resumo de entradas");
+  addPdfSectionTitle(doc, "Resumo de entradas");
   addPdfTable(doc, ["Grupo", "Origem", "Valor"], data.incomeSummaryRows || [
     ["Conta", "Total da conta", brl(data.accountIncome ?? data.totalIncome ?? 0)],
     ["Semanal", "Total semanal", brl(data.weeklyRevenue ?? 0)],
     ["Total", "Conta + semanal", brl(Number(data.accountIncome ?? data.totalIncome ?? 0) + Number(data.weeklyRevenue ?? 0))]
   ], [90, 260, 110]);
 
-  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Entradas por canal");
+  addPdfSectionTitle(doc, "Entradas por canal");
   addPdfTable(doc, ["Grupo", "Canal", "Valor"], data.incomeChannelRows || [], [110, 250, 110]);
 
   if ((data.negativeDifferenceRows || []).length) {
-    doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Diferenças negativas");
+    addPdfSectionTitle(doc, "Diferenças negativas");
     addPdfTable(doc, ["Indicador", "Atual", "Anterior", "Diferença"], data.negativeDifferenceRows || [], [110, 110, 110, 110]);
   }
 
-  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Saídas por categoria");
+  addPdfSectionTitle(doc, "Saídas por categoria");
   addPdfTable(doc, ["Categoria", "Total"], data.expenseCategoryRows || [], [300, 120]);
 
-  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Principais despesas");
+  addPdfSectionTitle(doc, "Principais despesas");
   addPdfTable(doc, ["Descrição", "Categoria", "Valor"], data.expenseRows || [], [250, 140, 100]);
 
-  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Ranking de cumbucas");
+  addPdfSectionTitle(doc, "Ranking de cumbucas");
   addPdfTable(doc, ["Pos.", "Cumbuca", "Qtd."], data.dishRows || [], [55, 300, 80]);
 
-  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Comparativo mensal");
+  addPdfSectionTitle(doc, "Comparativo mensal");
   addPdfTable(doc, ["Indicador", "Atual", "Anterior", "Diferença"], data.comparisonRows || [], [110, 110, 110, 110]);
 
-  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Retiradas e diferenças");
+  addPdfSectionTitle(doc, "Retiradas e diferenças");
   addPdfTable(doc, ["Destino", "Valor"], data.withdrawalRows || [], [250, 140]);
 
-  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Cumbucas vendidas na loja");
+  addPdfSectionTitle(doc, "Cumbucas vendidas na loja");
   addPdfTable(doc, ["Data", "Quantidade", "Observação"], data.storeRows || [], [82, 90, 340]);
 
   const footerY = 760;
