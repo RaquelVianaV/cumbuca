@@ -1890,40 +1890,10 @@ textarea {
   gap: 10px;
 }
 
-.maintenance-steps .table-action {
+.maintenance-steps .table-action,
+.maintenance-steps button {
   min-height: 40px;
   padding-inline: 14px;
-}
-
-.maintenance-quick-action {
-  min-height: 40px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(8, 127, 91, 0.22);
-  border-radius: 8px;
-  padding: 0 14px;
-  background: #ecfdf5;
-  color: var(--green-dark);
-  font-weight: 850;
-  text-align: center;
-  text-decoration: none;
-}
-
-.maintenance-quick-action:hover {
-  border-color: rgba(8, 127, 91, 0.38);
-  background: #dcfce7;
-}
-
-.maintenance-quick-action.danger {
-  border-color: rgba(194, 65, 12, 0.34);
-  background: linear-gradient(135deg, var(--tomato), var(--red));
-  color: #ffffff;
-  box-shadow: 0 10px 22px rgba(194, 65, 12, 0.18);
-}
-
-.maintenance-quick-action.danger:hover {
-  background: linear-gradient(135deg, #a8322f, #9a3412);
 }
 
 .maintenance-grid {
@@ -3685,7 +3655,7 @@ a.secondary.table-action,
   }
 
   .maintenance-steps .table-action,
-  .maintenance-steps .maintenance-quick-action,
+  .maintenance-steps button,
   .backup-actions button,
   .backup-actions .file-action {
     width: 100%;

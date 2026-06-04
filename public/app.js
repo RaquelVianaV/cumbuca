@@ -7498,9 +7498,9 @@ async function renderBackups() {
       </div>
       <div class="maintenance-steps">
         <button type="button" id="hero-backup-download">Baixar backup</button>
-        <a class="maintenance-quick-action secondary" href="#cleanup-year-form">Limpar ano</a>
-        ${isAdminUser() ? `<a class="maintenance-quick-action danger" href="#reset-all-panel">Limpar tudo</a>` : ""}
-        <a class="maintenance-quick-action secondary" href="#real-db-usage">Ver banco</a>
+        <button class="secondary" type="button" data-maintenance-scroll="cleanup-year-form">Limpar ano</button>
+        ${isAdminUser() ? `<button class="danger" type="button" data-maintenance-scroll="reset-all-panel">Limpar tudo</button>` : ""}
+        <button class="secondary" type="button" data-maintenance-scroll="real-db-usage">Ver banco</button>
       </div>
     </section>
 
@@ -7620,6 +7620,12 @@ async function renderBackups() {
   });
 
   on("#hero-backup-download", "click", downloadBackup);
+  document.querySelectorAll("[data-maintenance-scroll]").forEach(button => {
+    button.addEventListener("click", event => {
+      const target = document.querySelector(`#${event.currentTarget.dataset.maintenanceScroll}`);
+      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
   on("#manual-backup-download", "click", downloadBackup);
   on("#manual-backup-supabase", "click", saveManualBackupToSupabase);
   on("#system-check-run", "click", runSystemCheck);
