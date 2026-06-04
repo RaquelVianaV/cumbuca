@@ -1346,7 +1346,26 @@ h2 {
 }
 
 .reconciliation-summary {
+  grid-template-columns: 1fr;
+  gap: 8px;
   margin-bottom: 4px;
+}
+
+.reconciliation-summary .metric {
+  min-height: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+}
+
+.reconciliation-summary .metric strong {
+  margin-top: 0;
+  font-size: 1.28rem;
+  line-height: 1;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .reconciliation-history span {
@@ -1595,6 +1614,23 @@ textarea {
   font-size: 0.9rem;
 }
 
+.channel-payment-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.channel-filter-date,
+.channel-filter-month {
+  display: none;
+}
+
+#channel-filter-form[data-period="day"] .channel-filter-date,
+#channel-filter-form[data-period="week"] .channel-filter-date,
+#channel-filter-form[data-period="month"] .channel-filter-month {
+  display: grid;
+}
+
 .withdrawal-panel {
   display: grid;
   grid-column: 1;
@@ -1604,6 +1640,18 @@ textarea {
 .cash-ledger-panel {
   display: grid;
   gap: 2px;
+}
+
+.cash-ledger-table {
+  max-height: min(52vh, 430px);
+  overflow: auto;
+}
+
+.cash-ledger-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #ffffff;
 }
 
 .cash-row.income-row td:first-child {
@@ -1647,6 +1695,12 @@ textarea {
 .withdrawal-preview {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.withdrawal-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -3079,6 +3133,8 @@ td select {
   .maintenance-steps,
   .db-usage-card,
   .db-usage-metrics,
+  .channel-payment-grid,
+  .withdrawal-fields,
   .withdrawal-preview,
   .closing-record,
   .reason-list span {
@@ -3244,6 +3300,10 @@ td select {
 
   .cash-panel-tabs {
     grid-template-columns: 1fr;
+  }
+
+  .cash-ledger-table {
+    max-height: 360px;
   }
 
   .table-wrap table,

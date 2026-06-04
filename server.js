@@ -959,7 +959,7 @@ function buildReportPdf(payload = {}) {
   addPdfTable(doc, ["Data", "Descrição", "Categoria", "Valor"], data.expenseRows || [], [82, 240, 100, 90]);
 
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Canais de venda");
-  addPdfTable(doc, ["Data", "Cardápio", "iFood", "99 Food", "Taxas", "Total"], data.channelRows || [], [72, 82, 82, 82, 82, 82]);
+  addPdfTable(doc, ["Data", "Débito", "Crédito", "Pix", "Dinheiro", "iFood", "99 Food", "Total"], data.channelRows || [], [62, 64, 64, 64, 70, 64, 64, 64]);
 
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Ranking de cumbucas");
   addPdfTable(doc, ["Pos.", "Cumbuca", "Qtd."], data.dishRows || [], [55, 300, 80]);
@@ -1013,7 +1013,7 @@ async function buildReportXlsx(payload = {}) {
     ["Resumo", summaryRows],
     ["Entradas", [["Data", "Descrição", "Valor"], ...(data.incomeRows || [])]],
     ["Despesas", [["Data", "Descrição", "Categoria", "Valor"], ...(data.expenseRows || [])]],
-    ["Canais", [["Data", "Cardápio bruto", "Cardápio taxa", "Cardápio líquido", "iFood bruto", "iFood taxa", "iFood líquido", "99 Food bruto", "99 Food taxa", "99 Food líquido", "Total líquido"], ...(data.channelRows || [])]],
+    ["Canais", [["Data", "Débito", "Crédito", "Pix", "Dinheiro", "iFood", "99 Food", "Total"], ...(data.channelRows || [])]],
     ["Ranking", [["Posição", "Cumbuca", "Quantidade"], ...(data.dishRows || [])]],
     ["Comparativo", [["Indicador", "Atual", "Anterior", "Diferença"], ...(data.comparisonRows || [])]],
     ["Clientes", [["Cliente", "Telefone", "Perfil", "Pedidos", "Cumbucas", "Total", "Pendências"], ...(data.clientRows || [])]],
