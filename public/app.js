@@ -8158,6 +8158,7 @@ function automaticBackupsHtml(result) {
                     <a class="secondary table-action" href="/api/backup?date=${date}" target="_blank" rel="noopener">Baixar</a>
                     ${isAdminUser() ? `<button class="secondary table-action" type="button" data-preview-auto-backup="${date}">Prévia</button>` : ""}
                     ${isAdminUser() ? `<button class="danger table-action" type="button" data-restore-auto-backup="${date}">Restaurar</button>` : ""}
+                    ${isAdminUser() ? `<button class="danger table-action" type="button" data-delete-auto-backup="${date}">Excluir</button>` : ""}
                   </div>
                 </td>
               </tr>
@@ -8179,6 +8180,7 @@ async function loadAutomaticBackups() {
     const result = await response.json();
     target.innerHTML = automaticBackupsHtml(result);
     bindRestoreBackupButtons();
+    bindDeleteBackupButtons();
   } catch (error) {
     target.innerHTML = `<p class="muted">Não foi possível consultar os backups automáticos agora.</p>`;
   }
@@ -8219,6 +8221,32 @@ function bindRestoreBackupButtons() {
       await hydrateState();
       showToast("Backup restaurado.", "success");
       renderBackups();
+    });
+  });
+}
+
+function bindDeleteBackupButtons() {
+  document.querySelectorAll("[data-delete-auto-backup]").forEach(button => {
+    button.addEventListener("click", async event => {
+      const date = event.currentTarget.dataset.deleteAutoBackup;
+      if (!confirm(`Excluir o backup automático de ${formatIsoDateBr(date)}? Esta ação não pode ser desfeita.`)) {
+        return;
+      }
+      const typed = prompt(`Digite ${date} para confirmar a exclusão.`);
+      if (typed !== date) {
+        showToast("Exclusão cancelada", "warning");
+        return;
+      }
+      const response = await fetch(`/api/backup?date=${encodeURIComponent(date)}`, {
+        method: "DELETE"
+      });
+      const result = await response.json();
+      if (!response.ok || !result.deleted) {
+        showToast(result.error || "Não foi possível excluir o backup.", "error");
+        return;
+      }
+      showToast("Backup excluído.", "success");
+      loadAutomaticBackups();
     });
   });
 }

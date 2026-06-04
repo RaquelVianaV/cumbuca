@@ -684,6 +684,20 @@ async function readBackup(backupDate) {
   return { database: true, backup: result.rows[0] || null };
 }
 
+async function deleteBackup(backupDate) {
+  if (!await ensureBackupTable()) {
+    return { database: false, deleted: 0 };
+  }
+
+  const result = await db.query(
+    `delete from cumbuca_app_backups
+     where backup_date = $1::date`,
+    [backupDate]
+  );
+
+  return { database: true, deleted: result.rowCount || 0, backupDate };
+}
+
 async function restoreBackup(backupDate) {
   const backupResult = await readBackup(backupDate);
   if (!backupResult.database) {
@@ -1324,6 +1338,24 @@ async function handleRequest(req, res) {
         "Content-Length": Buffer.byteLength(body)
       });
       res.end(body);
+      return;
+    }
+
+    if (req.method === "DELETE" && url.pathname === "/api/backup") {
+      if (user?.role !== "admin") {
+        sendJson(res, 403, { error: "Acesso restrito ao administrador." });
+        return;
+      }
+      const backupDate = url.searchParams.get("date");
+      if (!backupDate) {
+        sendJson(res, 400, { error: "Informe a data do backup." });
+        return;
+      }
+      const result = await deleteBackup(backupDate);
+      if (result.database && result.deleted) {
+        await writeEvent("backup_apagado", `Backup ${backupDate} apagado.`, user);
+      }
+      sendJson(res, result.deleted ? 200 : 404, result.deleted ? result : { ...result, error: "Backup não encontrado." });
       return;
     }
 
