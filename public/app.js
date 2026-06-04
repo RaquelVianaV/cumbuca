@@ -2411,14 +2411,34 @@ function renderToday() {
       </div>
       <div class="panel dashboard-panel">
         <h2>Saída rápida</h2>
-        <form id="today-expense-form" class="form-grid single">
-          <label>Descrição
+        <form id="today-expense-form" class="form-grid today-expense-details">
+          <label class="span-2">Descrição
             <input name="description" placeholder="Mercado, boleto, entregador" required>
+          </label>
+          <label>Data
+            <input name="date" type="date" value="${today}" required>
+          </label>
+          <label>Categoria
+            <select name="category" id="today-expense-category">
+              ${cashCategoryOptions("expense", "outros")}
+            </select>
+          </label>
+          <label id="today-expense-due-date-field">Vencimento
+            <input name="dueDate" type="date">
+          </label>
+          <label id="today-expense-paid-field">
+            <input name="paid" type="checkbox" value="yes">
+            Já está pago
+          </label>
+          <label id="today-expense-paid-date-field">Pago em
+            <input name="paidDate" type="date" value="${today}">
           </label>
           <label>Valor
             <input name="amount" type="number" min="0" step="0.01" placeholder="0,00" required>
           </label>
-          <button type="submit">Salvar saída</button>
+          <div class="actions span-2">
+            <button type="submit">Salvar saída</button>
+          </div>
         </form>
       </div>
     </section>
@@ -2591,21 +2611,60 @@ function bindTodayForms(today) {
       showToast("Informe valor maior que zero.", "error");
       return;
     }
-    if (blockClosedMonth(today, "lançar saída rápida")) {
+    if (!values.date) {
+      showToast("Informe a data da saída.", "error");
       return;
     }
-    state.cash.push({
+    if (blockClosedMonth(values.date, "lançar saída rápida")) {
+      return;
+    }
+    const entry = {
       id: Date.now(),
-      date: today,
+      date: values.date,
       type: "expense",
-      category: "outros",
+      category: values.category || "outros",
       description: values.description,
       amount: amount.toFixed(2)
-    });
+    };
+    if (isBillCategory(entry.category)) {
+      entry.dueDate = values.dueDate || values.date;
+      if (values.paid === "yes") {
+        const paidDate = values.paidDate || values.date;
+        if (blockClosedMonth(paidDate, "pagar boleto")) {
+          return;
+        }
+        entry.paidAt = `${paidDate}T12:00:00.000Z`;
+      }
+    }
+    state.cash.push(entry);
     if (await persistState()) {
       renderToday();
     }
   });
+
+  const todayExpenseCategory = document.querySelector("#today-expense-category");
+  const todayExpenseDueDateField = document.querySelector("#today-expense-due-date-field");
+  const todayExpensePaidField = document.querySelector("#today-expense-paid-field");
+  const todayExpensePaidDateField = document.querySelector("#today-expense-paid-date-field");
+  const todayExpensePaidCheckbox = todayExpensePaidField?.querySelector("input");
+  if (todayExpenseCategory && todayExpenseDueDateField && todayExpensePaidField && todayExpensePaidDateField && todayExpensePaidCheckbox) {
+    const updateTodayExpenseBillFields = () => {
+      const shouldShowBill = isBillCategory(todayExpenseCategory.value);
+      const shouldShowPaidDate = shouldShowBill && todayExpensePaidCheckbox.checked;
+      todayExpenseDueDateField.hidden = !shouldShowBill;
+      todayExpenseDueDateField.querySelector("input").required = shouldShowBill;
+      todayExpensePaidField.hidden = !shouldShowBill;
+      todayExpensePaidDateField.hidden = !shouldShowPaidDate;
+      todayExpensePaidDateField.querySelector("input").required = shouldShowPaidDate;
+      if (!shouldShowBill) {
+        todayExpenseDueDateField.querySelector("input").value = "";
+        todayExpensePaidCheckbox.checked = false;
+      }
+    };
+    todayExpenseCategory.addEventListener("change", updateTodayExpenseBillFields);
+    todayExpensePaidCheckbox.addEventListener("change", updateTodayExpenseBillFields);
+    updateTodayExpenseBillFields();
+  }
 
   on("#today-store-form", "submit", async event => {
     event.preventDefault();
