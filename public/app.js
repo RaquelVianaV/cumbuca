@@ -6598,7 +6598,7 @@ function reportExpenseOutTable(data) {
     <div class="summary">
       <div class="metric report-metric"><span>Filtro</span><strong>${selectedLabel}</strong></div>
       <div class="metric report-metric"><span>Total filtrado</span><strong>${money(total)}</strong></div>
-      <div class="metric report-metric"><span>Lancamentos</span><strong>${entries.length}</strong></div>
+      <div class="metric report-metric"><span>Lançamentos</span><strong>${entries.length}</strong></div>
     </div>
     <div class="table-wrap report-table">
       <table>
