@@ -2416,7 +2416,7 @@ function renderToday() {
             <input name="description" placeholder="Mercado, boleto, entregador" required>
           </label>
           <label>Data
-            <input name="date" type="date" value="${today}" required>
+            <input name="date" type="date" value="${data.today}" required>
           </label>
           <label>Categoria
             <select name="category" id="today-expense-category">
@@ -2431,7 +2431,7 @@ function renderToday() {
             Já está pago
           </label>
           <label id="today-expense-paid-date-field">Pago em
-            <input name="paidDate" type="date" value="${today}">
+            <input name="paidDate" type="date" value="${data.today}">
           </label>
           <label>Valor
             <input name="amount" type="number" min="0" step="0.01" placeholder="0,00" required>
