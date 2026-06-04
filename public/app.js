@@ -7498,9 +7498,9 @@ async function renderBackups() {
       </div>
       <div class="maintenance-steps">
         <button type="button" id="hero-backup-download">Baixar backup</button>
-        <a class="secondary table-action" href="#cleanup-year-form">Limpar ano</a>
-        ${isAdminUser() ? `<a class="danger table-action" href="#reset-all-panel">Limpar tudo</a>` : ""}
-        <a class="secondary table-action" href="#real-db-usage">Ver banco</a>
+        <a class="maintenance-quick-action secondary" href="#cleanup-year-form">Limpar ano</a>
+        ${isAdminUser() ? `<a class="maintenance-quick-action danger" href="#reset-all-panel">Limpar tudo</a>` : ""}
+        <a class="maintenance-quick-action secondary" href="#real-db-usage">Ver banco</a>
       </div>
     </section>
 
