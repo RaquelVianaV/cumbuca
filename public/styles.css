@@ -399,7 +399,7 @@ a.secondary.table-action:hover,
 }
 
 .app-frame {
-  width: min(1320px, calc(100% - 36px));
+  width: min(1480px, calc(100% - 36px));
   display: grid;
   grid-template-columns: 236px minmax(0, 1fr);
   gap: 26px;
@@ -721,14 +721,12 @@ h2 {
 
 .cash-layout {
   display: grid;
-  grid-template-columns: minmax(340px, 420px) minmax(0, 1fr);
-  gap: 18px;
+  grid-template-columns: 1fr;
+  gap: 16px;
   align-items: start;
 }
 
 .cash-command-panel {
-  position: sticky;
-  top: 92px;
   display: grid;
   gap: 16px;
   border-color: rgba(87, 50, 32, 0.1);
@@ -737,8 +735,9 @@ h2 {
 
 .cash-panel-tabs {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
+  width: min(100%, 720px);
   padding: 5px;
   border: 1px solid rgba(87, 50, 32, 0.12);
   border-radius: 8px;
@@ -1639,12 +1638,26 @@ textarea {
 
 .cash-ledger-panel {
   display: grid;
-  gap: 2px;
+  gap: 10px;
 }
 
 .cash-ledger-table {
-  max-height: min(52vh, 430px);
+  max-height: min(68vh, 680px);
   overflow: auto;
+}
+
+.cash-ledger-table table {
+  min-width: 760px;
+}
+
+.cash-ledger-table th,
+.cash-ledger-table td {
+  padding: 10px 12px;
+}
+
+.cash-ledger-table th:nth-child(2),
+.cash-ledger-table td:nth-child(2) {
+  min-width: 220px;
 }
 
 .cash-ledger-table thead th {
@@ -1762,6 +1775,28 @@ textarea {
 
 .report-metric {
   min-height: 112px;
+}
+
+.comparison-summary {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.comparison-summary .metric {
+  min-height: 104px;
+}
+
+.comparison-summary .metric strong {
+  font-size: clamp(1.35rem, 2.1vw, 1.9rem);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.comparison-summary .metric small {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
 }
 
 .report-section {
@@ -2420,7 +2455,7 @@ textarea {
 }
 
 .month-summary-table table {
-  min-width: 980px;
+  min-width: 760px;
 }
 
 .client-panel {
@@ -2527,7 +2562,7 @@ textarea {
 }
 
 .client-table table {
-  min-width: 1180px;
+  min-width: 860px;
 }
 
 .quantity-badge {
@@ -2714,7 +2749,7 @@ button.danger:hover {
 }
 
 .order-overview-table table {
-  min-width: 1460px;
+  min-width: 980px;
   border-collapse: collapse;
   font-size: 0.86rem;
 }
@@ -2751,7 +2786,7 @@ button.danger:hover {
 }
 
 .order-table table {
-  min-width: 1300px;
+  min-width: 940px;
 }
 
 .dish-picker {

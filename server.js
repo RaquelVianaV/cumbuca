@@ -555,7 +555,7 @@ async function setUserActive(username, active, actor = null) {
 
 async function changeOwnPassword(user, payload = {}) {
   if (!user?.username) {
-    return { database: false, saved: false, error: "Sessao invalida." };
+    return { database: false, saved: false, error: "Sessão inválida." };
   }
   if (!await ensureUserTable()) {
     return { database: false, saved: false, error: "Banco indisponivel." };
@@ -581,7 +581,7 @@ async function changeOwnPassword(user, payload = {}) {
     "update cumbuca_app_users set password_hash = $2, updated_at = now() where username = $1",
     [user.username, nextHash]
   );
-  await writeEvent("senha_alterada", `Usuario ${user.username} alterou a propria senha.`, user);
+  await writeEvent("senha_alterada", `Usuário ${user.username} alterou a própria senha.`, user);
   return {
     database: true,
     saved: true,
@@ -790,7 +790,7 @@ async function resetAppState(user = null) {
   const current = await readAppState();
   await writeAutomaticBackup(current.state);
   await db.query("delete from cumbuca_app_state where key = any($1::text[])", [stateKeys]);
-  await writeEvent("limpeza_completa", "Estado do sistema apagado apos backup automatico.", user);
+  await writeEvent("limpeza_completa", "Estado do sistema apagado após backup automático.", user);
   return { database: true, reset: true, backup: true, state: normalizeState({}) };
 }
 
@@ -903,7 +903,7 @@ function buildReportPdf(payload = {}) {
   doc.rect(0, 0, 595.28, 841.89).fill("#fffdf8");
   doc.rect(0, 0, 595.28, 150).fill("#087f5b");
   doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(28).text("CUMBUCA", 42, 42);
-  doc.font("Helvetica").fontSize(15).text("Relatorio financeiro e operacional", 42, 82);
+  doc.font("Helvetica").fontSize(15).text("Relatório financeiro e operacional", 42, 82);
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(22).text(payload.periodLabel || data.periodKey || "", 42, 205);
   doc.fillColor("#69707d").font("Helvetica").fontSize(11).text(`Gerado em ${new Date().toLocaleString("pt-BR")}`, 42, 238);
   doc.roundedRect(42, 310, 510, 120, 8).stroke("#d1d5db");
@@ -911,15 +911,15 @@ function buildReportPdf(payload = {}) {
   doc.fillColor("#121417").font("Helvetica").fontSize(11)
     .text(`Saldo: ${brl(data.balance)}`, 62, 358)
     .text(`Entradas: ${brl(data.totalIncome)}`, 62, 382)
-    .text(`Saidas: ${brl(data.expenses)}`, 62, 406);
-  doc.fillColor("#69707d").fontSize(9).text("Conferir os lancamentos e assinar o fechamento ao final do relatorio.", 42, 760, {
+    .text(`Saídas: ${brl(data.expenses)}`, 62, 406);
+  doc.fillColor("#69707d").fontSize(9).text("Conferir os lançamentos e assinar o fechamento ao final do relatório.", 42, 760, {
     width: 510,
     align: "center"
   });
   doc.addPage();
 
   doc.rect(0, 0, 595.28, 86).fill("#573220");
-  doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(21).text("RELATORIO FINANCEIRO", 42, 28);
+  doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(21).text("RELATÓRIO FINANCEIRO", 42, 28);
   doc.font("Helvetica").fontSize(10).text(payload.periodLabel || data.periodKey || "", 42, 55);
   doc.font("Helvetica-Bold").fontSize(9).text(`Gerado em ${new Date().toLocaleDateString("pt-BR")}`, 410, 34, {
     width: 135,
@@ -955,11 +955,19 @@ function buildReportPdf(payload = {}) {
     ["Total", "Conta + semanal", brl(Number(data.accountIncome ?? data.totalIncome ?? 0) + Number(data.weeklyRevenue ?? 0))]
   ], [90, 260, 110]);
 
-  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Principais saídas (despesas)");
-  addPdfTable(doc, ["Data", "Descrição", "Categoria", "Valor"], data.expenseRows || [], [82, 240, 100, 90]);
+  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Entradas por canal");
+  addPdfTable(doc, ["Grupo", "Canal", "Valor"], data.incomeChannelRows || [], [110, 250, 110]);
 
-  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Canais de venda");
-  addPdfTable(doc, ["Data", "Débito", "Crédito", "Pix", "Dinheiro", "iFood", "99 Food", "Total"], data.channelRows || [], [62, 64, 64, 64, 70, 64, 64, 64]);
+  if ((data.negativeDifferenceRows || []).length) {
+    doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Diferenças negativas");
+    addPdfTable(doc, ["Indicador", "Atual", "Anterior", "Diferença"], data.negativeDifferenceRows || [], [110, 110, 110, 110]);
+  }
+
+  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Saídas por categoria");
+  addPdfTable(doc, ["Categoria", "Total"], data.expenseCategoryRows || [], [300, 120]);
+
+  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Principais despesas");
+  addPdfTable(doc, ["Descrição", "Categoria", "Valor"], data.expenseRows || [], [250, 140, 100]);
 
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Ranking de cumbucas");
   addPdfTable(doc, ["Pos.", "Cumbuca", "Qtd."], data.dishRows || [], [55, 300, 80]);
@@ -967,10 +975,7 @@ function buildReportPdf(payload = {}) {
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Comparativo mensal");
   addPdfTable(doc, ["Indicador", "Atual", "Anterior", "Diferença"], data.comparisonRows || [], [110, 110, 110, 110]);
 
-  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Clientes");
-  addPdfTable(doc, ["Cliente", "Perfil", "Pedidos", "Qtd.", "Total", "Pend."], data.clientRows || [], [140, 70, 60, 50, 90, 50]);
-
-  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Retiradas");
+  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Retiradas e diferenças");
   addPdfTable(doc, ["Destino", "Valor"], data.withdrawalRows || [], [250, 140]);
 
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text("Cumbucas vendidas na loja");
@@ -1181,7 +1186,7 @@ async function handleRequest(req, res) {
       const authUser = await findAuthUser(username, String(payload.password || ""));
       if (authUser) {
         clearLoginFailures(req, username);
-        await writeEvent("login", `Usuario ${authUser.username} entrou no sistema.`, authUser);
+        await writeEvent("login", `Usuário ${authUser.username} entrou no sistema.`, authUser);
         sendJson(res, 200, { ok: true, user: { username: authUser.username, name: authUser.name, role: authUser.role } }, {
           "Set-Cookie": sessionCookie(`${authUser.username}.${userSessionToken(authUser)}`, 60 * 60 * 24 * 30)
         });
@@ -1195,7 +1200,7 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/logout") {
       if (user) {
-        await writeEvent("logout", `Usuario ${user.username} saiu do sistema.`, user);
+        await writeEvent("logout", `Usuário ${user.username} saiu do sistema.`, user);
       }
       sendJson(res, 200, { ok: true }, {
         "Set-Cookie": sessionCookie("", 0)

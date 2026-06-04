@@ -992,6 +992,14 @@ function readForm(form) {
   return Object.fromEntries(new FormData(form).entries());
 }
 
+function on(selector, eventName, handler, root = document) {
+  const element = root.querySelector(selector);
+  if (element) {
+    element.addEventListener(eventName, handler);
+  }
+  return element;
+}
+
 function money(value) {
   return brl.format(Number(value || 0));
 }
@@ -1603,6 +1611,31 @@ function withdrawalSplit(amount) {
   const remaining = total - savings;
   const vanessa = remaining * (vanessaPercent / partnersTotal);
   const raquel = remaining * (raquelPercent / partnersTotal);
+
+  return { total, savings, remaining, vanessa, raquel };
+}
+
+function withdrawalSplitFromRaquel(raquelAmount) {
+  const raquel = Math.max(0, Number(raquelAmount || 0));
+  const config = {
+    ...defaultAppConfig,
+    ...(state.appConfig || {})
+  };
+  const savingsPercent = Math.max(0, Number(config.splitSavingsPercent || 0));
+  const vanessaPercent = Math.max(0, Number(config.splitVanessaPercent || 0));
+  const raquelPercent = Math.max(0, Number(config.splitRaquelPercent || 0));
+  const partnersTotal = vanessaPercent + raquelPercent || 100;
+
+  if (!raquelPercent) {
+    const total = raquel;
+    return { total, savings: 0, remaining: total, vanessa: 0, raquel };
+  }
+
+  const remaining = raquel * (partnersTotal / raquelPercent);
+  const availableAfterSavings = Math.max(0.0001, 1 - (savingsPercent / 100));
+  const total = remaining / availableAfterSavings;
+  const savings = Math.max(0, total - remaining);
+  const vanessa = remaining * (vanessaPercent / partnersTotal);
 
   return { total, savings, remaining, vanessa, raquel };
 }
@@ -2497,18 +2530,25 @@ function bindBillPaymentButtons(afterPay = renderCurrentRoute) {
         return;
       }
 
-      const paidDate = isoDate(new Date());
+      const paidDate = prompt("Data em que o boleto foi pago:", isoDate(new Date()));
+      if (paidDate === null) {
+        return;
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) {
+        showToast("Informe a data no formato AAAA-MM-DD.", "error");
+        return;
+      }
       if (blockClosedMonth(paidDate, "pagar conta")) {
         return;
       }
-      if (!confirm(`Marcar ${bill.description || categoryName(bill.category)} como pago hoje?`)) {
+      if (!confirm(`Marcar ${bill.description || categoryName(bill.category)} como pago em ${formatIsoDateBr(paidDate)}?`)) {
         return;
       }
 
       state.cash = state.cash.map(entry => String(entry.id) === String(id)
-        ? { ...entry, paidAt: new Date().toISOString() }
+        ? { ...entry, paidAt: `${paidDate}T12:00:00.000Z` }
         : entry);
-      recordAudit("Conta paga", `${bill.description || categoryName(bill.category)} - ${money(bill.amount)}`);
+      recordAudit("Conta paga", `${bill.description || categoryName(bill.category)} - ${money(bill.amount)} - ${formatIsoDateBr(paidDate)}`);
       if (await persistState()) {
         showToast("Conta marcada como paga.", "success");
         afterPay();
@@ -2518,7 +2558,7 @@ function bindBillPaymentButtons(afterPay = renderCurrentRoute) {
 }
 
 function bindTodayForms(today) {
-  document.querySelector("#today-income-form").addEventListener("submit", async event => {
+  on("#today-income-form", "submit", async event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
     const amount = Number(values.amount || 0);
@@ -2526,7 +2566,7 @@ function bindTodayForms(today) {
       showToast("Informe valor maior que zero.", "error");
       return;
     }
-    if (blockClosedMonth(today, "lancar entrada rapida")) {
+    if (blockClosedMonth(today, "lançar entrada rápida")) {
       return;
     }
 
@@ -2543,7 +2583,7 @@ function bindTodayForms(today) {
     }
   });
 
-  document.querySelector("#today-expense-form").addEventListener("submit", async event => {
+  on("#today-expense-form", "submit", async event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
     const amount = Number(values.amount || 0);
@@ -2567,7 +2607,7 @@ function bindTodayForms(today) {
     }
   });
 
-  document.querySelector("#today-store-form").addEventListener("submit", async event => {
+  on("#today-store-form", "submit", async event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
     const quantity = Number(values.quantity || 0);
@@ -2575,7 +2615,7 @@ function bindTodayForms(today) {
       showToast("Informe quantidade maior que zero.", "error");
       return;
     }
-    if (blockClosedMonth(today, "lancar venda da loja")) {
+    if (blockClosedMonth(today, "lançar venda da loja")) {
       return;
     }
     state.storeSales.push({
@@ -2632,6 +2672,7 @@ async function renderCash() {
         <div class="cash-panel-tabs" role="tablist" aria-label="Ferramentas do caixa">
           ${[
             ["entry", editing ? "Editar" : "Lançamento"],
+            ["ledger", "Extrato"],
             ["channels", "Canais"],
             ["reconciliation", "Conciliação"],
             ["withdrawals", "Retiradas"],
@@ -2734,8 +2775,8 @@ async function renderCash() {
         </div>
         ` : ""}
         ${activeCashPanel === "categories" ? cashCategoriesPanel("cash-tab-section supplier-panel") : ""}
-      </section>
-      <section class="panel cash-ledger-panel">
+        ${activeCashPanel === "ledger" ? `
+        <div class="cash-tab-section cash-ledger-panel">
         <div class="cash-ledger-header">
           <div>
             <h2>Extrato</h2>
@@ -2792,6 +2833,8 @@ async function renderCash() {
         </div>
         ${cashCategorySummary(accountedEntries)}
         ${cashTable(filteredEntries)}
+        </div>
+        ` : ""}
       </section>
     </div>
   `;
@@ -2822,7 +2865,7 @@ async function renderCash() {
       showToast("Informe data e valor maior que zero.", "error");
       return;
     }
-    if (blockClosedMonth(values.date, editing ? "editar lancamentos" : "lancar no caixa")) {
+    if (blockClosedMonth(values.date, editing ? "editar lançamentos" : "lançar no caixa")) {
       return;
     }
     const isDuplicate = !editing && state.cash.some(item =>
@@ -2903,7 +2946,7 @@ async function renderCash() {
         date: values.date,
         notes: String(values.notes || "").trim()
       };
-      if (blockClosedMonth(receipt.date, editingChannelReceipt ? "editar canais" : "lancar canais")) {
+      if (blockClosedMonth(receipt.date, editingChannelReceipt ? "editar canais" : "lançar canais")) {
         return;
       }
       const cardapioTotal = cardapioPaymentDefinitions.reduce((sum, [paymentKey]) => {
@@ -3216,45 +3259,45 @@ async function renderCash() {
 
   const withdrawalForm = document.querySelector("#withdrawal-form");
   if (withdrawalForm) {
-    withdrawalForm.addEventListener("input", () => {
-    const amount = Number(withdrawalForm.elements.amount.value || 0);
-    const split = withdrawalSplit(amount);
-    const preview = withdrawalForm.querySelector(".withdrawal-preview");
-    preview.innerHTML = `
-      <span><b>Caixa disponível</b>${money(totalCash.balance)}</span>
-      <span><b>Cofrinho 10%</b>${money(split.savings)}</span>
-      <span><b>Vanessa 70%</b>${money(split.vanessa)}</span>
-      <span><b>Raquel 30%</b>${money(split.raquel)}</span>
-    `;
-    });
+    const updateWithdrawalPreview = () => {
+      const split = {
+        total: Number(withdrawalForm.elements.amount.value || 0),
+        savings: Number(withdrawalForm.elements.savings.value || 0),
+        vanessa: Number(withdrawalForm.elements.vanessa.value || 0),
+        raquel: Number(withdrawalForm.elements.raquel.value || 0)
+      };
+      const expectedFromRaquel = withdrawalSplitFromRaquel(split.raquel);
+      const anticipated = split.raquel > 0 ? Math.max(0, expectedFromRaquel.vanessa - split.vanessa) : 0;
+      const preview = withdrawalForm.querySelector(".withdrawal-preview");
+      preview.innerHTML = `
+        <span><b>Caixa disponível</b>${money(totalCash.balance)}</span>
+        <span><b>Total informado</b>${money(split.total)}</span>
+        <span><b>Cofrinho</b>${money(split.savings)}</span>
+        <span><b>Vanessa / Raquel</b>${money(split.vanessa)} / ${money(split.raquel)}</span>
+        ${anticipated > 0.009 ? `<span><b>Diferença / antecipado</b>${money(anticipated)}</span>` : ""}
+      `;
+    };
 
     withdrawalForm.addEventListener("input", event => {
-    const fieldName = event.target.name;
-    if (fieldName === "amount") {
-      const split = withdrawalSplit(event.target.value);
-      withdrawalForm.elements.savings.value = split.savings.toFixed(2);
-      withdrawalForm.elements.vanessa.value = split.vanessa.toFixed(2);
-      withdrawalForm.elements.raquel.value = split.raquel.toFixed(2);
-    } else if (["savings", "vanessa", "raquel"].includes(fieldName)) {
-      const total = Number(withdrawalForm.elements.savings.value || 0)
-        + Number(withdrawalForm.elements.vanessa.value || 0)
-        + Number(withdrawalForm.elements.raquel.value || 0);
-      withdrawalForm.elements.amount.value = total.toFixed(2);
-    }
+      const fieldName = event.target.name;
+      if (fieldName === "amount") {
+        const split = withdrawalSplit(event.target.value);
+        withdrawalForm.elements.savings.value = split.savings.toFixed(2);
+        withdrawalForm.elements.vanessa.value = split.vanessa.toFixed(2);
+        withdrawalForm.elements.raquel.value = split.raquel.toFixed(2);
+      } else if (fieldName === "raquel") {
+        const split = withdrawalSplitFromRaquel(event.target.value);
+        withdrawalForm.elements.amount.value = split.total.toFixed(2);
+        withdrawalForm.elements.savings.value = split.savings.toFixed(2);
+        withdrawalForm.elements.vanessa.value = split.vanessa.toFixed(2);
+      } else if (["savings", "vanessa"].includes(fieldName)) {
+        const total = Number(withdrawalForm.elements.savings.value || 0)
+          + Number(withdrawalForm.elements.vanessa.value || 0)
+          + Number(withdrawalForm.elements.raquel.value || 0);
+        withdrawalForm.elements.amount.value = total.toFixed(2);
+      }
 
-    const split = {
-      total: Number(withdrawalForm.elements.amount.value || 0),
-      savings: Number(withdrawalForm.elements.savings.value || 0),
-      vanessa: Number(withdrawalForm.elements.vanessa.value || 0),
-      raquel: Number(withdrawalForm.elements.raquel.value || 0)
-    };
-    const preview = withdrawalForm.querySelector(".withdrawal-preview");
-    preview.innerHTML = `
-      <span><b>Caixa disponÃ­vel</b>${money(totalCash.balance)}</span>
-      <span><b>Total informado</b>${money(split.total)}</span>
-      <span><b>Cofrinho</b>${money(split.savings)}</span>
-      <span><b>Vanessa / Raquel</b>${money(split.vanessa)} / ${money(split.raquel)}</span>
-    `;
+      updateWithdrawalPreview();
     });
 
     withdrawalForm.addEventListener("submit", event => {
@@ -3321,49 +3364,51 @@ async function renderCash() {
   const filterTypeField = document.querySelector("#cash-filter-type");
   const filterCategoryField = document.querySelector("#cash-filter-category");
 
-  function updateFilterVisibility() {
-    const period = periodField.value;
-    filterForm.dataset.period = period;
-  }
+  if (filterForm && periodField && filterTypeField && filterCategoryField) {
+    function updateFilterVisibility() {
+      const period = periodField.value;
+      filterForm.dataset.period = period;
+    }
 
-  periodField.addEventListener("change", updateFilterVisibility);
-  filterTypeField.addEventListener("change", event => {
-    filterCategoryField.innerHTML = cashFilterCategoryOptions("all", event.currentTarget.value);
-  });
-  updateFilterVisibility();
+    periodField.addEventListener("change", updateFilterVisibility);
+    filterTypeField.addEventListener("change", event => {
+      filterCategoryField.innerHTML = cashFilterCategoryOptions("all", event.currentTarget.value);
+    });
+    updateFilterVisibility();
 
-  filterForm.addEventListener("submit", event => {
-    event.preventDefault();
-    state.cashFilter = readForm(event.currentTarget);
-    persistState();
-    renderCash();
-  });
-
-  document.querySelector("#clear-cash-filter").addEventListener("click", () => {
-    state.cashFilter = { period: "all", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", search: "" };
-    persistState();
-    renderCash();
-  });
-
-  document.querySelectorAll("[data-cash-quick]").forEach(button => {
-    button.addEventListener("click", event => {
-      const quick = event.currentTarget.dataset.cashQuick;
-      if (quick === "today") {
-        state.cashFilter = { ...state.cashFilter, period: "day", date: today, month: selectedMonth, year: selectedYear };
-      }
-      if (quick === "week") {
-        state.cashFilter = { ...state.cashFilter, period: "week", date: today, month: selectedMonth, year: selectedYear };
-      }
-      if (quick === "month") {
-        state.cashFilter = { ...state.cashFilter, period: "month", date: today, month: today.slice(0, 7), year: selectedYear };
-      }
-      if (quick === "last-month") {
-        state.cashFilter = { ...state.cashFilter, period: "month", date: today, month: lastMonthKey(), year: selectedYear };
-      }
+    filterForm.addEventListener("submit", event => {
+      event.preventDefault();
+      state.cashFilter = readForm(event.currentTarget);
       persistState();
       renderCash();
     });
-  });
+
+    document.querySelector("#clear-cash-filter")?.addEventListener("click", () => {
+      state.cashFilter = { period: "all", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", search: "" };
+      persistState();
+      renderCash();
+    });
+
+    document.querySelectorAll("[data-cash-quick]").forEach(button => {
+      button.addEventListener("click", event => {
+        const quick = event.currentTarget.dataset.cashQuick;
+        if (quick === "today") {
+          state.cashFilter = { ...state.cashFilter, period: "day", date: today, month: selectedMonth, year: selectedYear };
+        }
+        if (quick === "week") {
+          state.cashFilter = { ...state.cashFilter, period: "week", date: today, month: selectedMonth, year: selectedYear };
+        }
+        if (quick === "month") {
+          state.cashFilter = { ...state.cashFilter, period: "month", date: today, month: today.slice(0, 7), year: selectedYear };
+        }
+        if (quick === "last-month") {
+          state.cashFilter = { ...state.cashFilter, period: "month", date: today, month: lastMonthKey(), year: selectedYear };
+        }
+        persistState();
+        renderCash();
+      });
+    });
+  }
 
   const clearCashButton = document.querySelector("#clear-cash");
   if (clearCashButton) {
@@ -3402,7 +3447,7 @@ async function renderCash() {
 
       const id = event.currentTarget.dataset.deleteCash;
       const removed = state.cash.find(item => String(item.id) === String(id));
-      if (blockClosedMonth(removed?.date, "excluir lancamentos")) {
+      if (blockClosedMonth(removed?.date, "excluir lançamentos")) {
         return;
       }
       state.cash = state.cash.filter(item => String(item.id) !== String(id));
@@ -4127,7 +4172,7 @@ async function renderMenu() {
     });
   });
 
-  document.querySelector("#menu-period-form").addEventListener("submit", event => {
+  on("#menu-period-form", "submit", event => {
     event.preventDefault();
     const data = readForm(event.currentTarget);
     state.menuPeriod = {
@@ -4208,7 +4253,7 @@ async function renderMenu() {
       renderMenu();
     });
 
-    document.querySelector("#clear-menu").addEventListener("click", () => {
+    on("#clear-menu", "click", () => {
       state.menus[currentKey] = [];
       persistState();
       renderMenu();
@@ -4623,8 +4668,8 @@ function monthlyRenewalWhatsAppUrl(client, currentKey) {
   return whatsappUrl(client.phone, [
     `Oi, ${client.name || "tudo bem"}!`,
     remaining <= 0
-      ? "Seu pacote mensal da Cumbuca acabou. Quer renovar para este mes?"
-      : `Seu pacote mensal esta com ${remaining} cumbuca(s) restante(s).`,
+      ? "Seu pacote mensal da Cumbuca acabou. Quer renovar para este mês?"
+      : `Seu pacote mensal está com ${remaining} cumbuca(s) restante(s).`,
     `Pacote atual: ${clientMonthlyCapacity(client, currentKey)} cumbuca(s).`
   ].join(" "));
 }
@@ -5152,21 +5197,21 @@ async function renderPricing() {
     </div>
   `;
 
-  document.querySelector("#ingredient-form").addEventListener("submit", event => {
+  on("#ingredient-form", "submit", event => {
     event.preventDefault();
     state.ingredients.push(readForm(event.currentTarget));
     persistState();
     renderPricing();
   });
 
-  document.querySelector("#pricing-form").addEventListener("submit", event => {
+  on("#pricing-form", "submit", event => {
     event.preventDefault();
     state.pricingConfig = readForm(event.currentTarget);
     persistState();
     renderPricing();
   });
 
-  document.querySelector("#clear-pricing").addEventListener("click", () => {
+  on("#clear-pricing", "click", () => {
     state.ingredients = [];
     state.pricingConfig = {};
     persistState();
@@ -5457,6 +5502,70 @@ function moneyRowsByCategory(entries, type) {
   return Object.entries(rows)
     .sort((a, b) => b[1] - a[1])
     .map(([label, value]) => [label, value]);
+}
+
+function reportPdfIncomeChannelRows(data) {
+  const cashRows = accountIncomeBreakdown(data).map(([label, value]) => ["Caixa", label, value]);
+  const weeklyRows = weeklyRevenueBreakdown(data).map(([label, value]) => ["Semanal", label, value]);
+  const cardapioRows = cardapioPaymentDefinitions
+    .map(([paymentKey, label]) => [
+      "Cardápio Web",
+      label,
+      data.channelReceipts.reduce((sum, entry) => sum + cardapioPaymentAmount(entry, paymentKey), 0)
+    ])
+    .filter(([, , value]) => value > 0)
+    .map(([group, label, value]) => [group, label, money(value)]);
+  const marketplaceRows = channelDefinitions
+    .filter(([key]) => key !== "cardapioWeb")
+    .map(([key, label]) => [
+      "Canal",
+      label,
+      data.channelReceipts.reduce((sum, entry) => sum + channelReceiptAmount(entry, key, "net"), 0)
+    ])
+    .filter(([, , value]) => value > 0)
+    .map(([group, label, value]) => [group, label, money(value)]);
+
+  return [...cashRows, ...weeklyRows, ...cardapioRows, ...marketplaceRows];
+}
+
+function reportPdfExpenseCategoryRows(data) {
+  return moneyRowsByCategory(data.expenseEntries, "expense")
+    .map(([label, value]) => [label, money(value)]);
+}
+
+function reportPdfTopExpenseRows(data) {
+  return [...data.expenseEntries]
+    .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
+    .slice(0, 10)
+    .map(entry => [entry.description || categoryName(entry.category), categoryName(entry.category), money(entry.amount)]);
+}
+
+function reportPdfNegativeDifferenceRows(data) {
+  return comparisonReportRows(data)
+    .filter(row => Number(row.delta || 0) < 0)
+    .map(row => [
+      row.label,
+      row.label === "Pedidos" || row.label === "Cumbucas" ? row.current : money(row.current),
+      row.label === "Pedidos" || row.label === "Cumbucas" ? row.previous : money(row.previous),
+      row.label === "Pedidos" || row.label === "Cumbucas" ? row.delta : `-${money(Math.abs(row.delta))}`
+    ]);
+}
+
+function reportPdfWithdrawalRows(data) {
+  const differenceTotal = data.expenseEntries
+    .filter(entry => normalizedCategory(entry.category) === "diferenca" || String(entry.description || "").toLowerCase().includes("diferen"))
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const rows = [
+    ["Cofrinho", money(data.financial.withdrawals.savings)],
+    ["Vanessa", money(data.financial.withdrawals.vanessa)],
+    ["Raquel", money(data.financial.withdrawals.raquel)]
+  ];
+
+  if (differenceTotal > 0) {
+    rows.push(["Diferença / antecipado", money(differenceTotal)]);
+  }
+
+  return rows;
 }
 
 function compactMoneyList(rows, emptyText) {
@@ -6028,11 +6137,7 @@ async function downloadReportPdf() {
       operationalExpenses: data.financial.operationalExpenses,
       availableForWithdrawal: data.financial.availableForWithdrawal,
       withdrawalTotal: data.financial.withdrawals.total,
-      withdrawalRows: [
-        ["Cofrinho", money(data.financial.withdrawals.savings)],
-        ["Vanessa", money(data.financial.withdrawals.vanessa)],
-        ["Raquel", money(data.financial.withdrawals.raquel)]
-      ],
+      withdrawalRows: reportPdfWithdrawalRows(data),
       accountIncome: data.income,
       weeklyRevenue: data.orderRevenue,
       incomeSummaryRows: [
@@ -6040,11 +6145,13 @@ async function downloadReportPdf() {
         ...weeklyRevenueBreakdown(data).map(([label, value]) => ["Semanal", label, value]),
         ["Total", "Conta + semanal", money(data.income + data.orderRevenue)]
       ],
+      incomeChannelRows: reportPdfIncomeChannelRows(data),
+      expenseCategoryRows: reportPdfExpenseCategoryRows(data),
+      negativeDifferenceRows: reportPdfNegativeDifferenceRows(data),
       totalSoldQuantity: data.totalSoldQuantity,
       weeklyCashQuantity: data.weeklyCashQuantity,
       storeQuantity: data.storeQuantity,
       dishRows: dishRankingRows(data).map((item, index) => [index + 1, item.name, item.quantity]),
-      clientRows: clientReportRows(data).slice(0, 12).map(row => [row.name, row.plan, row.orders, row.quantity, money(row.amount), row.pending]),
       comparisonRows: comparisonReportRows(data).map(row => [
         row.label,
         row.label === "Pedidos" || row.label === "Cumbucas" ? row.current : money(row.current),
@@ -6052,7 +6159,7 @@ async function downloadReportPdf() {
         row.label === "Pedidos" || row.label === "Cumbucas" ? row.delta : money(row.delta)
       ]),
       incomeRows: data.incomeEntries.map(entry => [entry.date || "", entry.description || "", money(entry.amount)]),
-      expenseRows: data.topExpenses.map(entry => [entry.date || "", entry.description || "", categoryName(entry.category), money(entry.amount)]),
+      expenseRows: reportPdfTopExpenseRows(data),
       channelRows: data.channelReceipts.map(entry => [
         entry.date || "",
         ...cardapioPaymentDefinitions.map(([paymentKey]) => money(cardapioPaymentAmount(entry, paymentKey))),
@@ -6335,7 +6442,7 @@ function clientReportPanel(data) {
             </tbody>
           </table>
         </div>
-      ` : `<p class="muted">Nenhum pedido de cliente neste periodo.</p>`}
+      ` : `<p class="muted">Nenhum pedido de cliente neste período.</p>`}
     </section>
   `;
 }
@@ -6350,7 +6457,7 @@ function comparisonReportRows(data) {
   const previousStoreQuantity = previousStore.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
   return [
     ["Entradas", data.income, previousTotals.income],
-    ["Saidas", data.expenses, previousTotals.expenses],
+    ["Saídas", data.expenses, previousTotals.expenses],
     ["Saldo", data.balance, previousTotals.balance],
     ["Pedidos", data.orders.length, previousOrders.length],
     ["Cumbucas", data.totalSoldQuantity, previousOrderQuantity + previousStoreQuantity]
@@ -6591,7 +6698,7 @@ function monthlyClosingPanel(data) {
         </div>
         <div class="actions">
           <button type="button" id="close-month">${closing ? "Atualizar fechamento" : "Fechar mês"}</button>
-          ${closing && isAdminUser() ? `<button class="secondary" type="button" id="unlock-month">${locked ? "Destravar mes" : "Travar mes"}</button>` : ""}
+          ${closing && isAdminUser() ? `<button class="secondary" type="button" id="unlock-month">${locked ? "Destravar mês" : "Travar mês"}</button>` : ""}
         </div>
       </div>
       <div class="summary">
@@ -6658,7 +6765,7 @@ function renderStoreSales() {
     </div>
   `;
 
-  document.querySelector("#store-sale-form").addEventListener("submit", event => {
+  on("#store-sale-form", "submit", event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
     const quantity = Number(values.quantity || 0);
@@ -6666,7 +6773,7 @@ function renderStoreSales() {
       showToast("Informe data e quantidade maior que zero.", "error");
       return;
     }
-    if (blockClosedMonth(values.date, editing ? "editar venda da loja" : "lancar venda da loja")) {
+    if (blockClosedMonth(values.date, editing ? "editar venda da loja" : "lançar venda da loja")) {
       return;
     }
     const entry = {
@@ -6773,7 +6880,8 @@ function dueDateDistanceLabel(date) {
   return `Vence em ${days} dia(s)`;
 }
 
-function upcomingBills(limit = 6) {
+function upcomingBills(limit = 6, { includeOverdue = true } = {}) {
+  const today = isoDate(new Date());
   const end = isoDate(new Date(Date.now() + 30 * 86400000));
 
   return state.cash
@@ -6783,17 +6891,25 @@ function upcomingBills(limit = 6) {
       reminderDate: paymentReminderDate(entry)
     }))
     .filter(entry => entry.reminderDate && entry.reminderDate <= end)
+    .filter(entry => includeOverdue || entry.reminderDate >= today)
     .sort((a, b) => String(a.reminderDate).localeCompare(String(b.reminderDate)))
     .slice(0, limit);
 }
 
-function upcomingBillsPanel() {
-  const bills = upcomingBills();
+function upcomingBillsPanel({ title = "Próximas contas", limit = 6, showSummary = false, includeOverdue = true } = {}) {
+  const bills = upcomingBills(limit, { includeOverdue });
+  const total = bills.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
 
   return `
     <section class="panel report-section">
-      <h2>Próximas contas</h2>
+      <h2>${title}</h2>
       ${bills.length ? `
+        ${showSummary ? `
+          <div class="summary">
+            <div class="metric report-metric"><span>Pendentes</span><strong>${bills.length}</strong></div>
+            <div class="metric report-metric"><span>Total a pagar</span><strong>${money(total)}</strong></div>
+          </div>
+        ` : ""}
         <div class="recent-list">
           ${bills.map(entry => `
             <span>
@@ -6803,7 +6919,7 @@ function upcomingBillsPanel() {
             </span>
           `).join("")}
         </div>
-      ` : `<p class="muted">Nenhuma conta com vencimento nos próximos 30 dias.</p>`}
+      ` : `<p class="muted">Nenhuma conta pendente com vencimento nos próximos 30 dias.</p>`}
     </section>
   `;
 }
@@ -7014,7 +7130,7 @@ function bindMonthlyClosing(data, renderFn) {
 
   closeMonthButton.addEventListener("click", () => {
     if (state.monthlyClosings[data.periodKey] && !isAdminUser()) {
-      showToast("Somente admin pode atualizar um mes fechado.", "warning");
+      showToast("Somente admin pode atualizar um mês fechado.", "warning");
       return;
     }
     if (state.monthlyClosings[data.periodKey] && !confirm(`Atualizar o fechamento de ${formatMonthKeyBr(data.periodKey)}?`)) {
@@ -7250,6 +7366,7 @@ function renderReports() {
       <div class="metric report-metric"><span>Clientes semanais</span><strong>${data.weeklyClients}</strong></div>
       <div class="metric report-metric"><span>Mensalistas</span><strong>${data.monthlyClients}</strong></div>
     </section>
+    ${upcomingBillsPanel({ title: "Boletos pendentes", limit: 12, showSummary: true, includeOverdue: false })}
     ${reportType === "month" ? monthlyOriginCategoryPanel(data) : ""}
     ${reportType === "month" ? comparisonReportPanel(data) : ""}
     ${channelReportPanel(data)}
@@ -7443,16 +7560,16 @@ async function renderBackups() {
     });
   });
 
-  document.querySelector("#hero-backup-download").addEventListener("click", downloadBackup);
-  document.querySelector("#manual-backup-download").addEventListener("click", downloadBackup);
-  document.querySelector("#manual-backup-supabase").addEventListener("click", saveManualBackupToSupabase);
-  document.querySelector("#system-check-run").addEventListener("click", runSystemCheck);
+  on("#hero-backup-download", "click", downloadBackup);
+  on("#manual-backup-download", "click", downloadBackup);
+  on("#manual-backup-supabase", "click", saveManualBackupToSupabase);
+  on("#system-check-run", "click", runSystemCheck);
   bindSystemIssuesPanel();
   loadRealDatabaseUsage();
   loadAutomaticBackups();
   loadUsersPanel();
   loadTechnicalEvents();
-  document.querySelector("#manual-backup-import").addEventListener("change", async event => {
+  on("#manual-backup-import", "change", async event => {
     const file = event.currentTarget.files?.[0];
     if (!file) {
       return;
@@ -7480,7 +7597,7 @@ async function renderBackups() {
     document.querySelector("#db-usage-status").innerHTML = databaseUsageHtml(year);
   });
 
-  document.querySelector("#cleanup-backup-first").addEventListener("click", downloadBackup);
+  on("#cleanup-backup-first", "click", downloadBackup);
   const resetAllButton = document.querySelector("#reset-all-data");
   if (resetAllButton) {
     resetAllButton.addEventListener("click", async () => {
@@ -7494,7 +7611,7 @@ async function renderBackups() {
       }
     });
   }
-  document.querySelector("#delete-old-backups").addEventListener("click", async () => {
+  on("#delete-old-backups", "click", async () => {
     if (!hasRecentManualBackup()) {
       showToast("Baixe um backup JSON antes de apagar backups antigos.", "warning");
       return;
@@ -7519,7 +7636,7 @@ async function renderBackups() {
       showToast("Falha ao apagar backups antigos", "warning");
     }
   });
-  document.querySelector("#cleanup-year-form").addEventListener("submit", async event => {
+  on("#cleanup-year-form", "submit", async event => {
     event.preventDefault();
     const year = cleanupYearField.value;
     const currentPreview = cleanupPreview(year);
@@ -7633,11 +7750,7 @@ function reportExportPayload(data = reportData()) {
       operationalExpenses: data.financial.operationalExpenses,
       availableForWithdrawal: data.financial.availableForWithdrawal,
       withdrawalTotal: data.financial.withdrawals.total,
-      withdrawalRows: [
-        ["Cofrinho", money(data.financial.withdrawals.savings)],
-        ["Vanessa", money(data.financial.withdrawals.vanessa)],
-        ["Raquel", money(data.financial.withdrawals.raquel)]
-      ],
+      withdrawalRows: reportPdfWithdrawalRows(data),
       accountIncome: data.income,
       weeklyRevenue: data.orderRevenue,
       incomeSummaryRows: [
@@ -7645,11 +7758,13 @@ function reportExportPayload(data = reportData()) {
         ...weeklyRevenueBreakdown(data).map(([label, value]) => ["Semanal", label, value]),
         ["Total", "Conta + semanal", money(data.income + data.orderRevenue)]
       ],
+      incomeChannelRows: reportPdfIncomeChannelRows(data),
+      expenseCategoryRows: reportPdfExpenseCategoryRows(data),
+      negativeDifferenceRows: reportPdfNegativeDifferenceRows(data),
       totalSoldQuantity: data.totalSoldQuantity,
       weeklyCashQuantity: data.weeklyCashQuantity,
       storeQuantity: data.storeQuantity,
       dishRows: dishRankingRows(data).map((item, index) => [index + 1, item.name, item.quantity]),
-      clientRows: clientReportRows(data).slice(0, 12).map(row => [row.name, row.plan, row.orders, row.quantity, money(row.amount), row.pending]),
       comparisonRows: comparisonReportRows(data).map(row => [
         row.label,
         row.label === "Pedidos" || row.label === "Cumbucas" ? row.current : money(row.current),
@@ -7657,7 +7772,7 @@ function reportExportPayload(data = reportData()) {
         row.label === "Pedidos" || row.label === "Cumbucas" ? row.delta : money(row.delta)
       ]),
       incomeRows: data.incomeEntries.map(entry => [entry.date || "", entry.description || "", money(entry.amount)]),
-      expenseRows: data.topExpenses.map(entry => [entry.date || "", entry.description || "", categoryName(entry.category), money(entry.amount)]),
+      expenseRows: reportPdfTopExpenseRows(data),
       channelRows: data.channelReceipts.map(entry => [
         entry.date || "",
         ...cardapioPaymentDefinitions.map(([paymentKey]) => money(cardapioPaymentAmount(entry, paymentKey))),
@@ -7669,7 +7784,7 @@ function reportExportPayload(data = reportData()) {
       cashRows: data.cashEntries.map(entry => [
         entry.date || "",
         entry.description || "",
-        entry.type === "expense" ? "Saida" : "Entrada",
+        entry.type === "expense" ? "Saída" : "Entrada",
         categoryName(entry.category),
         money(entry.amount)
       ])
@@ -7696,16 +7811,16 @@ async function runSystemCheck() {
   panel.innerHTML = `<p class="muted">Verificando...</p>`;
   const payload = reportExportPayload();
   const checks = [
-    await checkFetch("Sessao/login", "/api/session"),
+    await checkFetch("Sessão/login", "/api/session"),
     await checkFetch("Servidor e Supabase", "/api/health", {}, async response => {
       const result = await response.json();
       return response.ok && result.status === "online" && Boolean(result.database);
     }),
-    await checkFetch("Persistencia", "/api/persistence-check", {}, async response => {
+    await checkFetch("Persistência", "/api/persistence-check", {}, async response => {
       const result = await response.json();
       return response.ok && Boolean(result.database && result.saved);
     }),
-    await checkFetch("Backups automaticos", "/api/backups", {}, async response => {
+    await checkFetch("Backups automáticos", "/api/backups", {}, async response => {
       const result = await response.json();
       return response.ok && Boolean(result.database);
     }),
@@ -7847,7 +7962,7 @@ function renderSettings() {
     </section>
   `;
 
-  document.querySelector("#settings-form").addEventListener("submit", async event => {
+  on("#settings-form", "submit", async event => {
     event.preventDefault();
     const form = readForm(event.currentTarget);
     state.appConfig = {
@@ -8074,11 +8189,11 @@ function showBackupPreviewModal(result, restoreDate = "") {
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";
   backdrop.innerHTML = `
-    <div class="modal" role="dialog" aria-modal="true" aria-label="Previa do backup">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Prévia do backup">
       <div class="modal-header">
         <div>
           <span class="eyebrow">Backup</span>
-          <h2>Previa de ${formatIsoDateBr(result.backupDate || restoreDate || isoDate(new Date()))}</h2>
+          <h2>Prévia de ${formatIsoDateBr(result.backupDate || restoreDate || isoDate(new Date()))}</h2>
         </div>
         <button class="secondary table-action" type="button" data-close-modal>Fechar</button>
       </div>
@@ -8113,7 +8228,7 @@ function showBackupPreviewModal(result, restoreDate = "") {
 }
 
 async function restoreAutomaticBackup(date) {
-  if (!confirm(`Restaurar o backup automatico de ${formatIsoDateBr(date)}? Os dados atuais serao substituidos.`)) {
+  if (!confirm(`Restaurar o backup automático de ${formatIsoDateBr(date)}? Os dados atuais serão substituídos.`)) {
     return;
   }
   const typed = prompt(`Digite ${date} para confirmar a restauração.`);
@@ -8196,17 +8311,17 @@ function renderAccount() {
       <div class="section-heading">
         <div>
           <h2>Minha conta</h2>
-          <p class="muted-inline">Troque sua senha sem alterar variaveis do Vercel.</p>
+          <p class="muted-inline">Troque sua senha sem alterar variáveis do Vercel.</p>
         </div>
         <div class="client-count">
           <span>Perfil</span>
-          <strong>${user.role === "admin" ? "Admin" : "Operacao"}</strong>
+          <strong>${user.role === "admin" ? "Admin" : "Operação"}</strong>
         </div>
       </div>
       <div class="summary">
-        <div class="metric"><span>Usuario</span><strong>${escapeHtml(user.username || "")}</strong></div>
+        <div class="metric"><span>Usuário</span><strong>${escapeHtml(user.username || "")}</strong></div>
         <div class="metric"><span>Nome</span><strong>${escapeHtml(user.name || user.username || "")}</strong></div>
-        <div class="metric"><span>Acesso</span><strong>${user.role === "admin" ? "Total" : "Operacao"}</strong></div>
+        <div class="metric"><span>Acesso</span><strong>${user.role === "admin" ? "Total" : "Operação"}</strong></div>
       </div>
       <form id="change-password-form" class="form-grid">
         <label>Senha atual
@@ -8225,7 +8340,7 @@ function renderAccount() {
     </section>
   `;
 
-  document.querySelector("#change-password-form").addEventListener("submit", async event => {
+  on("#change-password-form", "submit", async event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
     if (values.newPassword !== values.confirmPassword) {
