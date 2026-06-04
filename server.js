@@ -976,9 +976,6 @@ function buildReportPdf(payload = {}) {
   addPdfSectionTitle(doc, "Principais despesas");
   addPdfTable(doc, ["Descrição", "Categoria", "Valor"], data.expenseRows || [], [250, 140, 100]);
 
-  addPdfSectionTitle(doc, "Ranking de cumbucas");
-  addPdfTable(doc, ["Pos.", "Cumbuca", "Qtd."], data.dishRows || [], [55, 300, 80]);
-
   addPdfSectionTitle(doc, "Comparativo mensal");
   addPdfTable(doc, ["Indicador", "Atual", "Anterior", "Diferença"], data.comparisonRows || [], [110, 110, 110, 110]);
 
@@ -1026,7 +1023,6 @@ async function buildReportXlsx(payload = {}) {
     ["Entradas", [["Data", "Descrição", "Valor"], ...(data.incomeRows || [])]],
     ["Despesas", [["Data", "Descrição", "Categoria", "Valor"], ...(data.expenseRows || [])]],
     ["Canais", [["Data", "Débito", "Crédito", "Pix", "Dinheiro", "iFood", "99 Food", "Total"], ...(data.channelRows || [])]],
-    ["Ranking", [["Posição", "Cumbuca", "Quantidade"], ...(data.dishRows || [])]],
     ["Comparativo", [["Indicador", "Atual", "Anterior", "Diferença"], ...(data.comparisonRows || [])]],
     ["Clientes", [["Cliente", "Telefone", "Perfil", "Pedidos", "Cumbucas", "Total", "Pendências"], ...(data.clientRows || [])]],
     ["Retiradas", [["Destino", "Valor"], ...(data.withdrawalRows || [])]],
