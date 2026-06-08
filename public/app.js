@@ -267,6 +267,7 @@ const defaultExpenseCategories = [
   ["supermercado", "Supermercado"],
   ["despesas-gerais", "Despesas gerais"],
   ["boleto", "Boleto"],
+  ["conta", "Conta"],
   ["funcionarios", "Funcionários"],
   ["entregador", "Entregador"],
   ["99-uber", "99/Uber"],
@@ -1536,7 +1537,14 @@ function cashCategoryOptions(type, selected = "") {
 
 function isBillCategory(value) {
   const normalized = String(value || "").replace(/^supplier:/, "reason:").toLowerCase();
-  return normalized === "boleto" || normalized === "reason:boleto" || normalized.includes("boleto");
+  return normalized === "boleto"
+    || normalized === "reason:boleto"
+    || normalized === "conta"
+    || normalized === "contas"
+    || normalized === "reason:conta"
+    || normalized === "reason:contas"
+    || normalized.includes("boleto")
+    || normalized.includes("conta");
 }
 
 function isBillEntry(entry = {}) {
