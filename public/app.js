@@ -1539,6 +1539,9 @@ function cashCategoryOptions(type, selected = "") {
 
 function isBillCategory(value) {
   const normalized = String(value || "").replace(/^supplier:/, "reason:").toLowerCase();
+  if (normalized === "ajuste-conta") {
+    return false;
+  }
   return normalized === "boleto"
     || normalized === "reason:boleto"
     || normalized === "conta"
@@ -1546,7 +1549,8 @@ function isBillCategory(value) {
     || normalized === "reason:conta"
     || normalized === "reason:contas"
     || normalized.includes("boleto")
-    || normalized.includes("conta");
+    || normalized.startsWith("conta-")
+    || normalized.startsWith("reason:conta-");
 }
 
 function isBillEntry(entry = {}) {
