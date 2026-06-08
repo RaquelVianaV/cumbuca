@@ -1023,11 +1023,38 @@ function parseMoneyInput(value) {
   if (!raw) {
     return 0;
   }
-  const normalized = raw
-    .replace(/[^\d,.-]/g, "")
-    .replace(/\./g, "")
-    .replace(",", ".");
-  return Number(normalized || 0);
+  const clean = raw.replace(/[^\d,.-]/g, "");
+  const negative = clean.startsWith("-");
+  const unsigned = clean.replace(/-/g, "");
+  let normalized = unsigned;
+
+  if (unsigned.includes(",")) {
+    normalized = unsigned.replace(/\./g, "").replace(",", ".");
+  } else {
+    const parts = unsigned.split(".");
+    if (parts.length === 2) {
+      const [whole, fraction] = parts;
+      if (fraction.length === 3) {
+        normalized = `${whole}${fraction}`;
+      } else if (fraction.length > 3) {
+        const digits = `${whole}${fraction}`;
+        normalized = `${digits.slice(0, -2)}.${digits.slice(-2)}`;
+      }
+    } else if (parts.length > 2) {
+      const last = parts.at(-1);
+      normalized = last.length === 2
+        ? `${parts.slice(0, -1).join("")}.${last}`
+        : parts.join("");
+    }
+  }
+
+  const parsed = Number(normalized || 0);
+  return negative ? -parsed : parsed;
+}
+
+function moneyInputValue(value) {
+  const amount = Number(value || 0);
+  return amount ? money(amount).replace("R$", "").trim() : "";
 }
 
 function whatsappUrl(phone, text) {
@@ -1447,7 +1474,7 @@ function channelReceiptsPanel(editing = null) {
           <div class="channel-payment-grid">
             ${cardapioPaymentDefinitions.map(([paymentKey, label]) => `
               <label>${label}
-                <input name="cardapioWeb${capitalize(paymentKey)}" type="number" min="0" step="0.01" placeholder="0,00" value="${editing ? cardapioPaymentAmount(editing, paymentKey) || "" : ""}">
+                <input name="cardapioWeb${capitalize(paymentKey)}" type="text" inputmode="decimal" placeholder="0,00" value="${editing ? moneyInputValue(cardapioPaymentAmount(editing, paymentKey)) : ""}">
               </label>
             `).join("")}
           </div>
@@ -1456,7 +1483,7 @@ function channelReceiptsPanel(editing = null) {
           <div class="channel-fieldset">
             <strong>${label}</strong>
             <label>Valor diário
-              <input name="${key}Net" type="number" min="0" step="0.01" placeholder="0,00" value="${editing ? channelReceiptAmount(editing, key, "net") || "" : ""}">
+              <input name="${key}Net" type="text" inputmode="decimal" placeholder="0,00" value="${editing ? moneyInputValue(channelReceiptAmount(editing, key, "net")) : ""}">
             </label>
           </div>
         `).join("")}
@@ -1635,7 +1662,7 @@ function cashTotals(entries = state.cash) {
 }
 
 function withdrawalSplit(amount) {
-  const total = Math.max(0, Number(amount || 0));
+  const total = Math.max(0, parseMoneyInput(amount));
   const config = {
     ...defaultAppConfig,
     ...(state.appConfig || {})
@@ -1653,7 +1680,7 @@ function withdrawalSplit(amount) {
 }
 
 function withdrawalSplitFromRaquel(raquelAmount) {
-  const raquel = Math.max(0, Number(raquelAmount || 0));
+  const raquel = Math.max(0, parseMoneyInput(raquelAmount));
   const config = {
     ...defaultAppConfig,
     ...(state.appConfig || {})
@@ -1678,7 +1705,7 @@ function withdrawalSplitFromRaquel(raquelAmount) {
 }
 
 function accountBalanceAdjustment(targetBalance, currentBalance) {
-  const target = Number(targetBalance || 0);
+  const target = parseMoneyInput(targetBalance);
   const current = Number(currentBalance || 0);
   const difference = target - current;
 
@@ -2479,7 +2506,7 @@ function renderToday() {
             <input name="description" placeholder="Venda, pix, ajuste" required>
           </label>
           <label>Valor
-            <input name="amount" type="number" min="0" step="0.01" placeholder="0,00" required>
+            <input name="amount" type="text" inputmode="decimal" placeholder="0,00" required>
           </label>
           <button type="submit">Salvar entrada</button>
         </form>
@@ -2509,7 +2536,7 @@ function renderToday() {
             <input name="paidDate" type="date" value="${data.today}">
           </label>
           <label>Valor
-            <input name="amount" type="number" min="0" step="0.01" placeholder="0,00" required>
+            <input name="amount" type="text" inputmode="decimal" placeholder="0,00" required>
           </label>
           <div class="actions span-2">
             <button type="submit">Salvar saída</button>
@@ -2659,7 +2686,7 @@ function bindTodayForms(today) {
   on("#today-income-form", "submit", async event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
-    const amount = Number(values.amount || 0);
+    const amount = parseMoneyInput(values.amount);
     if (amount <= 0) {
       showToast("Informe valor maior que zero.", "error");
       return;
@@ -2684,7 +2711,7 @@ function bindTodayForms(today) {
   on("#today-expense-form", "submit", async event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
-    const amount = Number(values.amount || 0);
+    const amount = parseMoneyInput(values.amount);
     if (amount <= 0) {
       showToast("Informe valor maior que zero.", "error");
       return;
@@ -2852,7 +2879,7 @@ async function renderCash() {
             Já está pago
           </label>
           <label>Valor
-            <input name="amount" type="number" min="0" step="0.01" placeholder="0,00" value="${editing?.amount || ""}" required>
+            <input name="amount" type="text" inputmode="decimal" placeholder="0,00" value="${editing ? moneyInputValue(editing.amount) : ""}" required>
           </label>
           <div class="actions">
             <button type="submit">${editing ? "Salvar edição" : "Adicionar"}</button>
@@ -2874,7 +2901,7 @@ async function renderCash() {
             <div class="metric"><span>Diferença</span><strong id="account-difference-preview">${money(0)}</strong></div>
           </div>
           <label>Saldo real da conta
-            <input name="balance" type="number" min="0" step="0.01" placeholder="0,00" value="${Math.max(0, totalCash.balance).toFixed(2)}" required>
+            <input name="balance" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(Math.max(0, totalCash.balance))}" required>
           </label>
           <label>Data do ajuste
             <input name="date" type="date" value="${today}" required>
@@ -2898,7 +2925,7 @@ async function renderCash() {
             <input name="date" type="date" value="${today}" required>
           </label>
           <label>Valor que tenho no cofrinho hoje
-            <input name="balance" type="text" inputmode="decimal" placeholder="0,00" value="${savingsCurrent ? money(savingsCurrent).replace("R$", "").trim() : ""}" required>
+            <input name="balance" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(savingsCurrent)}" required>
           </label>
           <label>Retirada feita do cofrinho
             <input name="withdrawal" type="text" inputmode="decimal" placeholder="0,00">
@@ -2930,17 +2957,17 @@ async function renderCash() {
             <input name="date" type="date" value="${today}" required>
           </label>
           <label>Valor a distribuir
-            <input name="amount" type="number" min="0" max="${Math.max(0, totalCash.balance)}" step="0.01" value="${Math.max(0, totalCash.balance).toFixed(2)}" required>
+            <input name="amount" type="text" inputmode="decimal" value="${moneyInputValue(Math.max(0, totalCash.balance))}" required>
           </label>
           <div class="withdrawal-fields">
             <label>Cofrinho
-              <input name="savings" type="number" min="0" step="0.01" value="${previewWithdrawal.savings.toFixed(2)}">
+              <input name="savings" type="text" inputmode="decimal" value="${moneyInputValue(previewWithdrawal.savings)}">
             </label>
             <label>Vanessa
-              <input name="vanessa" type="number" min="0" step="0.01" value="${previewWithdrawal.vanessa.toFixed(2)}">
+              <input name="vanessa" type="text" inputmode="decimal" value="${moneyInputValue(previewWithdrawal.vanessa)}">
             </label>
             <label>Raquel
-              <input name="raquel" type="number" min="0" step="0.01" value="${previewWithdrawal.raquel.toFixed(2)}">
+              <input name="raquel" type="text" inputmode="decimal" value="${moneyInputValue(previewWithdrawal.raquel)}">
             </label>
           </div>
           <div class="withdrawal-preview" aria-live="polite">
@@ -3039,7 +3066,7 @@ async function renderCash() {
     cashForm.addEventListener("submit", event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
-    const amount = Number(values.amount || 0);
+    const amount = parseMoneyInput(values.amount);
     if (!values.date || amount <= 0) {
       showToast("Informe data e valor maior que zero.", "error");
       return;
@@ -3130,7 +3157,7 @@ async function renderCash() {
       }
       const cardapioTotal = cardapioPaymentDefinitions.reduce((sum, [paymentKey]) => {
         const field = `cardapioWeb${capitalize(paymentKey)}`;
-        const amount = Number(values[field] || 0);
+        const amount = parseMoneyInput(values[field]);
         receipt[field] = amount.toFixed(2);
         return sum + amount;
       }, 0);
@@ -3138,7 +3165,7 @@ async function renderCash() {
       receipt.cardapioWebFee = "0.00";
       receipt.cardapioWebNet = cardapioTotal.toFixed(2);
       ["ifood", "food99"].forEach(key => {
-        const amount = Number(values[`${key}Net`] || 0);
+        const amount = parseMoneyInput(values[`${key}Net`]);
         receipt[`${key}Gross`] = amount.toFixed(2);
         receipt[`${key}Fee`] = "0.00";
         receipt[`${key}Net`] = amount.toFixed(2);
@@ -3485,10 +3512,10 @@ async function renderCash() {
   if (withdrawalForm) {
     const updateWithdrawalPreview = () => {
       const split = {
-        total: Number(withdrawalForm.elements.amount.value || 0),
-        savings: Number(withdrawalForm.elements.savings.value || 0),
-        vanessa: Number(withdrawalForm.elements.vanessa.value || 0),
-        raquel: Number(withdrawalForm.elements.raquel.value || 0)
+        total: parseMoneyInput(withdrawalForm.elements.amount.value),
+        savings: parseMoneyInput(withdrawalForm.elements.savings.value),
+        vanessa: parseMoneyInput(withdrawalForm.elements.vanessa.value),
+        raquel: parseMoneyInput(withdrawalForm.elements.raquel.value)
       };
       const expectedFromRaquel = withdrawalSplitFromRaquel(split.raquel);
       const anticipated = split.raquel > 0 ? Math.max(0, expectedFromRaquel.vanessa - split.vanessa) : 0;
@@ -3506,19 +3533,19 @@ async function renderCash() {
       const fieldName = event.target.name;
       if (fieldName === "amount") {
         const split = withdrawalSplit(event.target.value);
-        withdrawalForm.elements.savings.value = split.savings.toFixed(2);
-        withdrawalForm.elements.vanessa.value = split.vanessa.toFixed(2);
-        withdrawalForm.elements.raquel.value = split.raquel.toFixed(2);
+        withdrawalForm.elements.savings.value = moneyInputValue(split.savings);
+        withdrawalForm.elements.vanessa.value = moneyInputValue(split.vanessa);
+        withdrawalForm.elements.raquel.value = moneyInputValue(split.raquel);
       } else if (fieldName === "raquel") {
         const split = withdrawalSplitFromRaquel(event.target.value);
-        withdrawalForm.elements.amount.value = split.total.toFixed(2);
-        withdrawalForm.elements.savings.value = split.savings.toFixed(2);
-        withdrawalForm.elements.vanessa.value = split.vanessa.toFixed(2);
+        withdrawalForm.elements.amount.value = moneyInputValue(split.total);
+        withdrawalForm.elements.savings.value = moneyInputValue(split.savings);
+        withdrawalForm.elements.vanessa.value = moneyInputValue(split.vanessa);
       } else if (["savings", "vanessa"].includes(fieldName)) {
-        const total = Number(withdrawalForm.elements.savings.value || 0)
-          + Number(withdrawalForm.elements.vanessa.value || 0)
-          + Number(withdrawalForm.elements.raquel.value || 0);
-        withdrawalForm.elements.amount.value = total.toFixed(2);
+        const total = parseMoneyInput(withdrawalForm.elements.savings.value)
+          + parseMoneyInput(withdrawalForm.elements.vanessa.value)
+          + parseMoneyInput(withdrawalForm.elements.raquel.value);
+        withdrawalForm.elements.amount.value = moneyInputValue(total);
       }
 
       updateWithdrawalPreview();
@@ -3529,10 +3556,10 @@ async function renderCash() {
     const values = readForm(event.currentTarget);
     const available = cashTotals(state.cash).balance;
     const split = {
-      total: Number(values.savings || 0) + Number(values.vanessa || 0) + Number(values.raquel || 0),
-      savings: Number(values.savings || 0),
-      vanessa: Number(values.vanessa || 0),
-      raquel: Number(values.raquel || 0)
+      total: parseMoneyInput(values.savings) + parseMoneyInput(values.vanessa) + parseMoneyInput(values.raquel),
+      savings: parseMoneyInput(values.savings),
+      vanessa: parseMoneyInput(values.vanessa),
+      raquel: parseMoneyInput(values.raquel)
     };
 
     if (split.total <= 0) {
@@ -3743,7 +3770,7 @@ function planningIngredientRow(menuIndex, ingredientIndex, ingredient = {}) {
   return `
     <div class="ingredient-row" data-ingredient-row data-menu-index="${menuIndex}">
       <input class="ingredient-name" name="ingredient-name-${menuIndex}-${ingredientIndex}" value="${ingredient.name || ""}" placeholder="Ingrediente">
-      <input class="ingredient-value" name="ingredient-value-${menuIndex}-${ingredientIndex}" type="number" min="0" step="0.01" value="${ingredient.value || ""}" placeholder="R$">
+      <input class="ingredient-value" name="ingredient-value-${menuIndex}-${ingredientIndex}" type="text" inputmode="decimal" value="${moneyInputValue(ingredient.value)}" placeholder="R$">
       <button class="ingredient-remove" type="button" data-remove-ingredient aria-label="Remover ingrediente">-</button>
     </div>
   `;
@@ -3759,7 +3786,7 @@ function readPlanningIngredients(form, menuIndex) {
   return [...form.querySelectorAll(`[data-ingredient-row][data-menu-index="${menuIndex}"]`)]
     .map(row => ({
       name: String(row.querySelector(".ingredient-name")?.value || "").trim(),
-      value: row.querySelector(".ingredient-value")?.value || ""
+      value: parseMoneyInput(row.querySelector(".ingredient-value")?.value).toFixed(2)
     }))
     .filter(item => item.name || Number(item.value || 0) > 0);
 }
@@ -3846,7 +3873,7 @@ async function renderMenu() {
                     <input name="dish-${index}" value="${item.dish}" placeholder="Nome da cumbuca">
                   </label>
                   <label>Custo total
-                    <input name="cost-${index}" type="number" min="0" step="0.01" value="${item.cost || ""}" placeholder="Soma dos ingredientes">
+                    <input name="cost-${index}" type="text" inputmode="decimal" value="${moneyInputValue(item.cost)}" placeholder="Soma dos ingredientes">
                   </label>
                   <div class="ingredient-list">
                     <div class="ingredient-list-title">
@@ -4062,13 +4089,15 @@ async function renderMenu() {
 
       if (data.plan === "mensalista") {
         monthlyPackages[periodKey] = {
-          planValue: data.planValue,
+          planValue: parseMoneyInput(data.planValue).toFixed(2),
           monthlyQuantity: data.monthlyQuantity
         };
       }
 
       const client = {
         ...data,
+        planValue: parseMoneyInput(data.planValue).toFixed(2),
+        weeklyDeliveryFee: parseMoneyInput(data.weeklyDeliveryFee).toFixed(2),
         monthlyPackages
       };
 
@@ -4140,7 +4169,7 @@ async function renderMenu() {
       const isWeekly = client.plan === "semanal";
       weeklyFields.hidden = !isWeekly;
       if (isWeekly && deliveryFeeField && !state.editOrderId) {
-        deliveryFeeField.value = client.weeklyDeliveryFee || client.deliveryFee || "";
+        deliveryFeeField.value = moneyInputValue(client.weeklyDeliveryFee || client.deliveryFee);
       }
       weeklyFields.querySelectorAll("input").forEach(field => {
         field.disabled = !isWeekly;
@@ -4169,8 +4198,8 @@ async function renderMenu() {
         .filter(item => item.quantity > 0);
       const clientPhone = data.get("clientPhone");
       const client = clientByPhone(clientPhone);
-      const weeklyValue = client.plan === "semanal" ? Number(data.get("weeklyValue") || 0) : 0;
-      const deliveryFee = client.plan === "semanal" ? Number(data.get("orderDeliveryFee") || 0) : 0;
+      const weeklyValue = client.plan === "semanal" ? parseMoneyInput(data.get("weeklyValue")) : 0;
+      const deliveryFee = client.plan === "semanal" ? parseMoneyInput(data.get("orderDeliveryFee")) : 0;
       const paid = client.plan === "semanal" && data.get("paid") === "on";
 
       if (!dishes.length) {
@@ -4477,7 +4506,7 @@ async function renderMenu() {
           slot: index + 1,
           dish: data[`dish-${index}`],
           ingredients,
-          cost: ingredientTotal || data[`cost-${index}`],
+          cost: (ingredientTotal || parseMoneyInput(data[`cost-${index}`])).toFixed(2),
           status: data[`status-${index}`],
           notes: data[`notes-${index}`]
         };
@@ -4554,10 +4583,10 @@ function clientPanel(currentKey) {
         <label class="plan-value-field">
           <span class="value-label weekly-value">Valor padrão</span>
           <span class="value-label monthly-value">Valor mensal do mês</span>
-          <input name="planValue" type="number" min="0" step="0.01" placeholder="0,00" value="${packageForMonth.planValue || ""}">
+          <input name="planValue" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(packageForMonth.planValue)}">
         </label>
         <label class="weekly-freight-value">Frete
-          <input name="weeklyDeliveryFee" type="number" min="0" step="0.01" placeholder="0,00" value="${editing?.weeklyDeliveryFee || editing?.deliveryFee || ""}">
+          <input name="weeklyDeliveryFee" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(editing?.weeklyDeliveryFee || editing?.deliveryFee)}">
         </label>
         <label class="monthly-quantity">Quantidade do mês
           <input name="monthlyQuantity" type="number" min="0" step="1" placeholder="0" value="${packageForMonth.monthlyQuantity || ""}">
@@ -5041,10 +5070,10 @@ function orderFormPanel(plan, currentKey, editing, availableClients) {
         </div>
         <div class="weekly-order-fields" id="weekly-order-fields" hidden>
           <label>Valor em real deste pedido
-            <input name="weeklyValue" type="number" min="0" step="0.01" placeholder="0,00" value="${editing?.amount || ""}" disabled>
+            <input name="weeklyValue" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(editing?.amount)}" disabled>
           </label>
           <label>Valor em frete
-            <input name="orderDeliveryFee" type="number" min="0" step="0.01" placeholder="0,00" value="${editing?.deliveryFee || ""}" disabled>
+            <input name="orderDeliveryFee" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(editing?.deliveryFee)}" disabled>
           </label>
           <label class="checkbox-field">
             <input name="paid" type="checkbox" ${editing?.paid ? "checked" : ""} disabled>
@@ -5386,7 +5415,7 @@ async function renderPricing() {
             <input name="quantity" type="number" min="0" step="0.001" required>
           </label>
           <label>Custo unitário
-            <input name="unitCost" type="number" min="0" step="0.01" required>
+            <input name="unitCost" type="text" inputmode="decimal" required>
           </label>
           <div class="actions">
             <button type="submit">Adicionar</button>
@@ -5398,13 +5427,13 @@ async function renderPricing() {
         <h2>Cálculo</h2>
         <form id="pricing-form" class="form-grid">
           <label>Embalagem
-            <input name="packaging" type="number" min="0" step="0.01" value="${savedConfig.packaging || ""}">
+            <input name="packaging" type="text" inputmode="decimal" value="${moneyInputValue(savedConfig.packaging)}">
           </label>
           <label>Mão de obra
-            <input name="labor" type="number" min="0" step="0.01" value="${savedConfig.labor || ""}">
+            <input name="labor" type="text" inputmode="decimal" value="${moneyInputValue(savedConfig.labor)}">
           </label>
           <label>Custos fixos rateados
-            <input name="overhead" type="number" min="0" step="0.01" value="${savedConfig.overhead || ""}">
+            <input name="overhead" type="text" inputmode="decimal" value="${moneyInputValue(savedConfig.overhead)}">
           </label>
           <label>Perdas %
             <input name="lossPercent" type="number" min="0" step="0.01" value="${savedConfig.lossPercent || ""}">
@@ -5432,14 +5461,24 @@ async function renderPricing() {
 
   on("#ingredient-form", "submit", event => {
     event.preventDefault();
-    state.ingredients.push(readForm(event.currentTarget));
+    const values = readForm(event.currentTarget);
+    state.ingredients.push({
+      ...values,
+      unitCost: parseMoneyInput(values.unitCost).toFixed(2)
+    });
     persistState();
     renderPricing();
   });
 
   on("#pricing-form", "submit", event => {
     event.preventDefault();
-    state.pricingConfig = readForm(event.currentTarget);
+    const values = readForm(event.currentTarget);
+    state.pricingConfig = {
+      ...values,
+      packaging: parseMoneyInput(values.packaging).toFixed(2),
+      labor: parseMoneyInput(values.labor).toFixed(2),
+      overhead: parseMoneyInput(values.overhead).toFixed(2)
+    };
     persistState();
     renderPricing();
   });
@@ -7242,10 +7281,10 @@ function financialPlanningPanel() {
       <h2>Planejamento</h2>
       <form id="financial-planning-form" class="form-grid">
         <label>Valor guardado
-          <input name="savings" type="number" min="0" step="0.01" placeholder="0,00" value="${planning.savings || ""}">
+          <input name="savings" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(planning.savings)}">
         </label>
         <label>Meta de lucro mensal
-          <input name="monthlyGoal" type="number" min="0" step="0.01" placeholder="0,00" value="${planning.monthlyGoal || ""}">
+          <input name="monthlyGoal" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(planning.monthlyGoal)}">
         </label>
         <label>Próximas melhorias para a loja
           <textarea name="improvements" rows="5" placeholder="Uma melhoria por linha">${planningText(planning.improvements)}</textarea>
@@ -7287,10 +7326,10 @@ function bindFinancialPlanning() {
     event.preventDefault();
     const values = readForm(event.currentTarget);
     state.financialPlanning = {
-      savings: values.savings || "",
+      savings: parseMoneyInput(values.savings).toFixed(2),
       savingsUpdatedAt: state.financialPlanning?.savingsUpdatedAt || "",
       savingsHistory: savingsHistoryRows(),
-      monthlyGoal: values.monthlyGoal || "",
+      monthlyGoal: parseMoneyInput(values.monthlyGoal).toFixed(2),
       improvements: textLines(values.improvements),
       purchases: textLines(values.purchases)
     };
