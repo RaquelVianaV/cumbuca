@@ -620,6 +620,11 @@ h2 {
   color: var(--ink);
 }
 
+.today-band .dashboard-metric strong {
+  font-size: clamp(1.35rem, 1.7vw, 1.75rem);
+  white-space: nowrap;
+}
+
 .dashboard-metric.is-primary span {
   color: var(--earth);
 }
