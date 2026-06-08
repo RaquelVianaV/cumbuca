@@ -1022,6 +1022,9 @@ function money(value) {
 }
 
 function parseMoneyInput(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
   const raw = String(value || "").trim();
   if (!raw) {
     return 0;
