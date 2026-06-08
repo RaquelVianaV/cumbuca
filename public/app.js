@@ -418,9 +418,11 @@ const state = {
   editUserName: null,
   ingredients: localValue("pricingIngredients", []),
   pricingConfig: localValue("pricingConfig", {}),
-  cashFilter: localValue("cashFilter", { period: "all" }),
+  cashFilter: localValue("cashFilter", { period: "month" }),
   financialPlanning: localValue("financialPlanning", {
     savings: "",
+    savingsUpdatedAt: "",
+    savingsHistory: [],
     monthlyGoal: "",
     improvements: [],
     purchases: []
@@ -445,6 +447,16 @@ const state = {
   currentUser: null,
   database: false
 };
+
+if (localStorage.getItem("cashFilterDefaultMonthVersion") !== "2026-06") {
+  const now = new Date();
+  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const day = `${month}-${String(now.getDate()).padStart(2, "0")}`;
+  if (!state.cashFilter || state.cashFilter.period === "all") {
+    state.cashFilter = { period: "month", date: day, month, year: String(now.getFullYear()), type: "all", category: "all", search: "" };
+  }
+  localStorage.setItem("cashFilterDefaultMonthVersion", "2026-06");
+}
 
 function appStatePayload() {
   return {
@@ -509,9 +521,11 @@ function applyPayloadToState(saved = {}) {
   state.monthlyClosings = saved.monthlyClosings || {};
   state.ingredients = saved.pricingIngredients || [];
   state.pricingConfig = saved.pricingConfig || {};
-  state.cashFilter = saved.cashFilter || { period: "all" };
+  state.cashFilter = saved.cashFilter || { period: "month" };
   state.financialPlanning = {
     savings: "",
+    savingsUpdatedAt: "",
+    savingsHistory: [],
     monthlyGoal: "",
     improvements: [],
     purchases: [],
@@ -1090,7 +1104,18 @@ function allCashCategories() {
 }
 
 function filterCashEntries(entries) {
-  const { period, date, month, year, search, type, category } = state.cashFilter;
+  const today = isoDate(new Date());
+  const currentFilter = {
+    period: "month",
+    date: today,
+    month: today.slice(0, 7),
+    year: today.slice(0, 4),
+    type: "all",
+    category: "all",
+    search: "",
+    ...(state.cashFilter || {})
+  };
+  const { period, date, month, year, search, type, category } = currentFilter;
   const query = String(search || "").trim().toLowerCase();
   const searchedEntries = query
     ? entries.filter(entry => [
@@ -1696,6 +1721,44 @@ function withdrawalTarget(entry = {}) {
     return "raquel";
   }
   return "other";
+}
+
+function savingsBalance() {
+  return Number(state.financialPlanning?.savings || 0);
+}
+
+function savingsHistoryRows() {
+  return Array.isArray(state.financialPlanning?.savingsHistory)
+    ? state.financialPlanning.savingsHistory
+    : [];
+}
+
+function updateSavingsBalance({ amount, date, type, description }) {
+  const current = savingsBalance();
+  const numericAmount = Number(amount || 0);
+  const nextBalance = type === "withdrawal"
+    ? Math.max(0, current - numericAmount)
+    : type === "set"
+      ? Math.max(0, numericAmount)
+      : Math.max(0, current + numericAmount);
+
+  state.financialPlanning = {
+    ...(state.financialPlanning || {}),
+    savings: nextBalance.toFixed(2),
+    savingsUpdatedAt: date || isoDate(new Date()),
+    savingsHistory: [
+      {
+        id: `savings-${Date.now()}`,
+        date: date || isoDate(new Date()),
+        type,
+        amount: numericAmount.toFixed(2),
+        balance: nextBalance.toFixed(2),
+        description: description || ""
+      },
+      ...savingsHistoryRows()
+    ].slice(0, 40)
+  };
+  return nextBalance;
 }
 
 function financialSummary(cashEntries = []) {
@@ -2447,6 +2510,9 @@ function renderToday() {
       <div class="panel dashboard-panel">
         <h2>Venda da loja</h2>
         <form id="today-store-form" class="form-grid single">
+          <label>Data
+            <input name="date" type="date" value="${data.today}" required>
+          </label>
           <label>Quantidade de cumbucas
             <input name="quantity" type="number" min="1" step="1" placeholder="0" required>
           </label>
@@ -2670,16 +2736,16 @@ function bindTodayForms(today) {
     event.preventDefault();
     const values = readForm(event.currentTarget);
     const quantity = Number(values.quantity || 0);
-    if (quantity <= 0) {
-      showToast("Informe quantidade maior que zero.", "error");
+    if (!values.date || quantity <= 0) {
+      showToast("Informe data e quantidade maior que zero.", "error");
       return;
     }
-    if (blockClosedMonth(today, "lançar venda da loja")) {
+    if (blockClosedMonth(values.date, "lançar venda da loja")) {
       return;
     }
     state.storeSales.push({
       id: Date.now(),
-      date: today,
+      date: values.date,
       quantity,
       notes: values.notes || ""
     });
@@ -2693,6 +2759,10 @@ async function renderCash() {
   title.textContent = "Fluxo de Caixa";
   setActive("fluxo-de-caixa");
   ensureCashEntryIds();
+  const today = isoDate(new Date());
+  if (state.cashFilter?.period === "all" && !state.cashFilter.manualAll) {
+    state.cashFilter = { period: "month", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", search: "" };
+  }
   const editing = state.editCashId !== null
     ? state.cash.find(entry => String(entry.id) === String(state.editCashId))
     : null;
@@ -2702,7 +2772,6 @@ async function renderCash() {
   const filteredEntries = filterCashEntries(state.cash);
   const accountedEntries = accountingCashEntries(filteredEntries);
   const result = await postJson("/api/fluxo-de-caixa", { entries: accountedEntries });
-  const today = isoDate(new Date());
   const selectedDate = state.cashFilter.date || today;
   const selectedMonth = state.cashFilter.month || today.slice(0, 7);
   const selectedYear = state.cashFilter.year || today.slice(0, 4);
@@ -2711,6 +2780,8 @@ async function renderCash() {
   const selectedChannelMonth = state.cashFilter.month || today.slice(0, 7);
   const totalCash = cashTotals(state.cash);
   const previewWithdrawal = withdrawalSplit(totalCash.balance);
+  const savingsPlanning = state.financialPlanning || {};
+  const savingsCurrent = savingsBalance();
   const activeCashPanel = editing ? "entry" : (editingChannelReceipt ? "channels" : (state.cashPanelTab || "entry"));
 
   app.innerHTML = `
@@ -2718,7 +2789,6 @@ async function renderCash() {
       <div>
         <span>Fluxo de caixa</span>
         <h2>${money(result.balance)}</h2>
-        <p>${filteredEntries.length} lançamento(s) no filtro atual</p>
       </div>
       <div class="cash-hero-metrics">
         <span><b>${money(result.income)}</b>Entradas</span>
@@ -2734,6 +2804,7 @@ async function renderCash() {
             ["ledger", "Extrato"],
             ["channels", "Canais"],
             ["reconciliation", "Conciliação"],
+            ["savings", "Cofrinho"],
             ["withdrawals", "Retiradas"],
             ["categories", "Categorias"]
           ].map(([tab, label]) => `
@@ -2800,6 +2871,43 @@ async function renderCash() {
         </form>
         <h3>Histórico de ajustes</h3>
         ${accountAdjustmentHistoryHtml()}
+        </div>
+        ` : ""}
+        ${activeCashPanel === "savings" ? `
+        <div class="cash-tab-section savings-panel">
+        <h2>Cofrinho</h2>
+        <form id="savings-form" class="form-grid single">
+          <div class="summary reconciliation-summary">
+            <div class="metric"><span>Valor atual</span><strong>${money(savingsCurrent)}</strong></div>
+            <div class="metric"><span>Atualizado em</span><strong>${savingsPlanning.savingsUpdatedAt ? formatIsoDateBr(savingsPlanning.savingsUpdatedAt) : "Sem data"}</strong></div>
+            <div class="metric"><span>Últimos registros</span><strong>${savingsHistoryRows().length}</strong></div>
+          </div>
+          <label>Data do registro
+            <input name="date" type="date" value="${today}" required>
+          </label>
+          <label>Valor que tenho no cofrinho hoje
+            <input name="balance" type="number" min="0" step="0.01" placeholder="0,00" value="${savingsCurrent ? savingsCurrent.toFixed(2) : ""}" required>
+          </label>
+          <label>Retirada feita do cofrinho
+            <input name="withdrawal" type="number" min="0" step="0.01" placeholder="0,00">
+          </label>
+          <label>Observação
+            <input name="description" placeholder="Ex.: tirei para compra, conferência do caixa">
+          </label>
+          <button type="submit">Salvar cofrinho</button>
+        </form>
+        <h3>Histórico do cofrinho</h3>
+        ${savingsHistoryRows().length ? `
+          <div class="recent-list">
+            ${savingsHistoryRows().slice(0, 8).map(entry => `
+              <span>
+                <b>${entry.type === "withdrawal" ? "-" : entry.type === "deposit" ? "+" : ""}${money(entry.amount)}</b>
+                ${entry.type === "withdrawal" ? "Retirada" : entry.type === "deposit" ? "Entrada" : "Saldo informado"}
+                <small>${formatIsoDateBr(entry.date)} - saldo ${money(entry.balance)}${entry.description ? ` - ${escapeHtml(entry.description)}` : ""}</small>
+              </span>
+            `).join("")}
+          </div>
+        ` : `<p class="muted">Nenhum registro do cofrinho ainda.</p>`}
         </div>
         ` : ""}
         ${activeCashPanel === "withdrawals" ? `
@@ -3316,6 +3424,51 @@ async function renderCash() {
     });
   }
 
+  const savingsForm = document.querySelector("#savings-form");
+  if (savingsForm) {
+    savingsForm.addEventListener("submit", event => {
+      event.preventDefault();
+      const values = readForm(event.currentTarget);
+      const balance = Number(values.balance || 0);
+      const withdrawal = Number(values.withdrawal || 0);
+      const date = values.date || today;
+
+      if (balance < 0 || withdrawal < 0) {
+        showToast("Informe valores válidos para o cofrinho.", "error");
+        return;
+      }
+
+      const description = values.description || "Saldo informado no caixa";
+      const nextBalance = updateSavingsBalance({
+        amount: balance,
+        date,
+        type: "set",
+        description
+      });
+
+      if (withdrawal > 0) {
+        state.financialPlanning = {
+          ...state.financialPlanning,
+          savingsHistory: [
+            {
+              id: `savings-withdrawal-${Date.now()}`,
+              date,
+              type: "withdrawal",
+              amount: withdrawal.toFixed(2),
+              balance: nextBalance.toFixed(2),
+              description: values.description || "Retirada registrada no cofrinho"
+            },
+            ...savingsHistoryRows()
+          ].slice(0, 40)
+        };
+      }
+
+      recordAudit("Cofrinho atualizado", `Saldo ${money(nextBalance)}${withdrawal > 0 ? ` - retirada ${money(withdrawal)}` : ""}`);
+      persistState();
+      renderCash();
+    });
+  }
+
   const withdrawalForm = document.querySelector("#withdrawal-form");
   if (withdrawalForm) {
     const updateWithdrawalPreview = () => {
@@ -3412,6 +3565,14 @@ async function renderCash() {
       }
     ].filter(entry => Number(entry.amount || 0) > 0);
     state.cash.push(...withdrawalEntries);
+    if (split.savings > 0) {
+      updateSavingsBalance({
+        amount: split.savings,
+        date: values.date,
+        type: "deposit",
+        description: "Retirada - cofrinho"
+      });
+    }
     recordAudit("Retirada registrada", `Total ${money(split.total)} - cofrinho ${money(split.savings)}, Vanessa ${money(split.vanessa)}, Raquel ${money(split.raquel)}`);
     persistState();
     renderCash();
@@ -3437,13 +3598,14 @@ async function renderCash() {
 
     filterForm.addEventListener("submit", event => {
       event.preventDefault();
-      state.cashFilter = readForm(event.currentTarget);
+      const values = readForm(event.currentTarget);
+      state.cashFilter = { ...values, manualAll: values.period === "all" };
       persistState();
       renderCash();
     });
 
     document.querySelector("#clear-cash-filter")?.addEventListener("click", () => {
-      state.cashFilter = { period: "all", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", search: "" };
+      state.cashFilter = { period: "month", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", search: "" };
       persistState();
       renderCash();
     });
@@ -3452,16 +3614,16 @@ async function renderCash() {
       button.addEventListener("click", event => {
         const quick = event.currentTarget.dataset.cashQuick;
         if (quick === "today") {
-          state.cashFilter = { ...state.cashFilter, period: "day", date: today, month: selectedMonth, year: selectedYear };
+          state.cashFilter = { ...state.cashFilter, period: "day", date: today, month: selectedMonth, year: selectedYear, manualAll: false };
         }
         if (quick === "week") {
-          state.cashFilter = { ...state.cashFilter, period: "week", date: today, month: selectedMonth, year: selectedYear };
+          state.cashFilter = { ...state.cashFilter, period: "week", date: today, month: selectedMonth, year: selectedYear, manualAll: false };
         }
         if (quick === "month") {
-          state.cashFilter = { ...state.cashFilter, period: "month", date: today, month: today.slice(0, 7), year: selectedYear };
+          state.cashFilter = { ...state.cashFilter, period: "month", date: today, month: today.slice(0, 7), year: selectedYear, manualAll: false };
         }
         if (quick === "last-month") {
-          state.cashFilter = { ...state.cashFilter, period: "month", date: today, month: lastMonthKey(), year: selectedYear };
+          state.cashFilter = { ...state.cashFilter, period: "month", date: today, month: lastMonthKey(), year: selectedYear, manualAll: false };
         }
         persistState();
         renderCash();
@@ -5477,6 +5639,8 @@ function reportData() {
     income,
     expenses,
     financial,
+    savingsBalance: savingsBalance(),
+    savingsUpdatedAt: state.financialPlanning?.savingsUpdatedAt || "",
     totalIncome,
     balance: totalIncome - expenses,
     orderRevenue,
@@ -5877,6 +6041,9 @@ function reportCsvRows(kind, data) {
       { seção: "resumo", data: "", descrição: "Lucro antes das retiradas", tipo: "saldo", categoria: "", valor: data.financial.profitBeforeWithdrawals },
       { seção: "resumo", data: "", descrição: "Retiradas já feitas", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.total },
       { seção: "resumo", data: "", descrição: "Disponível para retirada", tipo: "saldo", categoria: "", valor: data.financial.availableForWithdrawal },
+      { seção: "resumo", data: data.savingsUpdatedAt || "", descrição: "Valor atual do cofrinho", tipo: "saldo", categoria: "cofrinho", valor: data.savingsBalance },
+      { seção: "produção", data: "", descrição: "Cumbucas vendidas na loja", tipo: "quantidade", categoria: "loja", valor: data.storeQuantity },
+      { seção: "produção", data: "", descrição: "Total de cumbucas vendidas", tipo: "quantidade", categoria: "total", valor: data.totalSoldQuantity },
       { seção: "retiradas", data: "", descrição: "Cofrinho", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.savings },
       { seção: "retiradas", data: "", descrição: "Vanessa", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.vanessa },
       { seção: "retiradas", data: "", descrição: "Raquel", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.raquel }
@@ -5997,6 +6164,7 @@ function reportPdfHtml(data) {
     ["Saídas", money(data.expenses)],
     ["Lucro antes retiradas", money(data.financial.profitBeforeWithdrawals)],
     ["Disponível retirada", money(data.financial.availableForWithdrawal)],
+    ["Cofrinho atual", money(data.savingsBalance)],
     ["Cumbucas vendidas", data.totalSoldQuantity],
     ["Semanal", data.weeklyCashQuantity],
     ["Loja", data.storeQuantity],
@@ -6195,6 +6363,8 @@ async function downloadReportPdf() {
       expenses: data.expenses,
       operationalExpenses: data.financial.operationalExpenses,
       availableForWithdrawal: data.financial.availableForWithdrawal,
+      savingsBalance: data.savingsBalance,
+      savingsUpdatedAt: data.savingsUpdatedAt,
       withdrawalTotal: data.financial.withdrawals.total,
       withdrawalRows: reportPdfWithdrawalRows(data),
       accountIncome: data.income,
@@ -6275,6 +6445,8 @@ async function downloadReportXlsx() {
       expenses: data.expenses,
       operationalExpenses: data.financial.operationalExpenses,
       availableForWithdrawal: data.financial.availableForWithdrawal,
+      savingsBalance: data.savingsBalance,
+      savingsUpdatedAt: data.savingsUpdatedAt,
       withdrawalTotal: data.financial.withdrawals.total,
       withdrawalRows: [
         ["Cofrinho", Number(data.financial.withdrawals.savings || 0)],
@@ -6388,6 +6560,8 @@ function exportReport(kind) {
         expenses: data.expenses,
         balance: data.balance,
         totalIncome: data.totalIncome,
+        savingsBalance: data.savingsBalance,
+        savingsUpdatedAt: data.savingsUpdatedAt,
         weeklyCashQuantity: data.weeklyCashQuantity,
         storeQuantity: data.storeQuantity,
         totalSoldQuantity: data.totalSoldQuantity,
@@ -7102,6 +7276,8 @@ function bindFinancialPlanning() {
     const values = readForm(event.currentTarget);
     state.financialPlanning = {
       savings: values.savings || "",
+      savingsUpdatedAt: state.financialPlanning?.savingsUpdatedAt || "",
+      savingsHistory: savingsHistoryRows(),
       monthlyGoal: values.monthlyGoal || "",
       improvements: textLines(values.improvements),
       purchases: textLines(values.purchases)
@@ -7314,10 +7490,13 @@ function renderFinance() {
     <section class="report-grid">
       <div class="metric report-metric"><span>Entrou no caixa</span><strong>${money(data.income)}</strong></div>
       <div class="metric report-metric"><span>Entrou com semanal</span><strong>${money(data.orderRevenue)}</strong></div>
+      <div class="metric report-metric"><span>Cumbucas loja</span><strong>${data.storeQuantity}</strong></div>
+      <div class="metric report-metric"><span>Total cumbucas</span><strong>${data.totalSoldQuantity}</strong></div>
       <div class="metric report-metric"><span>Saiu em saídas</span><strong>${money(data.expenses)}</strong></div>
       <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
       <div class="metric report-metric"><span>Lucro antes retiradas</span><strong class="${data.financial.profitBeforeWithdrawals < 0 ? "negative" : "positive"}">${money(data.financial.profitBeforeWithdrawals)}</strong></div>
       <div class="metric report-metric"><span>Retiradas feitas</span><strong>${money(data.financial.withdrawals.total)}</strong></div>
+      <div class="metric report-metric"><span>Cofrinho atual</span><strong>${money(data.savingsBalance)}</strong></div>
       <div class="metric report-metric"><span>Disponível para retirada</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
     </section>
     ${reportType === "month" ? monthlyOriginCategoryPanel(data) : ""}
@@ -7419,6 +7598,7 @@ function renderReports() {
       <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
       <div class="metric report-metric"><span>Lucro antes retiradas</span><strong class="${data.financial.profitBeforeWithdrawals < 0 ? "negative" : "positive"}">${money(data.financial.profitBeforeWithdrawals)}</strong></div>
       <div class="metric report-metric"><span>Retiradas feitas</span><strong>${money(data.financial.withdrawals.total)}</strong></div>
+      <div class="metric report-metric"><span>Cofrinho atual</span><strong>${money(data.savingsBalance)}</strong></div>
       <div class="metric report-metric"><span>Disponível para retirada</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
       <div class="metric report-metric"><span>Pedidos pagos</span><strong>${data.paidOrders}</strong></div>
       <div class="metric report-metric"><span>Pedidos pendentes</span><strong>${data.pendingOrders}</strong></div>
@@ -7814,6 +7994,8 @@ function reportExportPayload(data = reportData()) {
       expenses: data.expenses,
       operationalExpenses: data.financial.operationalExpenses,
       availableForWithdrawal: data.financial.availableForWithdrawal,
+      savingsBalance: data.savingsBalance,
+      savingsUpdatedAt: data.savingsUpdatedAt,
       withdrawalTotal: data.financial.withdrawals.total,
       withdrawalRows: reportPdfWithdrawalRows(data),
       accountIncome: data.income,

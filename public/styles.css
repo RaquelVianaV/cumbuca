@@ -3320,11 +3320,13 @@ a.secondary.table-action,
 }
 
 .report-grid {
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
 }
 
 .report-metric strong {
-  font-size: clamp(1.3rem, 1.8vw, 1.8rem);
+  font-size: clamp(1.22rem, 1.45vw, 1.58rem);
+  overflow-wrap: normal;
+  white-space: nowrap;
 }
 
 .report-section .table-wrap {

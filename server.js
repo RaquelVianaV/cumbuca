@@ -953,8 +953,10 @@ function buildReportPdf(payload = {}) {
     ["Saídas", brl(data.expenses)],
     ["Disponível retirada", brl(data.availableForWithdrawal)],
     ["Retiradas", brl(data.withdrawalTotal)],
+    ["Cofrinho atual", brl(data.savingsBalance)],
     ["Cumbucas", data.totalSoldQuantity || 0],
-    ["Semanal", data.weeklyCashQuantity || 0]
+    ["Semanal", data.weeklyCashQuantity || 0],
+    ["Loja", data.storeQuantity || 0]
   ];
 
   const boxWidth = 168;
@@ -1027,6 +1029,8 @@ async function buildReportXlsx(payload = {}) {
     ["Saídas operacionais", data.operationalExpenses || 0],
     ["Retiradas", data.withdrawalTotal || 0],
     ["Disponível retirada", data.availableForWithdrawal || 0],
+    ["Cofrinho atual", data.savingsBalance || 0],
+    ["Atualização cofrinho", data.savingsUpdatedAt || ""],
     ["Cumbucas semanal", data.weeklyCashQuantity || 0],
     ["Cumbucas loja", data.storeQuantity || 0],
     ["Cumbucas total", data.totalSoldQuantity || 0]
