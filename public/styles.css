@@ -607,14 +607,17 @@ h2 {
   box-shadow: none;
 }
 
-.dashboard-metric span,
-.dashboard-metric strong {
-  color: #ffffff;
-}
-
 .dashboard-metric.is-primary {
   grid-column: span 2;
   background: #fffaf1;
+}
+
+.dashboard-metric span {
+  color: var(--muted);
+}
+
+.dashboard-metric strong {
+  color: var(--ink);
 }
 
 .dashboard-metric.is-primary span {
