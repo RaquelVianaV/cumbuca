@@ -1018,6 +1018,18 @@ function money(value) {
   return brl.format(Number(value || 0));
 }
 
+function parseMoneyInput(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return 0;
+  }
+  const normalized = raw
+    .replace(/[^\d,.-]/g, "")
+    .replace(/\./g, "")
+    .replace(",", ".");
+  return Number(normalized || 0);
+}
+
 function whatsappUrl(phone, text) {
   const cleanPhone = String(phone || "").replace(/\D/g, "");
   if (!cleanPhone) {
@@ -2886,10 +2898,10 @@ async function renderCash() {
             <input name="date" type="date" value="${today}" required>
           </label>
           <label>Valor que tenho no cofrinho hoje
-            <input name="balance" type="number" min="0" step="0.01" placeholder="0,00" value="${savingsCurrent ? savingsCurrent.toFixed(2) : ""}" required>
+            <input name="balance" type="text" inputmode="decimal" placeholder="0,00" value="${savingsCurrent ? money(savingsCurrent).replace("R$", "").trim() : ""}" required>
           </label>
           <label>Retirada feita do cofrinho
-            <input name="withdrawal" type="number" min="0" step="0.01" placeholder="0,00">
+            <input name="withdrawal" type="text" inputmode="decimal" placeholder="0,00">
           </label>
           <label>Observação
             <input name="description" placeholder="Ex.: tirei para compra, conferência do caixa">
@@ -3429,8 +3441,8 @@ async function renderCash() {
     savingsForm.addEventListener("submit", event => {
       event.preventDefault();
       const values = readForm(event.currentTarget);
-      const balance = Number(values.balance || 0);
-      const withdrawal = Number(values.withdrawal || 0);
+      const balance = parseMoneyInput(values.balance);
+      const withdrawal = parseMoneyInput(values.withdrawal);
       const date = values.date || today;
 
       if (balance < 0 || withdrawal < 0) {
