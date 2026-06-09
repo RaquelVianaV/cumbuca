@@ -2236,6 +2236,12 @@ function monthOptions(selectedMonth) {
   }).join("");
 }
 
+function weekOptions(selectedWeek) {
+  return [1, 2, 3, 4, 5]
+    .map(week => `<option value="${week}" ${week === Number(selectedWeek || 1) ? "selected" : ""}>Semana ${week}</option>`)
+    .join("");
+}
+
 function currentMonthKey() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -6409,13 +6415,7 @@ function channelPaymentTotals(entries = []) {
 
 function previousChannelEntries(data) {
   if (data.type === "week") {
-    const start = new Date(`${reportWeekRange().start}T00:00:00`);
-    const end = new Date(`${reportWeekRange().end}T00:00:00`);
-    const days = Math.max(1, Math.round((end - start) / 86400000) + 1);
-    start.setDate(start.getDate() - days);
-    end.setDate(end.getDate() - days);
-    const startKey = isoDate(start);
-    const endKey = isoDate(end);
+    const { start: startKey, end: endKey } = previousComparablePeriod(data);
     return state.channelReceipts.filter(entry => {
       const date = String(entry.date || "");
       return date >= startKey && date <= endKey;
@@ -6424,6 +6424,68 @@ function previousChannelEntries(data) {
 
   const previousKey = previousMonthKeyFromPeriod(data.periodKey);
   return state.channelReceipts.filter(entry => String(entry.date || "").startsWith(previousKey));
+}
+
+function previousComparablePeriod(data) {
+  if (data.type === "week") {
+    const { start, end } = reportPeriodBounds(data);
+    const startDate = new Date(`${start}T00:00:00`);
+    const endDate = new Date(`${end}T00:00:00`);
+    const days = Math.max(1, Math.round((endDate - startDate) / 86400000) + 1);
+    startDate.setDate(startDate.getDate() - days);
+    endDate.setDate(endDate.getDate() - days);
+    return {
+      start: isoDate(startDate),
+      end: isoDate(endDate),
+      label: `${formatIsoDateBr(isoDate(startDate))} a ${formatIsoDateBr(isoDate(endDate))}`
+    };
+  }
+
+  const previousKey = previousMonthKeyFromPeriod(data.periodKey);
+  return {
+    start: `${previousKey}-01`,
+    end: isoDate(new Date(Number(previousKey.slice(0, 4)), Number(previousKey.slice(5, 7)), 0)),
+    label: formatMonthKeyBr(previousKey),
+    periodKey: previousKey
+  };
+}
+
+function entriesBetweenDates(entries, dateFor, start, end) {
+  return entries.filter(entry => {
+    const date = dateFor(entry);
+    return date >= start && date <= end;
+  });
+}
+
+function previousReportCashEntries(data) {
+  const previous = previousComparablePeriod(data);
+  return accountingCashEntries(state.cash).filter(entry => {
+    const date = cashAccountingDate(entry);
+    return date >= previous.start && date <= previous.end;
+  });
+}
+
+function previousReportOrders(data) {
+  if (data.type === "week") {
+    const week = Number(data.selectedWeek || 1);
+    const previousMenuKey = week > 1
+      ? `${data.periodKey}-semana-${week - 1}`
+      : `${previousMonthKeyFromPeriod(data.periodKey)}-semana-5`;
+    return state.orders.filter(order => order.menuKey === previousMenuKey);
+  }
+
+  const previousKey = previousMonthKeyFromPeriod(data.periodKey);
+  return state.orders.filter(order => menuPeriodKeyFromKey(order.menuKey) === previousKey);
+}
+
+function previousReportStoreSales(data) {
+  if (data.type === "week") {
+    const previous = previousComparablePeriod(data);
+    return entriesBetweenDates(state.storeSales, entry => String(entry.date || ""), previous.start, previous.end);
+  }
+
+  const previousKey = previousMonthKeyFromPeriod(data.periodKey);
+  return state.storeSales.filter(entry => String(entry.date || "").startsWith(previousKey));
 }
 
 function channelReportPanel(data) {
@@ -6493,8 +6555,8 @@ function monthlyOriginCategoryPanel(data) {
     .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
     .slice(0, 5)
     .map(entry => [entry.description || categoryName(entry.category), Number(entry.amount || 0)]);
-  const previousKey = previousMonthKeyFromPeriod(data.periodKey);
-  const previousCash = accountingCashEntries(state.cash).filter(entry => cashAccountingDate(entry).startsWith(previousKey));
+  const previous = previousComparablePeriod(data);
+  const previousCash = previousReportCashEntries(data);
   const previousTotals = cashTotals(previousCash);
   const incomeDelta = data.income - previousTotals.income;
   const expenseDelta = data.expenses - previousTotals.expenses;
@@ -6523,7 +6585,7 @@ function monthlyOriginCategoryPanel(data) {
     </section>
     <section class="dashboard-lane monthly-breakdown">
       <div class="panel dashboard-panel">
-        <h2>Comparação com ${formatMonthKeyBr(previousKey)}</h2>
+        <h2>Comparação com ${previous.label}</h2>
         <div class="summary comparison-summary">
           <div class="metric"><span>Entradas</span><strong class="comparison-value ${incomeDelta < 0 ? "negative" : "positive"}"><i>${incomeDelta < 0 ? "-" : "+"}</i>${money(Math.abs(incomeDelta))}</strong></div>
           <div class="metric"><span>Saídas</span><strong class="comparison-value ${expenseDelta > 0 ? "negative" : "positive"}"><i>${expenseDelta < 0 ? "-" : "+"}</i>${money(Math.abs(expenseDelta))}</strong></div>
@@ -7240,10 +7302,9 @@ function clientReportPanel(data) {
 }
 
 function comparisonReportRows(data) {
-  const previousKey = previousMonthKeyFromPeriod(data.periodKey);
-  const previousCash = accountingCashEntries(state.cash).filter(entry => cashAccountingDate(entry).startsWith(previousKey));
-  const previousOrders = state.orders.filter(order => menuPeriodKeyFromKey(order.menuKey) === previousKey);
-  const previousStore = state.storeSales.filter(entry => String(entry.date || "").startsWith(previousKey));
+  const previousCash = previousReportCashEntries(data);
+  const previousOrders = previousReportOrders(data);
+  const previousStore = previousReportStoreSales(data);
   const previousTotals = cashTotals(previousCash);
   const previousOrderQuantity = previousOrders.reduce((sum, order) => sum + orderQuantity(order), 0);
   const previousStoreQuantity = previousStore.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
@@ -7263,10 +7324,10 @@ function comparisonReportRows(data) {
 
 function comparisonReportPanel(data) {
   const rows = comparisonReportRows(data);
-  const previousKey = previousMonthKeyFromPeriod(data.periodKey);
+  const previous = previousComparablePeriod(data);
   return `
     <section class="panel report-section">
-      <h2>Comparativo com ${formatMonthKeyBr(previousKey)}</h2>
+      <h2>Comparativo com ${previous.label}</h2>
       <div class="summary comparison-summary">
         ${rows.map(row => `
           <div class="metric">
@@ -7876,6 +7937,11 @@ function financeFilterPanel(reportType, weekRange) {
         <label class="report-week-field">Até
           <input name="end" type="date" value="${weekRange.end}">
         </label>
+        <label class="report-week-field">Semana do cardápio
+          <select name="week">
+            ${weekOptions(state.reportPeriod.week)}
+          </select>
+        </label>
         <label>Saída
           <select name="expenseCategory">
             ${reportExpenseCategoryOptions(state.reportPeriod.expenseCategory || "all")}
@@ -7903,14 +7969,14 @@ function bindReportPeriodForm(renderFn, path) {
       type: values.type || "month",
       year: Number(values.year || new Date().getFullYear()),
       month: Number(values.month || new Date().getMonth() + 1),
-      week: Number(state.reportPeriod.week || 1),
+      week: Number(values.week || state.reportPeriod.week || 1),
       date: values.date || reportDate(),
       start: values.start || weekRange.start,
       end: values.end || weekRange.end,
       expenseCategory: values.expenseCategory || "all"
     };
     localStorage.setItem("reportPeriod", JSON.stringify(state.reportPeriod));
-    const weeklyQuery = state.reportPeriod.type === "week" ? `&inicio=${state.reportPeriod.start}&fim=${state.reportPeriod.end}` : "";
+    const weeklyQuery = state.reportPeriod.type === "week" ? `&semana=${state.reportPeriod.week}&inicio=${state.reportPeriod.start}&fim=${state.reportPeriod.end}` : "";
     const dayQuery = state.reportPeriod.type === "day" ? `&dia=${state.reportPeriod.date}` : "";
     history.replaceState(null, "", `/${path}?ano=${state.reportPeriod.year}&mes=${state.reportPeriod.month}${weeklyQuery}${dayQuery}`);
     renderFn();
@@ -8059,7 +8125,7 @@ function renderFinance() {
       <div class="metric report-metric"><span>Cofrinho atual</span><strong>${money(data.savingsBalance)}</strong></div>
       <div class="metric report-metric"><span>Disponível para retirada</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
     </section>
-    ${reportType === "month" ? monthlyOriginCategoryPanel(data) : ""}
+    ${["month", "week"].includes(reportType) ? monthlyOriginCategoryPanel(data) : ""}
     ${withdrawalProjectionPanel(data)}
     ${upcomingBillsPanel()}
     ${financialPlanningPanel()}
@@ -8131,6 +8197,11 @@ function renderReports() {
         <label class="report-week-field">Até
           <input name="end" type="date" value="${weekRange.end}">
         </label>
+        <label class="report-week-field">Semana do cardápio
+          <select name="week">
+            ${weekOptions(state.reportPeriod.week)}
+          </select>
+        </label>
         <label>Saída
           <select name="expenseCategory">
             ${reportExpenseCategoryOptions(state.reportPeriod.expenseCategory || "all")}
@@ -8171,8 +8242,8 @@ function renderReports() {
       <div class="metric report-metric"><span>Mensalistas</span><strong>${data.monthlyClients}</strong></div>
     </section>
     ${upcomingBillsPanel({ title: "Boletos pendentes", limit: 12, showSummary: true, includeOverdue: false })}
-    ${reportType === "month" ? monthlyOriginCategoryPanel(data) : ""}
-    ${reportType === "month" ? comparisonReportPanel(data) : ""}
+    ${["month", "week"].includes(reportType) ? monthlyOriginCategoryPanel(data) : ""}
+    ${["month", "week"].includes(reportType) ? comparisonReportPanel(data) : ""}
     ${channelReportPanel(data)}
     ${dishRankingPanel(data)}
     ${clientReportPanel(data)}
