@@ -411,6 +411,7 @@ const state = {
   editClientIndex: null,
   editOrderId: null,
   editCashId: null,
+  cashSort: { key: "", direction: "desc" },
   editWithdrawalGroup: null,
   editChannelReceiptId: null,
   editCashCategory: null,
@@ -4047,20 +4048,69 @@ async function renderCash() {
     });
   });
 
+  document.querySelectorAll("[data-sort-cash]").forEach(button => {
+    button.addEventListener("click", event => {
+      const key = event.currentTarget.dataset.sortCash;
+      state.cashSort = {
+        key,
+        direction: state.cashSort?.key === key && state.cashSort.direction === "desc" ? "asc" : "desc"
+      };
+      renderCash();
+    });
+  });
+
   bindBillPaymentButtons(renderCash);
+}
+
+function sortedCashEntries(entries = []) {
+  const key = state.cashSort?.key;
+  if (!key) {
+    return entries;
+  }
+  const direction = state.cashSort.direction === "asc" ? 1 : -1;
+  const valueFor = entry => {
+    if (key === "amount") {
+      return Number(entry.amount || 0);
+    }
+    if (key === "type") {
+      return entry.type === "expense" ? "Saída" : "Entrada";
+    }
+    if (key === "category") {
+      return categoryName(entry.category);
+    }
+    if (key === "dueDate") {
+      return String(entry.dueDate || "");
+    }
+    return String(entry[key] || "");
+  };
+  return [...entries].sort((a, b) => {
+    const left = valueFor(a);
+    const right = valueFor(b);
+    if (typeof left === "number" && typeof right === "number") {
+      return (left - right) * direction;
+    }
+    return String(left).localeCompare(String(right), "pt-BR", { numeric: true, sensitivity: "base" }) * direction;
+  });
+}
+
+function cashSortHeader(key, label) {
+  const active = state.cashSort?.key === key;
+  const arrow = active ? (state.cashSort.direction === "asc" ? "↑" : "↓") : "↕";
+  return `<button class="table-sort-button ${active ? "active" : ""}" type="button" data-sort-cash="${key}" title="Ordenar por ${label}">${label}<span aria-hidden="true">${arrow}</span></button>`;
 }
 
 function cashTable(entries) {
   if (!entries.length) {
     return `<p class="muted">Nenhum lançamento ainda.</p>`;
   }
+  const sortedEntries = sortedCashEntries(entries);
 
   return `
     <div class="table-wrap cash-ledger-table">
       <table>
-        <thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Categoria</th><th>Vencimento</th><th>Valor</th><th></th></tr></thead>
+        <thead><tr><th>${cashSortHeader("date", "Data")}</th><th>${cashSortHeader("description", "Descrição")}</th><th>${cashSortHeader("type", "Tipo")}</th><th>${cashSortHeader("category", "Categoria")}</th><th>${cashSortHeader("dueDate", "Vencimento")}</th><th>${cashSortHeader("amount", "Valor")}</th><th></th></tr></thead>
         <tbody>
-          ${entries.map(item => `
+          ${sortedEntries.map(item => `
             <tr class="cash-row ${item.type === "income" ? "income-row" : "expense-row"}">
               <td>${formatIsoDateBr(item.date)}</td>
               <td>${item.description}</td>

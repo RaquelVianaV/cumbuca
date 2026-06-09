@@ -1718,6 +1718,35 @@ textarea {
   background: #ffffff;
 }
 
+.table-sort-button {
+  min-height: 0;
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  box-shadow: none;
+}
+
+.table-sort-button:hover,
+.table-sort-button.active {
+  color: var(--green-dark);
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.table-sort-button span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .cash-row.income-row td:first-child {
   border-left: 3px solid var(--green);
 }
