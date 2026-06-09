@@ -1832,6 +1832,15 @@ function accountAdjustmentEntries(limit = 6) {
     .slice(0, limit);
 }
 
+function reconciliationBaseForDate(dateKey, ignoredAdjustmentId = null) {
+  const monthKey = String(dateKey || isoDate(new Date())).slice(0, 7);
+  const entries = accountingCashEntries(state.cash).filter(entry => {
+    return cashAccountingDate(entry).startsWith(monthKey)
+      && String(entry.id) !== String(ignoredAdjustmentId ?? "");
+  });
+  return cashTotals(entries).balance;
+}
+
 function accountAdjustmentHistoryHtml() {
   const adjustments = accountAdjustmentEntries();
   if (!adjustments.length) {
@@ -3020,15 +3029,14 @@ async function renderCash() {
   const selectedFilterCategory = state.cashFilter.category || "all";
   const selectedChannelMonth = state.cashFilter.month || today.slice(0, 7);
   const totalCash = cashTotals(cashEntriesForSelectedPeriod());
-  const editingAdjustmentInPeriod = editingAccountAdjustment
-    && cashEntriesForSelectedPeriod().some(entry => String(entry.id) === String(editingAccountAdjustment.id));
+  const reconciliationDate = editingAccountAdjustment?.date || selectedDate || today;
   const editingAdjustmentSignedAmount = editingAccountAdjustment
     ? Number(editingAccountAdjustment.amount || 0) * (editingAccountAdjustment.type === "expense" ? -1 : 1)
     : 0;
-  const reconciliationBaseBalance = totalCash.balance - (editingAdjustmentInPeriod ? editingAdjustmentSignedAmount : 0);
+  const reconciliationBaseBalance = reconciliationBaseForDate(reconciliationDate, editingAccountAdjustment?.id);
   const reconciliationTargetBalance = editingAccountAdjustment
     ? reconciliationBaseBalance + editingAdjustmentSignedAmount
-    : Math.max(0, totalCash.balance);
+    : Math.max(0, reconciliationBaseBalance);
   const previewWithdrawal = withdrawalSplit(totalCash.balance);
   const withdrawalFormValues = editingWithdrawal || previewWithdrawal;
   const savingsPlanning = state.financialPlanning || {};
@@ -3108,10 +3116,10 @@ async function renderCash() {
         ${activeCashPanel === "reconciliation" ? `
         <div class="cash-tab-section account-balance-panel">
         <h2>${editingAccountAdjustment ? "Editar conciliação" : "Conciliação da conta"}</h2>
-        <p class="muted-inline">Compare o saldo registrado no sistema com o valor real da conta e lance um ajuste pela diferença.</p>
+        <p class="muted-inline">A conciliação usa o saldo do mês da data informada, mesmo quando o extrato está filtrado por dia ou semana.</p>
         <form id="account-balance-form" class="form-grid single">
           <div class="summary reconciliation-summary">
-            <div class="metric"><span>Saldo antes do ajuste</span><strong>${money(reconciliationBaseBalance)}</strong></div>
+            <div class="metric"><span>Saldo do mês antes do ajuste</span><strong id="account-system-preview">${money(reconciliationBaseBalance)}</strong></div>
             <div class="metric"><span>Valor na conta</span><strong id="account-real-preview">${money(reconciliationTargetBalance)}</strong></div>
             <div class="metric"><span>Diferença</span><strong id="account-difference-preview" class="${editingAdjustmentSignedAmount < 0 ? "negative" : editingAdjustmentSignedAmount > 0 ? "positive" : ""}">${editingAdjustmentSignedAmount < 0 ? "-" : ""}${money(Math.abs(editingAdjustmentSignedAmount))}</strong></div>
           </div>
@@ -3119,7 +3127,7 @@ async function renderCash() {
             <input name="balance" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(reconciliationTargetBalance)}" required>
           </label>
           <label>Data do ajuste
-            <input name="date" type="date" value="${editingAccountAdjustment?.date || today}" required>
+            <input name="date" type="date" value="${reconciliationDate}" required>
           </label>
           <div class="actions">
             <button type="submit">${editingAccountAdjustment ? "Salvar conciliação" : "Ajustar conta"}</button>
@@ -3700,9 +3708,15 @@ async function renderCash() {
   const accountBalanceForm = document.querySelector("#account-balance-form");
   if (accountBalanceForm) {
     accountBalanceForm.addEventListener("input", () => {
-      const adjustment = accountBalanceAdjustment(accountBalanceForm.elements.balance.value, reconciliationBaseBalance);
+      const baseBalance = reconciliationBaseForDate(
+        accountBalanceForm.elements.date.value,
+        editingAccountAdjustment?.id
+      );
+      const adjustment = accountBalanceAdjustment(accountBalanceForm.elements.balance.value, baseBalance);
+      const systemPreview = document.querySelector("#account-system-preview");
       const realPreview = document.querySelector("#account-real-preview");
       const differencePreview = document.querySelector("#account-difference-preview");
+      systemPreview.textContent = money(baseBalance);
       realPreview.textContent = money(adjustment.target);
       differencePreview.textContent = `${adjustment.difference < 0 ? "-" : ""}${money(adjustment.amount)}`;
       differencePreview.classList.toggle("negative", adjustment.difference < 0);
@@ -3712,7 +3726,8 @@ async function renderCash() {
     accountBalanceForm.addEventListener("submit", async event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
-    const adjustment = accountBalanceAdjustment(values.balance, reconciliationBaseBalance);
+    const baseBalance = reconciliationBaseForDate(values.date, editingAccountAdjustment?.id);
+    const adjustment = accountBalanceAdjustment(values.balance, baseBalance);
     if (blockClosedMonth(values.date, editingAccountAdjustment ? "editar conciliação" : "conciliar conta")) {
       return;
     }
