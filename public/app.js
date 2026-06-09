@@ -1845,9 +1845,13 @@ function accountBalanceAdjustment(targetBalance, currentBalance) {
 
 function accountAdjustmentEntries(limit = 6) {
   return [...state.cash]
-    .filter(entry => entry.category === "ajuste-conta" || String(entry.id || "").startsWith("account-adjustment-"))
+    .filter(isAccountAdjustmentEntry)
     .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || String(b.id || "").localeCompare(String(a.id || "")))
     .slice(0, limit);
+}
+
+function isAccountAdjustmentEntry(entry = {}) {
+  return entry.category === "ajuste-conta" || String(entry.id || "").startsWith("account-adjustment-");
 }
 
 function reconciliationBaseForDate(dateKey, ignoredAdjustmentId = null) {
@@ -1855,10 +1859,18 @@ function reconciliationBaseForDate(dateKey, ignoredAdjustmentId = null) {
   const entries = accountingCashEntries(state.cash).filter(entry => {
     return cashAccountingDate(entry).startsWith(monthKey)
       && String(entry.id) !== String(ignoredAdjustmentId ?? "")
-      && entry.category !== "ajuste-conta"
-      && !String(entry.id || "").startsWith("account-adjustment-");
+      && !isAccountAdjustmentEntry(entry);
   });
   return cashTotals(entries).balance;
+}
+
+function removeAccountAdjustmentsForMonth(monthKey) {
+  state.cash = state.cash.filter(entry => {
+    if (!isAccountAdjustmentEntry(entry)) {
+      return true;
+    }
+    return !cashAccountingDate(entry).startsWith(monthKey);
+  });
 }
 
 function accountAdjustmentHistoryHtml() {
@@ -3876,16 +3888,27 @@ async function renderCash() {
       && blockClosedMonth(editingAccountAdjustment.date, "editar conciliação")) {
       return;
     }
+    const monthKey = String(values.date || today).slice(0, 7);
+    const previousMonthKey = editingAccountAdjustment?.date ? String(editingAccountAdjustment.date).slice(0, 7) : monthKey;
+    const replaceMonthAdjustments = () => {
+      removeAccountAdjustmentsForMonth(monthKey);
+      if (previousMonthKey !== monthKey) {
+        removeAccountAdjustmentsForMonth(previousMonthKey);
+      }
+    };
 
     if (adjustment.amount <= 0.009) {
-      if (!editingAccountAdjustment) {
+      const hadAdjustmentInMonth = state.cash.some(entry => isAccountAdjustmentEntry(entry) && cashAccountingDate(entry).startsWith(monthKey));
+      if (!editingAccountAdjustment && !hadAdjustmentInMonth) {
         showToast("O saldo informado ja esta igual ao saldo calculado.", "warning");
         return;
       }
-      state.cash = state.cash.filter(entry => String(entry.id) !== String(editingAccountAdjustment.id));
+      replaceMonthAdjustments();
       state.editAccountAdjustmentId = null;
+      focusCashFilterOnDate(values.date);
+      state.cashFilter.period = "month";
       if (await persistState()) {
-        showToast("Conciliação removida porque não há diferença.", "success");
+        showToast("Conciliação zerada porque não há diferença.", "success");
         renderCash();
       }
       return;
@@ -3900,13 +3923,16 @@ async function renderCash() {
       amount: adjustment.amount.toFixed(2)
     };
     if (editingAccountAdjustment) {
-      state.cash = state.cash.map(item => String(item.id) === String(editingAccountAdjustment.id) ? entry : item);
+      replaceMonthAdjustments();
+      state.cash.push(entry);
       recordAudit("Conciliação editada", `Conta ${money(adjustment.target)} - ajuste ${money(adjustment.amount)}`);
     } else {
+      replaceMonthAdjustments();
       state.cash.push(entry);
       recordAudit("Valor na conta ajustado", `Conta ${money(adjustment.target)} - ajuste ${money(adjustment.amount)}`);
     }
     focusCashFilterOnDate(values.date);
+    state.cashFilter.period = "month";
     state.editAccountAdjustmentId = null;
     if (await persistState()) {
       showToast(editingAccountAdjustment ? "Conciliação atualizada." : "Conta ajustada.", "success");
