@@ -3816,13 +3816,17 @@ async function renderCash() {
       vanessa: parseMoneyInput(values.vanessa),
       raquel: parseMoneyInput(values.raquel)
     };
+    const amountsUnchanged = previousWithdrawal
+      && Math.abs(split.savings - Number(previousWithdrawal.savings || 0)) < 0.01
+      && Math.abs(split.vanessa - Number(previousWithdrawal.vanessa || 0)) < 0.01
+      && Math.abs(split.raquel - Number(previousWithdrawal.raquel || 0)) < 0.01;
 
     if (split.total <= 0) {
       showToast("Informe um valor maior que zero.", "error");
       return;
     }
 
-    if (split.total > available) {
+    if (!amountsUnchanged && split.total > available) {
       showToast("A retirada não pode ser maior que o caixa disponível.", "error");
       return;
     }
@@ -3878,7 +3882,10 @@ async function renderCash() {
         description: previousWithdrawal ? "Ajuste da retirada - cofrinho" : "Retirada - cofrinho"
       });
     }
-    recordAudit(previousWithdrawal ? "Retirada editada" : "Retirada registrada", `Total ${money(split.total)} - cofrinho ${money(split.savings)}, Vanessa ${money(split.vanessa)}, Raquel ${money(split.raquel)}`);
+    const auditDetail = amountsUnchanged && previousWithdrawal.date !== values.date
+      ? `Data alterada de ${formatIsoDateBr(previousWithdrawal.date)} para ${formatIsoDateBr(values.date)} - total ${money(split.total)}`
+      : `Total ${money(split.total)} - cofrinho ${money(split.savings)}, Vanessa ${money(split.vanessa)}, Raquel ${money(split.raquel)}`;
+    recordAudit(previousWithdrawal ? "Retirada editada" : "Retirada registrada", auditDetail);
     state.editWithdrawalGroup = null;
     persistState();
     renderCash();
