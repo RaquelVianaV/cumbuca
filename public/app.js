@@ -1637,9 +1637,6 @@ function isPendingBill(entry = {}) {
 }
 
 function cashAccountingDate(entry = {}) {
-  if (isBillEntry(entry) && entry.paidAt) {
-    return String(entry.paidAt).slice(0, 10);
-  }
   return String(entry.date || "");
 }
 
@@ -2622,6 +2619,9 @@ function renderToday() {
       <div class="panel dashboard-panel">
         <h2>Entrada rápida</h2>
         <form id="today-income-form" class="form-grid single">
+          <label>Data
+            <input name="date" type="date" value="${data.today}" required>
+          </label>
           <label>Descrição
             <input name="description" placeholder="Venda, pix, ajuste" required>
           </label>
@@ -2807,17 +2807,17 @@ function bindTodayForms(today) {
     event.preventDefault();
     const values = readForm(event.currentTarget);
     const amount = parseMoneyInput(values.amount);
-    if (amount <= 0) {
-      showToast("Informe valor maior que zero.", "error");
+    if (!values.date || amount <= 0) {
+      showToast("Informe data e valor maior que zero.", "error");
       return;
     }
-    if (blockClosedMonth(today, "lançar entrada rápida")) {
+    if (blockClosedMonth(values.date, "lançar entrada rápida")) {
       return;
     }
 
     state.cash.push({
       id: Date.now(),
-      date: today,
+      date: values.date,
       type: "income",
       category: "venda",
       description: values.description,
@@ -3256,7 +3256,7 @@ async function renderCash() {
     const shouldTrackBillPayment = entry.type === "expense" && isBillCategory(entry.category);
     delete entry.paid;
     if (shouldTrackBillPayment && values.paid === "yes") {
-      entry.paidAt = editing?.paidAt || new Date().toISOString();
+      entry.paidAt = editing?.paidAt || `${values.date}T12:00:00.000Z`;
     } else {
       delete entry.paidAt;
     }
@@ -3926,7 +3926,7 @@ function cashTable(entries) {
               <td><span class="cash-category-badge">${categoryName(item.category)}</span></td>
               <td>
                 ${item.dueDate ? formatIsoDateBr(item.dueDate) : "-"}
-                ${isBillEntry(item) ? `<br><small>${item.paidAt ? `Pago em ${formatIsoDateBr(cashAccountingDate(item))}` : "A pagar"}</small>` : ""}
+                ${isBillEntry(item) ? `<br><small>${item.paidAt ? `Pago em ${formatIsoDateBr(String(item.paidAt).slice(0, 10))}` : "A pagar"}</small>` : ""}
               </td>
               <td class="${item.type === "income" ? "positive" : "negative"}">${money(item.amount)}</td>
               <td>
