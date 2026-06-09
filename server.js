@@ -1040,7 +1040,7 @@ async function buildReportXlsx(payload = {}) {
     ["Resumo", summaryRows],
     ["Entradas", [["Data", "Descrição", "Valor"], ...(data.incomeRows || [])]],
     ["Despesas", [["Data", "Descrição", "Categoria", "Valor"], ...(data.expenseRows || [])]],
-    ["Canais", [["Data", "Débito", "Crédito", "Pix", "Dinheiro", "iFood", "99 Food", "Total"], ...(data.channelRows || [])]],
+    ["Canais", [["Data", "Débito", "Crédito", "Cartão de crédito online", "Pix", "Dinheiro", "iFood", "99 Food", "Total"], ...(data.channelRows || [])]],
     ["Comparativo", [["Indicador", "Atual", "Anterior", "Diferença"], ...(data.comparisonRows || [])]],
     ["Clientes", [["Cliente", "Telefone", "Perfil", "Pedidos", "Cumbucas", "Total", "Pendências"], ...(data.clientRows || [])]],
     ["Retiradas", [["Destino", "Valor"], ...(data.withdrawalRows || [])]],

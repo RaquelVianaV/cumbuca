@@ -260,6 +260,7 @@ const channelDefinitions = [
 const cardapioPaymentDefinitions = [
   ["debit", "Debito"],
   ["credit", "Credito"],
+  ["onlineCredit", "Cartão de crédito online"],
   ["pix", "Pix"],
   ["cash", "Dinheiro"]
 ];
@@ -6301,6 +6302,7 @@ function reportCsvRows(kind, data) {
         observacao: entry.notes || "",
         cardapio_debito: cardapioPaymentAmount(entry, "debit"),
         cardapio_credito: cardapioPaymentAmount(entry, "credit"),
+        cardapio_credito_online: cardapioPaymentAmount(entry, "onlineCredit"),
         cardapio_pix: cardapioPaymentAmount(entry, "pix"),
         cardapio_dinheiro: cardapioPaymentAmount(entry, "cash"),
         ifood: channelReceiptAmount(entry, "ifood", "net"),
