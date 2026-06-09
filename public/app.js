@@ -1912,17 +1912,9 @@ function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
     groups.set(key, group);
   });
   return [...groups.values()].map(group => {
-    // Calcular distributionBase correto excluindo ajustes de conta
-    const groupDate = group.date || "";
-    const realEntries = accountingCashEntries(state.cash).filter(entry =>
-      cashAccountingDate(entry).startsWith(groupDate.slice(0, 7))
-      && entry.category !== "ajuste-conta"
-      && !String(entry.id || "").startsWith("account-adjustment-")
-    );
-    const realTotals = cashTotals(realEntries);
-    const correctDistributionBase = Math.max(realTotals.balance, group.distributionBase);
-    
-    const expected = withdrawalSplit(correctDistributionBase || group.total);
+    // Usar o total efetivamente retirado para calcular a distribuição esperada
+    // Isso garante que não há inflação por ajustes anteriores
+    const expected = withdrawalSplit(group.total);
     return {
       ...group,
       distributionBase: group.distributionBase || group.total,
