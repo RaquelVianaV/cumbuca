@@ -1785,6 +1785,23 @@ function cashTotals(entries = state.cash) {
   }, { income: 0, expenses: 0, balance: 0 });
 }
 
+function isAccountAdjustmentEntry(entry = {}) {
+  return normalizedCategory(entry.category) === "ajuste-conta"
+    || String(entry.id || "").startsWith("account-zero-");
+}
+
+function accountAdjustmentEntries(entries = state.cash) {
+  return accountingCashEntries(entries).filter(isAccountAdjustmentEntry);
+}
+
+function accountAdjustmentTotals(entries = state.cash) {
+  return cashTotals(accountAdjustmentEntries(entries));
+}
+
+function businessCashEntries(entries = state.cash) {
+  return accountingCashEntries(entries).filter(entry => !isAccountAdjustmentEntry(entry));
+}
+
 function withdrawalSplit(amount) {
   const total = Math.max(0, parseMoneyInput(amount));
   const config = {
@@ -2078,11 +2095,28 @@ function financialSummary(cashEntries = []) {
       other: 0,
       total: 0
     },
+    accountAdjustments: {
+      income: 0,
+      expenses: 0,
+      balance: 0,
+      entries: []
+    },
     withdrawalEntries: []
   };
 
   accountingCashEntries(cashEntries).forEach(entry => {
     const amount = Number(entry.amount || 0);
+    if (isAccountAdjustmentEntry(entry)) {
+      if (entry.type === "expense") {
+        summary.accountAdjustments.expenses += amount;
+      } else {
+        summary.accountAdjustments.income += amount;
+      }
+      summary.accountAdjustments.balance = summary.accountAdjustments.income - summary.accountAdjustments.expenses;
+      summary.accountAdjustments.entries.push(entry);
+      return;
+    }
+
     if (entry.type !== "expense") {
       summary.income += amount;
       return;
@@ -2333,29 +2367,32 @@ function homeMetricData() {
     const date = cashAccountingDate(entry);
     return date >= weekStart && date <= weekEnd;
   });
-  const income = monthCash
+  const monthBusinessCash = businessCashEntries(monthCash);
+  const todayBusinessCash = businessCashEntries(todayCash);
+  const weekBusinessCash = businessCashEntries(weekCash);
+  const income = monthBusinessCash
     .filter(entry => entry.type !== "expense")
     .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-  const expenses = monthCash
+  const expenses = monthBusinessCash
     .filter(entry => entry.type === "expense")
     .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-  const todayIncome = todayCash
+  const todayIncome = todayBusinessCash
     .filter(entry => entry.type !== "expense")
     .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-  const todayExpenses = todayCash
+  const todayExpenses = todayBusinessCash
     .filter(entry => entry.type === "expense")
     .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-  const weekIncome = weekCash
+  const weekIncome = weekBusinessCash
     .filter(entry => entry.type !== "expense")
     .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-  const weekExpenses = weekCash
+  const weekExpenses = weekBusinessCash
     .filter(entry => entry.type === "expense")
     .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
   const recentExpenses = accountingCashEntries(state.cash)
-    .filter(entry => entry.type === "expense")
+    .filter(entry => entry.type === "expense" && !isAccountAdjustmentEntry(entry))
     .sort((a, b) => cashAccountingDate(b).localeCompare(cashAccountingDate(a)))
     .slice(0, 3);
-  const topMonthExpenses = [...monthCash]
+  const topMonthExpenses = [...monthBusinessCash]
     .filter(entry => entry.type === "expense" && !isWithdrawalEntry(entry))
     .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
     .slice(0, 5);
@@ -2720,6 +2757,7 @@ function todayOperationData() {
   const monthEnd = currentMonthEndDate();
   const currentKey = menuKey(state.menuWeek || 1);
   const todayCash = accountingCashEntries(state.cash).filter(entry => cashAccountingDate(entry) === today);
+  const todayBusinessCash = businessCashEntries(todayCash);
   const todayStoreSales = state.storeSales.filter(entry => entry.date === today);
   const weekOrders = weeklyOrders(currentKey);
   const pendingPayments = weekOrders.filter(order => {
@@ -2744,8 +2782,8 @@ function todayOperationData() {
     pendingPayments,
     pendingDelivery,
     billsDue,
-    income: todayCash.filter(entry => entry.type !== "expense").reduce((sum, entry) => sum + Number(entry.amount || 0), 0),
-    expenses: todayCash.filter(entry => entry.type === "expense").reduce((sum, entry) => sum + Number(entry.amount || 0), 0),
+    income: todayBusinessCash.filter(entry => entry.type !== "expense").reduce((sum, entry) => sum + Number(entry.amount || 0), 0),
+    expenses: todayBusinessCash.filter(entry => entry.type === "expense").reduce((sum, entry) => sum + Number(entry.amount || 0), 0),
     storeQuantity: todayStoreSales.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0)
   };
 }
@@ -3089,7 +3127,7 @@ async function renderCash() {
     : null;
   const filteredEntries = filterCashEntries(state.cash);
   const accountedEntries = accountingCashEntries(filteredEntries);
-  const result = await postJson("/api/fluxo-de-caixa", { entries: accountedEntries });
+  const operationalTotals = cashTotals(businessCashEntries(accountedEntries));
   const currentCashFilter = getCashFilter();
   const selectedDate = currentCashFilter.date || today;
   const selectedMonth = currentCashFilter.month || today.slice(0, 7);
@@ -3097,7 +3135,12 @@ async function renderCash() {
   const selectedFilterType = currentCashFilter.type || "all";
   const selectedFilterCategory = currentCashFilter.category || "all";
   const selectedChannelMonth = currentCashFilter.month || today.slice(0, 7);
-  const totalCash = cashTotals(cashEntriesForSelectedPeriod());
+  const selectedPeriodCashEntries = cashEntriesForSelectedPeriod();
+  const totalCash = cashTotals(selectedPeriodCashEntries);
+  const selectedAdjustmentTotals = accountAdjustmentTotals(selectedPeriodCashEntries);
+  const adjustmentLabel = selectedAdjustmentTotals.balance === 0
+    ? "Sem ajuste no período"
+    : `${selectedAdjustmentTotals.balance > 0 ? "Ajuste entrou" : "Ajuste saiu"} ${money(Math.abs(selectedAdjustmentTotals.balance))}`;
   const balanceMonthKey = (currentCashFilter.period === "day" || currentCashFilter.period === "week")
     ? selectedDate.slice(0, 7)
     : selectedMonth;
@@ -3144,10 +3187,18 @@ async function renderCash() {
         </div>
       </div>
       <div class="cash-hero-metrics">
-        <span><b>${money(result.income)}</b>Entradas</span>
-        <span><b>${money(result.expenses)}</b>Saídas</span>
+        <span><b>${money(operationalTotals.income)}</b>Entradas operacionais</span>
+        <span><b>${money(operationalTotals.expenses)}</b>Saídas operacionais</span>
         <span><b>${money(displayedCashBalance)}</b>${balanceLabel}</span>
       </div>
+    </section>
+    <section class="account-check-card">
+      <div>
+        <span>Conferência da conta</span>
+        <strong class="${displayedCashBalance < 0 ? "negative" : "positive"}">${money(displayedCashBalance)}</strong>
+        <small>${adjustmentLabel}</small>
+      </div>
+      <button class="secondary" type="button" id="zero-account-balance-inline" ${canZeroAccount ? "" : "disabled"}>Zerar conta</button>
     </section>
     <div class="cash-layout">
       <section class="panel cash-command-panel">
@@ -3268,39 +3319,6 @@ async function renderCash() {
             </div>
           </section>
         </div>
-        <details class="partners-manual-adjustment">
-          <summary>Ajuste manual do mês</summary>
-          <form id="partners-form" class="form-grid single">
-            <label>Mês do registro
-              <input name="periodKey" type="month" value="${partnersRecord.periodKey}" required>
-            </label>
-            <label>Vanessa - ajuste informado
-              <input name="vanessa" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(partnersRecord.vanessa)}">
-            </label>
-            <label>Raquel - ajuste informado
-              <input name="raquel" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(partnersRecord.raquel)}">
-            </label>
-            <label>Diferença anterior
-              <input name="difference" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(partnersRecord.difference)}">
-            </label>
-            <label>Observação
-              <input name="notes" placeholder="Ex.: antecipação de período anterior" value="${escapeHtml(partnersRecord.notes || "")}">
-            </label>
-            <button type="submit">Salvar ajuste manual</button>
-          </form>
-        </details>
-        <h3>Histórico de ajustes manuais</h3>
-        ${partnersHistoryRows().length ? `
-          <div class="recent-list">
-            ${partnersHistoryRows().slice(0, 8).map(entry => `
-              <span>
-                <b>${formatMonthKeyBr(entry.periodKey)}</b>
-                Vanessa ${money(entry.vanessa)} / Raquel ${money(entry.raquel)}
-                <small>Diferença / antecipado ${money(entry.difference)}${entry.notes ? ` - ${escapeHtml(entry.notes)}` : ""}</small>
-              </span>
-            `).join("")}
-          </div>
-        ` : `<p class="muted">Nenhum ajuste manual de retirada ainda.</p>`}
         <h3>${editingWithdrawal ? "Editar registro de retirada" : "Registrar retirada"}</h3>
         <form id="withdrawal-form" class="form-grid single">
           <label>Data
@@ -3335,6 +3353,39 @@ async function renderCash() {
         </form>
         <h3>Histórico de retiradas do mês</h3>
         ${withdrawalHistoryHtml(selectedMonth)}
+        <details class="partners-manual-adjustment">
+          <summary>Ajuste manual do mês</summary>
+          <form id="partners-form" class="form-grid single">
+            <label>Mês do registro
+              <input name="periodKey" type="month" value="${partnersRecord.periodKey}" required>
+            </label>
+            <label>Vanessa - ajuste informado
+              <input name="vanessa" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(partnersRecord.vanessa)}">
+            </label>
+            <label>Raquel - ajuste informado
+              <input name="raquel" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(partnersRecord.raquel)}">
+            </label>
+            <label>Diferença anterior
+              <input name="difference" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(partnersRecord.difference)}">
+            </label>
+            <label>Observação
+              <input name="notes" placeholder="Ex.: antecipação de período anterior" value="${escapeHtml(partnersRecord.notes || "")}">
+            </label>
+            <button type="submit">Salvar ajuste manual</button>
+          </form>
+        </details>
+        <h3>Histórico de ajustes manuais</h3>
+        ${partnersHistoryRows().length ? `
+          <div class="recent-list">
+            ${partnersHistoryRows().slice(0, 8).map(entry => `
+              <span>
+                <b>${formatMonthKeyBr(entry.periodKey)}</b>
+                Vanessa ${money(entry.vanessa)} / Raquel ${money(entry.raquel)}
+                <small>Diferença / antecipado ${money(entry.difference)}${entry.notes ? ` - ${escapeHtml(entry.notes)}` : ""}</small>
+              </span>
+            `).join("")}
+          </div>
+        ` : `<p class="muted">Nenhum ajuste manual de retirada ainda.</p>`}
         </div>
         ` : ""}
         ${activeCashPanel === "categories" ? cashCategoriesPanel("cash-tab-section supplier-panel") : ""}
@@ -3390,11 +3441,12 @@ async function renderCash() {
           <button class="secondary" type="button" data-cash-quick="last-month">Mês passado</button>
         </div>
         <div class="summary">
-          <div class="metric"><span>Entradas</span><strong>${money(result.income)}</strong></div>
-          <div class="metric"><span>Saídas</span><strong>${money(result.expenses)}</strong></div>
+          <div class="metric"><span>Entradas operacionais</span><strong>${money(operationalTotals.income)}</strong></div>
+          <div class="metric"><span>Saídas operacionais</span><strong>${money(operationalTotals.expenses)}</strong></div>
+          <div class="metric"><span>Ajustes da conta</span><strong class="${selectedAdjustmentTotals.balance < 0 ? "negative" : "positive"}">${money(selectedAdjustmentTotals.balance)}</strong></div>
           <div class="metric"><span>${balanceLabel}</span><strong class="${displayedCashBalance < 0 ? "negative" : "positive"}">${money(displayedCashBalance)}</strong></div>
         </div>
-        ${cashCategorySummary(accountedEntries)}
+        ${cashCategorySummary(businessCashEntries(accountedEntries))}
         ${cashTable(filteredEntries)}
         </div>
         ` : ""}
@@ -3421,8 +3473,7 @@ async function renderCash() {
     });
   });
 
-  const zeroAccountButton = document.querySelector("#zero-account-balance");
-  if (zeroAccountButton) {
+  document.querySelectorAll("#zero-account-balance, #zero-account-balance-inline").forEach(zeroAccountButton => {
     zeroAccountButton.addEventListener("click", async () => {
       const balance = Number(displayedCashBalance || 0);
       if (Math.abs(balance) < 0.01) {
@@ -3464,7 +3515,7 @@ async function renderCash() {
         renderCash();
       }
     });
-  }
+  });
 
   const cashForm = document.querySelector("#cash-form");
   if (cashForm) {
@@ -4221,12 +4272,14 @@ function cashTable(entries) {
       <table>
         <thead><tr><th>${cashSortHeader("date", "Data")}</th><th>${cashSortHeader("description", "Descrição")}</th><th>${cashSortHeader("type", "Tipo")}</th><th>${cashSortHeader("category", "Categoria")}</th><th>${cashSortHeader("dueDate", "Vencimento")}</th><th>${cashSortHeader("amount", "Valor")}</th><th></th></tr></thead>
         <tbody>
-          ${sortedEntries.map(item => `
-            <tr class="cash-row ${item.type === "income" ? "income-row" : "expense-row"}">
+          ${sortedEntries.map(item => {
+            const accountAdjustment = isAccountAdjustmentEntry(item);
+            return `
+            <tr class="cash-row ${item.type === "income" ? "income-row" : "expense-row"} ${accountAdjustment ? "account-adjustment-row" : ""}">
               <td>${formatIsoDateBr(item.date)}</td>
               <td>${item.description}</td>
               <td><span class="cash-type-badge ${item.type === "income" ? "income" : "expense"}">${item.type === "income" ? "Entrada" : "Saída"}</span></td>
-              <td><span class="cash-category-badge">${categoryName(item.category)}</span></td>
+              <td><span class="cash-category-badge ${accountAdjustment ? "account-adjustment" : ""}">${categoryName(item.category)}</span></td>
               <td>
                 ${item.dueDate ? formatIsoDateBr(item.dueDate) : "-"}
                 ${isBillEntry(item) ? `<br><small>${item.paidAt ? `Pago em ${formatIsoDateBr(String(item.paidAt).slice(0, 10))}` : "A pagar"}</small>` : ""}
@@ -4240,7 +4293,7 @@ function cashTable(entries) {
                 </div>
               </td>
             </tr>
-          `).join("")}
+          `; }).join("")}
         </tbody>
       </table>
     </div>
@@ -6142,15 +6195,19 @@ function reportData() {
       quantity: weekOrders.reduce((sum, order) => sum + orderQuantity(order), 0)
     };
   });
-  const income = cashEntries
+  const accountAdjustmentEntries = cashEntries.filter(isAccountAdjustmentEntry);
+  const businessEntries = cashEntries.filter(entry => !isAccountAdjustmentEntry(entry));
+  const incomeEntries = businessEntries.filter(entry => entry.type !== "expense");
+  const expenseEntries = businessEntries.filter(entry => entry.type === "expense");
+  const income = incomeEntries
     .filter(entry => entry.type !== "expense")
     .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-  const expenses = cashEntries
+  const expenses = expenseEntries
     .filter(entry => entry.type === "expense")
     .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-  const incomeEntries = cashEntries.filter(entry => entry.type !== "expense");
-  const expenseEntries = cashEntries.filter(entry => entry.type === "expense");
   const financial = financialSummary(cashEntries);
+  const accountAdjustmentTotals = cashTotals(accountAdjustmentEntries);
+  const accountBalance = cashTotals(cashEntries).balance;
   const partnerWithdrawalControl = partnerPeriodTotals(withdrawalHistoryGroups(cashEntries));
   const orderRevenue = orders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
   const deliveryRevenue = orders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0);
@@ -6170,6 +6227,10 @@ function reportData() {
     date: reportDate(),
     selectedWeek,
     cashEntries,
+    businessEntries,
+    accountAdjustmentEntries,
+    accountAdjustmentTotals,
+    accountBalance,
     storeSales,
     channelReceipts,
     incomeEntries,
@@ -6257,6 +6318,7 @@ function previousMonthKeyFromPeriod(periodKey) {
 
 function moneyRowsByCategory(entries, type) {
   const rows = entries
+    .filter(entry => !isAccountAdjustmentEntry(entry))
     .filter(entry => type === "income" ? entry.type !== "expense" : entry.type === "expense")
     .reduce((acc, entry) => {
       const label = categoryName(entry.category);
@@ -6543,8 +6605,8 @@ function channelReportPanel(data) {
 }
 
 function monthlyOriginCategoryPanel(data) {
-  const incomeRows = moneyRowsByCategory(data.cashEntries, "income");
-  const expenseRows = moneyRowsByCategory(data.cashEntries, "expense");
+  const incomeRows = moneyRowsByCategory(data.incomeEntries, "income");
+  const expenseRows = moneyRowsByCategory(data.expenseEntries, "expense");
   const channelRows = channelDefinitions
     .map(([key, label]) => [
       label,
@@ -6556,7 +6618,7 @@ function monthlyOriginCategoryPanel(data) {
     .slice(0, 5)
     .map(entry => [entry.description || categoryName(entry.category), Number(entry.amount || 0)]);
   const previous = previousComparablePeriod(data);
-  const previousCash = previousReportCashEntries(data);
+  const previousCash = businessCashEntries(previousReportCashEntries(data));
   const previousTotals = cashTotals(previousCash);
   const incomeDelta = data.income - previousTotals.income;
   const expenseDelta = data.expenses - previousTotals.expenses;
@@ -6650,6 +6712,10 @@ function reportCsvRows(kind, data) {
       { seção: "resumo", data: "", descrição: "Lucro antes das retiradas", tipo: "saldo", categoria: "", valor: data.financial.profitBeforeWithdrawals },
       { seção: "resumo", data: "", descrição: "Retiradas já feitas", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.total },
       { seção: "resumo", data: "", descrição: "Disponível para retirada", tipo: "saldo", categoria: "", valor: data.financial.availableForWithdrawal },
+      { seção: "ajustes da conta", data: "", descrição: "Entradas de ajuste", tipo: "entrada", categoria: "ajuste da conta", valor: data.accountAdjustmentTotals.income },
+      { seção: "ajustes da conta", data: "", descrição: "Saídas de ajuste", tipo: "saída", categoria: "ajuste da conta", valor: data.accountAdjustmentTotals.expenses },
+      { seção: "ajustes da conta", data: "", descrição: "Saldo dos ajustes", tipo: "saldo", categoria: "ajuste da conta", valor: data.accountAdjustmentTotals.balance },
+      { seção: "ajustes da conta", data: "", descrição: "Saldo da conta no período", tipo: "saldo", categoria: "conta", valor: data.accountBalance },
       { seção: "resumo", data: data.savingsUpdatedAt || "", descrição: "Valor atual do cofrinho", tipo: "saldo", categoria: "cofrinho", valor: data.savingsBalance },
       { seção: "produção", data: "", descrição: "Cumbucas vendidas na loja", tipo: "quantidade", categoria: "loja", valor: data.storeQuantity },
       { seção: "produção", data: "", descrição: "Total de cumbucas vendidas", tipo: "quantidade", categoria: "total", valor: data.totalSoldQuantity },
@@ -6664,7 +6730,7 @@ function reportCsvRows(kind, data) {
     ];
 
     return rows.concat(data.cashEntries.map(entry => ({
-      seção: isWithdrawalEntry(entry) ? "lançamento retirada" : "lançamento caixa",
+      seção: isAccountAdjustmentEntry(entry) ? "lançamento ajuste da conta" : isWithdrawalEntry(entry) ? "lançamento retirada" : "lançamento caixa",
       data: entry.date || "",
       descrição: entry.description || "",
       tipo: entry.type === "expense" ? "saída" : "entrada",
@@ -6779,6 +6845,8 @@ function reportPdfHtml(data) {
     ["Saídas", money(data.expenses)],
     ["Lucro antes retiradas", money(data.financial.profitBeforeWithdrawals)],
     ["Disponível retirada", money(data.financial.availableForWithdrawal)],
+    ["Ajustes da conta", money(data.accountAdjustmentTotals.balance)],
+    ["Saldo da conta", money(data.accountBalance)],
     ["Cofrinho atual", money(data.savingsBalance)],
     ["Cumbucas vendidas", data.totalSoldQuantity],
     ["Semanal", data.weeklyCashQuantity],
@@ -6978,6 +7046,10 @@ async function downloadReportPdf() {
       expenses: data.expenses,
       operationalExpenses: data.financial.operationalExpenses,
       availableForWithdrawal: data.financial.availableForWithdrawal,
+      accountAdjustmentIncome: data.accountAdjustmentTotals.income,
+      accountAdjustmentExpenses: data.accountAdjustmentTotals.expenses,
+      accountAdjustmentBalance: data.accountAdjustmentTotals.balance,
+      accountBalance: data.accountBalance,
       savingsBalance: data.savingsBalance,
       savingsUpdatedAt: data.savingsUpdatedAt,
       withdrawalTotal: data.financial.withdrawals.total,
@@ -7060,6 +7132,10 @@ async function downloadReportXlsx() {
       expenses: data.expenses,
       operationalExpenses: data.financial.operationalExpenses,
       availableForWithdrawal: data.financial.availableForWithdrawal,
+      accountAdjustmentIncome: data.accountAdjustmentTotals.income,
+      accountAdjustmentExpenses: data.accountAdjustmentTotals.expenses,
+      accountAdjustmentBalance: data.accountAdjustmentTotals.balance,
+      accountBalance: data.accountBalance,
       savingsBalance: data.savingsBalance,
       savingsUpdatedAt: data.savingsUpdatedAt,
       withdrawalTotal: data.financial.withdrawals.total,
@@ -7179,6 +7255,10 @@ function exportReport(kind) {
         income: data.income,
         expenses: data.expenses,
         balance: data.balance,
+        accountAdjustmentIncome: data.accountAdjustmentTotals.income,
+        accountAdjustmentExpenses: data.accountAdjustmentTotals.expenses,
+        accountAdjustmentBalance: data.accountAdjustmentTotals.balance,
+        accountBalance: data.accountBalance,
         totalIncome: data.totalIncome,
         savingsBalance: data.savingsBalance,
         savingsUpdatedAt: data.savingsUpdatedAt,
@@ -7302,7 +7382,7 @@ function clientReportPanel(data) {
 }
 
 function comparisonReportRows(data) {
-  const previousCash = previousReportCashEntries(data);
+  const previousCash = businessCashEntries(previousReportCashEntries(data));
   const previousOrders = previousReportOrders(data);
   const previousStore = previousReportStoreSales(data);
   const previousTotals = cashTotals(previousCash);
@@ -8057,6 +8137,7 @@ function financeDashboardPanel(data) {
     .slice(0, 5);
   const alerts = [
     data.financial.availableForWithdrawal < 0 ? ["Retirada negativa", "As saídas e retiradas passaram do lucro do período."] : null,
+    Math.abs(data.accountAdjustmentTotals.balance || 0) >= 0.01 ? ["Conta ajustada", `Ajustes da conta no período: ${money(data.accountAdjustmentTotals.balance)}.`] : null,
     dueSoon.length ? ["Contas próximas", `${dueSoon.length} conta(s) vencidas ou vencendo em até 7 dias.`] : null,
     projection.dailyProfit < 0 ? ["Média negativa", "O período está fechando com prejuízo médio diário."] : null,
     !expenseRanking.length ? ["Sem custos", "Nenhuma saída operacional no período filtrado."] : null
@@ -8120,6 +8201,8 @@ function renderFinance() {
       <div class="metric report-metric"><span>Total cumbucas</span><strong>${data.totalSoldQuantity}</strong></div>
       <div class="metric report-metric"><span>Saiu em saídas</span><strong>${money(data.expenses)}</strong></div>
       <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
+      <div class="metric report-metric"><span>Ajustes da conta</span><strong class="${data.accountAdjustmentTotals.balance < 0 ? "negative" : "positive"}">${money(data.accountAdjustmentTotals.balance)}</strong></div>
+      <div class="metric report-metric"><span>Saldo da conta</span><strong class="${data.accountBalance < 0 ? "negative" : "positive"}">${money(data.accountBalance)}</strong></div>
       <div class="metric report-metric"><span>Lucro antes retiradas</span><strong class="${data.financial.profitBeforeWithdrawals < 0 ? "negative" : "positive"}">${money(data.financial.profitBeforeWithdrawals)}</strong></div>
       <div class="metric report-metric"><span>Retiradas feitas</span><strong>${money(data.financial.withdrawals.total)}</strong></div>
       <div class="metric report-metric"><span>Cofrinho atual</span><strong>${money(data.savingsBalance)}</strong></div>
@@ -8232,6 +8315,8 @@ function renderReports() {
       <div class="metric report-metric"><span>Saídas no caixa</span><strong>${money(data.expenses)}</strong></div>
       <div class="metric report-metric"><span>Saldo do caixa</span><strong class="${data.balance < 0 ? "negative" : "positive"}">${money(data.balance)}</strong></div>
       <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
+      <div class="metric report-metric"><span>Ajustes da conta</span><strong class="${data.accountAdjustmentTotals.balance < 0 ? "negative" : "positive"}">${money(data.accountAdjustmentTotals.balance)}</strong></div>
+      <div class="metric report-metric"><span>Saldo da conta</span><strong class="${data.accountBalance < 0 ? "negative" : "positive"}">${money(data.accountBalance)}</strong></div>
       <div class="metric report-metric"><span>Lucro antes retiradas</span><strong class="${data.financial.profitBeforeWithdrawals < 0 ? "negative" : "positive"}">${money(data.financial.profitBeforeWithdrawals)}</strong></div>
       <div class="metric report-metric"><span>Retiradas feitas</span><strong>${money(data.financial.withdrawals.total)}</strong></div>
       <div class="metric report-metric"><span>Cofrinho atual</span><strong>${money(data.savingsBalance)}</strong></div>
@@ -8635,6 +8720,10 @@ function reportExportPayload(data = reportData()) {
       expenses: data.expenses,
       operationalExpenses: data.financial.operationalExpenses,
       availableForWithdrawal: data.financial.availableForWithdrawal,
+      accountAdjustmentIncome: data.accountAdjustmentTotals.income,
+      accountAdjustmentExpenses: data.accountAdjustmentTotals.expenses,
+      accountAdjustmentBalance: data.accountAdjustmentTotals.balance,
+      accountBalance: data.accountBalance,
       savingsBalance: data.savingsBalance,
       savingsUpdatedAt: data.savingsUpdatedAt,
       withdrawalTotal: data.financial.withdrawals.total,

@@ -739,6 +739,38 @@ h2 {
   line-height: 1;
 }
 
+.account-check-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid rgba(87, 50, 32, 0.1);
+  border-left: 5px solid var(--yellow);
+  border-radius: 8px;
+  background: #fffbeb;
+  box-shadow: 0 10px 24px rgba(40, 31, 23, 0.045);
+}
+
+.account-check-card div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.account-check-card span,
+.account-check-card small {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.account-check-card strong {
+  color: var(--ink);
+  font-size: clamp(1.2rem, 2vw, 1.55rem);
+}
+
 .cash-layout {
   display: grid;
   grid-template-columns: 1fr;
@@ -1803,6 +1835,14 @@ textarea {
   border-left: 3px solid var(--red);
 }
 
+.cash-row.account-adjustment-row td:first-child {
+  border-left-color: var(--yellow);
+}
+
+.cash-row.account-adjustment-row {
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.08), transparent 36%);
+}
+
 .cash-type-badge,
 .cash-category-badge {
   min-height: 26px;
@@ -1831,6 +1871,12 @@ textarea {
   border: 1px solid var(--line);
   background: #f9fafb;
   color: #4b5563;
+}
+
+.cash-category-badge.account-adjustment {
+  border-color: rgba(180, 83, 9, 0.2);
+  background: #fffbeb;
+  color: #92400e;
 }
 
 .withdrawal-preview {
@@ -3546,6 +3592,7 @@ a.secondary.table-action,
   .maintenance-hero,
   .maintenance-grid,
   .cash-hero,
+  .account-check-card,
   .cash-layout,
   .tool-grid,
   .summary,
