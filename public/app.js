@@ -411,6 +411,7 @@ const state = {
   editClientIndex: null,
   editOrderId: null,
   editCashId: null,
+  editWithdrawalGroup: null,
   editChannelReceiptId: null,
   editCashCategory: null,
   cashPanelTab: "entry",
@@ -1848,6 +1849,60 @@ function withdrawalTarget(entry = {}) {
   return "other";
 }
 
+function withdrawalGroupKey(entry = {}) {
+  const match = String(entry.id || "").match(/^withdrawal-(.+)-(savings|vanessa|raquel)$/);
+  return match ? `withdrawal-${match[1]}` : String(entry.id || "");
+}
+
+function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
+  const groups = new Map();
+  entries.filter(isWithdrawalEntry).forEach(entry => {
+    const key = withdrawalGroupKey(entry);
+    const group = groups.get(key) || {
+      key,
+      date: entry.date || "",
+      savings: 0,
+      vanessa: 0,
+      raquel: 0,
+      other: 0,
+      total: 0,
+      entries: []
+    };
+    const target = withdrawalTarget(entry);
+    group[target] += Number(entry.amount || 0);
+    group.total += Number(entry.amount || 0);
+    group.entries.push(entry);
+    groups.set(key, group);
+  });
+  return [...groups.values()].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+}
+
+function withdrawalHistoryHtml() {
+  const groups = withdrawalHistoryGroups();
+  if (!groups.length) {
+    return `<p class="muted">Nenhuma retirada registrada neste período.</p>`;
+  }
+  return `
+    <div class="table-wrap report-table">
+      <table>
+        <thead><tr><th>Data</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Total</th><th></th></tr></thead>
+        <tbody>
+          ${groups.map(group => `
+            <tr>
+              <td>${formatIsoDateBr(group.date)}</td>
+              <td>${money(group.savings)}</td>
+              <td>${money(group.vanessa)}</td>
+              <td>${money(group.raquel)}</td>
+              <td><strong>${money(group.total)}</strong></td>
+              <td><button class="secondary table-action" type="button" data-edit-withdrawal="${escapeHtml(group.key)}">Editar</button></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
 function savingsBalance() {
   return Number(state.financialPlanning?.savings || 0);
 }
@@ -2928,6 +2983,9 @@ async function renderCash() {
   const editingChannelReceipt = state.editChannelReceiptId !== null
     ? state.channelReceipts.find(entry => String(entry.id) === String(state.editChannelReceiptId))
     : null;
+  const editingWithdrawal = state.editWithdrawalGroup
+    ? withdrawalHistoryGroups(state.cash).find(group => group.key === state.editWithdrawalGroup)
+    : null;
   const filteredEntries = filterCashEntries(state.cash);
   const accountedEntries = accountingCashEntries(filteredEntries);
   const result = await postJson("/api/fluxo-de-caixa", { entries: accountedEntries });
@@ -2939,6 +2997,7 @@ async function renderCash() {
   const selectedChannelMonth = state.cashFilter.month || today.slice(0, 7);
   const totalCash = cashTotals(cashEntriesForSelectedPeriod());
   const previewWithdrawal = withdrawalSplit(totalCash.balance);
+  const withdrawalFormValues = editingWithdrawal || previewWithdrawal;
   const savingsPlanning = state.financialPlanning || {};
   const savingsCurrent = savingsBalance();
   const partnersPeriod = state.cashFilter?.month || today.slice(0, 7);
@@ -3115,33 +3174,38 @@ async function renderCash() {
         ` : ""}
         ${activeCashPanel === "withdrawals" ? `
         <div class="cash-tab-section withdrawal-panel">
-        <h2>Retiradas</h2>
+        <h2>${editingWithdrawal ? "Editar retirada" : "Retiradas"}</h2>
         <form id="withdrawal-form" class="form-grid single">
           <label>Data
-            <input name="date" type="date" value="${today}" required>
+            <input name="date" type="date" value="${editingWithdrawal?.date || today}" required>
           </label>
           <label>Valor a distribuir
-            <input name="amount" type="text" inputmode="decimal" value="${moneyInputValue(Math.max(0, totalCash.balance))}" required>
+            <input name="amount" type="text" inputmode="decimal" value="${moneyInputValue(editingWithdrawal?.total ?? Math.max(0, totalCash.balance))}" required>
           </label>
           <div class="withdrawal-fields">
             <label>Cofrinho
-              <input name="savings" type="text" inputmode="decimal" value="${moneyInputValue(previewWithdrawal.savings)}">
+              <input name="savings" type="text" inputmode="decimal" value="${moneyInputValue(editingWithdrawal?.savings ?? previewWithdrawal.savings)}">
             </label>
             <label>Vanessa
-              <input name="vanessa" type="text" inputmode="decimal" value="${moneyInputValue(previewWithdrawal.vanessa)}">
+              <input name="vanessa" type="text" inputmode="decimal" value="${moneyInputValue(editingWithdrawal?.vanessa ?? previewWithdrawal.vanessa)}">
             </label>
             <label>Raquel
-              <input name="raquel" type="text" inputmode="decimal" value="${moneyInputValue(previewWithdrawal.raquel)}">
+              <input name="raquel" type="text" inputmode="decimal" value="${moneyInputValue(editingWithdrawal?.raquel ?? previewWithdrawal.raquel)}">
             </label>
           </div>
           <div class="withdrawal-preview" aria-live="polite">
             <span><b>Caixa disponível</b>${money(totalCash.balance)}</span>
-            <span><b>Total informado</b>${money(previewWithdrawal.total)}</span>
-            <span><b>Cofrinho</b>${money(previewWithdrawal.savings)}</span>
-            <span><b>Vanessa / Raquel</b>${money(previewWithdrawal.vanessa)} / ${money(previewWithdrawal.raquel)}</span>
+            <span><b>Total informado</b>${money(withdrawalFormValues.total)}</span>
+            <span><b>Cofrinho</b>${money(withdrawalFormValues.savings)}</span>
+            <span><b>Vanessa / Raquel</b>${money(withdrawalFormValues.vanessa)} / ${money(withdrawalFormValues.raquel)}</span>
           </div>
-          <button type="submit" ${totalCash.balance > 0 ? "" : "disabled"}>Registrar retiradas</button>
+          <div class="actions">
+            <button type="submit" ${(totalCash.balance > 0 || editingWithdrawal) ? "" : "disabled"}>${editingWithdrawal ? "Salvar retirada" : "Registrar retiradas"}</button>
+            ${editingWithdrawal ? `<button class="secondary" type="button" id="cancel-withdrawal-edit">Cancelar</button>` : ""}
+          </div>
         </form>
+        <h3>Histórico de retiradas</h3>
+        ${withdrawalHistoryHtml()}
         </div>
         ` : ""}
         ${activeCashPanel === "categories" ? cashCategoriesPanel("cash-tab-section supplier-panel") : ""}
@@ -3214,6 +3278,9 @@ async function renderCash() {
       state.cashPanelTab = event.currentTarget.dataset.cashPanel;
       if (state.cashPanelTab !== "entry") {
         state.editCashId = null;
+      }
+      if (state.cashPanelTab !== "withdrawals") {
+        state.editWithdrawalGroup = null;
       }
       if (state.cashPanelTab !== "channels") {
         state.editChannelReceiptId = null;
@@ -3739,7 +3806,10 @@ async function renderCash() {
     withdrawalForm.addEventListener("submit", event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
-    const available = cashTotals(cashEntriesForSelectedPeriod()).balance;
+    const previousWithdrawal = state.editWithdrawalGroup
+      ? withdrawalHistoryGroups(state.cash).find(group => group.key === state.editWithdrawalGroup)
+      : null;
+    const available = cashTotals(cashEntriesForSelectedPeriod()).balance + Number(previousWithdrawal?.total || 0);
     const split = {
       total: parseMoneyInput(values.savings) + parseMoneyInput(values.vanessa) + parseMoneyInput(values.raquel),
       savings: parseMoneyInput(values.savings),
@@ -3760,8 +3830,14 @@ async function renderCash() {
     if (blockClosedMonth(values.date, "registrar retiradas")) {
       return;
     }
+    if (previousWithdrawal && previousWithdrawal.date !== values.date
+      && blockClosedMonth(previousWithdrawal.date, "editar retiradas")) {
+      return;
+    }
 
-    const idBase = Date.now();
+    const idBase = previousWithdrawal
+      ? previousWithdrawal.key.replace(/^withdrawal-/, "")
+      : Date.now();
     const withdrawalEntries = [
       {
         id: `withdrawal-${idBase}-savings`,
@@ -3788,20 +3864,42 @@ async function renderCash() {
         amount: split.raquel.toFixed(2)
       }
     ].filter(entry => Number(entry.amount || 0) > 0);
+    if (previousWithdrawal) {
+      const previousIds = new Set(previousWithdrawal.entries.map(entry => String(entry.id)));
+      state.cash = state.cash.filter(entry => !previousIds.has(String(entry.id)));
+    }
     state.cash.push(...withdrawalEntries);
-    if (split.savings > 0) {
+    const savingsDifference = split.savings - Number(previousWithdrawal?.savings || 0);
+    if (Math.abs(savingsDifference) > 0.009) {
       updateSavingsBalance({
-        amount: split.savings,
+        amount: Math.abs(savingsDifference),
         date: values.date,
-        type: "deposit",
-        description: "Retirada - cofrinho"
+        type: savingsDifference > 0 ? "deposit" : "withdrawal",
+        description: previousWithdrawal ? "Ajuste da retirada - cofrinho" : "Retirada - cofrinho"
       });
     }
-    recordAudit("Retirada registrada", `Total ${money(split.total)} - cofrinho ${money(split.savings)}, Vanessa ${money(split.vanessa)}, Raquel ${money(split.raquel)}`);
+    recordAudit(previousWithdrawal ? "Retirada editada" : "Retirada registrada", `Total ${money(split.total)} - cofrinho ${money(split.savings)}, Vanessa ${money(split.vanessa)}, Raquel ${money(split.raquel)}`);
+    state.editWithdrawalGroup = null;
     persistState();
     renderCash();
     });
   }
+
+  const cancelWithdrawalEdit = document.querySelector("#cancel-withdrawal-edit");
+  if (cancelWithdrawalEdit) {
+    cancelWithdrawalEdit.addEventListener("click", () => {
+      state.editWithdrawalGroup = null;
+      renderCash();
+    });
+  }
+
+  document.querySelectorAll("[data-edit-withdrawal]").forEach(button => {
+    button.addEventListener("click", event => {
+      state.editWithdrawalGroup = event.currentTarget.dataset.editWithdrawal;
+      state.cashPanelTab = "withdrawals";
+      renderCash();
+    });
+  });
 
   const filterForm = document.querySelector("#cash-filter-form");
   const periodField = document.querySelector("#cash-period");
