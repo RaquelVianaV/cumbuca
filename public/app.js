@@ -1873,9 +1873,9 @@ function removeAccountAdjustmentsForMonth(monthKey) {
   });
 }
 
-function reconciledAccountBalanceForMonth(monthKey) {
+function monthlyAccountBalance(monthKey) {
   const month = String(monthKey || "").slice(0, 7);
-  if (!month || !state.cash.some(entry => isAccountAdjustmentEntry(entry) && cashAccountingDate(entry).startsWith(month))) {
+  if (!month) {
     return null;
   }
   const monthEntries = accountingCashEntries(state.cash).filter(entry => cashAccountingDate(entry).startsWith(month));
@@ -3152,19 +3152,21 @@ async function renderCash() {
   const filteredEntries = filterCashEntries(state.cash);
   const accountedEntries = accountingCashEntries(filteredEntries);
   const result = await postJson("/api/fluxo-de-caixa", { entries: accountedEntries });
-  const selectedDate = state.cashFilter.date || today;
-  const selectedMonth = state.cashFilter.month || today.slice(0, 7);
-  const selectedYear = state.cashFilter.year || today.slice(0, 4);
-  const selectedFilterType = state.cashFilter.type || "all";
-  const selectedFilterCategory = state.cashFilter.category || "all";
-  const selectedChannelMonth = state.cashFilter.month || today.slice(0, 7);
+  const currentCashFilter = getCashFilter();
+  const selectedDate = currentCashFilter.date || today;
+  const selectedMonth = currentCashFilter.month || today.slice(0, 7);
+  const selectedYear = currentCashFilter.year || today.slice(0, 4);
+  const selectedFilterType = currentCashFilter.type || "all";
+  const selectedFilterCategory = currentCashFilter.category || "all";
+  const selectedChannelMonth = currentCashFilter.month || today.slice(0, 7);
   const totalCash = cashTotals(cashEntriesForSelectedPeriod());
-  const balanceMonthKey = (state.cashFilter.period === "day" || state.cashFilter.period === "week")
+  const balanceMonthKey = (currentCashFilter.period === "day" || currentCashFilter.period === "week")
     ? selectedDate.slice(0, 7)
     : selectedMonth;
-  const reconciledBalance = reconciledAccountBalanceForMonth(balanceMonthKey);
-  const displayedCashBalance = reconciledBalance === null ? totalCash.balance : reconciledBalance;
-  const balanceLabel = reconciledBalance === null ? "Saldo do período" : "Saldo real da conta";
+  const monthlyBalance = monthlyAccountBalance(balanceMonthKey);
+  const usesMonthlyBalance = ["day", "week", "month"].includes(currentCashFilter.period);
+  const displayedCashBalance = usesMonthlyBalance && monthlyBalance !== null ? monthlyBalance : totalCash.balance;
+  const balanceLabel = usesMonthlyBalance ? "Saldo real da conta" : "Saldo do período";
   const reconciliationDate = editingAccountAdjustment?.date || selectedDate || today;
   const editingAdjustmentSignedAmount = editingAccountAdjustment
     ? Number(editingAccountAdjustment.amount || 0) * (editingAccountAdjustment.type === "expense" ? -1 : 1)
