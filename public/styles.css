@@ -3343,9 +3343,23 @@ a.secondary.table-action,
 
 .cash-panel-tabs {
   width: 100%;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 5px;
   padding: 4px;
+}
+
+.daily-reconciliation-panel,
+.withdrawal-person-panel {
+  gap: 14px;
+}
+
+.daily-reconciliation-panel .form-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: end;
+}
+
+.withdrawal-person-panel h3 {
+  margin: 4px 0 0;
 }
 
 .cash-panel-tabs button {

@@ -50,6 +50,7 @@ const localStateKeys = [
   "auditLog",
   "auditFilter",
   "monthlyClosings",
+  "weeklyClosings",
   "pricingIngredients",
   "pricingConfig",
   "cashFilter",
@@ -399,6 +400,7 @@ const state = {
   expenseReasons: seededExpenseReasons(),
   archivedExpenseReasons: localValue("archivedExpenseReasons", []),
   monthlyClosings: localValue("monthlyClosings", {}),
+  weeklyClosings: localValue("weeklyClosings", {}),
   showClients: false,
   showOrders: false,
   showPlanning: false,
@@ -479,6 +481,7 @@ function appStatePayload() {
     expenseReasons: state.expenseReasons,
     archivedExpenseReasons: state.archivedExpenseReasons,
     monthlyClosings: state.monthlyClosings,
+    weeklyClosings: state.weeklyClosings,
     pricingIngredients: state.ingredients,
     pricingConfig: state.pricingConfig,
     cashFilter: state.cashFilter,
@@ -524,6 +527,7 @@ function applyPayloadToState(saved = {}) {
     : seededExpenseReasons();
   state.archivedExpenseReasons = saved.archivedExpenseReasons || [];
   state.monthlyClosings = saved.monthlyClosings || {};
+  state.weeklyClosings = saved.weeklyClosings || {};
   state.ingredients = saved.pricingIngredients || [];
   state.pricingConfig = saved.pricingConfig || {};
   state.cashFilter = saved.cashFilter || { period: "month" };
@@ -744,7 +748,8 @@ function cleanupPreview(year) {
     menuDates: Object.keys(state.menuDates || {}).filter(key => yearFromMenuKey(key) === target).length,
     storeSales: state.storeSales.filter(entry => String(entry.date || "").startsWith(target)).length,
     channelReceipts: state.channelReceipts.filter(entry => String(entry.date || "").startsWith(target)).length,
-    monthlyClosings: Object.keys(state.monthlyClosings || {}).filter(key => String(key || "").startsWith(target)).length
+    monthlyClosings: Object.keys(state.monthlyClosings || {}).filter(key => String(key || "").startsWith(target)).length,
+    weeklyClosings: Object.keys(state.weeklyClosings || {}).filter(key => String(key || "").startsWith(target)).length
   };
 }
 
@@ -772,6 +777,7 @@ function databaseUsageEstimate() {
     menuDates: Object.keys(state.menuDates || {}).length,
     storeSales: state.storeSales.length,
     monthlyClosings: Object.keys(state.monthlyClosings || {}).length,
+    weeklyClosings: Object.keys(state.weeklyClosings || {}).length,
     clients: state.clients.length,
     channelReceipts: state.channelReceipts.length,
     pricingIngredients: state.ingredients.length
@@ -808,7 +814,8 @@ function yearUsageEstimate(year) {
     menuDatesByPeriod: Object.fromEntries(Object.entries(state.menuDates || {}).filter(([key]) => yearFromMenuKey(key) === target)),
     storeSales: state.storeSales.filter(entry => String(entry.date || "").startsWith(target)),
     channelReceipts: state.channelReceipts.filter(entry => String(entry.date || "").startsWith(target)),
-    monthlyClosings: Object.fromEntries(Object.entries(state.monthlyClosings || {}).filter(([key]) => String(key || "").startsWith(target)))
+    monthlyClosings: Object.fromEntries(Object.entries(state.monthlyClosings || {}).filter(([key]) => String(key || "").startsWith(target))),
+    weeklyClosings: Object.fromEntries(Object.entries(state.weeklyClosings || {}).filter(([key]) => String(key || "").startsWith(target)))
   };
 
   return estimatedBytes(scopedPayload);
@@ -900,6 +907,7 @@ function cleanupYears() {
   });
   Object.keys(state.menus || {}).forEach(key => years.add(yearFromMenuKey(key)));
   Object.keys(state.monthlyClosings || {}).forEach(key => years.add(String(key || "").slice(0, 4)));
+  Object.keys(state.weeklyClosings || {}).forEach(key => years.add(String(key || "").slice(0, 4)));
 
   const currentYear = String(new Date().getFullYear());
   return [...years]
@@ -919,6 +927,7 @@ async function cleanupYear(year) {
   state.menus = Object.fromEntries(Object.entries(state.menus || {}).filter(([key]) => yearFromMenuKey(key) !== target));
   state.menuDates = Object.fromEntries(Object.entries(state.menuDates || {}).filter(([key]) => yearFromMenuKey(key) !== target));
   state.monthlyClosings = Object.fromEntries(Object.entries(state.monthlyClosings || {}).filter(([key]) => !String(key || "").startsWith(target)));
+  state.weeklyClosings = Object.fromEntries(Object.entries(state.weeklyClosings || {}).filter(([key]) => !String(key || "").startsWith(target)));
 
   recordAudit("limpeza_ano", `${target}: ${JSON.stringify(preview)}`);
   const saved = await persistState();
@@ -970,7 +979,8 @@ function cleanupPreviewHtml(year, preview) {
       <div class="metric"><span>Datas menu</span><strong>${preview.menuDates}</strong></div>
       <div class="metric"><span>Loja</span><strong>${preview.storeSales}</strong></div>
       <div class="metric"><span>Canais</span><strong>${preview.channelReceipts}</strong></div>
-      <div class="metric"><span>Fechamentos</span><strong>${preview.monthlyClosings}</strong></div>
+      <div class="metric"><span>Fechamentos mensais</span><strong>${preview.monthlyClosings}</strong></div>
+      <div class="metric"><span>Fechamentos semanais</span><strong>${preview.weeklyClosings}</strong></div>
     </div>
     <p class="muted">${total ? `A limpeza de ${year} removerá ${total} grupo(s)/registro(s) antigos.` : `Não há dados de ${year} para apagar.`}</p>
   `;
@@ -1853,6 +1863,28 @@ function monthlyAccountBalance(monthKey) {
   return cashTotals(monthEntries).balance;
 }
 
+function accountBalanceUntilDate(dateKey) {
+  const date = String(dateKey || isoDate(new Date())).slice(0, 10);
+  const month = date.slice(0, 7);
+  const entries = accountingCashEntries(state.cash).filter(entry => {
+    const entryDate = cashAccountingDate(entry);
+    return entryDate.startsWith(month) && entryDate <= date;
+  });
+  return cashTotals(entries).balance;
+}
+
+function weekRangeForDate(dateKey = isoDate(new Date())) {
+  const selected = new Date(`${dateKey}T00:00:00`);
+  return {
+    start: isoDate(startOfWeek(selected)),
+    end: isoDate(endOfWeek(selected))
+  };
+}
+
+function weeklyClosingKey(start, end) {
+  return `${start}_${end}`;
+}
+
 function isWithdrawalEntry(entry = {}) {
   return entry.category === "retirada" || String(entry.description || "").toLowerCase().startsWith("retirada -");
 }
@@ -2197,9 +2229,11 @@ function defaultReportWeekRange() {
 
 function reportWeekRange() {
   const fallback = defaultReportWeekRange();
+  const savedRange = state.menuDates?.[reportWeekKey()] || {};
+  const useSelectedRange = state.reportPeriod.type === "week";
   return {
-    start: state.reportPeriod.start || fallback.start,
-    end: state.reportPeriod.end || fallback.end
+    start: (useSelectedRange ? state.reportPeriod.start : "") || savedRange.start || fallback.start,
+    end: (useSelectedRange ? state.reportPeriod.end : "") || savedRange.end || fallback.end
   };
 }
 
@@ -2573,10 +2607,10 @@ function home() {
   const weeklyOrders = state.orders.filter(order => order.menuKey === menuKey(state.menuWeek || 1)).length;
   const alerts = dashboardAlerts(metrics, weeklyOrders);
   const tools = [
-    ["fluxo-de-caixa", "Fluxo de Caixa", "Entradas, saídas e saldo", money(metrics.weekBalance), "Saldo da semana", "cash"],
+    ["fluxo-de-caixa", "Fluxo de Caixa", "Entradas, saídas e saldo", money(metrics.weekBalance), "Resultado da semana", "cash"],
     ["menu-semanal", "Menu Semanal", "Pratos, preparo e pedidos", `${metrics.ready}/${metrics.planned || 0}`, "Prontos na semana", "menu"],
     ["loja", "Loja", "Vendas do balcão por data", String(metrics.storeToday), "Cumbucas hoje", "store"],
-    ["financeiro", "Financeiro", "Conferência financeira", money(metrics.balance), "Saldo do mês", "finance"],
+    ["financeiro", "Financeiro", "Conferência financeira", money(metrics.balance), "Resultado do mês", "finance"],
     ["precificacao", "Precificação", "Ingredientes, margem e venda", String(state.ingredients.length), "Itens cadastrados", "price"],
     ["relatorios", "Relatórios", "Leituras mensais e exportações", String(metrics.bowls), "Cumbucas no mês", "report"]
   ];
@@ -2590,7 +2624,7 @@ function home() {
       </div>
       <div class="dashboard-kpis">
         <div class="metric dashboard-metric is-primary">
-          <span>Saldo do mês</span>
+          <span>Resultado operacional do mês</span>
           <strong class="${metrics.balance < 0 ? "negative" : "positive"}">${money(metrics.balance)}</strong>
         </div>
         <div class="metric dashboard-metric">
@@ -3138,6 +3172,7 @@ async function renderCash() {
   const selectedPeriodCashEntries = cashEntriesForSelectedPeriod();
   const totalCash = cashTotals(selectedPeriodCashEntries);
   const selectedAdjustmentTotals = accountAdjustmentTotals(selectedPeriodCashEntries);
+  const dailyAccountBalance = accountBalanceUntilDate(selectedDate);
   const adjustmentLabel = selectedAdjustmentTotals.balance === 0
     ? "Sem ajuste no período"
     : `${selectedAdjustmentTotals.balance > 0 ? "Ajuste entrou" : "Ajuste saiu"} ${money(Math.abs(selectedAdjustmentTotals.balance))}`;
@@ -3164,6 +3199,7 @@ async function renderCash() {
   const cashPanelTabs = [
     ["entry", editing ? "Editar" : "Lançamento"],
     ["ledger", "Extrato"],
+    ["reconciliation", "Conferência"],
     ["channels", "Canais"],
     ["savings", "Cofrinho"],
     ["withdrawals", "Retiradas"],
@@ -3244,6 +3280,34 @@ async function renderCash() {
             <button class="secondary" type="button" id="clear-cash">Limpar</button>
           </div>
         </form>
+        </div>
+        ` : ""}
+        ${activeCashPanel === "reconciliation" ? `
+        <div class="cash-tab-section daily-reconciliation-panel">
+          <div class="section-heading">
+            <div>
+              <h2>Conferência diária</h2>
+              <p class="muted-inline">Informe o saldo real da conta no dia e lance só a diferença.</p>
+            </div>
+          </div>
+          <form id="daily-reconciliation-form" class="form-grid">
+            <label>Data da conferência
+              <input name="date" type="date" value="${selectedDate}" required>
+            </label>
+            <label>Saldo real da conta
+              <input name="realBalance" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(0)}" required>
+            </label>
+            <label>Motivo
+              <input name="reason" placeholder="Ex.: conta bancária zerada, diferença real do caixa" value="Conta conferida" required>
+            </label>
+            <button type="submit">Lançar ajuste da diferença</button>
+          </form>
+          <div class="summary">
+            <div class="metric"><span>Saldo calculado até o dia</span><strong id="reconciliation-calculated" class="${dailyAccountBalance < 0 ? "negative" : "positive"}">${money(dailyAccountBalance)}</strong></div>
+            <div class="metric"><span>Saldo real informado</span><strong id="reconciliation-real">${money(0)}</strong></div>
+            <div class="metric"><span>Diferença a ajustar</span><strong id="reconciliation-difference" class="${-dailyAccountBalance < 0 ? "negative" : "positive"}">${money(-dailyAccountBalance)}</strong></div>
+          </div>
+          <p class="muted">Use esta conferência quando a conta real já está zerada ou diferente do saldo calculado. O lançamento fica marcado como Ajuste da conta.</p>
         </div>
         ` : ""}
         ${activeCashPanel === "channels" ? channelReceiptsPanel(editingChannelReceipt, selectedChannelMonth) : ""}
@@ -3439,6 +3503,7 @@ async function renderCash() {
           <button class="secondary" type="button" data-cash-quick="week">Esta semana</button>
           <button class="secondary" type="button" data-cash-quick="month">Este mês</button>
           <button class="secondary" type="button" data-cash-quick="last-month">Mês passado</button>
+          <button class="secondary" type="button" data-cash-quick="adjustments">Ver ajustes</button>
         </div>
         <div class="summary">
           <div class="metric"><span>Entradas operacionais</span><strong>${money(operationalTotals.income)}</strong></div>
@@ -3516,6 +3581,72 @@ async function renderCash() {
       }
     });
   });
+
+  const dailyReconciliationForm = document.querySelector("#daily-reconciliation-form");
+  if (dailyReconciliationForm) {
+    const updateReconciliationPreview = () => {
+      const date = dailyReconciliationForm.elements.date.value || today;
+      const realBalance = parseMoneyInput(dailyReconciliationForm.elements.realBalance.value);
+      const calculatedBalance = accountBalanceUntilDate(date);
+      const difference = realBalance - calculatedBalance;
+      const calculatedElement = document.querySelector("#reconciliation-calculated");
+      const realElement = document.querySelector("#reconciliation-real");
+      const differenceElement = document.querySelector("#reconciliation-difference");
+      calculatedElement.textContent = money(calculatedBalance);
+      calculatedElement.className = calculatedBalance < 0 ? "negative" : "positive";
+      realElement.textContent = money(realBalance);
+      differenceElement.textContent = money(difference);
+      differenceElement.className = difference < 0 ? "negative" : "positive";
+    };
+    dailyReconciliationForm.addEventListener("input", updateReconciliationPreview);
+
+    dailyReconciliationForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      const values = readForm(event.currentTarget);
+      const date = values.date || today;
+      const realBalance = parseMoneyInput(values.realBalance);
+      const calculatedBalance = accountBalanceUntilDate(date);
+      const difference = realBalance - calculatedBalance;
+      if (Math.abs(difference) < 0.01) {
+        showToast("A conta já bate com o saldo informado.", "success");
+        return;
+      }
+      if (blockClosedMonth(date, "lançar ajuste de conferência")) {
+        return;
+      }
+      const adjustmentType = difference > 0 ? "income" : "expense";
+      const adjustmentAmount = Math.abs(difference);
+      const reason = String(values.reason || "Conta conferida").trim();
+      const actionLabel = adjustmentType === "expense" ? "saída" : "entrada";
+      if (!confirm(`Lançar ${actionLabel} de ajuste no valor de ${money(adjustmentAmount)} para bater com saldo real ${money(realBalance)}?`)) {
+        return;
+      }
+      state.cash.push({
+        id: `account-check-${Date.now()}`,
+        description: `Ajuste de conferência - ${reason}`,
+        date,
+        type: adjustmentType,
+        category: "ajuste-conta",
+        amount: adjustmentAmount.toFixed(2)
+      });
+      state.cashFilter = {
+        ...state.cashFilter,
+        period: "day",
+        date,
+        month: date.slice(0, 7),
+        year: date.slice(0, 4),
+        type: "all",
+        category: "ajuste-conta",
+        search: "",
+        manualAll: false
+      };
+      recordAudit("Conferência da conta", `${formatIsoDateBr(date)} - saldo real ${money(realBalance)} - ajuste ${money(difference)}`);
+      if (await persistState()) {
+        showToast("Ajuste de conferência lançado.", "success");
+        renderCash();
+      }
+    });
+  }
 
   const cashForm = document.querySelector("#cash-form");
   if (cashForm) {
@@ -4153,6 +4284,9 @@ async function renderCash() {
         }
         if (quick === "last-month") {
           state.cashFilter = { ...state.cashFilter, period: "month", date: today, month: lastMonthKey(), year: selectedYear, manualAll: false };
+        }
+        if (quick === "adjustments") {
+          state.cashFilter = { ...state.cashFilter, period: "all", date: today, month: selectedMonth, year: selectedYear, type: "all", category: "ajuste-conta", search: "", manualAll: true };
         }
         persistState();
         renderCash();
@@ -7602,6 +7736,144 @@ function withdrawalReportTable(data) {
   `;
 }
 
+function withdrawalPersonRows(data) {
+  const weekRange = data.type === "day"
+    ? weekRangeForDate(data.date || isoDate(new Date()))
+    : reportWeekRange();
+  const [year, month] = String(data.periodKey).split("-").map(Number);
+  const monthStart = `${data.periodKey}-01`;
+  const monthEnd = isoDate(new Date(year, month, 0));
+  const weekTotals = partnerPeriodTotals(withdrawalGroupsBetween(weekRange.start, weekRange.end));
+  const monthTotals = partnerPeriodTotals(withdrawalGroupsBetween(monthStart, monthEnd));
+  return [
+    {
+      key: "savings",
+      label: "Cofrinho",
+      week: weekTotals.savings,
+      month: monthTotals.savings,
+      difference: 0
+    },
+    {
+      key: "vanessa",
+      label: "Vanessa",
+      week: weekTotals.vanessa,
+      month: monthTotals.vanessa,
+      difference: weekTotals.differenceVanessa
+    },
+    {
+      key: "raquel",
+      label: "Raquel",
+      week: weekTotals.raquel,
+      month: monthTotals.raquel,
+      difference: weekTotals.differenceRaquel
+    }
+  ];
+}
+
+function withdrawalPersonReportPanel(data) {
+  const rows = withdrawalPersonRows(data);
+  const groups = withdrawalHistoryGroups(data.financial.withdrawalEntries);
+  return `
+    <section class="panel report-section withdrawal-person-panel">
+      <h2>Retiradas por pessoa ${reportTitleSuffix(data)}</h2>
+      <div class="table-wrap report-table">
+        <table>
+          <thead><tr><th>Destino</th><th>Total da semana</th><th>Total do mês</th><th>Diferença da semana</th></tr></thead>
+          <tbody>
+            ${rows.map(row => `
+              <tr>
+                <td><strong>${row.label}</strong></td>
+                <td>${money(row.week)}</td>
+                <td>${money(row.month)}</td>
+                <td>${row.key === "savings" ? "-" : partnerDifferenceLabel(row.difference)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+      <h3>Histórico do período</h3>
+      ${groups.length ? `
+        <div class="table-wrap report-table">
+          <table>
+            <thead><tr><th>Data</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Diferenças</th><th>Total</th></tr></thead>
+            <tbody>
+              ${groups.map(group => `
+                <tr>
+                  <td>${formatIsoDateBr(group.date)}</td>
+                  <td>${money(group.savings)}</td>
+                  <td>${money(group.vanessa)}</td>
+                  <td>${money(group.raquel)}</td>
+                  <td><small>Vanessa: ${partnerDifferenceLabel(group.differenceVanessa)}</small><br><small>Raquel: ${partnerDifferenceLabel(group.differenceRaquel)}</small></td>
+                  <td><strong>${money(group.total)}</strong></td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      ` : `<p class="muted">Nenhuma retirada neste período.</p>`}
+    </section>
+  `;
+}
+
+function weeklyClosingPayload(data) {
+  const range = reportWeekRange();
+  return {
+    id: `${weeklyClosingKey(range.start, range.end)}-${Date.now()}`,
+    periodKey: data.periodKey,
+    weekKey: data.weekKey,
+    week: data.selectedWeek,
+    start: range.start,
+    end: range.end,
+    closedAt: new Date().toISOString(),
+    income: data.financial.income,
+    operationalExpenses: data.financial.operationalExpenses,
+    profitBeforeWithdrawals: data.financial.profitBeforeWithdrawals,
+    withdrawals: data.financial.withdrawals,
+    availableForWithdrawal: data.financial.availableForWithdrawal,
+    accountAdjustmentBalance: data.accountAdjustmentTotals.balance,
+    accountBalance: data.accountBalance,
+    cashEntries: data.cashEntries.length
+  };
+}
+
+function weeklyClosingPanel(data) {
+  if (data.type !== "week") {
+    return "";
+  }
+  const range = reportWeekRange();
+  const key = weeklyClosingKey(range.start, range.end);
+  const closing = state.weeklyClosings?.[key];
+  return `
+    <section class="panel report-section">
+      <div class="section-heading">
+        <div>
+          <h2>Fechamento semanal</h2>
+          <p class="muted-inline">${formatIsoDateBr(range.start)} a ${formatIsoDateBr(range.end)}.</p>
+        </div>
+        <div class="actions">
+          <button type="button" id="close-week">${closing ? "Atualizar semana" : "Fechar semana"}</button>
+        </div>
+      </div>
+      <div class="summary">
+        <div class="metric"><span>Entradas operacionais</span><strong>${money(data.financial.income)}</strong></div>
+        <div class="metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
+        <div class="metric"><span>Lucro antes retiradas</span><strong>${money(data.financial.profitBeforeWithdrawals)}</strong></div>
+        <div class="metric"><span>Retiradas</span><strong>${money(data.financial.withdrawals.total)}</strong></div>
+        <div class="metric"><span>Disponível para retirada</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
+        <div class="metric"><span>Ajustes da conta</span><strong class="${data.accountAdjustmentTotals.balance < 0 ? "negative" : "positive"}">${money(data.accountAdjustmentTotals.balance)}</strong></div>
+      </div>
+      ${closing ? `
+        <div class="closing-record">
+          <span><b>Fechado em</b>${new Date(closing.closedAt).toLocaleString("pt-BR")}</span>
+          <span><b>Disponível registrado</b>${money(closing.availableForWithdrawal)}</span>
+          <span><b>Saldo da conta</b>${money(closing.accountBalance)}</span>
+          <span><b>Lançamentos</b>${closing.cashEntries}</span>
+        </div>
+      ` : `<p class="muted">Esta semana ainda não foi fechada.</p>`}
+    </section>
+  `;
+}
+
 function monthlyClosingPayload(data) {
   return {
     id: `${data.periodKey}-${Date.now()}`,
@@ -8064,6 +8336,24 @@ function bindReportPeriodForm(renderFn, path) {
 }
 
 function bindMonthlyClosing(data, renderFn) {
+  const closeWeekButton = document.querySelector("#close-week");
+  if (closeWeekButton) {
+    closeWeekButton.addEventListener("click", () => {
+      const closing = weeklyClosingPayload(data);
+      const key = weeklyClosingKey(closing.start, closing.end);
+      if (state.weeklyClosings?.[key] && !confirm(`Atualizar o fechamento semanal de ${formatIsoDateBr(closing.start)} a ${formatIsoDateBr(closing.end)}?`)) {
+        return;
+      }
+      state.weeklyClosings = {
+        ...(state.weeklyClosings || {}),
+        [key]: closing
+      };
+      recordAudit("Semana fechada", `${formatIsoDateBr(closing.start)} a ${formatIsoDateBr(closing.end)} - disponível ${money(closing.availableForWithdrawal)}`);
+      persistState();
+      renderFn();
+    });
+  }
+
   const closeMonthButton = document.querySelector("#close-month");
   if (!closeMonthButton) {
     return;
@@ -8195,37 +8485,20 @@ function renderFinance() {
     ${financeFilterPanel(reportType, weekRange)}
     ${financeDashboardPanel(data)}
     <section class="report-grid">
-      <div class="metric report-metric"><span>Entrou no caixa</span><strong>${money(data.income)}</strong></div>
-      <div class="metric report-metric"><span>Entrou com semanal</span><strong>${money(data.orderRevenue)}</strong></div>
-      <div class="metric report-metric"><span>Cumbucas loja</span><strong>${data.storeQuantity}</strong></div>
-      <div class="metric report-metric"><span>Total cumbucas</span><strong>${data.totalSoldQuantity}</strong></div>
-      <div class="metric report-metric"><span>Saiu em saídas</span><strong>${money(data.expenses)}</strong></div>
+      <div class="metric report-metric"><span>Entradas operacionais</span><strong>${money(data.financial.income)}</strong></div>
       <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
-      <div class="metric report-metric"><span>Ajustes da conta</span><strong class="${data.accountAdjustmentTotals.balance < 0 ? "negative" : "positive"}">${money(data.accountAdjustmentTotals.balance)}</strong></div>
+      <div class="metric report-metric"><span>Lucro</span><strong class="${data.financial.profitBeforeWithdrawals < 0 ? "negative" : "positive"}">${money(data.financial.profitBeforeWithdrawals)}</strong></div>
+      <div class="metric report-metric"><span>Retiradas</span><strong>${money(data.financial.withdrawals.total)}</strong></div>
+      <div class="metric report-metric"><span>Disponível</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
       <div class="metric report-metric"><span>Saldo da conta</span><strong class="${data.accountBalance < 0 ? "negative" : "positive"}">${money(data.accountBalance)}</strong></div>
-      <div class="metric report-metric"><span>Lucro antes retiradas</span><strong class="${data.financial.profitBeforeWithdrawals < 0 ? "negative" : "positive"}">${money(data.financial.profitBeforeWithdrawals)}</strong></div>
-      <div class="metric report-metric"><span>Retiradas feitas</span><strong>${money(data.financial.withdrawals.total)}</strong></div>
-      <div class="metric report-metric"><span>Cofrinho atual</span><strong>${money(data.savingsBalance)}</strong></div>
-      <div class="metric report-metric"><span>Disponível para retirada</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
+      <div class="metric report-metric"><span>Ajustes</span><strong class="${data.accountAdjustmentTotals.balance < 0 ? "negative" : "positive"}">${money(data.accountAdjustmentTotals.balance)}</strong></div>
     </section>
     ${["month", "week"].includes(reportType) ? monthlyOriginCategoryPanel(data) : ""}
     ${withdrawalProjectionPanel(data)}
     ${upcomingBillsPanel()}
     ${financialPlanningPanel()}
-    <section class="panel report-section">
-      <h2>Retiradas ${reportTitleSuffix(data)}</h2>
-      <div class="summary">
-        <div class="metric"><span>Cofrinho</span><strong>${money(data.financial.withdrawals.savings)}</strong></div>
-        <div class="metric"><span>Vanessa</span><strong>${money(data.financial.withdrawals.vanessa)}</strong></div>
-        <div class="metric"><span>Raquel</span><strong>${money(data.financial.withdrawals.raquel)}</strong></div>
-        <div class="metric"><span>Diferença Vanessa</span><strong>${partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceVanessa)}</strong></div>
-        <div class="metric"><span>Diferença Raquel</span><strong>${partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceRaquel)}</strong></div>
-        ${Number(data.partnersRecord?.vanessa || 0) > 0 ? `<div class="metric"><span>Vanessa informada</span><strong>${money(data.partnersRecord.vanessa)}</strong></div>` : ""}
-        ${Number(data.partnersRecord?.raquel || 0) > 0 ? `<div class="metric"><span>Raquel informada</span><strong>${money(data.partnersRecord.raquel)}</strong></div>` : ""}
-        ${Number(data.partnersRecord?.difference || 0) > 0 ? `<div class="metric"><span>Diferença / antecipado</span><strong>${money(data.partnersRecord.difference)}</strong></div>` : ""}
-      </div>
-      ${withdrawalReportTable(data)}
-    </section>
+    ${withdrawalPersonReportPanel(data)}
+    ${weeklyClosingPanel(data)}
     ${reportType === "month" ? monthlyClosingPanel(data) : ""}
     <section class="panel report-section">
       <h2>O que entrou no caixa ${reportTitleSuffix(data)}</h2>
@@ -8313,7 +8586,7 @@ function renderReports() {
       <div class="metric report-metric"><span>Frete arrecadado</span><strong>${money(data.deliveryRevenue)}</strong></div>
       <div class="metric report-metric"><span>Entradas no caixa</span><strong>${money(data.income)}</strong></div>
       <div class="metric report-metric"><span>Saídas no caixa</span><strong>${money(data.expenses)}</strong></div>
-      <div class="metric report-metric"><span>Saldo do caixa</span><strong class="${data.balance < 0 ? "negative" : "positive"}">${money(data.balance)}</strong></div>
+      <div class="metric report-metric"><span>Resultado operacional</span><strong class="${data.balance < 0 ? "negative" : "positive"}">${money(data.balance)}</strong></div>
       <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
       <div class="metric report-metric"><span>Ajustes da conta</span><strong class="${data.accountAdjustmentTotals.balance < 0 ? "negative" : "positive"}">${money(data.accountAdjustmentTotals.balance)}</strong></div>
       <div class="metric report-metric"><span>Saldo da conta</span><strong class="${data.accountBalance < 0 ? "negative" : "positive"}">${money(data.accountBalance)}</strong></div>
@@ -8333,20 +8606,8 @@ function renderReports() {
     ${dishRankingPanel(data)}
     ${clientReportPanel(data)}
 
-    <section class="panel report-section">
-      <h2>Retiradas ${reportTitleSuffix(data)}</h2>
-      <div class="summary">
-        <div class="metric"><span>Cofrinho</span><strong>${money(data.financial.withdrawals.savings)}</strong></div>
-        <div class="metric"><span>Vanessa</span><strong>${money(data.financial.withdrawals.vanessa)}</strong></div>
-        <div class="metric"><span>Raquel</span><strong>${money(data.financial.withdrawals.raquel)}</strong></div>
-        <div class="metric"><span>Diferença Vanessa</span><strong>${partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceVanessa)}</strong></div>
-        <div class="metric"><span>Diferença Raquel</span><strong>${partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceRaquel)}</strong></div>
-        ${Number(data.partnersRecord?.vanessa || 0) > 0 ? `<div class="metric"><span>Vanessa informada</span><strong>${money(data.partnersRecord.vanessa)}</strong></div>` : ""}
-        ${Number(data.partnersRecord?.raquel || 0) > 0 ? `<div class="metric"><span>Raquel informada</span><strong>${money(data.partnersRecord.raquel)}</strong></div>` : ""}
-        ${Number(data.partnersRecord?.difference || 0) > 0 ? `<div class="metric"><span>Diferença / antecipado</span><strong>${money(data.partnersRecord.difference)}</strong></div>` : ""}
-      </div>
-      ${withdrawalReportTable(data)}
-    </section>
+    ${withdrawalPersonReportPanel(data)}
+    ${weeklyClosingPanel(data)}
     ${reportType === "month" ? monthlyClosingPanel(data) : ""}
     <section class="panel report-section">
       <h2>O que entrou no caixa ${reportTitleSuffix(data)}</h2>
@@ -9269,7 +9530,8 @@ function backupPreviewText(result) {
     `Menus: ${preview.menus || 0}`,
     `Loja: ${preview.storeSales || 0}`,
     `Canais: ${preview.channelReceipts || 0}`,
-    `Fechamentos: ${preview.monthlyClosings || 0}`
+    `Fechamentos mensais: ${preview.monthlyClosings || 0}`,
+    `Fechamentos semanais: ${preview.weeklyClosings || 0}`
   ].join("\n");
 }
 

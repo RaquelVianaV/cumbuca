@@ -35,6 +35,7 @@ const stateKeys = [
   "expenseReasons",
   "archivedExpenseReasons",
   "monthlyClosings",
+  "weeklyClosings",
   "pricingIngredients",
   "pricingConfig",
   "cashFilter",
@@ -61,6 +62,7 @@ const defaultState = {
   expenseReasons: [],
   archivedExpenseReasons: [],
   monthlyClosings: {},
+  weeklyClosings: {},
   pricingIngredients: [],
   pricingConfig: {},
   cashFilter: { period: "all" },
@@ -730,7 +732,8 @@ function backupPreview(payload = {}) {
     menuDates: data.menuDatesByPeriod && typeof data.menuDatesByPeriod === "object" ? Object.keys(data.menuDatesByPeriod).length : 0,
     storeSales: Array.isArray(data.storeSales) ? data.storeSales.length : 0,
     channelReceipts: Array.isArray(data.channelReceipts) ? data.channelReceipts.length : 0,
-    monthlyClosings: data.monthlyClosings && typeof data.monthlyClosings === "object" ? Object.keys(data.monthlyClosings).length : 0
+    monthlyClosings: data.monthlyClosings && typeof data.monthlyClosings === "object" ? Object.keys(data.monthlyClosings).length : 0,
+    weeklyClosings: data.weeklyClosings && typeof data.weeklyClosings === "object" ? Object.keys(data.weeklyClosings).length : 0
   };
 }
 
