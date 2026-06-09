@@ -1951,8 +1951,8 @@ function partnerDifferenceLabel(value) {
     return "Sem diferença";
   }
   return amount > 0
-    ? `Diferença ${money(amount)}`
-    : `Antecipação ${money(Math.abs(amount))}`;
+    ? `Antecipação ${money(amount)}`
+    : `Diferença ${money(Math.abs(amount))}`;
 }
 
 function withdrawalGroupsBetween(start, end) {
