@@ -1244,6 +1244,45 @@ function filterCashEntries(entries) {
   });
 }
 
+function cashEntriesForSelectedPeriod(entries = state.cash) {
+  const today = isoDate(new Date());
+  const currentFilter = {
+    period: "month",
+    date: today,
+    month: today.slice(0, 7),
+    year: today.slice(0, 4),
+    ...(state.cashFilter || {})
+  };
+  const { period, date, month, year } = currentFilter;
+  const accountedEntries = accountingCashEntries(entries);
+
+  if (!period || period === "all") {
+    return accountedEntries;
+  }
+
+  return accountedEntries.filter(entry => {
+    const entryDateKey = cashAccountingDate(entry);
+    if (!entryDateKey) {
+      return false;
+    }
+    if (period === "day") {
+      return entryDateKey === date;
+    }
+    if (period === "week") {
+      const selected = date ? new Date(`${date}T00:00:00`) : new Date();
+      const entryDate = new Date(`${entryDateKey}T00:00:00`);
+      return entryDate >= startOfWeek(selected) && entryDate <= endOfWeek(selected);
+    }
+    if (period === "month") {
+      return entryDateKey.startsWith(month || "");
+    }
+    if (period === "year") {
+      return entryDateKey.startsWith(String(year || ""));
+    }
+    return true;
+  });
+}
+
 function categoryName(value) {
   if (String(value || "").startsWith("supplier:")) {
     return String(value).replace(/^supplier:/, "");
@@ -2898,7 +2937,7 @@ async function renderCash() {
   const selectedFilterType = state.cashFilter.type || "all";
   const selectedFilterCategory = state.cashFilter.category || "all";
   const selectedChannelMonth = state.cashFilter.month || today.slice(0, 7);
-  const totalCash = cashTotals(state.cash);
+  const totalCash = cashTotals(cashEntriesForSelectedPeriod());
   const previewWithdrawal = withdrawalSplit(totalCash.balance);
   const savingsPlanning = state.financialPlanning || {};
   const savingsCurrent = savingsBalance();
@@ -2915,7 +2954,7 @@ async function renderCash() {
       <div class="cash-hero-metrics">
         <span><b>${money(result.income)}</b>Entradas</span>
         <span><b>${money(result.expenses)}</b>Saídas</span>
-        <span><b>${money(totalCash.balance)}</b>Saldo geral</span>
+        <span><b>${money(totalCash.balance)}</b>Saldo do período</span>
       </div>
     </section>
     <div class="cash-layout">
@@ -3555,7 +3594,7 @@ async function renderCash() {
   const accountBalanceForm = document.querySelector("#account-balance-form");
   if (accountBalanceForm) {
     accountBalanceForm.addEventListener("input", () => {
-      const adjustment = accountBalanceAdjustment(accountBalanceForm.elements.balance.value, cashTotals(state.cash).balance);
+      const adjustment = accountBalanceAdjustment(accountBalanceForm.elements.balance.value, cashTotals(cashEntriesForSelectedPeriod()).balance);
       const realPreview = document.querySelector("#account-real-preview");
       const differencePreview = document.querySelector("#account-difference-preview");
       realPreview.textContent = money(adjustment.target);
@@ -3567,7 +3606,7 @@ async function renderCash() {
     accountBalanceForm.addEventListener("submit", event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
-    const adjustment = accountBalanceAdjustment(values.balance, cashTotals(state.cash).balance);
+    const adjustment = accountBalanceAdjustment(values.balance, cashTotals(cashEntriesForSelectedPeriod()).balance);
 
     if (adjustment.amount <= 0.009) {
       showToast("O saldo informado ja esta igual ao saldo calculado.", "warning");
@@ -3700,7 +3739,7 @@ async function renderCash() {
     withdrawalForm.addEventListener("submit", event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
-    const available = cashTotals(state.cash).balance;
+    const available = cashTotals(cashEntriesForSelectedPeriod()).balance;
     const split = {
       total: parseMoneyInput(values.savings) + parseMoneyInput(values.vanessa) + parseMoneyInput(values.raquel),
       savings: parseMoneyInput(values.savings),
