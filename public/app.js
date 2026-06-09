@@ -3117,10 +3117,12 @@ async function renderCash() {
     ["ledger", "Extrato"],
     ["channels", "Canais"],
     ["savings", "Cofrinho"],
-    ["partners", "Sócias"],
     ["withdrawals", "Retiradas"],
     ["categories", "Categorias"]
   ];
+  if (state.cashPanelTab === "partners") {
+    state.cashPanelTab = "withdrawals";
+  }
   if (!cashPanelTabs.some(([tab]) => tab === state.cashPanelTab)) {
     state.cashPanelTab = "entry";
   }
@@ -3225,10 +3227,10 @@ async function renderCash() {
         ` : `<p class="muted">Nenhum registro do cofrinho ainda.</p>`}
         </div>
         ` : ""}
-        ${activeCashPanel === "partners" ? `
-        <div class="cash-tab-section partners-panel">
-        <h2>Sócias</h2>
-        <p class="muted-inline">Valores calculados automaticamente pelas retiradas registradas.</p>
+        ${activeCashPanel === "withdrawals" ? `
+        <div class="cash-tab-section withdrawal-panel">
+        <h2>${editingWithdrawal ? "Editar retirada" : "Retiradas"}</h2>
+        <p class="muted-inline">Registre retiradas, confira a divisão e acompanhe Vanessa, Raquel e cofrinho no mesmo lugar.</p>
         <div class="partners-dashboard">
           <section>
             <h3>Semana de ${formatIsoDateBr(partnersDashboard.weekStart)} a ${formatIsoDateBr(partnersDashboard.weekEnd)}</h3>
@@ -3292,12 +3294,8 @@ async function renderCash() {
               </span>
             `).join("")}
           </div>
-        ` : `<p class="muted">Nenhum registro de sócias ainda.</p>`}
-        </div>
-        ` : ""}
-        ${activeCashPanel === "withdrawals" ? `
-        <div class="cash-tab-section withdrawal-panel">
-        <h2>${editingWithdrawal ? "Editar retirada" : "Retiradas"}</h2>
+        ` : `<p class="muted">Nenhum ajuste manual de retirada ainda.</p>`}
+        <h3>${editingWithdrawal ? "Editar registro de retirada" : "Registrar retirada"}</h3>
         <form id="withdrawal-form" class="form-grid single">
           <label>Data
             <input name="date" type="date" value="${editingWithdrawal?.date || today}" required>
@@ -3888,7 +3886,7 @@ async function renderCash() {
       };
 
       upsertPartnersRecord(record);
-      recordAudit("Sócias atualizado", `${formatMonthKeyBr(periodKey)} - Vanessa ${money(record.vanessa)}, Raquel ${money(record.raquel)}, diferença ${money(record.difference)}`);
+      recordAudit("Ajuste manual de retirada atualizado", `${formatMonthKeyBr(periodKey)} - Vanessa ${money(record.vanessa)}, Raquel ${money(record.raquel)}, diferença ${money(record.difference)}`);
       persistState();
       renderCash();
     });
@@ -6596,11 +6594,11 @@ function reportCsvRows(kind, data) {
       { seção: "retiradas", data: "", descrição: "Cofrinho", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.savings },
       { seção: "retiradas", data: "", descrição: "Vanessa", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.vanessa },
       { seção: "retiradas", data: "", descrição: "Raquel", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.raquel },
-      { seção: "sócias", data: "", descrição: "Diferença Vanessa", tipo: "controle", categoria: "sócias", valor: data.partnerWithdrawalControl?.differenceVanessa || 0 },
-      { seção: "sócias", data: "", descrição: "Diferença Raquel", tipo: "controle", categoria: "sócias", valor: data.partnerWithdrawalControl?.differenceRaquel || 0 },
-      { seção: "sócias", data: data.partnersRecord?.periodKey || "", descrição: "Vanessa informada", tipo: "controle", categoria: "sócias", valor: data.partnersRecord?.vanessa || 0 },
-      { seção: "sócias", data: data.partnersRecord?.periodKey || "", descrição: "Raquel informada", tipo: "controle", categoria: "sócias", valor: data.partnersRecord?.raquel || 0 },
-      { seção: "sócias", data: data.partnersRecord?.periodKey || "", descrição: "Diferença / antecipado", tipo: "controle", categoria: "sócias", valor: data.partnersRecord?.difference || 0 }
+      { seção: "retiradas", data: "", descrição: "Diferença Vanessa", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.differenceVanessa || 0 },
+      { seção: "retiradas", data: "", descrição: "Diferença Raquel", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.differenceRaquel || 0 },
+      { seção: "retiradas", data: data.partnersRecord?.periodKey || "", descrição: "Vanessa informada", tipo: "controle", categoria: "retirada", valor: data.partnersRecord?.vanessa || 0 },
+      { seção: "retiradas", data: data.partnersRecord?.periodKey || "", descrição: "Raquel informada", tipo: "controle", categoria: "retirada", valor: data.partnersRecord?.raquel || 0 },
+      { seção: "retiradas", data: data.partnersRecord?.periodKey || "", descrição: "Diferença / antecipado", tipo: "controle", categoria: "retirada", valor: data.partnersRecord?.difference || 0 }
     ];
 
     return rows.concat(data.cashEntries.map(entry => ({
