@@ -413,6 +413,7 @@ const state = {
   editCashId: null,
   cashSort: { key: "", direction: "desc" },
   editWithdrawalGroup: null,
+  editAccountAdjustmentId: null,
   editChannelReceiptId: null,
   editCashCategory: null,
   cashPanelTab: "entry",
@@ -1844,6 +1845,7 @@ function accountAdjustmentHistoryHtml() {
           <b class="${entry.type === "expense" ? "negative" : "positive"}">${entry.type === "expense" ? "-" : "+"}${money(entry.amount)}</b>
           ${entry.description || "Ajuste da conta"}
           <small>${formatIsoDateBr(entry.date)}</small>
+          <button class="secondary table-action" type="button" data-edit-account-adjustment="${escapeHtml(String(entry.id || ""))}">Editar</button>
         </span>
       `).join("")}
     </div>
@@ -3005,6 +3007,9 @@ async function renderCash() {
   const editingWithdrawal = state.editWithdrawalGroup
     ? withdrawalHistoryGroups(state.cash).find(group => group.key === state.editWithdrawalGroup)
     : null;
+  const editingAccountAdjustment = state.editAccountAdjustmentId !== null
+    ? state.cash.find(entry => String(entry.id) === String(state.editAccountAdjustmentId))
+    : null;
   const filteredEntries = filterCashEntries(state.cash);
   const accountedEntries = accountingCashEntries(filteredEntries);
   const result = await postJson("/api/fluxo-de-caixa", { entries: accountedEntries });
@@ -3015,6 +3020,15 @@ async function renderCash() {
   const selectedFilterCategory = state.cashFilter.category || "all";
   const selectedChannelMonth = state.cashFilter.month || today.slice(0, 7);
   const totalCash = cashTotals(cashEntriesForSelectedPeriod());
+  const editingAdjustmentInPeriod = editingAccountAdjustment
+    && cashEntriesForSelectedPeriod().some(entry => String(entry.id) === String(editingAccountAdjustment.id));
+  const editingAdjustmentSignedAmount = editingAccountAdjustment
+    ? Number(editingAccountAdjustment.amount || 0) * (editingAccountAdjustment.type === "expense" ? -1 : 1)
+    : 0;
+  const reconciliationBaseBalance = totalCash.balance - (editingAdjustmentInPeriod ? editingAdjustmentSignedAmount : 0);
+  const reconciliationTargetBalance = editingAccountAdjustment
+    ? reconciliationBaseBalance + editingAdjustmentSignedAmount
+    : Math.max(0, totalCash.balance);
   const previewWithdrawal = withdrawalSplit(totalCash.balance);
   const withdrawalFormValues = editingWithdrawal || previewWithdrawal;
   const savingsPlanning = state.financialPlanning || {};
@@ -3093,21 +3107,24 @@ async function renderCash() {
         ${activeCashPanel === "channels" ? channelReceiptsPanel(editingChannelReceipt, selectedChannelMonth) : ""}
         ${activeCashPanel === "reconciliation" ? `
         <div class="cash-tab-section account-balance-panel">
-        <h2>Conciliação da conta</h2>
+        <h2>${editingAccountAdjustment ? "Editar conciliação" : "Conciliação da conta"}</h2>
         <p class="muted-inline">Compare o saldo registrado no sistema com o valor real da conta e lance um ajuste pela diferença.</p>
         <form id="account-balance-form" class="form-grid single">
           <div class="summary reconciliation-summary">
-            <div class="metric"><span>Saldo do sistema</span><strong>${money(totalCash.balance)}</strong></div>
-            <div class="metric"><span>Valor na conta</span><strong id="account-real-preview">${money(Math.max(0, totalCash.balance))}</strong></div>
-            <div class="metric"><span>Diferença</span><strong id="account-difference-preview">${money(0)}</strong></div>
+            <div class="metric"><span>Saldo antes do ajuste</span><strong>${money(reconciliationBaseBalance)}</strong></div>
+            <div class="metric"><span>Valor na conta</span><strong id="account-real-preview">${money(reconciliationTargetBalance)}</strong></div>
+            <div class="metric"><span>Diferença</span><strong id="account-difference-preview" class="${editingAdjustmentSignedAmount < 0 ? "negative" : editingAdjustmentSignedAmount > 0 ? "positive" : ""}">${editingAdjustmentSignedAmount < 0 ? "-" : ""}${money(Math.abs(editingAdjustmentSignedAmount))}</strong></div>
           </div>
           <label>Saldo real da conta
-            <input name="balance" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(Math.max(0, totalCash.balance))}" required>
+            <input name="balance" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(reconciliationTargetBalance)}" required>
           </label>
           <label>Data do ajuste
-            <input name="date" type="date" value="${today}" required>
+            <input name="date" type="date" value="${editingAccountAdjustment?.date || today}" required>
           </label>
-          <button type="submit">Ajustar conta</button>
+          <div class="actions">
+            <button type="submit">${editingAccountAdjustment ? "Salvar conciliação" : "Ajustar conta"}</button>
+            ${editingAccountAdjustment ? `<button class="secondary" type="button" id="cancel-account-adjustment-edit">Cancelar</button>` : ""}
+          </div>
         </form>
         <h3>Histórico de ajustes</h3>
         ${accountAdjustmentHistoryHtml()}
@@ -3300,6 +3317,9 @@ async function renderCash() {
       }
       if (state.cashPanelTab !== "withdrawals") {
         state.editWithdrawalGroup = null;
+      }
+      if (state.cashPanelTab !== "reconciliation") {
+        state.editAccountAdjustmentId = null;
       }
       if (state.cashPanelTab !== "channels") {
         state.editChannelReceiptId = null;
@@ -3680,7 +3700,7 @@ async function renderCash() {
   const accountBalanceForm = document.querySelector("#account-balance-form");
   if (accountBalanceForm) {
     accountBalanceForm.addEventListener("input", () => {
-      const adjustment = accountBalanceAdjustment(accountBalanceForm.elements.balance.value, cashTotals(cashEntriesForSelectedPeriod()).balance);
+      const adjustment = accountBalanceAdjustment(accountBalanceForm.elements.balance.value, reconciliationBaseBalance);
       const realPreview = document.querySelector("#account-real-preview");
       const differencePreview = document.querySelector("#account-difference-preview");
       realPreview.textContent = money(adjustment.target);
@@ -3689,29 +3709,76 @@ async function renderCash() {
       differencePreview.classList.toggle("positive", adjustment.difference > 0);
     });
 
-    accountBalanceForm.addEventListener("submit", event => {
+    accountBalanceForm.addEventListener("submit", async event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
-    const adjustment = accountBalanceAdjustment(values.balance, cashTotals(cashEntriesForSelectedPeriod()).balance);
-
-    if (adjustment.amount <= 0.009) {
-      showToast("O saldo informado ja esta igual ao saldo calculado.", "warning");
+    const adjustment = accountBalanceAdjustment(values.balance, reconciliationBaseBalance);
+    if (blockClosedMonth(values.date, editingAccountAdjustment ? "editar conciliação" : "conciliar conta")) {
+      return;
+    }
+    if (editingAccountAdjustment && editingAccountAdjustment.date !== values.date
+      && blockClosedMonth(editingAccountAdjustment.date, "editar conciliação")) {
       return;
     }
 
-    state.cash.push({
-      id: `account-adjustment-${Date.now()}`,
+    if (adjustment.amount <= 0.009) {
+      if (!editingAccountAdjustment) {
+        showToast("O saldo informado ja esta igual ao saldo calculado.", "warning");
+        return;
+      }
+      state.cash = state.cash.filter(entry => String(entry.id) !== String(editingAccountAdjustment.id));
+      state.editAccountAdjustmentId = null;
+      if (await persistState()) {
+        showToast("Conciliação removida porque não há diferença.", "success");
+        renderCash();
+      }
+      return;
+    }
+
+    const entry = {
+      id: editingAccountAdjustment?.id || `account-adjustment-${Date.now()}`,
       description: adjustment.type === "expense" ? "Ajuste do valor na conta" : "Valor existente na conta",
       date: values.date,
       type: adjustment.type,
       category: "ajuste-conta",
       amount: adjustment.amount.toFixed(2)
-    });
-    recordAudit("Valor na conta ajustado", `Conta ${money(adjustment.target)} - ajuste ${money(adjustment.amount)}`);
-    persistState();
-    renderCash();
+    };
+    if (editingAccountAdjustment) {
+      state.cash = state.cash.map(item => String(item.id) === String(editingAccountAdjustment.id) ? entry : item);
+      recordAudit("Conciliação editada", `Conta ${money(adjustment.target)} - ajuste ${money(adjustment.amount)}`);
+    } else {
+      state.cash.push(entry);
+      recordAudit("Valor na conta ajustado", `Conta ${money(adjustment.target)} - ajuste ${money(adjustment.amount)}`);
+    }
+    focusCashFilterOnDate(values.date);
+    state.editAccountAdjustmentId = null;
+    if (await persistState()) {
+      showToast(editingAccountAdjustment ? "Conciliação atualizada." : "Conta ajustada.", "success");
+      renderCash();
+    }
     });
   }
+
+  const cancelAccountAdjustmentEdit = document.querySelector("#cancel-account-adjustment-edit");
+  if (cancelAccountAdjustmentEdit) {
+    cancelAccountAdjustmentEdit.addEventListener("click", () => {
+      state.editAccountAdjustmentId = null;
+      renderCash();
+    });
+  }
+
+  document.querySelectorAll("[data-edit-account-adjustment]").forEach(button => {
+    button.addEventListener("click", event => {
+      const id = event.currentTarget.dataset.editAccountAdjustment;
+      const adjustment = state.cash.find(entry => String(entry.id) === String(id));
+      if (adjustment?.date) {
+        focusCashFilterOnDate(adjustment.date);
+      }
+      state.editAccountAdjustmentId = id;
+      state.cashPanelTab = "reconciliation";
+      renderCash();
+    });
+  });
 
   const savingsForm = document.querySelector("#savings-form");
   if (savingsForm) {
