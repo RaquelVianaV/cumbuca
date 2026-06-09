@@ -1963,6 +1963,13 @@ function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
   }).sort((a, b) => String(b.date).localeCompare(String(a.date)));
 }
 
+function withdrawalEntriesForMonth(monthKey = currentMonthKey()) {
+  const month = String(monthKey || currentMonthKey()).slice(0, 7);
+  return accountingCashEntries(state.cash).filter(entry => {
+    return isWithdrawalEntry(entry) && cashAccountingDate(entry).startsWith(month);
+  });
+}
+
 function partnerDifferenceLabel(value) {
   const amount = Number(value || 0);
   if (Math.abs(amount) < 0.01) {
@@ -2030,10 +2037,10 @@ function partnerDashboard(referenceDate, monthKey) {
   };
 }
 
-function withdrawalHistoryHtml() {
-  const groups = withdrawalHistoryGroups();
+function withdrawalHistoryHtml(monthKey = currentMonthKey()) {
+  const groups = withdrawalHistoryGroups(withdrawalEntriesForMonth(monthKey));
   if (!groups.length) {
-    return `<p class="muted">Nenhuma retirada registrada neste período.</p>`;
+    return `<p class="muted">Nenhuma retirada registrada neste mês.</p>`;
   }
   return `
     <div class="table-wrap report-table">
@@ -3415,8 +3422,8 @@ async function renderCash() {
             ${editingWithdrawal ? `<button class="secondary" type="button" id="cancel-withdrawal-edit">Cancelar</button>` : ""}
           </div>
         </form>
-        <h3>Histórico de retiradas</h3>
-        ${withdrawalHistoryHtml()}
+        <h3>Histórico de retiradas do mês</h3>
+        ${withdrawalHistoryHtml(selectedMonth)}
         </div>
         ` : ""}
         ${activeCashPanel === "categories" ? cashCategoriesPanel("cash-tab-section supplier-panel") : ""}
