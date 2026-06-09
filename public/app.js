@@ -1836,7 +1836,9 @@ function reconciliationBaseForDate(dateKey, ignoredAdjustmentId = null) {
   const monthKey = String(dateKey || isoDate(new Date())).slice(0, 7);
   const entries = accountingCashEntries(state.cash).filter(entry => {
     return cashAccountingDate(entry).startsWith(monthKey)
-      && String(entry.id) !== String(ignoredAdjustmentId ?? "");
+      && String(entry.id) !== String(ignoredAdjustmentId ?? "")
+      && entry.category !== "ajuste-conta"
+      && !String(entry.id || "").startsWith("account-adjustment-");
   });
   return cashTotals(entries).balance;
 }
@@ -1910,7 +1912,17 @@ function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
     groups.set(key, group);
   });
   return [...groups.values()].map(group => {
-    const expected = withdrawalSplit(group.distributionBase || group.total);
+    // Calcular distributionBase correto excluindo ajustes de conta
+    const groupDate = group.date || "";
+    const realEntries = accountingCashEntries(state.cash).filter(entry =>
+      cashAccountingDate(entry).startsWith(groupDate.slice(0, 7))
+      && entry.category !== "ajuste-conta"
+      && !String(entry.id || "").startsWith("account-adjustment-")
+    );
+    const realTotals = cashTotals(realEntries);
+    const correctDistributionBase = Math.max(realTotals.balance, group.distributionBase);
+    
+    const expected = withdrawalSplit(correctDistributionBase || group.total);
     return {
       ...group,
       distributionBase: group.distributionBase || group.total,
