@@ -1873,6 +1873,15 @@ function removeAccountAdjustmentsForMonth(monthKey) {
   });
 }
 
+function reconciledAccountBalanceForMonth(monthKey) {
+  const month = String(monthKey || "").slice(0, 7);
+  if (!month || !state.cash.some(entry => isAccountAdjustmentEntry(entry) && cashAccountingDate(entry).startsWith(month))) {
+    return null;
+  }
+  const monthEntries = accountingCashEntries(state.cash).filter(entry => cashAccountingDate(entry).startsWith(month));
+  return cashTotals(monthEntries).balance;
+}
+
 function accountAdjustmentHistoryHtml() {
   const adjustments = accountAdjustmentEntries();
   if (!adjustments.length) {
@@ -3150,6 +3159,12 @@ async function renderCash() {
   const selectedFilterCategory = state.cashFilter.category || "all";
   const selectedChannelMonth = state.cashFilter.month || today.slice(0, 7);
   const totalCash = cashTotals(cashEntriesForSelectedPeriod());
+  const balanceMonthKey = (state.cashFilter.period === "day" || state.cashFilter.period === "week")
+    ? selectedDate.slice(0, 7)
+    : selectedMonth;
+  const reconciledBalance = reconciledAccountBalanceForMonth(balanceMonthKey);
+  const displayedCashBalance = reconciledBalance === null ? totalCash.balance : reconciledBalance;
+  const balanceLabel = reconciledBalance === null ? "Saldo do período" : "Saldo real da conta";
   const reconciliationDate = editingAccountAdjustment?.date || selectedDate || today;
   const editingAdjustmentSignedAmount = editingAccountAdjustment
     ? Number(editingAccountAdjustment.amount || 0) * (editingAccountAdjustment.type === "expense" ? -1 : 1)
@@ -3158,7 +3173,7 @@ async function renderCash() {
   const reconciliationTargetBalance = editingAccountAdjustment
     ? reconciliationBaseBalance + editingAdjustmentSignedAmount
     : Math.max(0, reconciliationBaseBalance);
-  const previewWithdrawal = withdrawalSplit(totalCash.balance);
+  const previewWithdrawal = withdrawalSplit(displayedCashBalance);
   const withdrawalFormValues = editingWithdrawal || previewWithdrawal;
   const savingsPlanning = state.financialPlanning || {};
   const savingsCurrent = savingsBalance();
@@ -3171,12 +3186,12 @@ async function renderCash() {
     <section class="cash-hero">
       <div>
         <span>Fluxo de caixa</span>
-        <h2>${money(result.balance)}</h2>
+        <h2>${money(displayedCashBalance)}</h2>
       </div>
       <div class="cash-hero-metrics">
         <span><b>${money(result.income)}</b>Entradas</span>
         <span><b>${money(result.expenses)}</b>Saídas</span>
-        <span><b>${money(totalCash.balance)}</b>Saldo do período</span>
+        <span><b>${money(displayedCashBalance)}</b>${balanceLabel}</span>
       </div>
     </section>
     <div class="cash-layout">
@@ -3375,7 +3390,7 @@ async function renderCash() {
             <input name="date" type="date" value="${editingWithdrawal?.date || today}" required>
           </label>
           <label>Valor a distribuir
-            <input name="amount" type="text" inputmode="decimal" value="${moneyInputValue(editingWithdrawal?.distributionBase ?? Math.max(0, totalCash.balance))}" required>
+            <input name="amount" type="text" inputmode="decimal" value="${moneyInputValue(editingWithdrawal?.distributionBase ?? Math.max(0, displayedCashBalance))}" required>
           </label>
           <div class="withdrawal-fields">
             <label>Cofrinho
@@ -3389,7 +3404,7 @@ async function renderCash() {
             </label>
           </div>
           <div class="withdrawal-preview" aria-live="polite">
-            <span><b>Caixa disponível</b>${money(totalCash.balance)}</span>
+            <span><b>Caixa disponível</b>${money(displayedCashBalance)}</span>
             <span><b>Total informado</b>${money(withdrawalFormValues.total)}</span>
             <span><b>Cofrinho</b>${money(withdrawalFormValues.savings)}</span>
             <span><b>Vanessa / Raquel</b>${money(withdrawalFormValues.vanessa)} / ${money(withdrawalFormValues.raquel)}</span>
@@ -3397,7 +3412,7 @@ async function renderCash() {
             <span><b>Diferença Raquel</b>${partnerDifferenceLabel(withdrawalFormValues.differenceRaquel || 0)}</span>
           </div>
           <div class="actions">
-            <button type="submit" ${(totalCash.balance > 0 || editingWithdrawal) ? "" : "disabled"}>${editingWithdrawal ? "Salvar retirada" : "Registrar retiradas"}</button>
+            <button type="submit" ${(displayedCashBalance > 0 || editingWithdrawal) ? "" : "disabled"}>${editingWithdrawal ? "Salvar retirada" : "Registrar retiradas"}</button>
             ${editingWithdrawal ? `<button class="secondary" type="button" id="cancel-withdrawal-edit">Cancelar</button>` : ""}
           </div>
         </form>
@@ -3460,7 +3475,7 @@ async function renderCash() {
         <div class="summary">
           <div class="metric"><span>Entradas</span><strong>${money(result.income)}</strong></div>
           <div class="metric"><span>Saídas</span><strong>${money(result.expenses)}</strong></div>
-          <div class="metric"><span>Saldo</span><strong class="${result.balance < 0 ? "negative" : "positive"}">${money(result.balance)}</strong></div>
+          <div class="metric"><span>${balanceLabel}</span><strong class="${displayedCashBalance < 0 ? "negative" : "positive"}">${money(displayedCashBalance)}</strong></div>
         </div>
         ${cashCategorySummary(accountedEntries)}
         ${cashTable(filteredEntries)}
@@ -4071,7 +4086,7 @@ async function renderCash() {
       const differenceRaquel = expected.raquel - split.raquel;
       const preview = withdrawalForm.querySelector(".withdrawal-preview");
       preview.innerHTML = `
-        <span><b>Caixa disponível</b>${money(totalCash.balance)}</span>
+        <span><b>Caixa disponível</b>${money(displayedCashBalance)}</span>
         <span><b>Divisão calculada</b>${money(split.distributionBase)}</span>
         <span><b>Total informado</b>${money(split.total)}</span>
         <span><b>Cofrinho</b>${money(split.savings)}</span>
@@ -4099,7 +4114,7 @@ async function renderCash() {
     const previousWithdrawal = state.editWithdrawalGroup
       ? withdrawalHistoryGroups(state.cash).find(group => group.key === state.editWithdrawalGroup)
       : null;
-    const available = cashTotals(cashEntriesForSelectedPeriod()).balance + Number(previousWithdrawal?.total || 0);
+    const available = displayedCashBalance + Number(previousWithdrawal?.total || 0);
     const split = {
       distributionBase: parseMoneyInput(values.amount),
       total: parseMoneyInput(values.savings) + parseMoneyInput(values.vanessa) + parseMoneyInput(values.raquel),
