@@ -704,6 +704,18 @@ h2 {
   font-weight: 760;
 }
 
+.cash-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.cash-hero-actions button {
+  min-height: 36px;
+  padding-inline: 12px;
+}
+
 .cash-hero-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1352,13 +1364,13 @@ h2 {
   font-weight: 800;
 }
 
-.reconciliation-summary {
+.compact-summary {
   grid-template-columns: 1fr;
   gap: 8px;
   margin-bottom: 4px;
 }
 
-.reconciliation-summary .metric {
+.compact-summary .metric {
   min-height: auto;
   display: flex;
   align-items: center;
@@ -1367,25 +1379,12 @@ h2 {
   padding: 12px;
 }
 
-.reconciliation-summary .metric strong {
+.compact-summary .metric strong {
   margin-top: 0;
   font-size: 1.28rem;
   line-height: 1;
   text-align: right;
   white-space: nowrap;
-}
-
-.reconciliation-history span {
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-}
-
-.reconciliation-history span > em {
-  min-width: 0;
-  font-style: normal;
-}
-
-.reconciliation-history .table-actions {
-  justify-content: flex-end;
 }
 
 .partners-dashboard {

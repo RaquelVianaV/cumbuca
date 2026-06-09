@@ -413,7 +413,6 @@ const state = {
   editCashId: null,
   cashSort: { key: "", direction: "desc" },
   editWithdrawalGroup: null,
-  editAccountAdjustmentId: null,
   editChannelReceiptId: null,
   editCashCategory: null,
   cashPanelTab: "entry",
@@ -1828,50 +1827,6 @@ function withdrawalSplitFromRaquel(raquelAmount) {
   return { total, savings, remaining: base, vanessa, raquel };
 }
 
-function accountBalanceAdjustment(targetBalance, currentBalance) {
-  const target = parseMoneyInput(targetBalance);
-  const current = Number(currentBalance || 0);
-  const difference = target - current;
-
-  return {
-    target,
-    current,
-    difference,
-    type: difference < 0 ? "expense" : "income",
-    amount: Math.abs(difference)
-  };
-}
-
-function accountAdjustmentEntries(limit = 6) {
-  return [...state.cash]
-    .filter(isAccountAdjustmentEntry)
-    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || String(b.id || "").localeCompare(String(a.id || "")))
-    .slice(0, limit);
-}
-
-function isAccountAdjustmentEntry(entry = {}) {
-  return entry.category === "ajuste-conta" || String(entry.id || "").startsWith("account-adjustment-");
-}
-
-function reconciliationBaseForDate(dateKey, ignoredAdjustmentId = null) {
-  const monthKey = String(dateKey || isoDate(new Date())).slice(0, 7);
-  const entries = accountingCashEntries(state.cash).filter(entry => {
-    return cashAccountingDate(entry).startsWith(monthKey)
-      && String(entry.id) !== String(ignoredAdjustmentId ?? "")
-      && !isAccountAdjustmentEntry(entry);
-  });
-  return cashTotals(entries).balance;
-}
-
-function removeAccountAdjustmentsForMonth(monthKey) {
-  state.cash = state.cash.filter(entry => {
-    if (!isAccountAdjustmentEntry(entry)) {
-      return true;
-    }
-    return !cashAccountingDate(entry).startsWith(monthKey);
-  });
-}
-
 function monthlyAccountBalance(monthKey) {
   const month = String(monthKey || "").slice(0, 7);
   if (!month) {
@@ -1879,29 +1834,6 @@ function monthlyAccountBalance(monthKey) {
   }
   const monthEntries = accountingCashEntries(state.cash).filter(entry => cashAccountingDate(entry).startsWith(month));
   return cashTotals(monthEntries).balance;
-}
-
-function accountAdjustmentHistoryHtml() {
-  const adjustments = accountAdjustmentEntries();
-  if (!adjustments.length) {
-    return `<p class="muted">Nenhum ajuste de conta registrado.</p>`;
-  }
-
-  return `
-    <div class="recent-list reconciliation-history">
-      ${adjustments.map(entry => `
-        <span>
-          <b class="${entry.type === "expense" ? "negative" : "positive"}">${entry.type === "expense" ? "-" : "+"}${money(entry.amount)}</b>
-          <em>${entry.description || "Ajuste da conta"}</em>
-          <small>${formatIsoDateBr(entry.date)}</small>
-          <div class="table-actions">
-            <button class="secondary table-action" type="button" data-edit-account-adjustment="${escapeHtml(String(entry.id || ""))}">Editar</button>
-            <button class="danger table-action" type="button" data-delete-account-adjustment="${escapeHtml(String(entry.id || ""))}">Excluir</button>
-          </div>
-        </span>
-      `).join("")}
-    </div>
-  `;
 }
 
 function isWithdrawalEntry(entry = {}) {
@@ -1954,10 +1886,8 @@ function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
     return {
       ...group,
       distributionBase: expected.total || group.distributionBase || group.total,
-      expectedSavings: expected.savings,
       expectedVanessa: expected.vanessa,
       expectedRaquel: expected.raquel,
-      differenceSavings: expected.savings - group.savings,
       differenceVanessa: expected.vanessa - group.vanessa,
       differenceRaquel: expected.raquel - group.raquel
     };
@@ -1992,7 +1922,6 @@ function partnerPeriodTotals(groups = []) {
     totals.raquel += Number(group.raquel || 0);
     totals.expectedVanessa += Number(group.expectedVanessa || 0);
     totals.expectedRaquel += Number(group.expectedRaquel || 0);
-    totals.differenceSavings += Number(group.differenceSavings || 0);
     totals.differenceVanessa += Number(group.differenceVanessa || 0);
     totals.differenceRaquel += Number(group.differenceRaquel || 0);
     return totals;
@@ -2002,7 +1931,6 @@ function partnerPeriodTotals(groups = []) {
     raquel: 0,
     expectedVanessa: 0,
     expectedRaquel: 0,
-    differenceSavings: 0,
     differenceVanessa: 0,
     differenceRaquel: 0
   });
@@ -2057,7 +1985,6 @@ function withdrawalHistoryHtml(monthKey = currentMonthKey()) {
               <td>${money(group.vanessa)}</td>
               <td>${money(group.raquel)}</td>
               <td>
-                <small>Cofrinho: ${partnerDifferenceLabel(group.differenceSavings)}</small><br>
                 <small>Vanessa: ${partnerDifferenceLabel(group.differenceVanessa)}</small><br>
                 <small>Raquel: ${partnerDifferenceLabel(group.differenceRaquel)}</small>
               </td>
@@ -3154,9 +3081,6 @@ async function renderCash() {
   const editingWithdrawal = state.editWithdrawalGroup
     ? withdrawalHistoryGroups(state.cash).find(group => group.key === state.editWithdrawalGroup)
     : null;
-  const editingAccountAdjustment = state.editAccountAdjustmentId !== null
-    ? state.cash.find(entry => String(entry.id) === String(state.editAccountAdjustmentId))
-    : null;
   const filteredEntries = filterCashEntries(state.cash);
   const accountedEntries = accountingCashEntries(filteredEntries);
   const result = await postJson("/api/fluxo-de-caixa", { entries: accountedEntries });
@@ -3174,15 +3098,13 @@ async function renderCash() {
   const monthlyBalance = monthlyAccountBalance(balanceMonthKey);
   const usesMonthlyBalance = ["day", "week", "month"].includes(currentCashFilter.period);
   const displayedCashBalance = usesMonthlyBalance && monthlyBalance !== null ? monthlyBalance : totalCash.balance;
-  const balanceLabel = usesMonthlyBalance ? "Saldo real da conta" : "Saldo do período";
-  const reconciliationDate = editingAccountAdjustment?.date || selectedDate || today;
-  const editingAdjustmentSignedAmount = editingAccountAdjustment
-    ? Number(editingAccountAdjustment.amount || 0) * (editingAccountAdjustment.type === "expense" ? -1 : 1)
-    : 0;
-  const reconciliationBaseBalance = reconciliationBaseForDate(reconciliationDate, editingAccountAdjustment?.id);
-  const reconciliationTargetBalance = editingAccountAdjustment
-    ? reconciliationBaseBalance + editingAdjustmentSignedAmount
-    : Math.max(0, reconciliationBaseBalance);
+  const balanceLabel = usesMonthlyBalance ? "Saldo da conta" : "Saldo do período";
+  const zeroAccountDate = (currentCashFilter.period === "day" || currentCashFilter.period === "week")
+    ? selectedDate
+    : currentCashFilter.period === "month"
+      ? (selectedMonth === today.slice(0, 7) ? today : `${selectedMonth}-01`)
+      : today;
+  const canZeroAccount = Math.abs(displayedCashBalance) >= 0.01;
   const previewWithdrawal = withdrawalSplitFromRaquel(0);
   const withdrawalFormValues = editingWithdrawal || previewWithdrawal;
   const savingsPlanning = state.financialPlanning || {};
@@ -3190,6 +3112,18 @@ async function renderCash() {
   const partnersPeriod = state.cashFilter?.month || today.slice(0, 7);
   const partnersRecord = partnersRecordForPeriod(partnersPeriod);
   const partnersDashboard = partnerDashboard(selectedDate, partnersPeriod);
+  const cashPanelTabs = [
+    ["entry", editing ? "Editar" : "Lançamento"],
+    ["ledger", "Extrato"],
+    ["channels", "Canais"],
+    ["savings", "Cofrinho"],
+    ["partners", "Sócias"],
+    ["withdrawals", "Retiradas"],
+    ["categories", "Categorias"]
+  ];
+  if (!cashPanelTabs.some(([tab]) => tab === state.cashPanelTab)) {
+    state.cashPanelTab = "entry";
+  }
   const activeCashPanel = editing ? "entry" : (editingChannelReceipt ? "channels" : (state.cashPanelTab || "entry"));
 
   app.innerHTML = `
@@ -3197,6 +3131,9 @@ async function renderCash() {
       <div>
         <span>Fluxo de caixa</span>
         <h2>${money(displayedCashBalance)}</h2>
+        <div class="cash-hero-actions">
+          <button class="secondary" type="button" id="zero-account-balance" ${canZeroAccount ? "" : "disabled"}>Zerar conta</button>
+        </div>
       </div>
       <div class="cash-hero-metrics">
         <span><b>${money(result.income)}</b>Entradas</span>
@@ -3207,16 +3144,7 @@ async function renderCash() {
     <div class="cash-layout">
       <section class="panel cash-command-panel">
         <div class="cash-panel-tabs" role="tablist" aria-label="Ferramentas do caixa">
-          ${[
-            ["entry", editing ? "Editar" : "Lançamento"],
-            ["ledger", "Extrato"],
-            ["channels", "Canais"],
-            ["reconciliation", "Conciliação"],
-            ["savings", "Cofrinho"],
-            ["partners", "Sócias"],
-            ["withdrawals", "Retiradas"],
-            ["categories", "Categorias"]
-          ].map(([tab, label]) => `
+          ${cashPanelTabs.map(([tab, label]) => `
             <button class="${activeCashPanel === tab ? "active" : ""}" type="button" data-cash-panel="${tab}">${label}</button>
           `).join("")}
         </div>
@@ -3260,36 +3188,11 @@ async function renderCash() {
         </div>
         ` : ""}
         ${activeCashPanel === "channels" ? channelReceiptsPanel(editingChannelReceipt, selectedChannelMonth) : ""}
-        ${activeCashPanel === "reconciliation" ? `
-        <div class="cash-tab-section account-balance-panel">
-        <h2>${editingAccountAdjustment ? "Editar conciliação" : "Conciliação da conta"}</h2>
-        <p class="muted-inline">A conciliação usa o saldo do mês da data informada, mesmo quando o extrato está filtrado por dia ou semana.</p>
-        <form id="account-balance-form" class="form-grid single">
-          <div class="summary reconciliation-summary">
-            <div class="metric"><span>Saldo do mês antes do ajuste</span><strong id="account-system-preview">${money(reconciliationBaseBalance)}</strong></div>
-            <div class="metric"><span>Valor na conta</span><strong id="account-real-preview">${money(reconciliationTargetBalance)}</strong></div>
-            <div class="metric"><span>Diferença</span><strong id="account-difference-preview" class="${editingAdjustmentSignedAmount < 0 ? "negative" : editingAdjustmentSignedAmount > 0 ? "positive" : ""}">${editingAdjustmentSignedAmount < 0 ? "-" : ""}${money(Math.abs(editingAdjustmentSignedAmount))}</strong></div>
-          </div>
-          <label>Saldo real da conta
-            <input name="balance" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(reconciliationTargetBalance)}" required>
-          </label>
-          <label>Data do ajuste
-            <input name="date" type="date" value="${reconciliationDate}" required>
-          </label>
-          <div class="actions">
-            <button type="submit">${editingAccountAdjustment ? "Salvar conciliação" : "Ajustar conta"}</button>
-            ${editingAccountAdjustment ? `<button class="secondary" type="button" id="cancel-account-adjustment-edit">Cancelar</button>` : ""}
-          </div>
-        </form>
-        <h3>Histórico de ajustes</h3>
-        ${accountAdjustmentHistoryHtml()}
-        </div>
-        ` : ""}
         ${activeCashPanel === "savings" ? `
         <div class="cash-tab-section savings-panel">
         <h2>Cofrinho</h2>
         <form id="savings-form" class="form-grid single">
-          <div class="summary reconciliation-summary">
+          <div class="summary compact-summary">
             <div class="metric"><span>Valor atual</span><strong>${money(savingsCurrent)}</strong></div>
             <div class="metric"><span>Atualizado em</span><strong>${savingsPlanning.savingsUpdatedAt ? formatIsoDateBr(savingsPlanning.savingsUpdatedAt) : "Sem data"}</strong></div>
             <div class="metric"><span>Últimos registros</span><strong>${savingsHistoryRows().length}</strong></div>
@@ -3333,7 +3236,6 @@ async function renderCash() {
               <div class="metric"><span>Vanessa retirou</span><strong>${money(partnersDashboard.week.vanessa)}</strong></div>
               <div class="metric"><span>Raquel retirou</span><strong>${money(partnersDashboard.week.raquel)}</strong></div>
               <div class="metric"><span>Cofrinho</span><strong>${money(partnersDashboard.week.savings)}</strong></div>
-              <div class="metric"><span>Diferença Cofrinho</span><strong>${partnerDifferenceLabel(partnersDashboard.week.differenceSavings)}</strong></div>
               <div class="metric"><span>Diferença Vanessa</span><strong>${partnerDifferenceLabel(partnersDashboard.week.differenceVanessa)}</strong></div>
               <div class="metric"><span>Diferença Raquel</span><strong>${partnerDifferenceLabel(partnersDashboard.week.differenceRaquel)}</strong></div>
             </div>
@@ -3344,7 +3246,6 @@ async function renderCash() {
               <div class="metric"><span>Vanessa retirou</span><strong>${money(partnersDashboard.month.vanessa)}</strong></div>
               <div class="metric"><span>Raquel retirou</span><strong>${money(partnersDashboard.month.raquel)}</strong></div>
               <div class="metric"><span>Cofrinho no mês</span><strong>${money(partnersDashboard.month.savings)}</strong></div>
-              <div class="metric"><span>Diferença Cofrinho</span><strong>${partnerDifferenceLabel(partnersDashboard.month.differenceSavings)}</strong></div>
               <div class="metric"><span>Diferença Vanessa</span><strong>${partnerDifferenceLabel(partnersDashboard.month.differenceVanessa)}</strong></div>
               <div class="metric"><span>Diferença Raquel</span><strong>${partnerDifferenceLabel(partnersDashboard.month.differenceRaquel)}</strong></div>
             </div>
@@ -3420,7 +3321,6 @@ async function renderCash() {
             <span><b>Total informado</b>${money(withdrawalFormValues.total)}</span>
             <span><b>Cofrinho</b>${money(withdrawalFormValues.savings)}</span>
             <span><b>Vanessa / Raquel</b>${money(withdrawalFormValues.vanessa)} / ${money(withdrawalFormValues.raquel)}</span>
-            <span><b>Diferença Cofrinho</b>${partnerDifferenceLabel(withdrawalFormValues.differenceSavings || 0)}</span>
             <span><b>Diferença Vanessa</b>${partnerDifferenceLabel(withdrawalFormValues.differenceVanessa || 0)}</span>
             <span><b>Diferença Raquel</b>${partnerDifferenceLabel(withdrawalFormValues.differenceRaquel || 0)}</span>
           </div>
@@ -3507,9 +3407,6 @@ async function renderCash() {
       if (state.cashPanelTab !== "withdrawals") {
         state.editWithdrawalGroup = null;
       }
-      if (state.cashPanelTab !== "reconciliation") {
-        state.editAccountAdjustmentId = null;
-      }
       if (state.cashPanelTab !== "channels") {
         state.editChannelReceiptId = null;
       }
@@ -3519,6 +3416,51 @@ async function renderCash() {
       renderCash();
     });
   });
+
+  const zeroAccountButton = document.querySelector("#zero-account-balance");
+  if (zeroAccountButton) {
+    zeroAccountButton.addEventListener("click", async () => {
+      const balance = Number(displayedCashBalance || 0);
+      if (Math.abs(balance) < 0.01) {
+        showToast("A conta já está zerada.", "success");
+        return;
+      }
+      if (blockClosedMonth(zeroAccountDate, "zerar conta")) {
+        return;
+      }
+      const adjustmentType = balance > 0 ? "expense" : "income";
+      const adjustmentAmount = Math.abs(balance);
+      const actionLabel = adjustmentType === "expense" ? "saída" : "entrada";
+      if (!confirm(`Lançar ${actionLabel} de ajuste no valor de ${money(adjustmentAmount)} para zerar a conta?`)) {
+        return;
+      }
+
+      state.cash.push({
+        id: `account-zero-${Date.now()}`,
+        description: "Ajuste para zerar conta",
+        date: zeroAccountDate,
+        type: adjustmentType,
+        category: "ajuste-conta",
+        amount: adjustmentAmount.toFixed(2)
+      });
+      state.cashFilter = {
+        ...state.cashFilter,
+        period: "month",
+        date: zeroAccountDate,
+        month: zeroAccountDate.slice(0, 7),
+        year: zeroAccountDate.slice(0, 4),
+        type: "all",
+        category: "all",
+        search: "",
+        manualAll: false
+      };
+      recordAudit("Conta zerada", `${actionLabel} ${money(adjustmentAmount)} em ${formatIsoDateBr(zeroAccountDate)}`);
+      if (await persistState()) {
+        showToast("Ajuste lançado. Conta zerada.", "success");
+        renderCash();
+      }
+    });
+  }
 
   const cashForm = document.querySelector("#cash-form");
   if (cashForm) {
@@ -3886,138 +3828,6 @@ async function renderCash() {
     });
   });
 
-  const accountBalanceForm = document.querySelector("#account-balance-form");
-  if (accountBalanceForm) {
-    accountBalanceForm.addEventListener("input", () => {
-      const baseBalance = reconciliationBaseForDate(
-        accountBalanceForm.elements.date.value,
-        editingAccountAdjustment?.id
-      );
-      const adjustment = accountBalanceAdjustment(accountBalanceForm.elements.balance.value, baseBalance);
-      const systemPreview = document.querySelector("#account-system-preview");
-      const realPreview = document.querySelector("#account-real-preview");
-      const differencePreview = document.querySelector("#account-difference-preview");
-      systemPreview.textContent = money(baseBalance);
-      realPreview.textContent = money(adjustment.target);
-      differencePreview.textContent = `${adjustment.difference < 0 ? "-" : ""}${money(adjustment.amount)}`;
-      differencePreview.classList.toggle("negative", adjustment.difference < 0);
-      differencePreview.classList.toggle("positive", adjustment.difference > 0);
-    });
-
-    accountBalanceForm.addEventListener("submit", async event => {
-    event.preventDefault();
-    const values = readForm(event.currentTarget);
-    const baseBalance = reconciliationBaseForDate(values.date, editingAccountAdjustment?.id);
-    const adjustment = accountBalanceAdjustment(values.balance, baseBalance);
-    if (blockClosedMonth(values.date, editingAccountAdjustment ? "editar conciliação" : "conciliar conta")) {
-      return;
-    }
-    if (editingAccountAdjustment && editingAccountAdjustment.date !== values.date
-      && blockClosedMonth(editingAccountAdjustment.date, "editar conciliação")) {
-      return;
-    }
-    const monthKey = String(values.date || today).slice(0, 7);
-    const previousMonthKey = editingAccountAdjustment?.date ? String(editingAccountAdjustment.date).slice(0, 7) : monthKey;
-    const replaceMonthAdjustments = () => {
-      removeAccountAdjustmentsForMonth(monthKey);
-      if (previousMonthKey !== monthKey) {
-        removeAccountAdjustmentsForMonth(previousMonthKey);
-      }
-    };
-
-    if (adjustment.amount <= 0.009) {
-      const hadAdjustmentInMonth = state.cash.some(entry => isAccountAdjustmentEntry(entry) && cashAccountingDate(entry).startsWith(monthKey));
-      if (!editingAccountAdjustment && !hadAdjustmentInMonth) {
-        showToast("O saldo informado ja esta igual ao saldo calculado.", "warning");
-        return;
-      }
-      replaceMonthAdjustments();
-      state.editAccountAdjustmentId = null;
-      focusCashFilterOnDate(values.date);
-      state.cashFilter.period = "month";
-      if (await persistState()) {
-        showToast("Conciliação zerada porque não há diferença.", "success");
-        renderCash();
-      }
-      return;
-    }
-
-    const entry = {
-      id: editingAccountAdjustment?.id || `account-adjustment-${Date.now()}`,
-      description: adjustment.type === "expense" ? "Ajuste do valor na conta" : "Valor existente na conta",
-      date: values.date,
-      type: adjustment.type,
-      category: "ajuste-conta",
-      amount: adjustment.amount.toFixed(2)
-    };
-    if (editingAccountAdjustment) {
-      replaceMonthAdjustments();
-      state.cash.push(entry);
-      recordAudit("Conciliação editada", `Conta ${money(adjustment.target)} - ajuste ${money(adjustment.amount)}`);
-    } else {
-      replaceMonthAdjustments();
-      state.cash.push(entry);
-      recordAudit("Valor na conta ajustado", `Conta ${money(adjustment.target)} - ajuste ${money(adjustment.amount)}`);
-    }
-    focusCashFilterOnDate(values.date);
-    state.cashFilter.period = "month";
-    state.editAccountAdjustmentId = null;
-    if (await persistState()) {
-      showToast(editingAccountAdjustment ? "Conciliação atualizada." : "Conta ajustada.", "success");
-      renderCash();
-    }
-    });
-  }
-
-  const cancelAccountAdjustmentEdit = document.querySelector("#cancel-account-adjustment-edit");
-  if (cancelAccountAdjustmentEdit) {
-    cancelAccountAdjustmentEdit.addEventListener("click", () => {
-      state.editAccountAdjustmentId = null;
-      renderCash();
-    });
-  }
-
-  document.querySelectorAll("[data-edit-account-adjustment]").forEach(button => {
-    button.addEventListener("click", event => {
-      const id = event.currentTarget.dataset.editAccountAdjustment;
-      const adjustment = state.cash.find(entry => String(entry.id) === String(id));
-      if (adjustment?.date) {
-        focusCashFilterOnDate(adjustment.date);
-      }
-      state.editAccountAdjustmentId = id;
-      state.cashPanelTab = "reconciliation";
-      renderCash();
-    });
-  });
-
-  document.querySelectorAll("[data-delete-account-adjustment]").forEach(button => {
-    button.addEventListener("click", async event => {
-      const id = event.currentTarget.dataset.deleteAccountAdjustment;
-      const adjustment = state.cash.find(entry => String(entry.id) === String(id));
-      if (!adjustment) {
-        showToast("Conciliação não encontrada.", "error");
-        return;
-      }
-      if (blockClosedMonth(adjustment.date, "excluir conciliação")) {
-        return;
-      }
-      if (!confirm(`Excluir a conciliação de ${formatIsoDateBr(adjustment.date)} no valor de ${money(adjustment.amount)}?`)) {
-        return;
-      }
-
-      state.cash = state.cash.filter(entry => String(entry.id) !== String(id));
-      if (String(state.editAccountAdjustmentId) === String(id)) {
-        state.editAccountAdjustmentId = null;
-      }
-      recordAudit("Conciliação excluída", `${formatIsoDateBr(adjustment.date)} - ${money(adjustment.amount)}`);
-      const saved = await persistState();
-      if (saved) {
-        showToast("Conciliação excluída.", "success");
-      }
-      renderCash();
-    });
-  });
-
   const savingsForm = document.querySelector("#savings-form");
   if (savingsForm) {
     savingsForm.addEventListener("submit", event => {
@@ -4097,7 +3907,6 @@ async function renderCash() {
       const expected = withdrawalSplitFromRaquel(split.raquel);
       split.distributionBase = expected.total;
       withdrawalForm.elements.amount.value = moneyInputValue(expected.total);
-      const differenceSavings = expected.savings - split.savings;
       const differenceVanessa = expected.vanessa - split.vanessa;
       const differenceRaquel = expected.raquel - split.raquel;
       const preview = withdrawalForm.querySelector(".withdrawal-preview");
@@ -4107,7 +3916,6 @@ async function renderCash() {
         <span><b>Total informado</b>${money(split.total)}</span>
         <span><b>Cofrinho</b>${money(split.savings)}</span>
         <span><b>Vanessa / Raquel</b>${money(split.vanessa)} / ${money(split.raquel)}</span>
-        <span><b>Diferença Cofrinho</b>${partnerDifferenceLabel(differenceSavings)}</span>
         <span><b>Diferença Vanessa</b>${partnerDifferenceLabel(differenceVanessa)}</span>
         <span><b>Diferença Raquel</b>${partnerDifferenceLabel(differenceRaquel)}</span>
       `;
@@ -4212,7 +4020,7 @@ async function renderCash() {
         description: previousWithdrawal ? "Ajuste da retirada - cofrinho" : "Retirada - cofrinho"
       });
     }
-    const auditDetail = `Calculado ${money(split.distributionBase)} - retirado ${money(split.total)} - cofrinho ${money(split.savings)} (${partnerDifferenceLabel(expected.savings - split.savings)}), Vanessa ${money(split.vanessa)} (${partnerDifferenceLabel(expected.vanessa - split.vanessa)}), Raquel ${money(split.raquel)} (${partnerDifferenceLabel(expected.raquel - split.raquel)})`;
+    const auditDetail = `Calculado ${money(split.distributionBase)} - retirado ${money(split.total)} - cofrinho ${money(split.savings)}, Vanessa ${money(split.vanessa)} (${partnerDifferenceLabel(expected.vanessa - split.vanessa)}), Raquel ${money(split.raquel)} (${partnerDifferenceLabel(expected.raquel - split.raquel)})`;
     recordAudit(previousWithdrawal ? "Retirada editada" : "Retirada registrada", auditDetail);
     state.editWithdrawalGroup = null;
     if (await persistState()) {
@@ -6516,7 +6324,6 @@ function reportPdfWithdrawalRows(data) {
     ["Cofrinho", money(data.financial.withdrawals.savings)],
     ["Vanessa", money(data.financial.withdrawals.vanessa)],
     ["Raquel", money(data.financial.withdrawals.raquel)],
-    ["Diferença Cofrinho", partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceSavings)],
     ["Diferença Vanessa", partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceVanessa)],
     ["Diferença Raquel", partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceRaquel)]
   ];
@@ -6789,7 +6596,6 @@ function reportCsvRows(kind, data) {
       { seção: "retiradas", data: "", descrição: "Cofrinho", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.savings },
       { seção: "retiradas", data: "", descrição: "Vanessa", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.vanessa },
       { seção: "retiradas", data: "", descrição: "Raquel", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.raquel },
-      { seção: "sócias", data: "", descrição: "Diferença Cofrinho", tipo: "controle", categoria: "sócias", valor: data.partnerWithdrawalControl?.differenceSavings || 0 },
       { seção: "sócias", data: "", descrição: "Diferença Vanessa", tipo: "controle", categoria: "sócias", valor: data.partnerWithdrawalControl?.differenceVanessa || 0 },
       { seção: "sócias", data: "", descrição: "Diferença Raquel", tipo: "controle", categoria: "sócias", valor: data.partnerWithdrawalControl?.differenceRaquel || 0 },
       { seção: "sócias", data: data.partnersRecord?.periodKey || "", descrição: "Vanessa informada", tipo: "controle", categoria: "sócias", valor: data.partnersRecord?.vanessa || 0 },
@@ -7201,7 +7007,6 @@ async function downloadReportXlsx() {
         ["Cofrinho", Number(data.financial.withdrawals.savings || 0)],
         ["Vanessa", Number(data.financial.withdrawals.vanessa || 0)],
         ["Raquel", Number(data.financial.withdrawals.raquel || 0)],
-        ["Diferença Cofrinho", Number(data.partnerWithdrawalControl?.differenceSavings || 0)],
         ["Diferença Vanessa", Number(data.partnerWithdrawalControl?.differenceVanessa || 0)],
         ["Diferença Raquel", Number(data.partnerWithdrawalControl?.differenceRaquel || 0)],
         ["Vanessa informada", Number(data.partnersRecord?.vanessa || 0)],
@@ -8266,7 +8071,6 @@ function renderFinance() {
         <div class="metric"><span>Cofrinho</span><strong>${money(data.financial.withdrawals.savings)}</strong></div>
         <div class="metric"><span>Vanessa</span><strong>${money(data.financial.withdrawals.vanessa)}</strong></div>
         <div class="metric"><span>Raquel</span><strong>${money(data.financial.withdrawals.raquel)}</strong></div>
-        <div class="metric"><span>Diferença Cofrinho</span><strong>${partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceSavings)}</strong></div>
         <div class="metric"><span>Diferença Vanessa</span><strong>${partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceVanessa)}</strong></div>
         <div class="metric"><span>Diferença Raquel</span><strong>${partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceRaquel)}</strong></div>
         ${Number(data.partnersRecord?.vanessa || 0) > 0 ? `<div class="metric"><span>Vanessa informada</span><strong>${money(data.partnersRecord.vanessa)}</strong></div>` : ""}
@@ -8381,7 +8185,6 @@ function renderReports() {
         <div class="metric"><span>Cofrinho</span><strong>${money(data.financial.withdrawals.savings)}</strong></div>
         <div class="metric"><span>Vanessa</span><strong>${money(data.financial.withdrawals.vanessa)}</strong></div>
         <div class="metric"><span>Raquel</span><strong>${money(data.financial.withdrawals.raquel)}</strong></div>
-        <div class="metric"><span>Diferença Cofrinho</span><strong>${partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceSavings)}</strong></div>
         <div class="metric"><span>Diferença Vanessa</span><strong>${partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceVanessa)}</strong></div>
         <div class="metric"><span>Diferença Raquel</span><strong>${partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceRaquel)}</strong></div>
         ${Number(data.partnersRecord?.vanessa || 0) > 0 ? `<div class="metric"><span>Vanessa informada</span><strong>${money(data.partnersRecord.vanessa)}</strong></div>` : ""}
