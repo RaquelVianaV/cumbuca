@@ -969,6 +969,35 @@ async function resetAllData() {
   return true;
 }
 
+async function resetFinancialData() {
+  await downloadBackup();
+  if (!confirm("Reiniciar somente os dados financeiros? Clientes, pedidos, cardápios, categorias, motivos e configurações serão preservados.")) {
+    return false;
+  }
+  const typed = prompt('Digite "REINICIAR FINANCEIRO" para confirmar.');
+  if (typed !== "REINICIAR FINANCEIRO") {
+    showToast("Reinício financeiro cancelado", "warning");
+    return false;
+  }
+
+  const response = await fetch("/api/reset-financial-state", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirm: "REINICIAR FINANCEIRO" })
+  });
+  const result = await response.json();
+  if (!response.ok || !result.database || !result.reset) {
+    showToast(result.error || "Não foi possível reiniciar os dados financeiros.", "error");
+    return false;
+  }
+
+  applyPayloadToState(result.state || {});
+  persistLocal();
+  lastConfirmedPayload = clonePayload(appStatePayload());
+  showToast("Financeiro reiniciado. Cadastros e configurações foram preservados.", "success");
+  return true;
+}
+
 function cleanupPreviewHtml(year, preview) {
   const total = Object.values(preview).reduce((sum, value) => sum + value, 0);
   return `
@@ -1132,13 +1161,32 @@ function isMonthClosed(dateKey) {
   return Boolean(key && state.monthlyClosings?.[key]?.locked !== false && state.monthlyClosings?.[key]);
 }
 
-function blockClosedMonth(dateKey, action = "alterar") {
-  const key = monthKeyFromDate(dateKey);
-  if (!isMonthClosed(dateKey)) {
-    return false;
+function weekClosingForDate(dateKey) {
+  if (!dateKey) {
+    return null;
   }
-  showToast(`Mês ${formatMonthKeyBr(key)} fechado. Destrave o fechamento antes de ${action}.`, "warning");
-  return true;
+  const range = weekRangeForDate(dateKey);
+  const key = weeklyClosingKey(range.start, range.end);
+  return state.weeklyClosings?.[key] || null;
+}
+
+function isWeekClosed(dateKey) {
+  const closing = weekClosingForDate(dateKey);
+  return Boolean(closing && closing.locked !== false);
+}
+
+function blockClosedPeriod(dateKey, action = "alterar") {
+  const key = monthKeyFromDate(dateKey);
+  if (isMonthClosed(dateKey)) {
+    showToast(`Mês ${formatMonthKeyBr(key)} fechado. Destrave o fechamento antes de ${action}.`, "warning");
+    return true;
+  }
+  if (isWeekClosed(dateKey)) {
+    const range = weekRangeForDate(dateKey);
+    showToast(`Semana de ${formatIsoDateBr(range.start)} a ${formatIsoDateBr(range.end)} fechada. Destrave antes de ${action}.`, "warning");
+    return true;
+  }
+  return false;
 }
 
 function addDays(dateKey, days) {
@@ -1854,22 +1902,10 @@ function withdrawalSplitFromRaquel(raquelAmount) {
   return { total, savings, remaining: base, vanessa, raquel };
 }
 
-function monthlyAccountBalance(monthKey) {
-  const month = String(monthKey || "").slice(0, 7);
-  if (!month) {
-    return null;
-  }
-  const monthEntries = accountingCashEntries(state.cash).filter(entry => cashAccountingDate(entry).startsWith(month));
-  return cashTotals(monthEntries).balance;
-}
-
 function accountBalanceUntilDate(dateKey) {
   const date = String(dateKey || isoDate(new Date())).slice(0, 10);
-  const month = date.slice(0, 7);
-  const entries = accountingCashEntries(state.cash).filter(entry => {
-    const entryDate = cashAccountingDate(entry);
-    return entryDate.startsWith(month) && entryDate <= date;
-  });
+  const entries = accountingCashEntries(state.cash)
+    .filter(entry => cashAccountingDate(entry) <= date);
   return cashTotals(entries).balance;
 }
 
@@ -3011,7 +3047,7 @@ function bindBillPaymentButtons(afterPay = renderCurrentRoute) {
         showToast("Informe a data no formato AAAA-MM-DD.", "error");
         return;
       }
-      if (blockClosedMonth(paidDate, "pagar conta")) {
+      if (blockClosedPeriod(paidDate, "pagar conta")) {
         return;
       }
       if (!confirm(`Marcar ${bill.description || categoryName(bill.category)} como pago em ${formatIsoDateBr(paidDate)}?`)) {
@@ -3039,7 +3075,7 @@ function bindTodayForms(today) {
       showToast("Informe data e valor maior que zero.", "error");
       return;
     }
-    if (blockClosedMonth(values.date, "lançar entrada rápida")) {
+    if (blockClosedPeriod(values.date, "lançar entrada rápida")) {
       return;
     }
 
@@ -3068,7 +3104,7 @@ function bindTodayForms(today) {
       showToast("Informe a data da saída.", "error");
       return;
     }
-    if (blockClosedMonth(values.date, "lançar saída rápida")) {
+    if (blockClosedPeriod(values.date, "lançar saída rápida")) {
       return;
     }
     const entry = {
@@ -3083,7 +3119,7 @@ function bindTodayForms(today) {
       entry.dueDate = values.dueDate || values.date;
       if (values.paid === "yes") {
         const paidDate = values.paidDate || values.date;
-        if (blockClosedMonth(paidDate, "pagar boleto")) {
+        if (blockClosedPeriod(paidDate, "pagar boleto")) {
           return;
         }
         entry.paidAt = `${paidDate}T12:00:00.000Z`;
@@ -3127,7 +3163,7 @@ function bindTodayForms(today) {
       showToast("Informe data e quantidade maior que zero.", "error");
       return;
     }
-    if (blockClosedMonth(values.date, "lançar venda da loja")) {
+    if (blockClosedPeriod(values.date, "lançar venda da loja")) {
       return;
     }
     state.storeSales.push({
@@ -3176,18 +3212,21 @@ async function renderCash() {
   const adjustmentLabel = selectedAdjustmentTotals.balance === 0
     ? "Sem ajuste no período"
     : `${selectedAdjustmentTotals.balance > 0 ? "Ajuste entrou" : "Ajuste saiu"} ${money(Math.abs(selectedAdjustmentTotals.balance))}`;
-  const balanceMonthKey = (currentCashFilter.period === "day" || currentCashFilter.period === "week")
-    ? selectedDate.slice(0, 7)
-    : selectedMonth;
-  const monthlyBalance = monthlyAccountBalance(balanceMonthKey);
-  const usesMonthlyBalance = ["day", "week", "month"].includes(currentCashFilter.period);
-  const displayedCashBalance = usesMonthlyBalance && monthlyBalance !== null ? monthlyBalance : totalCash.balance;
-  const balanceLabel = usesMonthlyBalance ? "Saldo da conta" : "Saldo do período";
-  const zeroAccountDate = (currentCashFilter.period === "day" || currentCashFilter.period === "week")
+  const selectedMonthEnd = (() => {
+    const [year, month] = selectedMonth.split("-").map(Number);
+    return isoDate(new Date(year, month, 0));
+  })();
+  const accountBalanceDate = currentCashFilter.period === "day"
     ? selectedDate
-    : currentCashFilter.period === "month"
-      ? (selectedMonth === today.slice(0, 7) ? today : `${selectedMonth}-01`)
-      : today;
+    : currentCashFilter.period === "week"
+      ? weekRangeForDate(selectedDate).end
+      : currentCashFilter.period === "month"
+        ? (selectedMonth === today.slice(0, 7) ? today : selectedMonthEnd)
+        : today;
+  const usesAccumulatedBalance = ["day", "week", "month"].includes(currentCashFilter.period);
+  const displayedCashBalance = usesAccumulatedBalance ? accountBalanceUntilDate(accountBalanceDate) : totalCash.balance;
+  const balanceLabel = usesAccumulatedBalance ? "Saldo acumulado da conta" : "Saldo do período";
+  const zeroAccountDate = accountBalanceDate;
   const canZeroAccount = Math.abs(displayedCashBalance) >= 0.01;
   const previewWithdrawal = withdrawalSplitFromRaquel(0);
   const withdrawalFormValues = editingWithdrawal || previewWithdrawal;
@@ -3545,7 +3584,7 @@ async function renderCash() {
         showToast("A conta já está zerada.", "success");
         return;
       }
-      if (blockClosedMonth(zeroAccountDate, "zerar conta")) {
+      if (blockClosedPeriod(zeroAccountDate, "zerar conta")) {
         return;
       }
       const adjustmentType = balance > 0 ? "expense" : "income";
@@ -3611,7 +3650,7 @@ async function renderCash() {
         showToast("A conta já bate com o saldo informado.", "success");
         return;
       }
-      if (blockClosedMonth(date, "lançar ajuste de conferência")) {
+      if (blockClosedPeriod(date, "lançar ajuste de conferência")) {
         return;
       }
       const adjustmentType = difference > 0 ? "income" : "expense";
@@ -3658,7 +3697,10 @@ async function renderCash() {
       showToast("Informe data e valor maior que zero.", "error");
       return;
     }
-    if (blockClosedMonth(values.date, editing ? "editar lançamentos" : "lançar no caixa")) {
+    if (blockClosedPeriod(values.date, editing ? "editar lançamentos" : "lançar no caixa")) {
+      return;
+    }
+    if (editing && editing.date !== values.date && blockClosedPeriod(editing.date, "mover lançamentos")) {
       return;
     }
     const isDuplicate = !editing && state.cash.some(item =>
@@ -3739,7 +3781,10 @@ async function renderCash() {
         date: values.date,
         notes: String(values.notes || "").trim()
       };
-      if (blockClosedMonth(receipt.date, editingChannelReceipt ? "editar canais" : "lançar canais")) {
+      if (blockClosedPeriod(receipt.date, editingChannelReceipt ? "editar canais" : "lançar canais")) {
+        return;
+      }
+      if (editingChannelReceipt && editingChannelReceipt.date !== receipt.date && blockClosedPeriod(editingChannelReceipt.date, "mover lançamentos de canais")) {
         return;
       }
       const cardapioTotal = cardapioPaymentDefinitions.reduce((sum, [paymentKey]) => {
@@ -3823,7 +3868,7 @@ async function renderCash() {
       if (!removed || !confirm(`Excluir os valores dos canais de ${formatIsoDateBr(removed.date)}?`)) {
         return;
       }
-      if (blockClosedMonth(removed.date, "excluir canais")) {
+      if (blockClosedPeriod(removed.date, "excluir canais")) {
         return;
       }
       state.channelReceipts = state.channelReceipts.filter(item => String(item.id) !== String(id));
@@ -4149,11 +4194,11 @@ async function renderCash() {
       return;
     }
 
-    if (blockClosedMonth(values.date, "registrar retiradas")) {
+    if (blockClosedPeriod(values.date, "registrar retiradas")) {
       return;
     }
     if (previousWithdrawal && previousWithdrawal.date !== values.date
-      && blockClosedMonth(previousWithdrawal.date, "editar retiradas")) {
+      && blockClosedPeriod(previousWithdrawal.date, "editar retiradas")) {
       return;
     }
 
@@ -4297,6 +4342,12 @@ async function renderCash() {
   const clearCashButton = document.querySelector("#clear-cash");
   if (clearCashButton) {
     clearCashButton.addEventListener("click", async () => {
+    const hasLockedPeriods = Object.values(state.monthlyClosings || {}).some(closing => closing?.locked !== false)
+      || Object.values(state.weeklyClosings || {}).some(closing => closing?.locked !== false);
+    if (hasLockedPeriods) {
+      showToast("Existem períodos fechados. Destrave os fechamentos antes de limpar o caixa.", "warning");
+      return;
+    }
     if (!confirm("Antes de limpar o caixa, baixe um backup JSON. Deseja baixar agora?")) {
       return;
     }
@@ -4331,7 +4382,7 @@ async function renderCash() {
 
       const id = event.currentTarget.dataset.deleteCash;
       const removed = state.cash.find(item => String(item.id) === String(id));
-      if (blockClosedMonth(removed?.date, "excluir lançamentos")) {
+      if (blockClosedPeriod(removed?.date, "excluir lançamentos")) {
         return;
       }
       state.cash = state.cash.filter(item => String(item.id) !== String(id));
@@ -6341,7 +6392,16 @@ function reportData() {
     .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
   const financial = financialSummary(cashEntries);
   const accountAdjustmentTotals = cashTotals(accountAdjustmentEntries);
-  const accountBalance = cashTotals(cashEntries).balance;
+  const accountBalanceDate = type === "day"
+    ? reportDate()
+    : type === "week"
+      ? reportWeekRange().end
+      : (() => {
+          const [year, month] = periodKey.split("-").map(Number);
+          const monthEnd = isoDate(new Date(year, month, 0));
+          return periodKey === today.slice(0, 7) ? today : monthEnd;
+        })();
+  const accountBalance = accountBalanceUntilDate(accountBalanceDate);
   const partnerWithdrawalControl = partnerPeriodTotals(withdrawalHistoryGroups(cashEntries));
   const orderRevenue = orders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
   const deliveryRevenue = orders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0);
@@ -7832,7 +7892,8 @@ function weeklyClosingPayload(data) {
     availableForWithdrawal: data.financial.availableForWithdrawal,
     accountAdjustmentBalance: data.accountAdjustmentTotals.balance,
     accountBalance: data.accountBalance,
-    cashEntries: data.cashEntries.length
+    cashEntries: data.cashEntries.length,
+    locked: true
   };
 }
 
@@ -7843,6 +7904,7 @@ function weeklyClosingPanel(data) {
   const range = reportWeekRange();
   const key = weeklyClosingKey(range.start, range.end);
   const closing = state.weeklyClosings?.[key];
+  const locked = Boolean(closing && closing.locked !== false);
   return `
     <section class="panel report-section">
       <div class="section-heading">
@@ -7852,6 +7914,7 @@ function weeklyClosingPanel(data) {
         </div>
         <div class="actions">
           <button type="button" id="close-week">${closing ? "Atualizar semana" : "Fechar semana"}</button>
+          ${closing && isAdminUser() ? `<button class="secondary" type="button" id="unlock-week">${locked ? "Destravar semana" : "Travar semana"}</button>` : ""}
         </div>
       </div>
       <div class="summary">
@@ -7868,6 +7931,7 @@ function weeklyClosingPanel(data) {
           <span><b>Disponível registrado</b>${money(closing.availableForWithdrawal)}</span>
           <span><b>Saldo da conta</b>${money(closing.accountBalance)}</span>
           <span><b>Lançamentos</b>${closing.cashEntries}</span>
+          <span><b>Status</b>${locked ? "Travada" : "Destravada"}</span>
         </div>
       ` : `<p class="muted">Esta semana ainda não foi fechada.</p>`}
     </section>
@@ -7978,7 +8042,10 @@ function renderStoreSales() {
       showToast("Informe data e quantidade maior que zero.", "error");
       return;
     }
-    if (blockClosedMonth(values.date, editing ? "editar venda da loja" : "lançar venda da loja")) {
+    if (blockClosedPeriod(values.date, editing ? "editar venda da loja" : "lançar venda da loja")) {
+      return;
+    }
+    if (editing && editing.date !== values.date && blockClosedPeriod(editing.date, "mover venda da loja")) {
       return;
     }
     const entry = {
@@ -8021,7 +8088,7 @@ function renderStoreSales() {
       }
       const id = Number(event.currentTarget.dataset.deleteStoreSale);
       const removed = state.storeSales.find(entry => Number(entry.id) === id);
-      if (blockClosedMonth(removed?.date, "excluir venda da loja")) {
+      if (blockClosedPeriod(removed?.date, "excluir venda da loja")) {
         return;
       }
       state.storeSales = state.storeSales.filter(entry => Number(entry.id) !== id);
@@ -8338,9 +8405,13 @@ function bindReportPeriodForm(renderFn, path) {
 function bindMonthlyClosing(data, renderFn) {
   const closeWeekButton = document.querySelector("#close-week");
   if (closeWeekButton) {
-    closeWeekButton.addEventListener("click", () => {
+    closeWeekButton.addEventListener("click", async () => {
       const closing = weeklyClosingPayload(data);
       const key = weeklyClosingKey(closing.start, closing.end);
+      if (state.weeklyClosings?.[key] && !isAdminUser()) {
+        showToast("Somente admin pode atualizar uma semana fechada.", "warning");
+        return;
+      }
       if (state.weeklyClosings?.[key] && !confirm(`Atualizar o fechamento semanal de ${formatIsoDateBr(closing.start)} a ${formatIsoDateBr(closing.end)}?`)) {
         return;
       }
@@ -8349,8 +8420,38 @@ function bindMonthlyClosing(data, renderFn) {
         [key]: closing
       };
       recordAudit("Semana fechada", `${formatIsoDateBr(closing.start)} a ${formatIsoDateBr(closing.end)} - disponível ${money(closing.availableForWithdrawal)}`);
-      persistState();
-      renderFn();
+      if (await persistState()) {
+        renderFn();
+      }
+    });
+  }
+
+  const unlockWeekButton = document.querySelector("#unlock-week");
+  if (unlockWeekButton) {
+    unlockWeekButton.addEventListener("click", async () => {
+      const range = reportWeekRange();
+      const key = weeklyClosingKey(range.start, range.end);
+      const closing = state.weeklyClosings?.[key];
+      if (!closing) {
+        return;
+      }
+      const locked = closing.locked !== false;
+      const action = locked ? "destravar" : "travar";
+      if (!confirm(`Deseja ${action} a semana de ${formatIsoDateBr(range.start)} a ${formatIsoDateBr(range.end)}?`)) {
+        return;
+      }
+      state.weeklyClosings = {
+        ...state.weeklyClosings,
+        [key]: {
+          ...closing,
+          locked: !locked,
+          lockUpdatedAt: new Date().toISOString()
+        }
+      };
+      recordAudit(locked ? "Semana destravada" : "Semana travada", `${formatIsoDateBr(range.start)} a ${formatIsoDateBr(range.end)}`);
+      if (await persistState()) {
+        renderFn();
+      }
     });
   }
 
@@ -8666,7 +8767,7 @@ async function renderBackups() {
       <div class="maintenance-steps">
         <button type="button" id="hero-backup-download">Baixar backup</button>
         <button class="secondary" type="button" data-maintenance-scroll="cleanup-year-form">Limpar ano</button>
-        ${isAdminUser() ? `<button class="danger" type="button" data-maintenance-scroll="reset-all-panel">Limpar tudo</button>` : ""}
+        ${isAdminUser() ? `<button class="danger" type="button" data-maintenance-scroll="reset-all-panel">Reiniciar financeiro</button>` : ""}
         <button class="secondary" type="button" data-maintenance-scroll="real-db-usage">Ver banco</button>
       </div>
     </section>
@@ -8765,15 +8866,20 @@ async function renderBackups() {
           </div>
         </section>
         <section class="panel report-section backup-manual-panel reset-all-panel maintenance-pane" data-maintenance-pane="reset" id="reset-all-panel" ${activeTab === "reset" ? "" : "hidden"}>
-          <h2>Limpeza completa</h2>
-          <p class="muted-inline">Use somente para recomeçar a operação do zero. A limpeza baixa um JSON no navegador e salva um backup automático no Supabase antes de apagar.</p>
+          <h2>Reiniciar financeiro</h2>
+          <p class="muted-inline">Use para começar os valores novamente sem perder os cadastros e a configuração da operação.</p>
           <div class="backup-list-state warning-state">
-            <strong>Apaga dados operacionais</strong>
-            <span>Caixa, pedidos, clientes, loja, canais, menus, precificação e planejamento ficam vazios.</span>
+            <strong>Apaga somente movimentações</strong>
+            <span>Caixa, vendas da loja, recebimentos por canais e fechamentos ficam vazios. Clientes, pedidos, cardápios, categorias, motivos, precificação, planejamento e configurações permanecem.</span>
           </div>
           <div class="backup-actions">
-            <button class="danger" type="button" id="reset-all-data">Baixar backup e limpar tudo</button>
+            <button class="danger" type="button" id="reset-financial-data">Baixar backup e reiniciar financeiro</button>
           </div>
+          <details>
+            <summary>Limpeza integral do sistema</summary>
+            <p class="muted">Esta opção também apaga clientes, pedidos, cardápios, categorias, motivos, precificação, planejamento e configurações.</p>
+            <button class="danger" type="button" id="reset-all-data">Baixar backup e limpar tudo</button>
+          </details>
         </section>
       ` : ""}
     </section>
@@ -8830,6 +8936,19 @@ async function renderBackups() {
   });
 
   on("#cleanup-backup-first", "click", downloadBackup);
+  const resetFinancialButton = document.querySelector("#reset-financial-data");
+  if (resetFinancialButton) {
+    resetFinancialButton.addEventListener("click", async () => {
+      resetFinancialButton.disabled = true;
+      try {
+        if (await resetFinancialData()) {
+          renderBackups();
+        }
+      } finally {
+        resetFinancialButton.disabled = false;
+      }
+    });
+  }
   const resetAllButton = document.querySelector("#reset-all-data");
   if (resetAllButton) {
     resetAllButton.addEventListener("click", async () => {

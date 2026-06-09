@@ -43,6 +43,14 @@ const stateKeys = [
   "appConfig"
 ];
 
+const financialResetKeys = [
+  "cashEntries",
+  "storeSales",
+  "channelReceipts",
+  "monthlyClosings",
+  "weeklyClosings"
+];
+
 const defaultState = {
   cashEntries: [],
   weeklyMenusByPeriod: {},
@@ -811,6 +819,47 @@ async function resetAppState(user = null) {
   return { database: true, reset: true, backup: true, state: normalizeState({}) };
 }
 
+async function resetFinancialState(user = null) {
+  if (!await ensureStateTable()) {
+    return { database: false };
+  }
+
+  const current = await readAppState();
+  const backupSaved = await writeAutomaticBackup(current.state);
+  if (!backupSaved) {
+    return { database: true, reset: false, backup: false, error: "O backup de segurança falhou. Nenhum dado foi apagado." };
+  }
+  const nextState = normalizeState(current.state);
+  const client = await db.connect();
+  try {
+    await client.query("begin");
+    for (const key of financialResetKeys) {
+      nextState[key] = cloneJson(defaultState[key]);
+      await client.query(
+        `insert into cumbuca_app_state (key, value, updated_at)
+         values ($1, $2::jsonb, now())
+         on conflict (key)
+         do update set value = excluded.value, updated_at = now()`,
+        [key, JSON.stringify(nextState[key])]
+      );
+    }
+    await client.query("commit");
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  } finally {
+    client.release();
+  }
+  await writeEvent("reinicio_financeiro", "Movimentações financeiras apagadas; cadastros e configurações preservados.", user);
+  return {
+    database: true,
+    reset: true,
+    backup: true,
+    resetKeys: financialResetKeys,
+    state: nextState
+  };
+}
+
 function calculateCashFlow(entries = []) {
   const normalized = entries.map(item => {
     const amount = Math.abs(number(item.amount));
@@ -1300,6 +1349,20 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/backups") {
       sendJson(res, 200, await listBackups());
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/reset-financial-state") {
+      if (user?.role !== "admin") {
+        sendJson(res, 403, { error: "Acesso restrito ao administrador." });
+        return;
+      }
+      const payload = await collectBody(req);
+      if (payload.confirm !== "REINICIAR FINANCEIRO") {
+        sendJson(res, 400, { error: "Confirme com REINICIAR FINANCEIRO para apagar as movimentações." });
+        return;
+      }
+      sendJson(res, 200, await resetFinancialState(user));
       return;
     }
 
