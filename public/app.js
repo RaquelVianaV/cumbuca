@@ -4147,11 +4147,6 @@ async function renderCash() {
       return;
     }
 
-    if (split.distributionBase > available) {
-      showToast("O valor da divisão não pode ser maior que o caixa disponível.", "error");
-      return;
-    }
-
     if (!amountsUnchanged && split.total > available) {
       showToast("A retirada não pode ser maior que o caixa disponível.", "error");
       return;
