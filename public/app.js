@@ -1852,9 +1852,12 @@ function accountAdjustmentHistoryHtml() {
       ${adjustments.map(entry => `
         <span>
           <b class="${entry.type === "expense" ? "negative" : "positive"}">${entry.type === "expense" ? "-" : "+"}${money(entry.amount)}</b>
-          ${entry.description || "Ajuste da conta"}
+          <em>${entry.description || "Ajuste da conta"}</em>
           <small>${formatIsoDateBr(entry.date)}</small>
-          <button class="secondary table-action" type="button" data-edit-account-adjustment="${escapeHtml(String(entry.id || ""))}">Editar</button>
+          <div class="table-actions">
+            <button class="secondary table-action" type="button" data-edit-account-adjustment="${escapeHtml(String(entry.id || ""))}">Editar</button>
+            <button class="danger table-action" type="button" data-delete-account-adjustment="${escapeHtml(String(entry.id || ""))}">Excluir</button>
+          </div>
         </span>
       `).join("")}
     </div>
@@ -3791,6 +3794,34 @@ async function renderCash() {
       }
       state.editAccountAdjustmentId = id;
       state.cashPanelTab = "reconciliation";
+      renderCash();
+    });
+  });
+
+  document.querySelectorAll("[data-delete-account-adjustment]").forEach(button => {
+    button.addEventListener("click", async event => {
+      const id = event.currentTarget.dataset.deleteAccountAdjustment;
+      const adjustment = state.cash.find(entry => String(entry.id) === String(id));
+      if (!adjustment) {
+        showToast("Conciliação não encontrada.", "error");
+        return;
+      }
+      if (blockClosedMonth(adjustment.date, "excluir conciliação")) {
+        return;
+      }
+      if (!confirm(`Excluir a conciliação de ${formatIsoDateBr(adjustment.date)} no valor de ${money(adjustment.amount)}?`)) {
+        return;
+      }
+
+      state.cash = state.cash.filter(entry => String(entry.id) !== String(id));
+      if (String(state.editAccountAdjustmentId) === String(id)) {
+        state.editAccountAdjustmentId = null;
+      }
+      recordAudit("Conciliação excluída", `${formatIsoDateBr(adjustment.date)} - ${money(adjustment.amount)}`);
+      const saved = await persistState();
+      if (saved) {
+        showToast("Conciliação excluída.", "success");
+      }
       renderCash();
     });
   });

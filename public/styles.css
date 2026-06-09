@@ -1376,7 +1376,16 @@ h2 {
 }
 
 .reconciliation-history span {
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
+
+.reconciliation-history span > em {
+  min-width: 0;
+  font-style: normal;
+}
+
+.reconciliation-history .table-actions {
+  justify-content: flex-end;
 }
 
 .panel {
