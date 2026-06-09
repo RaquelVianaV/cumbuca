@@ -1837,13 +1837,19 @@ textarea {
   overflow: hidden;
 }
 
-.comparison-summary .metric strong {
+.comparison-summary .metric strong.comparison-value {
   display: block;
+  width: 100%;
   max-width: 100%;
-  font-size: clamp(1.05rem, 1.7vw, 1.4rem);
-  line-height: 1.08;
+  font-size: clamp(1rem, 1.55vw, 1.28rem) !important;
+  line-height: 1.15 !important;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+.comparison-value i {
+  margin-right: 3px;
+  font-style: normal;
 }
 
 .comparison-summary .metric small {

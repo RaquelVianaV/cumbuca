@@ -6184,9 +6184,9 @@ function monthlyOriginCategoryPanel(data) {
       <div class="panel dashboard-panel">
         <h2>Comparação com ${formatMonthKeyBr(previousKey)}</h2>
         <div class="summary comparison-summary">
-          <div class="metric"><span>Entradas</span><strong class="${incomeDelta < 0 ? "negative" : "positive"}">${incomeDelta < 0 ? "-" : "+"}${money(Math.abs(incomeDelta))}</strong></div>
-          <div class="metric"><span>Saídas</span><strong class="${expenseDelta > 0 ? "negative" : "positive"}">${expenseDelta < 0 ? "-" : "+"}${money(Math.abs(expenseDelta))}</strong></div>
-          <div class="metric"><span>Saldo</span><strong class="${balanceDelta < 0 ? "negative" : "positive"}">${balanceDelta < 0 ? "-" : "+"}${money(Math.abs(balanceDelta))}</strong></div>
+          <div class="metric"><span>Entradas</span><strong class="comparison-value ${incomeDelta < 0 ? "negative" : "positive"}"><i>${incomeDelta < 0 ? "-" : "+"}</i>${money(Math.abs(incomeDelta))}</strong></div>
+          <div class="metric"><span>Saídas</span><strong class="comparison-value ${expenseDelta > 0 ? "negative" : "positive"}"><i>${expenseDelta < 0 ? "-" : "+"}</i>${money(Math.abs(expenseDelta))}</strong></div>
+          <div class="metric"><span>Saldo</span><strong class="comparison-value ${balanceDelta < 0 ? "negative" : "positive"}"><i>${balanceDelta < 0 ? "-" : "+"}</i>${money(Math.abs(balanceDelta))}</strong></div>
         </div>
       </div>
     </section>
@@ -6925,7 +6925,7 @@ function comparisonReportPanel(data) {
         ${rows.map(row => `
           <div class="metric">
             <span>${row.label}</span>
-            <strong class="${row.delta < 0 ? "negative" : "positive"}">${row.delta < 0 ? "-" : "+"}${row.label === "Pedidos" || row.label === "Cumbucas" ? Math.abs(row.delta) : money(Math.abs(row.delta))}</strong>
+            <strong class="comparison-value ${row.delta < 0 ? "negative" : "positive"}"><i>${row.delta < 0 ? "-" : "+"}</i>${row.label === "Pedidos" || row.label === "Cumbucas" ? Math.abs(row.delta) : money(Math.abs(row.delta))}</strong>
             <small>Atual: ${row.label === "Pedidos" || row.label === "Cumbucas" ? row.current : money(row.current)} | Anterior: ${row.label === "Pedidos" || row.label === "Cumbucas" ? row.previous : money(row.previous)}</small>
           </div>
         `).join("")}
