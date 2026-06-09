@@ -1284,6 +1284,24 @@ function cashEntriesForSelectedPeriod(entries = state.cash) {
   });
 }
 
+function focusCashFilterOnDate(dateKey) {
+  const date = String(dateKey || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return;
+  }
+  const period = state.cashFilter?.period || "month";
+  state.cashFilter = {
+    ...(state.cashFilter || {}),
+    date,
+    month: date.slice(0, 7),
+    year: date.slice(0, 4)
+  };
+  if (period === "all") {
+    state.cashFilter.period = "month";
+    state.cashFilter.manualAll = false;
+  }
+}
+
 function categoryName(value) {
   if (String(value || "").startsWith("supplier:")) {
     return String(value).replace(/^supplier:/, "");
@@ -3803,7 +3821,7 @@ async function renderCash() {
       updateWithdrawalPreview();
     });
 
-    withdrawalForm.addEventListener("submit", event => {
+    withdrawalForm.addEventListener("submit", async event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
     const previousWithdrawal = state.editWithdrawalGroup
@@ -3836,6 +3854,24 @@ async function renderCash() {
     }
     if (previousWithdrawal && previousWithdrawal.date !== values.date
       && blockClosedMonth(previousWithdrawal.date, "editar retiradas")) {
+      return;
+    }
+
+    if (amountsUnchanged && previousWithdrawal) {
+      const previousIds = new Set(previousWithdrawal.entries.map(entry => String(entry.id)));
+      state.cash = state.cash.map(entry => previousIds.has(String(entry.id))
+        ? { ...entry, date: values.date }
+        : entry);
+      recordAudit(
+        "Data da retirada editada",
+        `${formatIsoDateBr(previousWithdrawal.date)} para ${formatIsoDateBr(values.date)} - total ${money(split.total)}`
+      );
+      focusCashFilterOnDate(values.date);
+      state.editWithdrawalGroup = null;
+      if (await persistState()) {
+        showToast("Data da retirada atualizada.", "success");
+        renderCash();
+      }
       return;
     }
 
@@ -3887,8 +3923,9 @@ async function renderCash() {
       : `Total ${money(split.total)} - cofrinho ${money(split.savings)}, Vanessa ${money(split.vanessa)}, Raquel ${money(split.raquel)}`;
     recordAudit(previousWithdrawal ? "Retirada editada" : "Retirada registrada", auditDetail);
     state.editWithdrawalGroup = null;
-    persistState();
-    renderCash();
+    if (await persistState()) {
+      renderCash();
+    }
     });
   }
 
