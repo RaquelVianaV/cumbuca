@@ -1063,6 +1063,38 @@ function moneyInputValue(value) {
   return amount ? money(amount).replace("R$", "").trim() : "";
 }
 
+function passwordFieldHtml({ name, autocomplete, placeholder = "", required = false, minlength = "" }) {
+  return `
+    <div class="password-field">
+      <input
+        name="${name}"
+        type="password"
+        autocomplete="${autocomplete}"
+        placeholder="${escapeHtml(placeholder)}"
+        ${required ? "required" : ""}
+        ${minlength ? `minlength="${minlength}"` : ""}
+      >
+      <button class="secondary password-toggle" type="button" data-password-toggle aria-label="Mostrar senha" title="Mostrar senha">Mostrar</button>
+    </div>
+  `;
+}
+
+function bindPasswordToggles(container = document) {
+  container.querySelectorAll("[data-password-toggle]").forEach(button => {
+    button.addEventListener("click", () => {
+      const input = button.closest(".password-field")?.querySelector("input");
+      if (!input) {
+        return;
+      }
+      const showing = input.type === "text";
+      input.type = showing ? "password" : "text";
+      button.textContent = showing ? "Mostrar" : "Ocultar";
+      button.setAttribute("aria-label", showing ? "Mostrar senha" : "Ocultar senha");
+      button.title = showing ? "Mostrar senha" : "Ocultar senha";
+    });
+  });
+}
+
 function whatsappUrl(phone, text) {
   const cleanPhone = String(phone || "").replace(/\D/g, "");
   if (!cleanPhone) {
@@ -8788,13 +8820,13 @@ function renderAccount() {
       </div>
       <form id="change-password-form" class="form-grid">
         <label>Senha atual
-          <input name="currentPassword" type="password" autocomplete="current-password" required>
+          ${passwordFieldHtml({ name: "currentPassword", autocomplete: "current-password", required: true })}
         </label>
         <label>Nova senha
-          <input name="newPassword" type="password" autocomplete="new-password" minlength="4" required>
+          ${passwordFieldHtml({ name: "newPassword", autocomplete: "new-password", minlength: 4, required: true })}
         </label>
         <label>Confirmar nova senha
-          <input name="confirmPassword" type="password" autocomplete="new-password" minlength="4" required>
+          ${passwordFieldHtml({ name: "confirmPassword", autocomplete: "new-password", minlength: 4, required: true })}
         </label>
         <div class="actions">
           <button type="submit">Alterar senha</button>
@@ -8802,6 +8834,8 @@ function renderAccount() {
       </form>
     </section>
   `;
+
+  bindPasswordToggles(app);
 
   on("#change-password-form", "submit", async event => {
     event.preventDefault();
@@ -8849,7 +8883,12 @@ function usersPanelHtml(result) {
             </select>
           </label>
           <label>${editing ? "Nova senha" : "Senha"}
-            <input name="password" type="password" autocomplete="new-password" placeholder="${editing ? "Deixe em branco para manter" : "Senha"}" ${editing ? "" : "required"}>
+            ${passwordFieldHtml({
+              name: "password",
+              autocomplete: "new-password",
+              placeholder: editing ? "Deixe em branco para manter" : "Senha",
+              required: !editing
+            })}
           </label>
           <div class="actions">
             <button type="submit">${editing ? "Salvar usuário" : "Adicionar usuário"}</button>
@@ -8907,6 +8946,7 @@ async function loadUsersPanel() {
 function bindUsersPanel() {
   const form = document.querySelector("#user-admin-form");
   if (form) {
+    bindPasswordToggles(form);
     form.addEventListener("submit", async event => {
       event.preventDefault();
       const values = readForm(event.currentTarget);

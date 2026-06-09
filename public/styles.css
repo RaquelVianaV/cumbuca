@@ -2351,6 +2351,18 @@ textarea {
   width: 100%;
 }
 
+.password-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.password-field .password-toggle {
+  min-width: 82px;
+  padding-inline: 12px;
+}
+
 .planning-summary {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
