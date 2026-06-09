@@ -1157,14 +1157,23 @@ function serveStatic(req, res, pathname) {
           sendJson(res, 404, { error: "Arquivo não encontrado." });
           return;
         }
-        res.writeHead(200, { "Content-Type": mimeTypes[".html"] });
+        res.writeHead(200, {
+          "Content-Type": mimeTypes[".html"],
+          "Cache-Control": "no-cache"
+        });
         res.end(fallbackData);
       });
       return;
     }
 
     const extension = path.extname(filePath);
-    res.writeHead(200, { "Content-Type": mimeTypes[extension] || "application/octet-stream" });
+    const headers = {
+      "Content-Type": mimeTypes[extension] || "application/octet-stream"
+    };
+    if ([".html", ".js", ".css"].includes(extension)) {
+      headers["Cache-Control"] = "no-cache";
+    }
+    res.writeHead(200, headers);
     res.end(data);
   });
 }
