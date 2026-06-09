@@ -1820,13 +1820,12 @@ function withdrawalSplitFromRaquel(raquelAmount) {
     return { total, savings: 0, remaining: total, vanessa: 0, raquel };
   }
 
-  const remaining = raquel * (partnersTotal / raquelPercent);
-  const availableAfterSavings = Math.max(0.0001, 1 - (savingsPercent / 100));
-  const total = remaining / availableAfterSavings;
-  const savings = Math.max(0, total - remaining);
-  const vanessa = remaining * (vanessaPercent / partnersTotal);
+  const base = raquel / (raquelPercent / partnersTotal);
+  const savings = base * (savingsPercent / 100);
+  const vanessa = base * (vanessaPercent / partnersTotal);
+  const total = savings + vanessa + raquel;
 
-  return { total, savings, remaining, vanessa, raquel };
+  return { total, savings, remaining: base, vanessa, raquel };
 }
 
 function accountBalanceAdjustment(targetBalance, currentBalance) {
@@ -1951,17 +1950,15 @@ function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
     groups.set(key, group);
   });
   return [...groups.values()].map(group => {
-    // Usar o total efetivamente retirado para calcular a distribuição esperada
-    // Isso garante que não há inflação por ajustes anteriores
-    const expected = withdrawalSplit(group.total);
+    const expected = withdrawalSplitFromRaquel(group.raquel);
     return {
       ...group,
-      distributionBase: group.distributionBase || group.total,
+      distributionBase: expected.total || group.distributionBase || group.total,
       expectedSavings: expected.savings,
       expectedVanessa: expected.vanessa,
       expectedRaquel: expected.raquel,
-      differenceVanessa: expected.vanessa - group.vanessa,
-      differenceRaquel: expected.raquel - group.raquel
+      differenceSavings: expected.savings - group.savings,
+      differenceVanessa: expected.vanessa - group.vanessa
     };
   }).sort((a, b) => String(b.date).localeCompare(String(a.date)));
 }
@@ -1972,8 +1969,8 @@ function partnerDifferenceLabel(value) {
     return "Sem diferença";
   }
   return amount > 0
-    ? `Antecipação ${money(amount)}`
-    : `Diferença ${money(Math.abs(amount))}`;
+    ? `Diferença ${money(amount)}`
+    : `Antecipação ${money(Math.abs(amount))}`;
 }
 
 function withdrawalGroupsBetween(start, end) {
@@ -1987,8 +1984,8 @@ function partnerPeriodTotals(groups = []) {
     totals.raquel += Number(group.raquel || 0);
     totals.expectedVanessa += Number(group.expectedVanessa || 0);
     totals.expectedRaquel += Number(group.expectedRaquel || 0);
+    totals.differenceSavings += Number(group.differenceSavings || 0);
     totals.differenceVanessa += Number(group.differenceVanessa || 0);
-    totals.differenceRaquel += Number(group.differenceRaquel || 0);
     return totals;
   }, {
     savings: 0,
@@ -1996,8 +1993,8 @@ function partnerPeriodTotals(groups = []) {
     raquel: 0,
     expectedVanessa: 0,
     expectedRaquel: 0,
-    differenceVanessa: 0,
-    differenceRaquel: 0
+    differenceSavings: 0,
+    differenceVanessa: 0
   });
 }
 
@@ -2050,8 +2047,8 @@ function withdrawalHistoryHtml() {
               <td>${money(group.vanessa)}</td>
               <td>${money(group.raquel)}</td>
               <td>
+                <small>Cofrinho: ${partnerDifferenceLabel(group.differenceSavings)}</small><br>
                 <small>Vanessa: ${partnerDifferenceLabel(group.differenceVanessa)}</small><br>
-                <small>Raquel: ${partnerDifferenceLabel(group.differenceRaquel)}</small>
               </td>
               <td><strong>${money(group.total)}</strong></td>
               <td><button class="secondary table-action" type="button" data-edit-withdrawal="${escapeHtml(group.key)}">Editar</button></td>
@@ -3175,7 +3172,7 @@ async function renderCash() {
   const reconciliationTargetBalance = editingAccountAdjustment
     ? reconciliationBaseBalance + editingAdjustmentSignedAmount
     : Math.max(0, reconciliationBaseBalance);
-  const previewWithdrawal = withdrawalSplit(displayedCashBalance);
+  const previewWithdrawal = withdrawalSplitFromRaquel(0);
   const withdrawalFormValues = editingWithdrawal || previewWithdrawal;
   const savingsPlanning = state.financialPlanning || {};
   const savingsCurrent = savingsBalance();
@@ -3325,8 +3322,8 @@ async function renderCash() {
               <div class="metric"><span>Vanessa retirou</span><strong>${money(partnersDashboard.week.vanessa)}</strong></div>
               <div class="metric"><span>Raquel retirou</span><strong>${money(partnersDashboard.week.raquel)}</strong></div>
               <div class="metric"><span>Cofrinho</span><strong>${money(partnersDashboard.week.savings)}</strong></div>
+              <div class="metric"><span>Diferença Cofrinho</span><strong>${partnerDifferenceLabel(partnersDashboard.week.differenceSavings)}</strong></div>
               <div class="metric"><span>Diferença Vanessa</span><strong>${partnerDifferenceLabel(partnersDashboard.week.differenceVanessa)}</strong></div>
-              <div class="metric"><span>Diferença Raquel</span><strong>${partnerDifferenceLabel(partnersDashboard.week.differenceRaquel)}</strong></div>
             </div>
           </section>
           <section>
@@ -3335,8 +3332,8 @@ async function renderCash() {
               <div class="metric"><span>Vanessa retirou</span><strong>${money(partnersDashboard.month.vanessa)}</strong></div>
               <div class="metric"><span>Raquel retirou</span><strong>${money(partnersDashboard.month.raquel)}</strong></div>
               <div class="metric"><span>Cofrinho no mês</span><strong>${money(partnersDashboard.month.savings)}</strong></div>
+              <div class="metric"><span>Diferença Cofrinho</span><strong>${partnerDifferenceLabel(partnersDashboard.month.differenceSavings)}</strong></div>
               <div class="metric"><span>Diferença Vanessa</span><strong>${partnerDifferenceLabel(partnersDashboard.month.differenceVanessa)}</strong></div>
-              <div class="metric"><span>Diferença Raquel</span><strong>${partnerDifferenceLabel(partnersDashboard.month.differenceRaquel)}</strong></div>
             </div>
           </section>
           <section>
@@ -3391,8 +3388,8 @@ async function renderCash() {
           <label>Data
             <input name="date" type="date" value="${editingWithdrawal?.date || today}" required>
           </label>
-          <label>Valor a distribuir
-            <input name="amount" type="text" inputmode="decimal" value="${moneyInputValue(editingWithdrawal?.distributionBase ?? Math.max(0, displayedCashBalance))}" required>
+          <label>Valor calculado pela Raquel
+            <input name="amount" type="text" inputmode="decimal" value="${moneyInputValue(editingWithdrawal?.distributionBase ?? previewWithdrawal.total)}" readonly required>
           </label>
           <div class="withdrawal-fields">
             <label>Cofrinho
@@ -3401,7 +3398,7 @@ async function renderCash() {
             <label>Vanessa
               <input name="vanessa" type="text" inputmode="decimal" value="${moneyInputValue(editingWithdrawal?.vanessa ?? previewWithdrawal.vanessa)}">
             </label>
-            <label>Raquel
+            <label>Raquel (30% - base do cálculo)
               <input name="raquel" type="text" inputmode="decimal" value="${moneyInputValue(editingWithdrawal?.raquel ?? previewWithdrawal.raquel)}">
             </label>
           </div>
@@ -3410,8 +3407,8 @@ async function renderCash() {
             <span><b>Total informado</b>${money(withdrawalFormValues.total)}</span>
             <span><b>Cofrinho</b>${money(withdrawalFormValues.savings)}</span>
             <span><b>Vanessa / Raquel</b>${money(withdrawalFormValues.vanessa)} / ${money(withdrawalFormValues.raquel)}</span>
+            <span><b>Diferença Cofrinho</b>${partnerDifferenceLabel(withdrawalFormValues.differenceSavings || 0)}</span>
             <span><b>Diferença Vanessa</b>${partnerDifferenceLabel(withdrawalFormValues.differenceVanessa || 0)}</span>
-            <span><b>Diferença Raquel</b>${partnerDifferenceLabel(withdrawalFormValues.differenceRaquel || 0)}</span>
           </div>
           <div class="actions">
             <button type="submit" ${(displayedCashBalance > 0 || editingWithdrawal) ? "" : "disabled"}>${editingWithdrawal ? "Salvar retirada" : "Registrar retiradas"}</button>
@@ -4083,9 +4080,11 @@ async function renderCash() {
         raquel: parseMoneyInput(withdrawalForm.elements.raquel.value)
       };
       split.total = split.savings + split.vanessa + split.raquel;
-      const expected = withdrawalSplit(split.distributionBase);
+      const expected = withdrawalSplitFromRaquel(split.raquel);
+      split.distributionBase = expected.total;
+      withdrawalForm.elements.amount.value = moneyInputValue(expected.total);
+      const differenceSavings = expected.savings - split.savings;
       const differenceVanessa = expected.vanessa - split.vanessa;
-      const differenceRaquel = expected.raquel - split.raquel;
       const preview = withdrawalForm.querySelector(".withdrawal-preview");
       preview.innerHTML = `
         <span><b>Caixa disponível</b>${money(displayedCashBalance)}</span>
@@ -4093,18 +4092,18 @@ async function renderCash() {
         <span><b>Total informado</b>${money(split.total)}</span>
         <span><b>Cofrinho</b>${money(split.savings)}</span>
         <span><b>Vanessa / Raquel</b>${money(split.vanessa)} / ${money(split.raquel)}</span>
+        <span><b>Diferença Cofrinho</b>${partnerDifferenceLabel(differenceSavings)}</span>
         <span><b>Diferença Vanessa</b>${partnerDifferenceLabel(differenceVanessa)}</span>
-        <span><b>Diferença Raquel</b>${partnerDifferenceLabel(differenceRaquel)}</span>
       `;
     };
 
     withdrawalForm.addEventListener("input", event => {
       const fieldName = event.target.name;
-      if (fieldName === "amount") {
-        const split = withdrawalSplit(event.target.value);
+      if (fieldName === "raquel") {
+        const split = withdrawalSplitFromRaquel(event.target.value);
+        withdrawalForm.elements.amount.value = moneyInputValue(split.total);
         withdrawalForm.elements.savings.value = moneyInputValue(split.savings);
         withdrawalForm.elements.vanessa.value = moneyInputValue(split.vanessa);
-        withdrawalForm.elements.raquel.value = moneyInputValue(split.raquel);
       }
 
       updateWithdrawalPreview();
@@ -4117,14 +4116,14 @@ async function renderCash() {
       ? withdrawalHistoryGroups(state.cash).find(group => group.key === state.editWithdrawalGroup)
       : null;
     const available = displayedCashBalance + Number(previousWithdrawal?.total || 0);
+    const expected = withdrawalSplitFromRaquel(values.raquel);
     const split = {
-      distributionBase: parseMoneyInput(values.amount),
+      distributionBase: expected.total,
       total: parseMoneyInput(values.savings) + parseMoneyInput(values.vanessa) + parseMoneyInput(values.raquel),
       savings: parseMoneyInput(values.savings),
       vanessa: parseMoneyInput(values.vanessa),
       raquel: parseMoneyInput(values.raquel)
     };
-    const expected = withdrawalSplit(split.distributionBase);
     const amountsUnchanged = previousWithdrawal
       && Math.abs(split.savings - Number(previousWithdrawal.savings || 0)) < 0.01
       && Math.abs(split.vanessa - Number(previousWithdrawal.vanessa || 0)) < 0.01
@@ -4137,7 +4136,7 @@ async function renderCash() {
     }
 
     if (split.distributionBase <= 0) {
-      showToast("Informe o valor usado para calcular a divisão.", "error");
+      showToast("Informe o valor que a Raquel retirou para calcular a divisão.", "error");
       return;
     }
 
@@ -6531,8 +6530,8 @@ function reportPdfWithdrawalRows(data) {
     ["Cofrinho", money(data.financial.withdrawals.savings)],
     ["Vanessa", money(data.financial.withdrawals.vanessa)],
     ["Raquel", money(data.financial.withdrawals.raquel)],
+    ["Diferença Cofrinho", partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceSavings)],
     ["Diferença Vanessa", partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceVanessa)],
-    ["Diferença Raquel", partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceRaquel)]
   ];
 
   if (informedVanessa > 0 || informedRaquel > 0) {
@@ -6803,8 +6802,8 @@ function reportCsvRows(kind, data) {
       { seção: "retiradas", data: "", descrição: "Cofrinho", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.savings },
       { seção: "retiradas", data: "", descrição: "Vanessa", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.vanessa },
       { seção: "retiradas", data: "", descrição: "Raquel", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.raquel },
+      { seção: "sócias", data: "", descrição: "Diferença Cofrinho", tipo: "controle", categoria: "sócias", valor: data.partnerWithdrawalControl?.differenceSavings || 0 },
       { seção: "sócias", data: "", descrição: "Diferença Vanessa", tipo: "controle", categoria: "sócias", valor: data.partnerWithdrawalControl?.differenceVanessa || 0 },
-      { seção: "sócias", data: "", descrição: "Diferença Raquel", tipo: "controle", categoria: "sócias", valor: data.partnerWithdrawalControl?.differenceRaquel || 0 },
       { seção: "sócias", data: data.partnersRecord?.periodKey || "", descrição: "Vanessa informada", tipo: "controle", categoria: "sócias", valor: data.partnersRecord?.vanessa || 0 },
       { seção: "sócias", data: data.partnersRecord?.periodKey || "", descrição: "Raquel informada", tipo: "controle", categoria: "sócias", valor: data.partnersRecord?.raquel || 0 },
       { seção: "sócias", data: data.partnersRecord?.periodKey || "", descrição: "Diferença / antecipado", tipo: "controle", categoria: "sócias", valor: data.partnersRecord?.difference || 0 }
@@ -7214,8 +7213,8 @@ async function downloadReportXlsx() {
         ["Cofrinho", Number(data.financial.withdrawals.savings || 0)],
         ["Vanessa", Number(data.financial.withdrawals.vanessa || 0)],
         ["Raquel", Number(data.financial.withdrawals.raquel || 0)],
+        ["Diferença Cofrinho", Number(data.partnerWithdrawalControl?.differenceSavings || 0)],
         ["Diferença Vanessa", Number(data.partnerWithdrawalControl?.differenceVanessa || 0)],
-        ["Diferença Raquel", Number(data.partnerWithdrawalControl?.differenceRaquel || 0)],
         ["Vanessa informada", Number(data.partnersRecord?.vanessa || 0)],
         ["Raquel informada", Number(data.partnersRecord?.raquel || 0)],
         ["Diferença / antecipado", Number(data.partnersRecord?.difference || 0)]
@@ -8278,8 +8277,8 @@ function renderFinance() {
         <div class="metric"><span>Cofrinho</span><strong>${money(data.financial.withdrawals.savings)}</strong></div>
         <div class="metric"><span>Vanessa</span><strong>${money(data.financial.withdrawals.vanessa)}</strong></div>
         <div class="metric"><span>Raquel</span><strong>${money(data.financial.withdrawals.raquel)}</strong></div>
+        <div class="metric"><span>Diferença Cofrinho</span><strong>${partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceSavings)}</strong></div>
         <div class="metric"><span>Diferença Vanessa</span><strong>${partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceVanessa)}</strong></div>
-        <div class="metric"><span>Diferença Raquel</span><strong>${partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceRaquel)}</strong></div>
         ${Number(data.partnersRecord?.vanessa || 0) > 0 ? `<div class="metric"><span>Vanessa informada</span><strong>${money(data.partnersRecord.vanessa)}</strong></div>` : ""}
         ${Number(data.partnersRecord?.raquel || 0) > 0 ? `<div class="metric"><span>Raquel informada</span><strong>${money(data.partnersRecord.raquel)}</strong></div>` : ""}
         ${Number(data.partnersRecord?.difference || 0) > 0 ? `<div class="metric"><span>Diferença / antecipado</span><strong>${money(data.partnersRecord.difference)}</strong></div>` : ""}
@@ -8392,8 +8391,8 @@ function renderReports() {
         <div class="metric"><span>Cofrinho</span><strong>${money(data.financial.withdrawals.savings)}</strong></div>
         <div class="metric"><span>Vanessa</span><strong>${money(data.financial.withdrawals.vanessa)}</strong></div>
         <div class="metric"><span>Raquel</span><strong>${money(data.financial.withdrawals.raquel)}</strong></div>
+        <div class="metric"><span>Diferença Cofrinho</span><strong>${partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceSavings)}</strong></div>
         <div class="metric"><span>Diferença Vanessa</span><strong>${partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceVanessa)}</strong></div>
-        <div class="metric"><span>Diferença Raquel</span><strong>${partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceRaquel)}</strong></div>
         ${Number(data.partnersRecord?.vanessa || 0) > 0 ? `<div class="metric"><span>Vanessa informada</span><strong>${money(data.partnersRecord.vanessa)}</strong></div>` : ""}
         ${Number(data.partnersRecord?.raquel || 0) > 0 ? `<div class="metric"><span>Raquel informada</span><strong>${money(data.partnersRecord.raquel)}</strong></div>` : ""}
         ${Number(data.partnersRecord?.difference || 0) > 0 ? `<div class="metric"><span>Diferença / antecipado</span><strong>${money(data.partnersRecord.difference)}</strong></div>` : ""}
