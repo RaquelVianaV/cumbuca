@@ -1834,12 +1834,13 @@ textarea {
 
 .comparison-summary .metric {
   min-height: 104px;
-  container-type: inline-size;
+  overflow: hidden;
 }
 
 .comparison-summary .metric strong {
+  display: block;
   max-width: 100%;
-  font-size: clamp(1.05rem, 11cqi, 1.6rem);
+  font-size: clamp(1.05rem, 1.7vw, 1.4rem);
   line-height: 1.08;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
