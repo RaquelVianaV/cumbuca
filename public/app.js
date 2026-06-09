@@ -1184,9 +1184,9 @@ function allCashCategories() {
   ]);
 }
 
-function filterCashEntries(entries) {
+function getCashFilter() {
   const today = isoDate(new Date());
-  const currentFilter = {
+  const filter = {
     period: "month",
     date: today,
     month: today.slice(0, 7),
@@ -1196,6 +1196,31 @@ function filterCashEntries(entries) {
     search: "",
     ...(state.cashFilter || {})
   };
+
+  if (filter.period === "week" && filter.month) {
+    const periodYearMonth = filter.month;
+    if (!filter.date.startsWith(periodYearMonth)) {
+      filter.date = `${periodYearMonth}-01`;
+    }
+  }
+
+  if (filter.period === "month" && filter.month) {
+    if (!filter.date.startsWith(filter.month)) {
+      filter.date = `${filter.month}-01`;
+    }
+  }
+
+  if (filter.period === "year" && filter.year) {
+    if (!filter.date.startsWith(filter.year)) {
+      filter.date = `${filter.year}-01-01`;
+    }
+  }
+
+  return filter;
+}
+
+function filterCashEntries(entries) {
+  const currentFilter = getCashFilter();
   const { period, date, month, year, search, type, category } = currentFilter;
   const query = String(search || "").trim().toLowerCase();
   const searchedEntries = query
@@ -1248,14 +1273,7 @@ function filterCashEntries(entries) {
 }
 
 function cashEntriesForSelectedPeriod(entries = state.cash) {
-  const today = isoDate(new Date());
-  const currentFilter = {
-    period: "month",
-    date: today,
-    month: today.slice(0, 7),
-    year: today.slice(0, 4),
-    ...(state.cashFilter || {})
-  };
+  const currentFilter = getCashFilter();
   const { period, date, month, year } = currentFilter;
   const accountedEntries = accountingCashEntries(entries);
 
