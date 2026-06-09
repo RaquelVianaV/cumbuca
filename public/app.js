@@ -4140,12 +4140,6 @@ async function renderCash() {
       vanessa: parseMoneyInput(values.vanessa),
       raquel: parseMoneyInput(values.raquel)
     };
-    const amountsUnchanged = previousWithdrawal
-      && Math.abs(split.savings - Number(previousWithdrawal.savings || 0)) < 0.01
-      && Math.abs(split.vanessa - Number(previousWithdrawal.vanessa || 0)) < 0.01
-      && Math.abs(split.raquel - Number(previousWithdrawal.raquel || 0)) < 0.01
-      && Math.abs(split.distributionBase - Number(previousWithdrawal.distributionBase || previousWithdrawal.total || 0)) < 0.01;
-
     if (split.total <= 0) {
       showToast("Informe um valor maior que zero.", "error");
       return;
@@ -4156,7 +4150,7 @@ async function renderCash() {
       return;
     }
 
-    if (!amountsUnchanged && split.total > available) {
+    if (split.total > available) {
       showToast("A retirada não pode ser maior que o caixa disponível.", "error");
       return;
     }
@@ -4166,24 +4160,6 @@ async function renderCash() {
     }
     if (previousWithdrawal && previousWithdrawal.date !== values.date
       && blockClosedMonth(previousWithdrawal.date, "editar retiradas")) {
-      return;
-    }
-
-    if (amountsUnchanged && previousWithdrawal) {
-      const previousIds = new Set(previousWithdrawal.entries.map(entry => String(entry.id)));
-      state.cash = state.cash.map(entry => previousIds.has(String(entry.id))
-        ? { ...entry, date: values.date }
-        : entry);
-      recordAudit(
-        "Data da retirada editada",
-        `${formatIsoDateBr(previousWithdrawal.date)} para ${formatIsoDateBr(values.date)} - total ${money(split.total)}`
-      );
-      focusCashFilterOnDate(values.date);
-      state.editWithdrawalGroup = null;
-      if (await persistState()) {
-        showToast("Data da retirada atualizada.", "success");
-        renderCash();
-      }
       return;
     }
 
@@ -4236,12 +4212,11 @@ async function renderCash() {
         description: previousWithdrawal ? "Ajuste da retirada - cofrinho" : "Retirada - cofrinho"
       });
     }
-    const auditDetail = amountsUnchanged && previousWithdrawal.date !== values.date
-      ? `Data alterada de ${formatIsoDateBr(previousWithdrawal.date)} para ${formatIsoDateBr(values.date)} - total ${money(split.total)}`
-      : `Calculado ${money(split.distributionBase)} - retirado ${money(split.total)} - cofrinho ${money(split.savings)}, Vanessa ${money(split.vanessa)} (${partnerDifferenceLabel(expected.vanessa - split.vanessa)}), Raquel ${money(split.raquel)} (${partnerDifferenceLabel(expected.raquel - split.raquel)})`;
+    const auditDetail = `Calculado ${money(split.distributionBase)} - retirado ${money(split.total)} - cofrinho ${money(split.savings)} (${partnerDifferenceLabel(expected.savings - split.savings)}), Vanessa ${money(split.vanessa)} (${partnerDifferenceLabel(expected.vanessa - split.vanessa)}), Raquel ${money(split.raquel)} (${partnerDifferenceLabel(expected.raquel - split.raquel)})`;
     recordAudit(previousWithdrawal ? "Retirada editada" : "Retirada registrada", auditDetail);
     state.editWithdrawalGroup = null;
     if (await persistState()) {
+      showToast(previousWithdrawal ? "Retirada atualizada." : "Retirada registrada.", "success");
       renderCash();
     }
     });
