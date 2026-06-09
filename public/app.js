@@ -4212,6 +4212,13 @@ async function renderCash() {
     filterForm.addEventListener("submit", event => {
       event.preventDefault();
       const values = readForm(event.currentTarget);
+      
+      // Se está em modo semana e o mês foi alterado, ajusta a data para estar dentro do novo mês
+      if (values.period === "week" && values.month && values.month !== state.cashFilter?.month) {
+        const newDate = new Date(`${values.month}-01T00:00:00`);
+        values.date = isoDate(newDate);
+      }
+      
       state.cashFilter = { ...values, manualAll: values.period === "all" };
       persistState();
       renderCash();
