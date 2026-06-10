@@ -995,17 +995,16 @@ async function resetAllData() {
   return true;
 }
 
-async function resetFinancialData() {
+async function resetFinancialData(confirmationText = "") {
   try {
-    await downloadBackup();
+    if (String(confirmationText || "").trim().toUpperCase() !== "REINICIAR FINANCEIRO") {
+      showToast('Digite "REINICIAR FINANCEIRO" para confirmar.', "warning");
+      return false;
+    }
     if (!confirm("Reiniciar somente os dados financeiros? Clientes, pedidos, cardápios, categorias, motivos e configurações serão preservados.")) {
       return false;
     }
-    const typed = prompt('Digite "REINICIAR FINANCEIRO" para confirmar.');
-    if (typed !== "REINICIAR FINANCEIRO") {
-      showToast("Reinício financeiro cancelado", "warning");
-      return false;
-    }
+    await downloadBackup();
 
     const response = await fetch("/api/reset-financial-state", {
       method: "POST",
@@ -9222,8 +9221,12 @@ async function renderBackups() {
             <strong>Apaga somente movimentações</strong>
             <span>Caixa, vendas da loja, recebimentos por canais e fechamentos ficam vazios. Clientes, pedidos, cardápios, categorias, motivos, precificação, planejamento e configurações permanecem.</span>
           </div>
-          <div class="backup-actions">
-            <button class="danger" type="button" id="reset-financial-data">Baixar backup e reiniciar financeiro</button>
+          <div class="reset-confirmation">
+            <label>Confirmação
+              <input id="reset-financial-confirmation" type="text" autocomplete="off" placeholder="Digite REINICIAR FINANCEIRO">
+            </label>
+            <button class="danger" type="button" id="reset-financial-data" disabled>Baixar backup e reiniciar financeiro</button>
+            <small id="reset-financial-status">Digite a frase acima para liberar o botão.</small>
           </div>
           <section class="database-danger-zone" id="reset-database-zone">
             <h3>Limpar todo o banco</h3>
@@ -9290,16 +9293,33 @@ async function renderBackups() {
   });
 
   on("#cleanup-backup-first", "click", downloadBackup);
+  const resetFinancialConfirmation = document.querySelector("#reset-financial-confirmation");
   const resetFinancialButton = document.querySelector("#reset-financial-data");
-  if (resetFinancialButton) {
+  const resetFinancialStatus = document.querySelector("#reset-financial-status");
+  if (resetFinancialButton && resetFinancialConfirmation) {
+    resetFinancialConfirmation.addEventListener("input", event => {
+      const confirmed = event.currentTarget.value.trim().toUpperCase() === "REINICIAR FINANCEIRO";
+      resetFinancialButton.disabled = !confirmed;
+      if (resetFinancialStatus) {
+        resetFinancialStatus.textContent = confirmed
+          ? "Confirmação válida. O backup será baixado antes do reinício."
+          : "Digite a frase acima para liberar o botão.";
+      }
+    });
     resetFinancialButton.addEventListener("click", async () => {
       resetFinancialButton.disabled = true;
+      if (resetFinancialStatus) {
+        resetFinancialStatus.textContent = "Gerando backup e reiniciando...";
+      }
       try {
-        if (await resetFinancialData()) {
+        if (await resetFinancialData(resetFinancialConfirmation.value)) {
           renderBackups();
+        } else if (resetFinancialStatus) {
+          resetFinancialStatus.textContent = "Reinício não concluído. Confira a confirmação e tente novamente.";
         }
       } finally {
-        resetFinancialButton.disabled = false;
+        const confirmed = resetFinancialConfirmation.value.trim().toUpperCase() === "REINICIAR FINANCEIRO";
+        resetFinancialButton.disabled = !confirmed;
       }
     });
   }
