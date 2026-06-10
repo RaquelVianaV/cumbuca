@@ -3403,6 +3403,22 @@ a.secondary.table-action,
   font-size: 1.05rem;
 }
 
+.database-danger-zone {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 2px solid #b42318;
+}
+
+.database-danger-zone h3 {
+  color: #b42318;
+  margin-top: 0;
+}
+
+.database-danger-zone > p {
+  color: #5f6672;
+  max-width: 900px;
+}
+
 .report-table td,
 .report-table th {
   padding-top: 9px;

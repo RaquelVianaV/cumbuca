@@ -967,11 +967,11 @@ function clearLocalStateCache() {
 
 async function resetAllData() {
   await downloadBackup();
-  if (!confirm("Limpar tudo do sistema online? Um backup foi baixado neste navegador e outro será salvo no Supabase antes da limpeza.")) {
+  if (!confirm("Limpar todo o banco de dados do sistema? Todos os dados do aplicativo serão apagados. Os usuários de acesso e o backup de recuperação serão preservados.")) {
     return false;
   }
-  const typed = prompt("Digite LIMPAR para confirmar a limpeza completa.");
-  if (typed !== "LIMPAR") {
+  const typed = prompt('Digite "LIMPAR TODO O BANCO" para confirmar.');
+  if (typed !== "LIMPAR TODO O BANCO") {
     showToast("Limpeza cancelada", "warning");
     return false;
   }
@@ -979,7 +979,7 @@ async function resetAllData() {
   const response = await fetch("/api/reset-state", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ confirm: "LIMPAR" })
+    body: JSON.stringify({ confirm: "LIMPAR TODO O BANCO" })
   });
   const result = await response.json();
   if (!response.ok || !result.database || !result.reset) {
@@ -991,7 +991,7 @@ async function resetAllData() {
   clearLocalStateCache();
   persistLocal();
   lastConfirmedPayload = clonePayload(appStatePayload());
-  showToast("Sistema limpo para começar.", "success");
+  showToast("Banco do sistema limpo. Usuários e backup de recuperação foram preservados.", "success");
   return true;
 }
 
@@ -9109,7 +9109,10 @@ async function renderBackups() {
       <div class="maintenance-steps">
         <button type="button" id="hero-backup-download">Baixar backup</button>
         <button class="secondary" type="button" data-maintenance-scroll="cleanup-year-form">Limpar ano</button>
-        ${isAdminUser() ? `<button class="danger" type="button" data-maintenance-scroll="reset-all-panel">Reiniciar financeiro</button>` : ""}
+        ${isAdminUser() ? `
+          <button class="danger" type="button" data-maintenance-scroll="reset-all-panel">Reiniciar financeiro</button>
+          <button class="danger" type="button" data-maintenance-scroll="reset-database-zone">Limpar todo o banco</button>
+        ` : ""}
         <button class="secondary" type="button" data-maintenance-scroll="real-db-usage">Ver banco</button>
       </div>
     </section>
@@ -9217,11 +9220,15 @@ async function renderBackups() {
           <div class="backup-actions">
             <button class="danger" type="button" id="reset-financial-data">Baixar backup e reiniciar financeiro</button>
           </div>
-          <details>
-            <summary>Limpeza integral do sistema</summary>
-            <p class="muted">Esta opção também apaga clientes, pedidos, cardápios, categorias, motivos, precificação, planejamento e configurações.</p>
-            <button class="danger" type="button" id="reset-all-data">Baixar backup e limpar tudo</button>
-          </details>
+          <section class="database-danger-zone" id="reset-database-zone">
+            <h3>Limpar todo o banco</h3>
+            <p>Apaga caixa, retiradas, clientes, pedidos, cardápios, categorias, motivos, precificação, planejamento, configurações e histórico de auditoria.</p>
+            <div class="backup-list-state warning-state">
+              <strong>Usuários e recuperação permanecem</strong>
+              <span>Os usuários administrativos, eventos técnicos e o backup protegido não são apagados, para manter o acesso e permitir restauração.</span>
+            </div>
+            <button class="danger" type="button" id="reset-all-data">Baixar backup e limpar todo o banco</button>
+          </section>
         </section>
       ` : ""}
     </section>

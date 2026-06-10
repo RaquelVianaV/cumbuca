@@ -1375,8 +1375,8 @@ async function handleRequest(req, res) {
         return;
       }
       const payload = await collectBody(req);
-      if (payload.confirm !== "LIMPAR") {
-        sendJson(res, 400, { error: "Confirme com LIMPAR para apagar os dados." });
+      if (payload.confirm !== "LIMPAR TODO O BANCO") {
+        sendJson(res, 400, { error: "Confirme com LIMPAR TODO O BANCO para apagar os dados." });
         return;
       }
       sendJson(res, 200, await resetAppState(user));
