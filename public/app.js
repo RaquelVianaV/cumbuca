@@ -996,32 +996,37 @@ async function resetAllData() {
 }
 
 async function resetFinancialData() {
-  await downloadBackup();
-  if (!confirm("Reiniciar somente os dados financeiros? Clientes, pedidos, cardápios, categorias, motivos e configurações serão preservados.")) {
-    return false;
-  }
-  const typed = prompt('Digite "REINICIAR FINANCEIRO" para confirmar.');
-  if (typed !== "REINICIAR FINANCEIRO") {
-    showToast("Reinício financeiro cancelado", "warning");
-    return false;
-  }
+  try {
+    await downloadBackup();
+    if (!confirm("Reiniciar somente os dados financeiros? Clientes, pedidos, cardápios, categorias, motivos e configurações serão preservados.")) {
+      return false;
+    }
+    const typed = prompt('Digite "REINICIAR FINANCEIRO" para confirmar.');
+    if (typed !== "REINICIAR FINANCEIRO") {
+      showToast("Reinício financeiro cancelado", "warning");
+      return false;
+    }
 
-  const response = await fetch("/api/reset-financial-state", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ confirm: "REINICIAR FINANCEIRO" })
-  });
-  const result = await response.json();
-  if (!response.ok || !result.database || !result.reset) {
-    showToast(result.error || "Não foi possível reiniciar os dados financeiros.", "error");
+    const response = await fetch("/api/reset-financial-state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: "REINICIAR FINANCEIRO" })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.database || !result.reset) {
+      showToast(result.error || "Não foi possível reiniciar os dados financeiros.", "error");
+      return false;
+    }
+
+    applyPayloadToState(result.state || {});
+    persistLocal();
+    lastConfirmedPayload = clonePayload(appStatePayload());
+    showToast("Financeiro reiniciado. Cadastros e configurações foram preservados.", "success");
+    return true;
+  } catch (error) {
+    showToast("Falha de conexão ao reiniciar o financeiro. Nenhum dado foi apagado.", "error");
     return false;
   }
-
-  applyPayloadToState(result.state || {});
-  persistLocal();
-  lastConfirmedPayload = clonePayload(appStatePayload());
-  showToast("Financeiro reiniciado. Cadastros e configurações foram preservados.", "success");
-  return true;
 }
 
 function cleanupPreviewHtml(year, preview) {

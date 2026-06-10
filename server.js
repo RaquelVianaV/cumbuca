@@ -628,7 +628,26 @@ async function writeAutomaticBackup(payload = {}, { source = "automatic", protec
       data: normalizeState(payload)
     })]
   );
-  return { database: true, saved: result.rowCount > 0, protected: protect };
+  if (result.rowCount > 0) {
+    return { database: true, saved: true, protected: protect, reused: false };
+  }
+
+  if (protect) {
+    const existing = await db.query(
+      `select payload->>'source' as source
+       from cumbuca_app_backups
+       where backup_date = current_date`
+    );
+    const protectedBackupExists = existing.rows[0]?.source === "pre-reset";
+    return {
+      database: true,
+      saved: protectedBackupExists,
+      protected: true,
+      reused: protectedBackupExists
+    };
+  }
+
+  return { database: true, saved: false, protected: false, reused: false };
 }
 
 async function listBackups() {
