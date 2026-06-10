@@ -3362,6 +3362,62 @@ a.secondary.table-action,
   margin: 4px 0 0;
 }
 
+.report-panel {
+  position: sticky;
+  top: 74px;
+  z-index: 8;
+  box-shadow: 0 8px 24px rgba(30, 41, 59, 0.08);
+}
+
+.financial-cycle-panel details {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.financial-cycle-panel summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.audit-list {
+  max-height: 420px;
+  overflow: auto;
+}
+
+.simplified-statement {
+  gap: 0;
+}
+
+.statement-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.statement-total {
+  border-bottom: 0;
+  border-top: 2px solid #374151;
+  margin-top: 4px;
+  font-size: 1.05rem;
+}
+
+.report-table td,
+.report-table th {
+  padding-top: 9px;
+  padding-bottom: 9px;
+}
+
+.cash-type-badge.income {
+  color: #087f5b;
+}
+
+.cash-type-badge.expense,
+.negative {
+  color: #b42318;
+}
+
 .cash-panel-tabs button {
   min-height: 38px;
   font-size: 0.78rem;

@@ -399,6 +399,7 @@ const state = {
   archivedCashCategories: localValue("archivedCashCategories", { income: [], expense: [] }),
   expenseReasons: seededExpenseReasons(),
   archivedExpenseReasons: localValue("archivedExpenseReasons", []),
+  auditLog: localValue("auditLog", []),
   monthlyClosings: localValue("monthlyClosings", {}),
   weeklyClosings: localValue("weeklyClosings", {}),
   showClients: false,
@@ -432,7 +433,11 @@ const state = {
     partnersHistory: [],
     monthlyGoal: "",
     improvements: [],
-    purchases: []
+    purchases: [],
+    cycleStartDate: "",
+    openingBalance: "",
+    openingSavings: "",
+    cycleNote: ""
   }),
   appConfig: localValue("appConfig", defaultAppConfig),
   reportPeriod: localValue("reportPeriod", {
@@ -480,6 +485,7 @@ function appStatePayload() {
     archivedCashCategories: state.archivedCashCategories,
     expenseReasons: state.expenseReasons,
     archivedExpenseReasons: state.archivedExpenseReasons,
+    auditLog: state.auditLog,
     monthlyClosings: state.monthlyClosings,
     weeklyClosings: state.weeklyClosings,
     pricingIngredients: state.ingredients,
@@ -526,6 +532,7 @@ function applyPayloadToState(saved = {}) {
     ? saved.expenseReasons
     : seededExpenseReasons();
   state.archivedExpenseReasons = saved.archivedExpenseReasons || [];
+  state.auditLog = Array.isArray(saved.auditLog) ? saved.auditLog : [];
   state.monthlyClosings = saved.monthlyClosings || {};
   state.weeklyClosings = saved.weeklyClosings || {};
   state.ingredients = saved.pricingIngredients || [];
@@ -539,6 +546,10 @@ function applyPayloadToState(saved = {}) {
     monthlyGoal: "",
     improvements: [],
     purchases: [],
+    cycleStartDate: "",
+    openingBalance: "",
+    openingSavings: "",
+    cycleNote: "",
     ...(saved.financialPlanning || {})
   };
   state.appConfig = {
@@ -567,8 +578,19 @@ function persistLocal() {
   });
 }
 
-function recordAudit(action, detail) {
-  return null;
+function recordAudit(action, detail, metadata = {}) {
+  const entry = {
+    id: `audit-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    action: String(action || "Alteração"),
+    detail: String(detail || ""),
+    user: state.currentUser?.name || state.currentUser?.username || "Sistema",
+    username: state.currentUser?.username || "",
+    route: routeName(),
+    createdAt: new Date().toISOString(),
+    ...metadata
+  };
+  state.auditLog = [entry, ...(state.auditLog || [])].slice(0, 1000);
+  return entry;
 }
 
 async function persistState() {
@@ -748,6 +770,7 @@ function cleanupPreview(year) {
     menuDates: Object.keys(state.menuDates || {}).filter(key => yearFromMenuKey(key) === target).length,
     storeSales: state.storeSales.filter(entry => String(entry.date || "").startsWith(target)).length,
     channelReceipts: state.channelReceipts.filter(entry => String(entry.date || "").startsWith(target)).length,
+    auditLog: (state.auditLog || []).filter(entry => String(entry.createdAt || "").startsWith(target)).length,
     monthlyClosings: Object.keys(state.monthlyClosings || {}).filter(key => String(key || "").startsWith(target)).length,
     weeklyClosings: Object.keys(state.weeklyClosings || {}).filter(key => String(key || "").startsWith(target)).length
   };
@@ -778,6 +801,7 @@ function databaseUsageEstimate() {
     storeSales: state.storeSales.length,
     monthlyClosings: Object.keys(state.monthlyClosings || {}).length,
     weeklyClosings: Object.keys(state.weeklyClosings || {}).length,
+    auditLog: (state.auditLog || []).length,
     clients: state.clients.length,
     channelReceipts: state.channelReceipts.length,
     pricingIngredients: state.ingredients.length
@@ -814,6 +838,7 @@ function yearUsageEstimate(year) {
     menuDatesByPeriod: Object.fromEntries(Object.entries(state.menuDates || {}).filter(([key]) => yearFromMenuKey(key) === target)),
     storeSales: state.storeSales.filter(entry => String(entry.date || "").startsWith(target)),
     channelReceipts: state.channelReceipts.filter(entry => String(entry.date || "").startsWith(target)),
+    auditLog: (state.auditLog || []).filter(entry => String(entry.createdAt || "").startsWith(target)),
     monthlyClosings: Object.fromEntries(Object.entries(state.monthlyClosings || {}).filter(([key]) => String(key || "").startsWith(target))),
     weeklyClosings: Object.fromEntries(Object.entries(state.weeklyClosings || {}).filter(([key]) => String(key || "").startsWith(target)))
   };
@@ -924,6 +949,7 @@ async function cleanupYear(year) {
   state.orders = state.orders.filter(order => yearFromMenuKey(order.menuKey) !== target);
   state.storeSales = state.storeSales.filter(entry => !String(entry.date || "").startsWith(target));
   state.channelReceipts = state.channelReceipts.filter(entry => !String(entry.date || "").startsWith(target));
+  state.auditLog = (state.auditLog || []).filter(entry => !String(entry.createdAt || "").startsWith(target));
   state.menus = Object.fromEntries(Object.entries(state.menus || {}).filter(([key]) => yearFromMenuKey(key) !== target));
   state.menuDates = Object.fromEntries(Object.entries(state.menuDates || {}).filter(([key]) => yearFromMenuKey(key) !== target));
   state.monthlyClosings = Object.fromEntries(Object.entries(state.monthlyClosings || {}).filter(([key]) => !String(key || "").startsWith(target)));
@@ -1008,6 +1034,7 @@ function cleanupPreviewHtml(year, preview) {
       <div class="metric"><span>Datas menu</span><strong>${preview.menuDates}</strong></div>
       <div class="metric"><span>Loja</span><strong>${preview.storeSales}</strong></div>
       <div class="metric"><span>Canais</span><strong>${preview.channelReceipts}</strong></div>
+      <div class="metric"><span>Auditoria</span><strong>${preview.auditLog}</strong></div>
       <div class="metric"><span>Fechamentos mensais</span><strong>${preview.monthlyClosings}</strong></div>
       <div class="metric"><span>Fechamentos semanais</span><strong>${preview.weeklyClosings}</strong></div>
     </div>
@@ -1904,8 +1931,12 @@ function withdrawalSplitFromRaquel(raquelAmount) {
 
 function accountBalanceUntilDate(dateKey) {
   const date = String(dateKey || isoDate(new Date())).slice(0, 10);
+  const cycleStart = String(state.financialPlanning?.cycleStartDate || "");
   const entries = accountingCashEntries(state.cash)
-    .filter(entry => cashAccountingDate(entry) <= date);
+    .filter(entry => {
+      const entryDate = cashAccountingDate(entry);
+      return entryDate <= date && (!cycleStart || entryDate >= cycleStart);
+    });
   return cashTotals(entries).balance;
 }
 
@@ -3449,6 +3480,12 @@ async function renderCash() {
             <span><b>Diferença Vanessa</b>${partnerDifferenceLabel(withdrawalFormValues.differenceVanessa || 0)}</span>
             <span><b>Diferença Raquel</b>${partnerDifferenceLabel(withdrawalFormValues.differenceRaquel || 0)}</span>
           </div>
+          ${isAdminUser() ? `
+            <label class="checkbox-row">
+              <input name="adminOverride" type="checkbox" value="yes">
+              Autorizar retirada acima do disponível
+            </label>
+          ` : ""}
           <div class="actions">
             <button type="submit" ${(displayedCashBalance > 0 || editingWithdrawal) ? "" : "disabled"}>${editingWithdrawal ? "Salvar retirada" : "Registrar retiradas"}</button>
             ${editingWithdrawal ? `<button class="secondary" type="button" id="cancel-withdrawal-edit">Cancelar</button>` : ""}
@@ -3729,7 +3766,11 @@ async function renderCash() {
     if (editing) {
       state.cash = state.cash.map(item => String(item.id) === String(editing.id) ? entry : item);
       state.editCashId = null;
-      recordAudit("Caixa editado", `${entry.description || "Lançamento"} - ${money(entry.amount)}`);
+      recordAudit("Caixa editado", `${entry.description || "Lançamento"} - ${money(entry.amount)}`, {
+        entityId: String(entry.id || ""),
+        before: editing,
+        after: entry
+      });
     } else {
       state.cash.push(entry);
       recordAudit("Caixa criado", `${entry.description || "Lançamento"} - ${money(entry.amount)}`);
@@ -4189,8 +4230,12 @@ async function renderCash() {
       return;
     }
 
-    if (split.total > available) {
+    const adminOverride = isAdminUser() && values.adminOverride === "yes";
+    if (split.total > available && !adminOverride) {
       showToast("A retirada não pode ser maior que o caixa disponível.", "error");
+      return;
+    }
+    if (split.total > available && adminOverride && !confirm(`Autorizar retirada acima do disponível em ${money(split.total - available)}?`)) {
       return;
     }
 
@@ -4251,7 +4296,7 @@ async function renderCash() {
         description: previousWithdrawal ? "Ajuste da retirada - cofrinho" : "Retirada - cofrinho"
       });
     }
-    const auditDetail = `Calculado ${money(split.distributionBase)} - retirado ${money(split.total)} - cofrinho ${money(split.savings)}, Vanessa ${money(split.vanessa)} (${partnerDifferenceLabel(expected.vanessa - split.vanessa)}), Raquel ${money(split.raquel)} (${partnerDifferenceLabel(expected.raquel - split.raquel)})`;
+    const auditDetail = `Calculado ${money(split.distributionBase)} - retirado ${money(split.total)} - cofrinho ${money(split.savings)}, Vanessa ${money(split.vanessa)} (${partnerDifferenceLabel(expected.vanessa - split.vanessa)}), Raquel ${money(split.raquel)} (${partnerDifferenceLabel(expected.raquel - split.raquel)})${adminOverride ? " - autorização administrativa acima do disponível" : ""}`;
     recordAudit(previousWithdrawal ? "Retirada editada" : "Retirada registrada", auditDetail);
     state.editWithdrawalGroup = null;
     if (await persistState()) {
@@ -4374,6 +4419,45 @@ async function renderCash() {
     });
   });
 
+  document.querySelectorAll("[data-reverse-cash]").forEach(button => {
+    button.addEventListener("click", async event => {
+      const id = event.currentTarget.dataset.reverseCash;
+      const original = state.cash.find(item => String(item.id) === String(id));
+      if (!original || original.reversedBy || original.reversalOf) {
+        return;
+      }
+      const reversalDate = isoDate(new Date());
+      if (blockClosedPeriod(reversalDate, "estornar lançamentos")) {
+        return;
+      }
+      if (!confirm(`Estornar ${original.description || "este lançamento"} no valor de ${money(original.amount)}? O original continuará no histórico.`)) {
+        return;
+      }
+      const reversalId = `reversal-${Date.now()}`;
+      state.cash = state.cash.map(item => String(item.id) === String(id)
+        ? { ...item, reversedBy: reversalId, reversedAt: new Date().toISOString() }
+        : item);
+      state.cash.push({
+        id: reversalId,
+        description: `Estorno - ${original.description || "Lançamento"}`,
+        date: reversalDate,
+        type: original.type === "expense" ? "income" : "expense",
+        category: original.category,
+        amount: Number(original.amount || 0).toFixed(2),
+        reversalOf: original.id
+      });
+      recordAudit("Lançamento estornado", `${original.description || "Lançamento"} - ${money(original.amount)}`, {
+        entityId: String(original.id || ""),
+        before: original,
+        after: { reversalId }
+      });
+      if (await persistState()) {
+        showToast("Estorno registrado sem apagar o lançamento original.", "success");
+        renderCash();
+      }
+    });
+  });
+
   document.querySelectorAll("[data-delete-cash]").forEach(button => {
     button.addEventListener("click", event => {
       if (!confirm("Excluir este lançamento?")) {
@@ -4389,7 +4473,11 @@ async function renderCash() {
       if (String(state.editCashId) === String(id)) {
         state.editCashId = null;
       }
-      recordAudit("Caixa excluído", `${removed?.description || "Lançamento"} - ${money(removed?.amount)}`);
+      recordAudit("Caixa excluído", `${removed?.description || "Lançamento"} - ${money(removed?.amount)}`, {
+        entityId: String(removed?.id || ""),
+        before: removed || null,
+        after: null
+      });
       persistState();
       renderCash();
     });
@@ -4474,7 +4562,8 @@ function cashTable(entries) {
                 <div class="table-actions">
                   ${isPendingBill(item) ? `<button class="secondary table-action" type="button" data-pay-bill="${item.id || ""}">Marcar pago</button>` : ""}
                   <button class="secondary table-action" type="button" data-edit-cash="${item.id || ""}">Editar</button>
-                  <button class="danger table-action" type="button" data-delete-cash="${item.id || ""}">Excluir</button>
+                  ${!item.reversedBy && !item.reversalOf ? `<button class="secondary table-action" type="button" data-reverse-cash="${item.id || ""}">Estornar</button>` : ""}
+                  ${isAdminUser() ? `<button class="danger table-action" type="button" data-delete-cash="${item.id || ""}">Excluir</button>` : ""}
                 </div>
               </td>
             </tr>
@@ -7239,6 +7328,7 @@ async function downloadReportPdf() {
       totalIncome: data.totalIncome,
       expenses: data.expenses,
       operationalExpenses: data.financial.operationalExpenses,
+      profitBeforeWithdrawals: data.financial.profitBeforeWithdrawals,
       availableForWithdrawal: data.financial.availableForWithdrawal,
       accountAdjustmentIncome: data.accountAdjustmentTotals.income,
       accountAdjustmentExpenses: data.accountAdjustmentTotals.expenses,
@@ -7325,6 +7415,7 @@ async function downloadReportXlsx() {
       totalIncome: data.totalIncome,
       expenses: data.expenses,
       operationalExpenses: data.financial.operationalExpenses,
+      profitBeforeWithdrawals: data.financial.profitBeforeWithdrawals,
       availableForWithdrawal: data.financial.availableForWithdrawal,
       accountAdjustmentIncome: data.accountAdjustmentTotals.income,
       accountAdjustmentExpenses: data.accountAdjustmentTotals.expenses,
@@ -7580,14 +7671,19 @@ function comparisonReportRows(data) {
   const previousOrders = previousReportOrders(data);
   const previousStore = previousReportStoreSales(data);
   const previousTotals = cashTotals(previousCash);
+  const previousFinancial = financialSummary(previousCash);
   const previousOrderQuantity = previousOrders.reduce((sum, order) => sum + orderQuantity(order), 0);
   const previousStoreQuantity = previousStore.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+  const previousOrderRevenue = previousOrders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
+  const previousAverageTicket = previousOrders.length ? previousOrderRevenue / previousOrders.length : 0;
   return [
     ["Entradas", data.income, previousTotals.income],
     ["Saídas", data.expenses, previousTotals.expenses],
-    ["Saldo", data.balance, previousTotals.balance],
+    ["Lucro", data.financial.profitBeforeWithdrawals, previousFinancial.profitBeforeWithdrawals],
+    ["Retiradas", data.financial.withdrawals.total, previousFinancial.withdrawals.total],
     ["Pedidos", data.orders.length, previousOrders.length],
-    ["Cumbucas", data.totalSoldQuantity, previousOrderQuantity + previousStoreQuantity]
+    ["Cumbucas", data.totalSoldQuantity, previousOrderQuantity + previousStoreQuantity],
+    ["Ticket médio", data.averageTicket, previousAverageTicket]
   ].map(([label, current, previous]) => ({
     label,
     current,
@@ -7835,7 +7931,10 @@ function withdrawalPersonReportPanel(data) {
   const groups = withdrawalHistoryGroups(data.financial.withdrawalEntries);
   return `
     <section class="panel report-section withdrawal-person-panel">
-      <h2>Retiradas por pessoa ${reportTitleSuffix(data)}</h2>
+      <div class="section-heading">
+        <h2>Retiradas por pessoa ${reportTitleSuffix(data)}</h2>
+        <button class="secondary" type="button" data-export-withdrawals>Exportar CSV</button>
+      </div>
       <div class="table-wrap report-table">
         <table>
           <thead><tr><th>Destino</th><th>Total da semana</th><th>Total do mês</th><th>Diferença da semana</th></tr></thead>
@@ -7873,6 +7972,20 @@ function withdrawalPersonReportPanel(data) {
       ` : `<p class="muted">Nenhuma retirada neste período.</p>`}
     </section>
   `;
+}
+
+function exportWithdrawalReport(data = reportData()) {
+  const rows = withdrawalHistoryGroups(data.financial.withdrawalEntries).map(group => ({
+    data: group.date,
+    cofrinho: group.savings,
+    vanessa: group.vanessa,
+    raquel: group.raquel,
+    diferenca_vanessa: group.differenceVanessa,
+    diferenca_raquel: group.differenceRaquel,
+    total: group.total
+  }));
+  const suffix = data.type === "day" ? data.date : data.type === "week" ? data.weekKey : data.periodKey;
+  downloadTextFile(`cumbuca-retiradas-${suffix}.csv`, toCsv(rows), "text/csv;charset=utf-8");
 }
 
 function weeklyClosingPayload(data) {
@@ -8196,6 +8309,129 @@ function upcomingBillsPanel({ title = "Próximas contas", limit = 6, showSummary
   `;
 }
 
+function billsStatusPanel() {
+  const today = isoDate(new Date());
+  const bills = state.cash.filter(isBillEntry);
+  const paid = bills.filter(entry => entry.paidAt);
+  const pending = bills.filter(entry => !entry.paidAt && String(entry.dueDate || entry.date || "") >= today);
+  const overdue = bills.filter(entry => !entry.paidAt && String(entry.dueDate || entry.date || "") < today);
+  const total = entries => entries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  return `
+    <section class="panel report-section">
+      <h2>Contas por situação</h2>
+      <div class="summary">
+        <div class="metric"><span>Pagas</span><strong>${paid.length}</strong><small>${money(total(paid))}</small></div>
+        <div class="metric"><span>Pendentes</span><strong>${pending.length}</strong><small>${money(total(pending))}</small></div>
+        <div class="metric"><span>Vencidas</span><strong class="${overdue.length ? "negative" : "positive"}">${overdue.length}</strong><small>${money(total(overdue))}</small></div>
+      </div>
+    </section>
+  `;
+}
+
+function cashForecastPanel(data) {
+  const today = isoDate(new Date());
+  const dailyAverage = data.type === "month"
+    ? data.financial.profitBeforeWithdrawals / Math.max(1, Number(today.slice(8, 10)))
+    : withdrawalProjection(data).dailyProfit;
+  const horizons = [7, 15, 30].map(days => {
+    const end = addDays(today, days);
+    const bills = state.cash
+      .filter(isPendingBill)
+      .filter(entry => {
+        const due = String(entry.dueDate || entry.date || "");
+        return due >= today && due <= end;
+      })
+      .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+    return {
+      days,
+      bills,
+      projected: accountBalanceUntilDate(today) + (dailyAverage * days) - bills
+    };
+  });
+  return `
+    <section class="panel report-section">
+      <h2>Fluxo de caixa futuro</h2>
+      <p class="muted-inline">Projeção pelo saldo atual, média operacional diária e contas já cadastradas.</p>
+      <div class="summary">
+        ${horizons.map(item => `
+          <div class="metric">
+            <span>Próximos ${item.days} dias</span>
+            <strong class="${item.projected < 0 ? "negative" : "positive"}">${money(item.projected)}</strong>
+            <small>Contas previstas: ${money(item.bills)}</small>
+          </div>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function accountAdjustmentsReportPanel(data) {
+  const adjustments = [...data.accountAdjustmentEntries].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const totals = cashTotals(adjustments);
+  return `
+    <section class="panel report-section">
+      <h2>Ajustes da conta ${reportTitleSuffix(data)}</h2>
+      <div class="summary">
+        <div class="metric"><span>Quantidade</span><strong>${adjustments.length}</strong></div>
+        <div class="metric"><span>Ajustes de entrada</span><strong>${money(totals.income)}</strong></div>
+        <div class="metric"><span>Ajustes de saída</span><strong>${money(totals.expenses)}</strong></div>
+        <div class="metric"><span>Saldo dos ajustes</span><strong class="${totals.balance < 0 ? "negative" : "positive"}">${money(totals.balance)}</strong></div>
+      </div>
+      ${adjustments.length ? `
+        <div class="table-wrap report-table">
+          <table>
+            <thead><tr><th>Data</th><th>Motivo</th><th>Tipo</th><th>Valor</th></tr></thead>
+            <tbody>
+              ${adjustments.map(entry => `
+                <tr>
+                  <td>${formatIsoDateBr(entry.date)}</td>
+                  <td>${escapeHtml(entry.description || "Ajuste da conta")}</td>
+                  <td>${entry.type === "expense" ? "Saída" : "Entrada"}</td>
+                  <td class="${entry.type === "expense" ? "negative" : "positive"}">${money(entry.amount)}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      ` : `<p class="muted">Nenhum ajuste no período.</p>`}
+    </section>
+  `;
+}
+
+function simplifiedStatementPanel(data) {
+  const finalResult = data.financial.profitBeforeWithdrawals - data.financial.withdrawals.total;
+  return `
+    <section class="panel report-section simplified-statement">
+      <h2>Demonstrativo financeiro</h2>
+      <div class="statement-line"><span>Receitas operacionais</span><strong>${money(data.financial.income)}</strong></div>
+      <div class="statement-line"><span>(-) Custos operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
+      <div class="statement-line"><span>(=) Lucro operacional</span><strong>${money(data.financial.profitBeforeWithdrawals)}</strong></div>
+      <div class="statement-line"><span>(-) Retiradas</span><strong>${money(data.financial.withdrawals.total)}</strong></div>
+      <div class="statement-line statement-total"><span>(=) Resultado após retiradas</span><strong class="${finalResult < 0 ? "negative" : "positive"}">${money(finalResult)}</strong></div>
+    </section>
+  `;
+}
+
+function financialAuditPanel() {
+  const rows = (state.auditLog || []).slice(0, 20);
+  return `
+    <section class="panel report-section">
+      <h2>Histórico de alterações</h2>
+      ${rows.length ? `
+        <div class="recent-list audit-list">
+          ${rows.map(entry => `
+            <span>
+              <b>${escapeHtml(entry.action)}</b>
+              ${escapeHtml(entry.detail)}
+              <small>${escapeHtml(entry.user || "Sistema")} - ${new Date(entry.createdAt).toLocaleString("pt-BR")}</small>
+            </span>
+          `).join("")}
+        </div>
+      ` : `<p class="muted">Nenhuma alteração registrada ainda.</p>`}
+    </section>
+  `;
+}
+
 function withdrawalProjection(data) {
   const bounds = reportPeriodBounds(data);
   const today = isoDate(new Date());
@@ -8261,6 +8497,47 @@ function withdrawalProjectionPanel(data) {
   `;
 }
 
+function financialCyclePanel() {
+  const planning = state.financialPlanning || {};
+  const hasCycle = Boolean(planning.cycleStartDate);
+  return `
+    <section class="panel report-section financial-cycle-panel">
+      <div class="section-heading">
+        <div>
+          <h2>Ciclo financeiro</h2>
+          <p class="muted-inline">Define o ponto inicial do saldo bancário e do cofrinho sem alterar o resultado operacional.</p>
+        </div>
+      </div>
+      ${hasCycle ? `
+        <div class="summary">
+          <div class="metric"><span>Início do ciclo</span><strong>${formatIsoDateBr(planning.cycleStartDate)}</strong></div>
+          <div class="metric"><span>Saldo inicial da conta</span><strong>${money(planning.openingBalance)}</strong></div>
+          <div class="metric"><span>Cofrinho inicial</span><strong>${money(planning.openingSavings)}</strong></div>
+          <div class="metric"><span>Observação</span><strong>${escapeHtml(planning.cycleNote || "Sem observação")}</strong></div>
+        </div>
+      ` : `<p class="muted">Nenhum ciclo financeiro definido.</p>`}
+      <details>
+        <summary>${hasCycle ? "Atualizar dados do ciclo" : "Definir saldo inicial"}</summary>
+        <form id="financial-cycle-form" class="form-grid">
+          <label>Data inicial
+            <input name="date" type="date" value="${planning.cycleStartDate || isoDate(new Date())}" required>
+          </label>
+          <label>Saldo inicial da conta
+            <input name="openingBalance" type="text" inputmode="decimal" value="${moneyInputValue(planning.openingBalance)}" required>
+          </label>
+          <label>Saldo inicial do cofrinho
+            <input name="openingSavings" type="text" inputmode="decimal" value="${moneyInputValue(planning.openingSavings)}" required>
+          </label>
+          <label>Observação
+            <input name="note" value="${escapeHtml(planning.cycleNote || "")}" placeholder="Ex.: início após conferência bancária">
+          </label>
+          <button type="submit">Salvar ciclo</button>
+        </form>
+      </details>
+    </section>
+  `;
+}
+
 function financialPlanningPanel() {
   const planning = state.financialPlanning || {};
 
@@ -8305,6 +8582,52 @@ function financialPlanningPanel() {
 }
 
 function bindFinancialPlanning() {
+  const cycleForm = document.querySelector("#financial-cycle-form");
+  if (cycleForm) {
+    cycleForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      const values = readForm(event.currentTarget);
+      const date = values.date || isoDate(new Date());
+      const openingBalance = parseMoneyInput(values.openingBalance);
+      const openingSavings = parseMoneyInput(values.openingSavings);
+      const existingOpeningEntry = state.cash.find(entry => entry.category === "ajuste-conta" && entry.cycleOpening);
+      if (blockClosedPeriod(date, "definir saldo inicial")) {
+        return;
+      }
+      if (existingOpeningEntry && existingOpeningEntry.date !== date && blockClosedPeriod(existingOpeningEntry.date, "mover saldo inicial")) {
+        return;
+      }
+      if (state.cash.length && !existingOpeningEntry && !confirm("Já existem movimentações. Deseja registrar este saldo inicial mesmo assim?")) {
+        return;
+      }
+      state.cash = state.cash.filter(entry => !entry.cycleOpening);
+      if (Math.abs(openingBalance) >= 0.01) {
+        state.cash.push({
+          id: `cycle-opening-${Date.now()}`,
+          description: "Saldo inicial do ciclo financeiro",
+          date,
+          type: openingBalance >= 0 ? "income" : "expense",
+          category: "ajuste-conta",
+          amount: Math.abs(openingBalance).toFixed(2),
+          cycleOpening: true
+        });
+      }
+      state.financialPlanning = {
+        ...(state.financialPlanning || {}),
+        cycleStartDate: date,
+        openingBalance: openingBalance.toFixed(2),
+        openingSavings: openingSavings.toFixed(2),
+        cycleNote: String(values.note || "").trim(),
+        savings: openingSavings.toFixed(2),
+        savingsUpdatedAt: date
+      };
+      recordAudit("Ciclo financeiro definido", `${formatIsoDateBr(date)} - conta ${money(openingBalance)} - cofrinho ${money(openingSavings)}`);
+      if (await persistState()) {
+        renderFinance();
+      }
+    });
+  }
+
   const form = document.querySelector("#financial-planning-form");
   if (!form) {
     return;
@@ -8320,7 +8643,11 @@ function bindFinancialPlanning() {
       partnersHistory: partnersHistoryRows(),
       monthlyGoal: parseMoneyInput(values.monthlyGoal).toFixed(2),
       improvements: textLines(values.improvements),
-      purchases: textLines(values.purchases)
+      purchases: textLines(values.purchases),
+      cycleStartDate: state.financialPlanning?.cycleStartDate || "",
+      openingBalance: state.financialPlanning?.openingBalance || "",
+      openingSavings: state.financialPlanning?.openingSavings || "",
+      cycleNote: state.financialPlanning?.cycleNote || ""
     };
     recordAudit("Planejamento financeiro", `Guardado ${money(state.financialPlanning.savings)}`);
     persistState();
@@ -8530,8 +8857,7 @@ function financeDashboardPanel(data) {
     data.financial.availableForWithdrawal < 0 ? ["Retirada negativa", "As saídas e retiradas passaram do lucro do período."] : null,
     Math.abs(data.accountAdjustmentTotals.balance || 0) >= 0.01 ? ["Conta ajustada", `Ajustes da conta no período: ${money(data.accountAdjustmentTotals.balance)}.`] : null,
     dueSoon.length ? ["Contas próximas", `${dueSoon.length} conta(s) vencidas ou vencendo em até 7 dias.`] : null,
-    projection.dailyProfit < 0 ? ["Média negativa", "O período está fechando com prejuízo médio diário."] : null,
-    !expenseRanking.length ? ["Sem custos", "Nenhuma saída operacional no período filtrado."] : null
+    projection.dailyProfit < 0 ? ["Média negativa", "O período está fechando com prejuízo médio diário."] : null
   ].filter(Boolean);
 
   return `
@@ -8595,10 +8921,16 @@ function renderFinance() {
       <div class="metric report-metric"><span>Ajustes</span><strong class="${data.accountAdjustmentTotals.balance < 0 ? "negative" : "positive"}">${money(data.accountAdjustmentTotals.balance)}</strong></div>
     </section>
     ${["month", "week"].includes(reportType) ? monthlyOriginCategoryPanel(data) : ""}
+    ${simplifiedStatementPanel(data)}
     ${withdrawalProjectionPanel(data)}
+    ${cashForecastPanel(data)}
+    ${billsStatusPanel()}
     ${upcomingBillsPanel()}
+    ${financialCyclePanel()}
     ${financialPlanningPanel()}
     ${withdrawalPersonReportPanel(data)}
+    ${accountAdjustmentsReportPanel(data)}
+    ${financialAuditPanel()}
     ${weeklyClosingPanel(data)}
     ${reportType === "month" ? monthlyClosingPanel(data) : ""}
     <section class="panel report-section">
@@ -8618,6 +8950,9 @@ function renderFinance() {
   bindReportPeriodForm(renderFinance, "financeiro");
   bindMonthlyClosing(data, renderFinance);
   bindFinancialPlanning();
+  document.querySelectorAll("[data-export-withdrawals]").forEach(button => {
+    button.addEventListener("click", () => exportWithdrawalReport(data));
+  });
 }
 
 function renderReports() {
@@ -8701,13 +9036,17 @@ function renderReports() {
       <div class="metric report-metric"><span>Mensalistas</span><strong>${data.monthlyClients}</strong></div>
     </section>
     ${upcomingBillsPanel({ title: "Boletos pendentes", limit: 12, showSummary: true, includeOverdue: false })}
+    ${billsStatusPanel()}
+    ${cashForecastPanel(data)}
     ${["month", "week"].includes(reportType) ? monthlyOriginCategoryPanel(data) : ""}
     ${["month", "week"].includes(reportType) ? comparisonReportPanel(data) : ""}
+    ${simplifiedStatementPanel(data)}
     ${channelReportPanel(data)}
     ${dishRankingPanel(data)}
     ${clientReportPanel(data)}
 
     ${withdrawalPersonReportPanel(data)}
+    ${accountAdjustmentsReportPanel(data)}
     ${weeklyClosingPanel(data)}
     ${reportType === "month" ? monthlyClosingPanel(data) : ""}
     <section class="panel report-section">
@@ -8738,6 +9077,9 @@ function renderReports() {
     button.addEventListener("click", event => {
       exportReport(event.currentTarget.dataset.exportReport);
     });
+  });
+  document.querySelectorAll("[data-export-withdrawals]").forEach(button => {
+    button.addEventListener("click", () => exportWithdrawalReport(data));
   });
   bindMonthlyClosing(data, renderReports);
 }
@@ -9099,6 +9441,7 @@ function reportExportPayload(data = reportData()) {
       totalIncome: data.totalIncome,
       expenses: data.expenses,
       operationalExpenses: data.financial.operationalExpenses,
+      profitBeforeWithdrawals: data.financial.profitBeforeWithdrawals,
       availableForWithdrawal: data.financial.availableForWithdrawal,
       accountAdjustmentIncome: data.accountAdjustmentTotals.income,
       accountAdjustmentExpenses: data.accountAdjustmentTotals.expenses,
@@ -9649,6 +9992,7 @@ function backupPreviewText(result) {
     `Menus: ${preview.menus || 0}`,
     `Loja: ${preview.storeSales || 0}`,
     `Canais: ${preview.channelReceipts || 0}`,
+    `Auditoria: ${preview.auditLog || 0}`,
     `Fechamentos mensais: ${preview.monthlyClosings || 0}`,
     `Fechamentos semanais: ${preview.weeklyClosings || 0}`
   ].join("\n");

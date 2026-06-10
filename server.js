@@ -34,6 +34,7 @@ const stateKeys = [
   "suppliers",
   "expenseReasons",
   "archivedExpenseReasons",
+  "auditLog",
   "monthlyClosings",
   "weeklyClosings",
   "pricingIngredients",
@@ -69,6 +70,7 @@ const defaultState = {
   suppliers: [],
   expenseReasons: [],
   archivedExpenseReasons: [],
+  auditLog: [],
   monthlyClosings: {},
   weeklyClosings: {},
   pricingIngredients: [],
@@ -76,9 +78,16 @@ const defaultState = {
   cashFilter: { period: "all" },
   financialPlanning: {
     savings: "",
+    savingsUpdatedAt: "",
+    savingsHistory: [],
+    partnersHistory: [],
     monthlyGoal: "",
     improvements: [],
-    purchases: []
+    purchases: [],
+    cycleStartDate: "",
+    openingBalance: "",
+    openingSavings: "",
+    cycleNote: ""
   },
   appConfig: {
     storeName: "Cumbuca",
@@ -599,25 +608,27 @@ async function changeOwnPassword(user, payload = {}) {
   };
 }
 
-async function writeAutomaticBackup(payload = {}) {
+async function writeAutomaticBackup(payload = {}, { source = "automatic", protect = false } = {}) {
   if (!await ensureBackupTable()) {
-    return false;
+    return { database: false, saved: false };
   }
 
-  await db.query(
+  const backupSource = protect ? "pre-reset" : source;
+  const result = await db.query(
     `insert into cumbuca_app_backups (backup_date, payload, created_at, updated_at)
      values (current_date, $1::jsonb, now(), now())
      on conflict (backup_date)
-     do update set payload = excluded.payload, updated_at = now()`,
+     do update set payload = excluded.payload, updated_at = now()
+     where coalesce(cumbuca_app_backups.payload->>'source', '') <> 'pre-reset'`,
     [JSON.stringify({
       app: "Cumbuca",
       version: "1.0.0",
       exportedAt: new Date().toISOString(),
-      source: "automatic",
+      source: backupSource,
       data: normalizeState(payload)
     })]
   );
-  return true;
+  return { database: true, saved: result.rowCount > 0, protected: protect };
 }
 
 async function listBackups() {
@@ -740,6 +751,7 @@ function backupPreview(payload = {}) {
     menuDates: data.menuDatesByPeriod && typeof data.menuDatesByPeriod === "object" ? Object.keys(data.menuDatesByPeriod).length : 0,
     storeSales: Array.isArray(data.storeSales) ? data.storeSales.length : 0,
     channelReceipts: Array.isArray(data.channelReceipts) ? data.channelReceipts.length : 0,
+    auditLog: Array.isArray(data.auditLog) ? data.auditLog.length : 0,
     monthlyClosings: data.monthlyClosings && typeof data.monthlyClosings === "object" ? Object.keys(data.monthlyClosings).length : 0,
     weeklyClosings: data.weeklyClosings && typeof data.weeklyClosings === "object" ? Object.keys(data.weeklyClosings).length : 0
   };
@@ -803,8 +815,8 @@ async function writeAppState(payload = {}) {
     );
   }
 
-  await writeAutomaticBackup(payload);
-  return { database: true, saved: entries.map(([key]) => key), backup: true };
+  const backup = await writeAutomaticBackup(payload);
+  return { database: true, saved: entries.map(([key]) => key), backup: Boolean(backup.saved || backup.database) };
 }
 
 async function resetAppState(user = null) {
@@ -813,7 +825,10 @@ async function resetAppState(user = null) {
   }
 
   const current = await readAppState();
-  await writeAutomaticBackup(current.state);
+  const backupSaved = await writeAutomaticBackup(current.state, { protect: true });
+  if (!backupSaved.saved) {
+    return { database: true, reset: false, backup: false, error: "O backup de segurança falhou. Nenhum dado foi apagado." };
+  }
   await db.query("delete from cumbuca_app_state where key = any($1::text[])", [stateKeys]);
   await writeEvent("limpeza_completa", "Estado do sistema apagado após backup automático.", user);
   return { database: true, reset: true, backup: true, state: normalizeState({}) };
@@ -825,11 +840,22 @@ async function resetFinancialState(user = null) {
   }
 
   const current = await readAppState();
-  const backupSaved = await writeAutomaticBackup(current.state);
-  if (!backupSaved) {
+  const backupSaved = await writeAutomaticBackup(current.state, { protect: true });
+  if (!backupSaved.saved) {
     return { database: true, reset: false, backup: false, error: "O backup de segurança falhou. Nenhum dado foi apagado." };
   }
   const nextState = normalizeState(current.state);
+  nextState.financialPlanning = {
+    ...(nextState.financialPlanning || {}),
+    savings: "",
+    savingsUpdatedAt: "",
+    savingsHistory: [],
+    partnersHistory: [],
+    cycleStartDate: "",
+    openingBalance: "",
+    openingSavings: "",
+    cycleNote: ""
+  };
   const client = await db.connect();
   try {
     await client.query("begin");
@@ -843,6 +869,13 @@ async function resetFinancialState(user = null) {
         [key, JSON.stringify(nextState[key])]
       );
     }
+    await client.query(
+      `insert into cumbuca_app_state (key, value, updated_at)
+       values ('financialPlanning', $1::jsonb, now())
+       on conflict (key)
+       do update set value = excluded.value, updated_at = now()`,
+      [JSON.stringify(nextState.financialPlanning)]
+    );
     await client.query("commit");
   } catch (error) {
     await client.query("rollback");
@@ -855,7 +888,7 @@ async function resetFinancialState(user = null) {
     database: true,
     reset: true,
     backup: true,
-    resetKeys: financialResetKeys,
+    resetKeys: [...financialResetKeys, "financialPlanning"],
     state: nextState
   };
 }
@@ -982,9 +1015,9 @@ function buildReportPdf(payload = {}) {
   doc.roundedRect(42, 310, 510, 120, 8).stroke("#d1d5db");
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(12).text("Resumo da capa", 62, 330);
   doc.fillColor("#121417").font("Helvetica").fontSize(11)
-    .text(`Saldo: ${brl(data.balance)}`, 62, 358)
-    .text(`Entradas: ${brl(data.totalIncome)}`, 62, 382)
-    .text(`Saídas: ${brl(data.expenses)}`, 62, 406);
+    .text(`Lucro operacional: ${brl(data.profitBeforeWithdrawals)}`, 62, 358)
+    .text(`Saldo da conta: ${brl(data.accountBalance)}`, 62, 382)
+    .text(`Disponível para retirada: ${brl(data.availableForWithdrawal)}`, 62, 406);
   doc.fillColor("#69707d").fontSize(9).text("Conferir os lançamentos e assinar o fechamento ao final do relatório.", 42, 760, {
     width: 510,
     align: "center"
@@ -1000,11 +1033,13 @@ function buildReportPdf(payload = {}) {
   });
 
   const summary = [
-    ["Total", brl(data.balance)],
-    ["Entradas", brl(data.totalIncome)],
-    ["Saídas", brl(data.expenses)],
-    ["Disponível retirada", brl(data.availableForWithdrawal)],
+    ["Entradas operacionais", brl(data.totalIncome)],
+    ["Saídas operacionais", brl(data.operationalExpenses)],
+    ["Lucro operacional", brl(data.profitBeforeWithdrawals)],
+    ["Disponível para retirada", brl(data.availableForWithdrawal)],
     ["Retiradas", brl(data.withdrawalTotal)],
+    ["Saldo da conta", brl(data.accountBalance)],
+    ["Ajustes da conta", brl(data.accountAdjustmentBalance)],
     ["Cofrinho atual", brl(data.savingsBalance)],
     ["Cumbucas", data.totalSoldQuantity || 0],
     ["Semanal", data.weeklyCashQuantity || 0],
@@ -1022,7 +1057,7 @@ function buildReportPdf(payload = {}) {
     doc.fillColor(index === 0 ? "#ffffff" : "#121417").fontSize(14).text(pdfText(value), x + 10, y + 24, { width: boxWidth - 20 });
   });
 
-  doc.y = summary.length > 6 ? 300 : 235;
+  doc.y = 105 + Math.ceil(summary.length / 3) * 58 + 20;
   addPdfSectionTitle(doc, "Resumo de entradas");
   addPdfTable(doc, ["Grupo", "Origem", "Valor"], data.incomeSummaryRows || [
     ["Conta", "Total da conta", brl(data.accountIncome ?? data.totalIncome ?? 0)],
@@ -1075,12 +1110,13 @@ async function buildReportXlsx(payload = {}) {
   const zip = new JSZip();
   const summaryRows = [
     ["Período", payload.periodLabel || data.periodKey || ""],
-    ["Saldo", data.balance || 0],
-    ["Entradas", data.totalIncome || 0],
-    ["Saídas", data.expenses || 0],
+    ["Entradas operacionais", data.totalIncome || 0],
     ["Saídas operacionais", data.operationalExpenses || 0],
+    ["Lucro operacional", data.profitBeforeWithdrawals || 0],
     ["Retiradas", data.withdrawalTotal || 0],
-    ["Disponível retirada", data.availableForWithdrawal || 0],
+    ["Disponível para retirada", data.availableForWithdrawal || 0],
+    ["Saldo da conta", data.accountBalance || 0],
+    ["Ajustes da conta", data.accountAdjustmentBalance || 0],
     ["Cofrinho atual", data.savingsBalance || 0],
     ["Atualização cofrinho", data.savingsUpdatedAt || ""],
     ["Cumbucas semanal", data.weeklyCashQuantity || 0],
@@ -1369,7 +1405,7 @@ async function handleRequest(req, res) {
     if (req.method === "POST" && url.pathname === "/api/manual-backup") {
       const payload = await collectBody(req);
       const statePayload = normalizeState(payload.state || payload);
-      const result = await writeAutomaticBackup(statePayload);
+      const result = await writeAutomaticBackup(statePayload, { source: "manual" });
       if (result.database && result.saved) {
         await writeEvent("backup_manual_supabase", "Backup manual salvo no Supabase.", user);
       }
