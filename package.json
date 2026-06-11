@@ -9,7 +9,7 @@
     "check": "node --check server.js && node --check public/app.js",
     "test": "node --test",
     "verify": "npm run check && npm test",
-    "deploy": "npm run verify && vercel --prod --yes"
+    "deploy": "npm run verify && npx vercel --prod --yes"
   },
   "dependencies": {
     "jszip": "^3.10.1",
