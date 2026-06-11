@@ -456,6 +456,8 @@ const state = {
     delivery: "all"
   }),
   maintenanceTab: localValue("maintenanceTab", "backup"),
+  financeViewTab: localValue("financeViewTab", "summary"),
+  reportViewTab: localValue("reportViewTab", "summary"),
   currentUser: null,
   database: false
 };
@@ -690,6 +692,49 @@ function canAccessMaintenanceTab(tab) {
 function setMaintenanceTab(tab) {
   state.maintenanceTab = canAccessMaintenanceTab(tab) ? tab : "backup";
   localStorage.setItem("maintenanceTab", JSON.stringify(state.maintenanceTab));
+}
+
+function bindViewTabs(storageKey, renderFn) {
+  document.querySelectorAll(`[data-view-tab-group="${storageKey}"] [data-view-tab]`).forEach(button => {
+    button.addEventListener("click", event => {
+      const tab = event.currentTarget.dataset.viewTab;
+      state[storageKey] = tab;
+      localStorage.setItem(storageKey, JSON.stringify(tab));
+      renderFn();
+    });
+  });
+}
+
+function viewTabsHtml(storageKey, activeTab, tabs) {
+  return `
+    <section class="panel view-tabs-panel">
+      <div class="view-tabs" role="tablist" aria-label="Visualizações" data-view-tab-group="${storageKey}">
+        ${tabs.map(([key, label]) => `
+          <button class="secondary ${activeTab === key ? "active" : ""}" type="button" data-view-tab="${key}">${label}</button>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function viewPaneHtml(tab, activeTab, content) {
+  return `<div class="view-pane" data-view-pane="${tab}" ${activeTab === tab ? "" : "hidden"}>${content}</div>`;
+}
+
+function enhanceResponsiveTables(container = document) {
+  container.querySelectorAll(".table-wrap table").forEach(table => {
+    const labels = [...table.querySelectorAll("thead th")].map(cell => cell.textContent.trim());
+    if (!labels.length) {
+      return;
+    }
+    table.querySelectorAll("tbody tr").forEach(row => {
+      [...row.children].forEach((cell, index) => {
+        if (!cell.dataset.label && labels[index]) {
+          cell.dataset.label = labels[index];
+        }
+      });
+    });
+  });
 }
 
 async function latestBackupPayload() {
@@ -8970,6 +9015,15 @@ function renderFinance() {
   const data = reportData();
   const reportType = state.reportPeriod.type || "month";
   const weekRange = reportWeekRange();
+  const tabs = [
+    ["summary", "Resumo"],
+    ["cash", "Fluxo e contas"],
+    ["planning", "Planejamento"],
+    ["withdrawals", "Retiradas"],
+    ["audit", "Auditoria"],
+    ["closing", "Fechamento"]
+  ];
+  const activeTab = tabs.some(([key]) => key === state.financeViewTab) ? state.financeViewTab : "summary";
 
   app.innerHTML = `
     ${financeFilterPanel(reportType, weekRange)}
@@ -8992,37 +9046,50 @@ function renderFinance() {
       <div class="metric report-metric"><span>Saldo da conta</span><strong class="${data.accountBalance < 0 ? "negative" : "positive"}">${money(data.accountBalance)}</strong></div>
       <div class="metric report-metric"><span>Ajustes</span><strong class="${data.accountAdjustmentTotals.balance < 0 ? "negative" : "positive"}">${money(data.accountAdjustmentTotals.balance)}</strong></div>
     </section>
-    ${["month", "week"].includes(reportType) ? monthlyOriginCategoryPanel(data) : ""}
-    ${simplifiedStatementPanel(data)}
-    ${withdrawalProjectionPanel(data)}
-    ${cashForecastPanel(data)}
-    ${billsStatusPanel()}
-    ${upcomingBillsPanel()}
-    ${financialCyclePanel()}
-    ${financialPlanningPanel()}
-    ${withdrawalPersonReportPanel(data)}
-    ${accountAdjustmentsReportPanel(data)}
-    ${financialAuditPanel()}
-    ${weeklyClosingPanel(data)}
-    ${reportType === "month" ? monthlyClosingPanel(data) : ""}
-    <section class="panel report-section">
-      <h2>O que entrou no caixa ${reportTitleSuffix(data)}</h2>
-      ${reportIncomeCashTable(data)}
-    </section>
-    <section class="panel report-section">
-      <h2>O que entrou com o semanal ${reportTitleSuffix(data)}</h2>
-      ${reportOrdersTable(data)}
-    </section>
-    <section class="panel report-section">
-      <h2>O que saiu em saídas ${reportTitleSuffix(data)}</h2>
-      ${reportExpenseOutTable(data)}
-    </section>
+    ${viewTabsHtml("financeViewTab", activeTab, tabs)}
+    ${viewPaneHtml("summary", activeTab, `
+      ${["month", "week"].includes(reportType) ? monthlyOriginCategoryPanel(data) : ""}
+      ${simplifiedStatementPanel(data)}
+      ${withdrawalProjectionPanel(data)}
+    `)}
+    ${viewPaneHtml("cash", activeTab, `
+      ${cashForecastPanel(data)}
+      ${billsStatusPanel()}
+      ${upcomingBillsPanel()}
+      <section class="panel report-section">
+        <h2>O que entrou no caixa ${reportTitleSuffix(data)}</h2>
+        ${reportIncomeCashTable(data)}
+      </section>
+      <section class="panel report-section">
+        <h2>O que entrou com o semanal ${reportTitleSuffix(data)}</h2>
+        ${reportOrdersTable(data)}
+      </section>
+      <section class="panel report-section">
+        <h2>O que saiu em saídas ${reportTitleSuffix(data)}</h2>
+        ${reportExpenseOutTable(data)}
+      </section>
+    `)}
+    ${viewPaneHtml("planning", activeTab, `
+      ${financialCyclePanel()}
+      ${financialPlanningPanel()}
+    `)}
+    ${viewPaneHtml("withdrawals", activeTab, `
+      ${withdrawalPersonReportPanel(data)}
+      ${accountAdjustmentsReportPanel(data)}
+    `)}
+    ${viewPaneHtml("audit", activeTab, financialAuditPanel())}
+    ${viewPaneHtml("closing", activeTab, `
+      ${weeklyClosingPanel(data)}
+      ${reportType === "month" ? monthlyClosingPanel(data) : ""}
+    `)}
   `;
 
   bindReportPeriodForm(renderFinance, "financeiro");
+  bindViewTabs("financeViewTab", renderFinance);
   bindMonthlyClosing(data, renderFinance);
   loadFinancialIntegrity();
   bindFinancialPlanning();
+  enhanceResponsiveTables(app);
   document.querySelectorAll("[data-export-withdrawals]").forEach(button => {
     button.addEventListener("click", () => exportWithdrawalReport(data));
   });
@@ -9034,9 +9101,17 @@ function renderReports() {
   const data = reportData();
   const reportType = state.reportPeriod.type || "month";
   const weekRange = reportWeekRange();
+  const tabs = [
+    ["summary", "Resumo"],
+    ["income", "Entradas"],
+    ["expenses", "Saídas"],
+    ["withdrawals", "Retiradas"],
+    ["closing", "Fechamento"]
+  ];
+  const activeTab = tabs.some(([key]) => key === state.reportViewTab) ? state.reportViewTab : "summary";
 
   app.innerHTML = `
-    <section class="panel report-panel">
+    <section class="panel report-panel report-toolbar">
       <form id="report-filter-form" class="period-picker report-filter" data-period="${reportType}">
         <label>Período
           <select name="type" id="report-period-type">
@@ -9089,62 +9164,62 @@ function renderReports() {
 
     <section class="report-grid">
       <div class="metric report-metric"><span>Receita de pedidos</span><strong>${money(data.orderRevenue)}</strong></div>
-      <div class="metric report-metric"><span>Cumbucas vendidas</span><strong>${data.totalQuantity}</strong></div>
-      <div class="metric report-metric"><span>Cumbucas loja</span><strong>${data.storeQuantity}</strong></div>
       <div class="metric report-metric"><span>Total cumbucas</span><strong>${data.totalSoldQuantity}</strong></div>
-      <div class="metric report-metric"><span>Frete arrecadado</span><strong>${money(data.deliveryRevenue)}</strong></div>
       <div class="metric report-metric"><span>Entradas no caixa</span><strong>${money(data.income)}</strong></div>
-      <div class="metric report-metric"><span>Saídas no caixa</span><strong>${money(data.expenses)}</strong></div>
-      <div class="metric report-metric"><span>Resultado operacional</span><strong class="${data.balance < 0 ? "negative" : "positive"}">${money(data.balance)}</strong></div>
       <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
-      <div class="metric report-metric"><span>Ajustes da conta</span><strong class="${data.accountAdjustmentTotals.balance < 0 ? "negative" : "positive"}">${money(data.accountAdjustmentTotals.balance)}</strong></div>
       <div class="metric report-metric"><span>Saldo da conta</span><strong class="${data.accountBalance < 0 ? "negative" : "positive"}">${money(data.accountBalance)}</strong></div>
       <div class="metric report-metric"><span>Lucro antes retiradas</span><strong class="${data.financial.profitBeforeWithdrawals < 0 ? "negative" : "positive"}">${money(data.financial.profitBeforeWithdrawals)}</strong></div>
       <div class="metric report-metric"><span>Retiradas feitas</span><strong>${money(data.financial.withdrawals.total)}</strong></div>
-      <div class="metric report-metric"><span>Cofrinho atual</span><strong>${money(data.savingsBalance)}</strong></div>
       <div class="metric report-metric"><span>Disponível para retirada</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
-      <div class="metric report-metric"><span>Pedidos pagos</span><strong>${data.paidOrders}</strong></div>
-      <div class="metric report-metric"><span>Pedidos pendentes</span><strong>${data.pendingOrders}</strong></div>
-      <div class="metric report-metric"><span>Clientes semanais</span><strong>${data.weeklyClients}</strong></div>
-      <div class="metric report-metric"><span>Mensalistas</span><strong>${data.monthlyClients}</strong></div>
     </section>
-    ${upcomingBillsPanel({ title: "Boletos pendentes", limit: 12, showSummary: true, includeOverdue: false })}
-    ${billsStatusPanel()}
-    ${cashForecastPanel(data)}
-    ${["month", "week"].includes(reportType) ? monthlyOriginCategoryPanel(data) : ""}
-    ${["month", "week"].includes(reportType) ? comparisonReportPanel(data) : ""}
-    ${simplifiedStatementPanel(data)}
-    ${channelReportPanel(data)}
-    ${dishRankingPanel(data)}
-    ${clientReportPanel(data)}
-
-    ${withdrawalPersonReportPanel(data)}
-    ${accountAdjustmentsReportPanel(data)}
-    ${weeklyClosingPanel(data)}
-    ${reportType === "month" ? monthlyClosingPanel(data) : ""}
-    <section class="panel report-section">
-      <h2>O que entrou no caixa ${reportTitleSuffix(data)}</h2>
-      ${reportIncomeCashTable(data)}
-    </section>
-    <section class="panel report-section">
-      <h2>O que entrou com o semanal ${reportTitleSuffix(data)}</h2>
-      ${reportOrdersTable(data)}
-    </section>
-    <section class="panel report-section">
-      <h2>O que saiu em saídas ${reportTitleSuffix(data)}</h2>
-      ${reportExpenseOutTable(data)}
-    </section>
-    <section class="panel report-section">
-      <h2>Caixa ${reportTitleSuffix(data)}</h2>
-      ${reportCashTable(data)}
-    </section>
-    <section class="panel report-section">
-      <h2>Cardápio e produção</h2>
-      ${reportMenuTable(data)}
-    </section>
+    ${viewTabsHtml("reportViewTab", activeTab, tabs)}
+    ${viewPaneHtml("summary", activeTab, `
+      ${cashForecastPanel(data)}
+      ${["month", "week"].includes(reportType) ? monthlyOriginCategoryPanel(data) : ""}
+      ${["month", "week"].includes(reportType) ? comparisonReportPanel(data) : ""}
+      ${simplifiedStatementPanel(data)}
+      ${dishRankingPanel(data)}
+      ${clientReportPanel(data)}
+      <section class="panel report-section">
+        <h2>Cardápio e produção</h2>
+        ${reportMenuTable(data)}
+      </section>
+    `)}
+    ${viewPaneHtml("income", activeTab, `
+      ${channelReportPanel(data)}
+      <section class="panel report-section">
+        <h2>O que entrou no caixa ${reportTitleSuffix(data)}</h2>
+        ${reportIncomeCashTable(data)}
+      </section>
+      <section class="panel report-section">
+        <h2>O que entrou com o semanal ${reportTitleSuffix(data)}</h2>
+        ${reportOrdersTable(data)}
+      </section>
+    `)}
+    ${viewPaneHtml("expenses", activeTab, `
+      ${upcomingBillsPanel({ title: "Boletos pendentes", limit: 12, showSummary: true, includeOverdue: false })}
+      ${billsStatusPanel()}
+      <section class="panel report-section">
+        <h2>O que saiu em saídas ${reportTitleSuffix(data)}</h2>
+        ${reportExpenseOutTable(data)}
+      </section>
+      <section class="panel report-section">
+        <h2>Caixa ${reportTitleSuffix(data)}</h2>
+        ${reportCashTable(data)}
+      </section>
+    `)}
+    ${viewPaneHtml("withdrawals", activeTab, `
+      ${withdrawalPersonReportPanel(data)}
+      ${accountAdjustmentsReportPanel(data)}
+    `)}
+    ${viewPaneHtml("closing", activeTab, `
+      ${weeklyClosingPanel(data)}
+      ${reportType === "month" ? monthlyClosingPanel(data) : ""}
+    `)}
   `;
 
   bindReportPeriodForm(renderReports, "relatorios");
+  bindViewTabs("reportViewTab", renderReports);
 
   document.querySelectorAll("[data-export-report]").forEach(button => {
     button.addEventListener("click", event => {
@@ -9155,6 +9230,7 @@ function renderReports() {
     button.addEventListener("click", () => exportWithdrawalReport(data));
   });
   bindMonthlyClosing(data, renderReports);
+  enhanceResponsiveTables(app);
 }
 
 async function renderBackups() {
@@ -9194,6 +9270,7 @@ async function renderBackups() {
       <div class="maintenance-tabs" role="tablist" aria-label="Manutenção">
         ${[
           ["backup", "Backup"],
+          ["integrity", "Integridade"],
           ["database", "Banco"],
           ["users", "Usuários"],
           ["events", "Log"],
@@ -9211,22 +9288,10 @@ async function renderBackups() {
         <div class="backup-actions">
           <button type="button" id="manual-backup-download">Baixar backup JSON</button>
           <button class="secondary" type="button" id="manual-backup-supabase">Salvar no Supabase</button>
-          <button class="secondary" type="button" id="system-check-run">Verificar sistema</button>
-          ${isAdminUser() ? `<button class="secondary" type="button" id="backup-restore-check-run">Testar restauração</button>` : ""}
           <label class="secondary file-action">
             Importar backup JSON
             <input id="manual-backup-import" type="file" accept="application/json,.json">
           </label>
-        </div>
-        <div id="system-check-panel" class="system-check-panel">
-          <p class="muted">Use a verificacao antes de operar ou depois de publicar mudancas.</p>
-        </div>
-        <div id="maintenance-financial-integrity">
-          <p class="muted">Conferindo integridade financeira...</p>
-        </div>
-        ${isAdminUser() ? `<p class="muted" id="backup-restore-check-status">O teste lê e normaliza o backup mais recente sem substituir os dados atuais.</p>` : ""}
-        <div id="system-issues-panel">
-          ${systemIssuesHtml()}
         </div>
         <div class="backup-list-state">
           <strong>Último backup manual</strong>
@@ -9240,6 +9305,28 @@ async function renderBackups() {
         ` : ""}
         <div id="automatic-backups">
           <p class="muted">Consultando backups automáticos...</p>
+        </div>
+      </section>
+      <section class="panel report-section backup-manual-panel maintenance-pane" data-maintenance-pane="integrity" ${activeTab === "integrity" ? "" : "hidden"}>
+        <div class="section-heading">
+          <div>
+            <h2>Integridade do sistema</h2>
+            <p class="muted-inline">Conferência de conexão, persistência, relatórios, saldo, fechamentos e capacidade de restauração.</p>
+          </div>
+        </div>
+        <div class="backup-actions">
+          <button type="button" id="system-check-run">Verificar sistema</button>
+          ${isAdminUser() ? `<button class="secondary" type="button" id="backup-restore-check-run">Testar restauração</button>` : ""}
+        </div>
+        <div id="system-check-panel" class="system-check-panel">
+          <p class="muted">Execute a verificação depois de publicações ou antes de operações críticas.</p>
+        </div>
+        <div id="maintenance-financial-integrity">
+          <p class="muted">Conferindo integridade financeira...</p>
+        </div>
+        ${isAdminUser() ? `<p class="muted" id="backup-restore-check-status">O teste lê e normaliza o backup mais recente sem substituir os dados atuais.</p>` : ""}
+        <div id="system-issues-panel">
+          ${systemIssuesHtml()}
         </div>
       </section>
       <section class="panel report-section backup-manual-panel maintenance-pane" data-maintenance-pane="database" ${activeTab === "database" ? "" : "hidden"}>
@@ -9340,6 +9427,7 @@ async function renderBackups() {
   loadAutomaticBackups();
   loadUsersPanel();
   loadTechnicalEvents();
+  enhanceResponsiveTables(app);
   on("#manual-backup-import", "change", async event => {
     const file = event.currentTarget.files?.[0];
     if (!file) {
@@ -9945,6 +10033,7 @@ async function loadAutomaticBackups() {
     const response = await fetch("/api/backups", { cache: "no-store" });
     const result = await response.json();
     target.innerHTML = automaticBackupsHtml(result);
+    enhanceResponsiveTables(target);
     bindRestoreBackupButtons();
     bindDeleteBackupButtons();
   } catch (error) {
