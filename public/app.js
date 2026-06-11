@@ -9813,25 +9813,33 @@ function automaticBackupsHtml(result) {
   return `
     <div class="backup-list-state">
       <strong>Último backup automático</strong>
-      <span>${formatIsoDateBr(String(latest.backup_date || "").slice(0, 10))} - atualizado ${new Date(latest.updated_at || latest.created_at).toLocaleString("pt-BR")}</span>
+      <span>${formatIsoDateBr(String(latest.backup_date || "").slice(0, 10))} - salvo ${new Date(latest.updated_at || latest.created_at).toLocaleString("pt-BR")}</span>
     </div>
     <div class="table-wrap report-table">
       <table>
-        <thead><tr><th>Data</th><th>Criado</th><th>Atualizado</th><th></th></tr></thead>
+        <thead><tr><th>Data e hora</th><th>Tipo</th><th>Identificador</th><th></th></tr></thead>
         <tbody>
           ${result.backups.slice(0, 10).map(backup => {
             const date = String(backup.backup_date || "").slice(0, 10);
+            const reference = String(backup.backup_id || backup.backup_date || "");
+            const sourceLabels = {
+              automatic: "Automático",
+              manual: "Manual",
+              "pre-reset": "Antes da limpeza",
+              legacy: "Anterior"
+            };
+            const sourceLabel = sourceLabels[backup.source] || "Automático";
             return `
               <tr>
-                <td>${formatIsoDateBr(date)}</td>
-                <td>${new Date(backup.created_at).toLocaleString("pt-BR")}</td>
-                <td>${new Date(backup.updated_at).toLocaleString("pt-BR")}</td>
+                <td>${new Date(backup.updated_at || backup.created_at).toLocaleString("pt-BR")}</td>
+                <td>${sourceLabel}</td>
+                <td><code>${escapeHtml(reference)}</code></td>
                 <td>
                   <div class="table-actions">
-                    <a class="secondary table-action" href="/api/backup?date=${date}" target="_blank" rel="noopener">Baixar</a>
-                    ${isAdminUser() ? `<button class="secondary table-action" type="button" data-preview-auto-backup="${date}">Prévia</button>` : ""}
-                    ${isAdminUser() ? `<button class="danger table-action" type="button" data-restore-auto-backup="${date}">Restaurar</button>` : ""}
-                    ${isAdminUser() ? `<button class="danger table-action" type="button" data-delete-auto-backup="${date}">Excluir</button>` : ""}
+                    <a class="secondary table-action" href="/api/backup?id=${encodeURIComponent(reference)}" target="_blank" rel="noopener">Baixar</a>
+                    ${isAdminUser() ? `<button class="secondary table-action" type="button" data-backup-date="${date}" data-preview-auto-backup="${escapeHtml(reference)}">Prévia</button>` : ""}
+                    ${isAdminUser() ? `<button class="danger table-action" type="button" data-backup-date="${date}" data-restore-auto-backup="${escapeHtml(reference)}">Restaurar</button>` : ""}
+                    ${isAdminUser() ? `<button class="danger table-action" type="button" data-backup-date="${date}" data-delete-auto-backup="${escapeHtml(reference)}">Excluir</button>` : ""}
                   </div>
                 </td>
               </tr>
@@ -9862,17 +9870,19 @@ async function loadAutomaticBackups() {
 function bindRestoreBackupButtons() {
   document.querySelectorAll("[data-preview-auto-backup]").forEach(button => {
     button.addEventListener("click", async event => {
-      const date = event.currentTarget.dataset.previewAutoBackup;
-      const preview = await fetchBackupPreview(date);
+      const reference = event.currentTarget.dataset.previewAutoBackup;
+      const date = event.currentTarget.dataset.backupDate;
+      const preview = await fetchBackupPreview(reference);
       if (preview) {
-        showBackupPreviewModal(preview, date);
+        showBackupPreviewModal(preview, reference, date);
       }
     });
   });
 
   document.querySelectorAll("[data-restore-auto-backup]").forEach(button => {
     button.addEventListener("click", async event => {
-      const date = event.currentTarget.dataset.restoreAutoBackup;
+      const reference = event.currentTarget.dataset.restoreAutoBackup;
+      const date = event.currentTarget.dataset.backupDate;
       if (!confirm(`Restaurar o backup automático de ${formatIsoDateBr(date)}? Os dados atuais serão substituídos.`)) {
         return;
       }
@@ -9884,7 +9894,7 @@ function bindRestoreBackupButtons() {
       const response = await fetch("/api/restore-backup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date })
+        body: JSON.stringify({ id: reference })
       });
       const result = await response.json();
       if (!response.ok || !result.restored) {
@@ -9901,7 +9911,8 @@ function bindRestoreBackupButtons() {
 function bindDeleteBackupButtons() {
   document.querySelectorAll("[data-delete-auto-backup]").forEach(button => {
     button.addEventListener("click", async event => {
-      const date = event.currentTarget.dataset.deleteAutoBackup;
+      const reference = event.currentTarget.dataset.deleteAutoBackup;
+      const date = event.currentTarget.dataset.backupDate;
       if (!confirm(`Excluir o backup automático de ${formatIsoDateBr(date)}? Esta ação não pode ser desfeita.`)) {
         return;
       }
@@ -9910,7 +9921,7 @@ function bindDeleteBackupButtons() {
         showToast("Exclusão cancelada", "warning");
         return;
       }
-      const response = await fetch(`/api/backup?date=${encodeURIComponent(date)}`, {
+      const response = await fetch(`/api/backup?id=${encodeURIComponent(reference)}`, {
         method: "DELETE"
       });
       const result = await response.json();
@@ -9924,9 +9935,9 @@ function bindDeleteBackupButtons() {
   });
 }
 
-async function fetchBackupPreview(date) {
+async function fetchBackupPreview(reference) {
   try {
-    const response = await fetch(`/api/backup-preview?date=${encodeURIComponent(date)}`, { cache: "no-store" });
+    const response = await fetch(`/api/backup-preview?id=${encodeURIComponent(reference)}`, { cache: "no-store" });
     const result = await response.json();
     if (!response.ok || !result.preview) {
       showToast(result.error || "Não foi possível consultar a prévia.", "error");
@@ -9943,7 +9954,7 @@ function closeModal() {
   document.querySelector(".modal-backdrop")?.remove();
 }
 
-function showBackupPreviewModal(result, restoreDate = "") {
+function showBackupPreviewModal(result, restoreReference = "", restoreDate = "") {
   const preview = result.preview || {};
   closeModal();
   const backdrop = document.createElement("div");
@@ -9967,7 +9978,7 @@ function showBackupPreviewModal(result, restoreDate = "") {
       </div>
       <p class="muted">Atualizado: ${result.updatedAt ? new Date(result.updatedAt).toLocaleString("pt-BR") : new Date().toLocaleString("pt-BR")}</p>
       <div class="modal-actions">
-        ${restoreDate && isAdminUser() ? `<button class="danger" type="button" data-modal-restore="${restoreDate}">Restaurar este backup</button>` : ""}
+        ${restoreReference && isAdminUser() ? `<button class="danger" type="button" data-backup-date="${restoreDate}" data-modal-restore="${escapeHtml(restoreReference)}">Restaurar este backup</button>` : ""}
         <button class="secondary" type="button" data-close-modal>Fechar</button>
       </div>
     </div>
@@ -9983,11 +9994,14 @@ function showBackupPreviewModal(result, restoreDate = "") {
   });
   const restoreButton = backdrop.querySelector("[data-modal-restore]");
   if (restoreButton) {
-    restoreButton.addEventListener("click", () => restoreAutomaticBackup(restoreButton.dataset.modalRestore));
+    restoreButton.addEventListener("click", () => restoreAutomaticBackup(
+      restoreButton.dataset.modalRestore,
+      restoreButton.dataset.backupDate
+    ));
   }
 }
 
-async function restoreAutomaticBackup(date) {
+async function restoreAutomaticBackup(reference, date) {
   if (!confirm(`Restaurar o backup automático de ${formatIsoDateBr(date)}? Os dados atuais serão substituídos.`)) {
     return;
   }
@@ -9999,7 +10013,7 @@ async function restoreAutomaticBackup(date) {
   const response = await fetch("/api/restore-backup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ date })
+    body: JSON.stringify({ id: reference })
   });
   const result = await response.json();
   if (!response.ok || !result.restored) {

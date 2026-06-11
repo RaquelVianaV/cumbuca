@@ -6,7 +6,10 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "deploy": "vercel --prod --yes"
+    "check": "node --check server.js && node --check public/app.js",
+    "test": "node --test",
+    "verify": "npm run check && npm test",
+    "deploy": "npm run verify && vercel --prod --yes"
   },
   "dependencies": {
     "jszip": "^3.10.1",

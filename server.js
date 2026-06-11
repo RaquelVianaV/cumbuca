@@ -429,6 +429,30 @@ async function ensureBackupTable() {
       updated_at timestamptz not null default now()
     )
   `);
+  await db.query(`
+    create table if not exists cumbuca_app_backup_versions (
+      backup_id text primary key,
+      backup_date date not null,
+      backup_at timestamptz not null default now(),
+      source text not null default 'automatic',
+      payload jsonb not null
+    )
+  `);
+  await db.query(`
+    create index if not exists cumbuca_app_backup_versions_date_idx
+    on cumbuca_app_backup_versions (backup_date desc, backup_at desc)
+  `);
+  await db.query(`
+    insert into cumbuca_app_backup_versions (backup_id, backup_date, backup_at, source, payload)
+    select
+      'legacy-' || backup_date::text,
+      backup_date,
+      coalesce(updated_at, created_at, now()),
+      coalesce(payload->>'source', 'legacy'),
+      payload
+    from cumbuca_app_backups
+    on conflict (backup_id) do nothing
+  `);
   return true;
 }
 
@@ -608,46 +632,58 @@ async function changeOwnPassword(user, payload = {}) {
   };
 }
 
+function backupVersionId(source = "automatic", date = new Date()) {
+  const timestamp = date.toISOString();
+  const normalizedSource = String(source || "automatic")
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "automatic";
+  if (normalizedSource === "automatic") {
+    return `${timestamp.slice(0, 13)}:00:00.000Z-automatic`;
+  }
+  return `${timestamp.replace(/[-:.TZ]/g, "")}-${normalizedSource}-${crypto.randomBytes(4).toString("hex")}`;
+}
+
+function legacyBackupDate(backupReference) {
+  const reference = String(backupReference || "");
+  const date = reference.startsWith("legacy-") ? reference.slice(7) : reference;
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : "";
+}
+
 async function writeAutomaticBackup(payload = {}, { source = "automatic", protect = false } = {}) {
   if (!await ensureBackupTable()) {
     return { database: false, saved: false };
   }
 
   const backupSource = protect ? "pre-reset" : source;
+  const now = new Date();
+  const backupId = backupVersionId(backupSource, now);
   const result = await db.query(
-    `insert into cumbuca_app_backups (backup_date, payload, created_at, updated_at)
-     values (current_date, $1::jsonb, now(), now())
-     on conflict (backup_date)
-     do update set payload = excluded.payload, updated_at = now()
-     where coalesce(cumbuca_app_backups.payload->>'source', '') <> 'pre-reset'`,
-    [JSON.stringify({
+    `insert into cumbuca_app_backup_versions (backup_id, backup_date, backup_at, source, payload)
+     values ($1, $2::date, $3::timestamptz, $4, $5::jsonb)
+     on conflict (backup_id)
+     do update set backup_at = excluded.backup_at, source = excluded.source, payload = excluded.payload`,
+    [
+      backupId,
+      now.toISOString().slice(0, 10),
+      now.toISOString(),
+      backupSource,
+      JSON.stringify({
       app: "Cumbuca",
       version: "1.0.0",
-      exportedAt: new Date().toISOString(),
+      exportedAt: now.toISOString(),
       source: backupSource,
       data: normalizeState(payload)
-    })]
+      })
+    ]
   );
-  if (result.rowCount > 0) {
-    return { database: true, saved: true, protected: protect, reused: false };
-  }
-
-  if (protect) {
-    const existing = await db.query(
-      `select payload->>'source' as source
-       from cumbuca_app_backups
-       where backup_date = current_date`
-    );
-    const protectedBackupExists = existing.rows[0]?.source === "pre-reset";
-    return {
-      database: true,
-      saved: protectedBackupExists,
-      protected: true,
-      reused: protectedBackupExists
-    };
-  }
-
-  return { database: true, saved: false, protected: false, reused: false };
+  return {
+    database: true,
+    saved: result.rowCount > 0,
+    protected: protect,
+    reused: false,
+    backupId
+  };
 }
 
 async function listBackups() {
@@ -656,10 +692,15 @@ async function listBackups() {
   }
 
   const result = await db.query(`
-    select backup_date, created_at, updated_at
-    from cumbuca_app_backups
-    order by backup_date desc
-    limit 30
+    select
+      backup_id,
+      backup_date,
+      backup_at as created_at,
+      backup_at as updated_at,
+      source
+    from cumbuca_app_backup_versions
+    order by backup_at desc
+    limit 72
   `);
   return { database: true, backups: result.rows };
 }
@@ -678,11 +719,12 @@ async function databaseUsage() {
     where table_schema = 'public'
       and table_name = any($1::text[])
     order by table_name
-  `, [["cumbuca_app_state", "cumbuca_app_backups"]]);
+  `, [["cumbuca_app_state", "cumbuca_app_backups", "cumbuca_app_backup_versions"]]);
 
   const counts = {};
   counts.cumbuca_app_state = Number((await db.query("select count(*)::int as count from cumbuca_app_state")).rows[0]?.count || 0);
   counts.cumbuca_app_backups = Number((await db.query("select count(*)::int as count from cumbuca_app_backups")).rows[0]?.count || 0);
+  counts.cumbuca_app_backup_versions = Number((await db.query("select count(*)::int as count from cumbuca_app_backup_versions")).rows[0]?.count || 0);
 
   return {
     database: true,
@@ -701,45 +743,82 @@ async function deleteOldBackups(keepDays = 30) {
   }
 
   const days = Math.max(0, Math.min(3650, Number(keepDays || 30)));
-  const result = await db.query(
+  const versionResult = await db.query(
+    `delete from cumbuca_app_backup_versions
+     where backup_date < current_date - ($1::int * interval '1 day')`,
+    [days]
+  );
+  const legacyResult = await db.query(
     `delete from cumbuca_app_backups
      where backup_date < current_date - ($1::int * interval '1 day')`,
     [days]
   );
 
-  return { database: true, deleted: result.rowCount || 0, keepDays: days };
+  return {
+    database: true,
+    deleted: (versionResult.rowCount || 0) + (legacyResult.rowCount || 0),
+    keepDays: days
+  };
 }
 
-async function readBackup(backupDate) {
+async function readBackup(backupReference) {
   if (!await ensureBackupTable()) {
     return { database: false, backup: null };
   }
 
-  const result = await db.query(
-    `select backup_date, payload, created_at, updated_at
-     from cumbuca_app_backups
-     where backup_date = $1::date`,
-    [backupDate]
-  );
+  const reference = String(backupReference || "");
+  const legacyDate = legacyBackupDate(reference);
+  const isLegacyDate = Boolean(legacyDate);
+  const result = isLegacyDate
+    ? await db.query(
+      `select backup_id, backup_date, payload, backup_at as created_at, backup_at as updated_at, source
+       from cumbuca_app_backup_versions
+       where backup_id = $1 or backup_id = $2
+       order by backup_at desc
+       limit 1`,
+      [reference, `legacy-${legacyDate}`]
+    )
+    : await db.query(
+      `select backup_id, backup_date, payload, backup_at as created_at, backup_at as updated_at, source
+       from cumbuca_app_backup_versions
+       where backup_id = $1
+       limit 1`,
+      [reference]
+    );
   return { database: true, backup: result.rows[0] || null };
 }
 
-async function deleteBackup(backupDate) {
+async function deleteBackup(backupReference) {
   if (!await ensureBackupTable()) {
     return { database: false, deleted: 0 };
   }
 
+  const reference = String(backupReference || "");
+  const legacyDate = legacyBackupDate(reference);
   const result = await db.query(
-    `delete from cumbuca_app_backups
-     where backup_date = $1::date`,
-    [backupDate]
+    `delete from cumbuca_app_backup_versions
+     where backup_id = $1`,
+    [legacyDate ? `legacy-${legacyDate}` : reference]
   );
+  let legacyDeleted = 0;
+  if (legacyDate) {
+    const legacyResult = await db.query(
+      `delete from cumbuca_app_backups
+       where backup_date = $1::date`,
+      [legacyDate]
+    );
+    legacyDeleted = legacyResult.rowCount || 0;
+  }
 
-  return { database: true, deleted: result.rowCount || 0, backupDate };
+  return {
+    database: true,
+    deleted: (result.rowCount || 0) + legacyDeleted,
+    backupReference: reference
+  };
 }
 
-async function restoreBackup(backupDate) {
-  const backupResult = await readBackup(backupDate);
+async function restoreBackup(backupReference) {
+  const backupResult = await readBackup(backupReference);
   if (!backupResult.database) {
     return { database: false };
   }
@@ -755,6 +834,7 @@ async function restoreBackup(backupDate) {
   return {
     database: true,
     restored: true,
+    backupId: backup.backup_id || "",
     backupDate: backup.backup_date,
     keys: result.saved || []
   };
@@ -834,7 +914,8 @@ async function writeAppState(payload = {}) {
     );
   }
 
-  const backup = await writeAutomaticBackup(payload);
+  const current = await readAppState();
+  const backup = await writeAutomaticBackup(current.state);
   return { database: true, saved: entries.map(([key]) => key), backup: Boolean(backup.saved || backup.database) };
 }
 
@@ -1455,20 +1536,22 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/backup") {
-      const backupDate = url.searchParams.get("date");
-      if (!backupDate) {
+      const backupReference = url.searchParams.get("id") || url.searchParams.get("date");
+      if (!backupReference) {
         sendJson(res, 400, { error: "Informe a data do backup." });
         return;
       }
-      const result = await readBackup(backupDate);
+      const result = await readBackup(backupReference);
       if (!result.backup) {
         sendJson(res, 404, { error: "Backup não encontrado." });
         return;
       }
       const body = JSON.stringify(result.backup.payload, null, 2);
+      const filenameReference = String(result.backup.backup_id || result.backup.backup_date || "backup")
+        .replace(/[^a-zA-Z0-9-]+/g, "-");
       res.writeHead(200, {
         "Content-Type": "application/json; charset=utf-8",
-        "Content-Disposition": `attachment; filename="cumbuca-backup-${backupDate}.json"`,
+        "Content-Disposition": `attachment; filename="cumbuca-backup-${filenameReference}.json"`,
         "Content-Length": Buffer.byteLength(body)
       });
       res.end(body);
@@ -1480,33 +1563,34 @@ async function handleRequest(req, res) {
         sendJson(res, 403, { error: "Acesso restrito ao administrador." });
         return;
       }
-      const backupDate = url.searchParams.get("date");
-      if (!backupDate) {
+      const backupReference = url.searchParams.get("id") || url.searchParams.get("date");
+      if (!backupReference) {
         sendJson(res, 400, { error: "Informe a data do backup." });
         return;
       }
-      const result = await deleteBackup(backupDate);
+      const result = await deleteBackup(backupReference);
       if (result.database && result.deleted) {
-        await writeEvent("backup_apagado", `Backup ${backupDate} apagado.`, user);
+        await writeEvent("backup_apagado", `Backup ${backupReference} apagado.`, user);
       }
       sendJson(res, result.deleted ? 200 : 404, result.deleted ? result : { ...result, error: "Backup não encontrado." });
       return;
     }
 
     if (req.method === "GET" && url.pathname === "/api/backup-preview") {
-      const backupDate = url.searchParams.get("date");
-      if (!backupDate) {
+      const backupReference = url.searchParams.get("id") || url.searchParams.get("date");
+      if (!backupReference) {
         sendJson(res, 400, { error: "Informe a data do backup." });
         return;
       }
-      const result = await readBackup(backupDate);
+      const result = await readBackup(backupReference);
       if (!result.backup) {
         sendJson(res, 404, { error: "Backup não encontrado." });
         return;
       }
       sendJson(res, 200, {
         database: result.database,
-        backupDate,
+        backupId: result.backup.backup_id || backupReference,
+        backupDate: result.backup.backup_date,
         createdAt: result.backup.created_at,
         updatedAt: result.backup.updated_at,
         preview: backupPreview(result.backup.payload)
@@ -1520,9 +1604,10 @@ async function handleRequest(req, res) {
         return;
       }
       const payload = await collectBody(req);
-      const result = await restoreBackup(payload.date);
+      const backupReference = payload.id || payload.date;
+      const result = await restoreBackup(backupReference);
       if (result.database && result.restored) {
-        await writeEvent("backup_restaurado", `Backup ${payload.date} restaurado.`, user);
+        await writeEvent("backup_restaurado", `Backup ${backupReference} restaurado.`, user);
       }
       sendJson(res, 200, result);
       return;
@@ -1630,6 +1715,15 @@ async function handleRequest(req, res) {
 
     sendJson(res, 405, { error: "Método não permitido." });
   } catch (error) {
+    console.error(`[${new Date().toISOString()}] ${req.method} ${req.url}`, error);
+    try {
+      await writeEvent(
+        "erro_api",
+        `${req.method} ${String(req.url || "").slice(0, 160)}: ${String(error.message || error).slice(0, 300)}`
+      );
+    } catch (eventError) {
+      console.error("Falha ao registrar erro da API.", eventError);
+    }
     sendJson(res, 400, { error: error.message || "Requisição inválida." });
   }
 }
@@ -1641,5 +1735,12 @@ if (!process.env.VERCEL) {
     console.log(`Cumbuca Tools rodando em http://localhost:${PORT}`);
   });
 }
+
+handleRequest._test = {
+  backupVersionId,
+  calculateCashFlow,
+  legacyBackupDate,
+  normalizeState
+};
 
 module.exports = handleRequest;
