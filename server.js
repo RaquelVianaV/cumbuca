@@ -111,6 +111,105 @@ function normalizeState(payload = {}) {
   );
 }
 
+function jsonEqual(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function monthKeyFromDate(dateKey) {
+  return String(dateKey || "").slice(0, 7);
+}
+
+function weekRangeFromDate(dateKey) {
+  const date = new Date(`${String(dateKey || "").slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  const day = date.getUTCDay() || 7;
+  const start = new Date(date);
+  start.setUTCDate(start.getUTCDate() - day + 1);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 6);
+  return {
+    start: start.toISOString().slice(0, 10),
+    end: end.toISOString().slice(0, 10)
+  };
+}
+
+function weeklyClosingKey(start, end) {
+  return `${start}_${end}`;
+}
+
+function lockedClosingForDate(state, dateKey) {
+  const date = String(dateKey || "").slice(0, 10);
+  if (!date) {
+    return null;
+  }
+  const monthKey = monthKeyFromDate(date);
+  const monthClosing = state.monthlyClosings?.[monthKey];
+  if (monthClosing && monthClosing.locked !== false) {
+    return { type: "month", key: monthKey, closing: monthClosing };
+  }
+  const range = weekRangeFromDate(date);
+  const weekKey = range ? weeklyClosingKey(range.start, range.end) : "";
+  const weekClosing = weekKey ? state.weeklyClosings?.[weekKey] : null;
+  return weekClosing && weekClosing.locked !== false
+    ? { type: "week", key: weekKey, closing: weekClosing }
+    : null;
+}
+
+function recordIdentity(record = {}, index = 0) {
+  return String(record.id || record.orderId || record.saleId || `${record.date || ""}:${index}`);
+}
+
+function changedRecordDates(previous = [], next = []) {
+  const before = new Map(previous.map((record, index) => [recordIdentity(record, index), record]));
+  const after = new Map(next.map((record, index) => [recordIdentity(record, index), record]));
+  const dates = new Set();
+  new Set([...before.keys(), ...after.keys()]).forEach(key => {
+    const oldRecord = before.get(key);
+    const newRecord = after.get(key);
+    if (!jsonEqual(oldRecord, newRecord)) {
+      [oldRecord, newRecord].filter(Boolean).forEach(record => {
+        const date = String(record.date || record.paidAt || record.createdAt || "").slice(0, 10);
+        if (date) {
+          dates.add(date);
+        }
+      });
+    }
+  });
+  return [...dates];
+}
+
+function stateWriteViolation(currentState, payload = {}, { allowClosings = false, bypassLocks = false } = {}) {
+  if (!allowClosings) {
+    for (const key of ["monthlyClosings", "weeklyClosings"]) {
+      if (Object.prototype.hasOwnProperty.call(payload, key) && !jsonEqual(payload[key], currentState[key])) {
+        return { statusCode: 403, message: "Fechamentos devem ser alterados pelos controles de fechamento." };
+      }
+    }
+  }
+  if (bypassLocks) {
+    return null;
+  }
+  for (const key of ["cashEntries", "storeSales", "channelReceipts", "orders"]) {
+    if (!Object.prototype.hasOwnProperty.call(payload, key)) {
+      continue;
+    }
+    const dates = changedRecordDates(currentState[key] || [], payload[key] || []);
+    for (const date of dates) {
+      const locked = lockedClosingForDate(currentState, date);
+      if (locked) {
+        const period = locked.type === "month" ? locked.key : locked.key.replace("_", " a ");
+        return {
+          statusCode: 409,
+          message: `O período ${period} está fechado. Reabra o período antes de alterar valores.`
+        };
+      }
+    }
+  }
+  return null;
+}
+
 function databaseUrl() {
   if (!DATABASE_URL) {
     return "";
@@ -830,7 +929,7 @@ async function restoreBackup(backupReference) {
 
   const payload = backup.payload?.data || backup.payload || {};
   const restoredState = normalizeState(payload);
-  const result = await writeAppState(restoredState);
+  const result = await writeAppState(restoredState, null, { allowClosings: true, bypassLocks: true });
   return {
     database: true,
     restored: true,
@@ -884,6 +983,188 @@ async function verifyPersistence() {
   };
 }
 
+function cashEntryIncluded(entry = {}) {
+  return !(entry.type === "expense" && entry.dueDate && !entry.paidAt);
+}
+
+function financialIntegritySummary(state, backup = null) {
+  const cashEntries = Array.isArray(state.cashEntries) ? state.cashEntries.filter(cashEntryIncluded) : [];
+  const totals = cashEntries.reduce((result, entry) => {
+    const amount = Math.abs(number(entry.amount));
+    if (entry.type === "expense") {
+      result.expenses += amount;
+    } else {
+      result.income += amount;
+    }
+    if (String(entry.category || "").replace(/^supplier:/, "reason:") === "ajuste-conta") {
+      result.adjustments += entry.type === "expense" ? -amount : amount;
+    }
+    result.balance = result.income - result.expenses;
+    return result;
+  }, { income: 0, expenses: 0, adjustments: 0, balance: 0 });
+  const unlockedMonths = Object.entries(state.monthlyClosings || {})
+    .filter(([, closing]) => closing?.locked === false)
+    .map(([key]) => key);
+  const unlockedWeeks = Object.entries(state.weeklyClosings || {})
+    .filter(([, closing]) => closing?.locked === false)
+    .map(([key]) => key);
+  const now = new Date();
+  const previousMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+  const previousMonthClosed = Boolean(state.monthlyClosings?.[previousMonth]?.locked !== false && state.monthlyClosings?.[previousMonth]);
+  const backupAt = backup?.updated_at || backup?.created_at || null;
+  const backupAgeHours = backupAt ? Math.max(0, (Date.now() - new Date(backupAt).getTime()) / 3600000) : null;
+  const checks = [
+    {
+      id: "account-balance",
+      level: totals.balance < 0 ? "danger" : "ok",
+      label: "Saldo acumulado",
+      detail: totals.balance < 0 ? `Saldo negativo de ${totals.balance.toFixed(2)}.` : `Saldo ${totals.balance.toFixed(2)}.`
+    },
+    {
+      id: "backup",
+      level: backupAgeHours === null || backupAgeHours > 26 ? "danger" : "ok",
+      label: "Backup automático",
+      detail: backupAgeHours === null ? "Nenhum backup encontrado." : `Último backup há ${Math.round(backupAgeHours)} hora(s).`
+    },
+    {
+      id: "previous-month",
+      level: previousMonthClosed ? "ok" : "warning",
+      label: "Fechamento mensal",
+      detail: previousMonthClosed ? `${previousMonth} está fechado.` : `${previousMonth} ainda está aberto.`
+    },
+    {
+      id: "reopened-periods",
+      level: unlockedMonths.length || unlockedWeeks.length ? "warning" : "ok",
+      label: "Períodos reabertos",
+      detail: `${unlockedMonths.length} mês(es) e ${unlockedWeeks.length} semana(s) reabertos.`
+    },
+    {
+      id: "adjustments",
+      level: Math.abs(totals.adjustments) >= 0.01 ? "warning" : "ok",
+      label: "Ajustes acumulados",
+      detail: `Saldo dos ajustes ${totals.adjustments.toFixed(2)}.`
+    }
+  ];
+  const status = checks.some(check => check.level === "danger")
+    ? "danger"
+    : checks.some(check => check.level === "warning") ? "warning" : "ok";
+  return {
+    status,
+    checkedAt: new Date().toISOString(),
+    totals,
+    backup: backup ? {
+      id: backup.backup_id || "",
+      date: backup.backup_date,
+      updatedAt: backupAt,
+      source: backup.source || ""
+    } : null,
+    closings: {
+      previousMonth,
+      previousMonthClosed,
+      unlockedMonths,
+      unlockedWeeks
+    },
+    checks
+  };
+}
+
+function validateBackupPayload(backup) {
+  if (!backup) {
+    return { valid: false, error: "Nenhum backup encontrado." };
+  }
+  const raw = backup.payload?.data || backup.payload;
+  if (!raw || typeof raw !== "object") {
+    return { valid: false, error: "Conteúdo do backup inválido." };
+  }
+  const normalized = normalizeState(raw);
+  const missingKeys = stateKeys.filter(key => !Object.prototype.hasOwnProperty.call(normalized, key));
+  const serialized = JSON.stringify(normalized);
+  const roundTrip = JSON.parse(serialized);
+  return {
+    valid: missingKeys.length === 0 && jsonEqual(normalized, roundTrip),
+    missingKeys,
+    bytes: Buffer.byteLength(serialized),
+    preview: backupPreview(normalized)
+  };
+}
+
+async function latestBackup() {
+  if (!await ensureBackupTable()) {
+    return null;
+  }
+  const result = await db.query(`
+    select backup_id, backup_date, backup_at as created_at, backup_at as updated_at, source, payload
+    from cumbuca_app_backup_versions
+    order by backup_at desc
+    limit 1
+  `);
+  return result.rows[0] || null;
+}
+
+async function financialIntegrity() {
+  const current = await readAppState();
+  if (!current.database) {
+    return { database: false, status: "danger", checks: [] };
+  }
+  const backup = await latestBackup();
+  const result = financialIntegritySummary(current.state, backup);
+  const restoreValidation = validateBackupPayload(backup);
+  const eventsResult = await listEvents(100);
+  const recentTechnicalErrors = (eventsResult.events || []).filter(event => {
+    const recent = Date.now() - new Date(event.created_at).getTime() <= 24 * 3600000;
+    return recent && ["erro_api", "teste_restauracao_falhou"].includes(event.event_type);
+  });
+  result.checks.push({
+    id: "backup-restorable",
+    level: restoreValidation.valid ? "ok" : "danger",
+    label: "Teste de restauração",
+    detail: restoreValidation.valid
+      ? `Backup legível e completo (${restoreValidation.bytes} bytes).`
+      : (restoreValidation.error || "Backup inválido.")
+  });
+  result.checks.push({
+    id: "technical-errors",
+    level: recentTechnicalErrors.length ? "danger" : "ok",
+    label: "Erros técnicos em 24h",
+    detail: recentTechnicalErrors.length
+      ? `${recentTechnicalErrors.length} erro(s) registrado(s). Consulte o log técnico.`
+      : "Nenhum erro técnico recente."
+  });
+  if (!restoreValidation.valid) {
+    result.status = "danger";
+  }
+  if (recentTechnicalErrors.length) {
+    result.status = "danger";
+  }
+  return {
+    database: true,
+    ...result,
+    restoreValidation,
+    recentTechnicalErrors: recentTechnicalErrors.slice(0, 10)
+  };
+}
+
+async function backupRestoreCheck(user = null) {
+  const backup = await latestBackup();
+  const validation = validateBackupPayload(backup);
+  if (validation.valid) {
+    await writeEvent(
+      "teste_restauracao",
+      `Backup ${backup.backup_id} validado sem alterar os dados (${validation.bytes} bytes).`,
+      user
+    );
+  } else {
+    await writeEvent("teste_restauracao_falhou", validation.error || "Backup inválido.", user);
+  }
+  return {
+    database: Boolean(db),
+    checkedAt: new Date().toISOString(),
+    backupId: backup?.backup_id || "",
+    backupDate: backup?.backup_date || null,
+    ...validation
+  };
+}
+
 async function readAppState() {
   if (!await ensureStateTable()) {
     return { database: false, state: normalizeState({}) };
@@ -896,11 +1177,18 @@ async function readAppState() {
   };
 }
 
-async function writeAppState(payload = {}) {
+async function writeAppState(payload = {}, user = null, options = {}) {
   if (!await ensureStateTable()) {
     return { database: false };
   }
 
+  const currentBeforeWrite = await readAppState();
+  const violation = stateWriteViolation(currentBeforeWrite.state, payload, options);
+  if (violation) {
+    const error = new Error(violation.message);
+    error.statusCode = violation.statusCode;
+    throw error;
+  }
   const entries = Object.entries(payload)
     .filter(([key]) => stateKeys.includes(key));
 
@@ -917,6 +1205,97 @@ async function writeAppState(payload = {}) {
   const current = await readAppState();
   const backup = await writeAutomaticBackup(current.state);
   return { database: true, saved: entries.map(([key]) => key), backup: Boolean(backup.saved || backup.database) };
+}
+
+async function saveClosing(payload = {}, user = null) {
+  if (!await ensureStateTable()) {
+    return { database: false };
+  }
+  const type = payload.type === "week" ? "week" : "month";
+  const stateKey = type === "week" ? "weeklyClosings" : "monthlyClosings";
+  const key = String(payload.key || "");
+  const closing = payload.closing && typeof payload.closing === "object" ? payload.closing : {};
+  if (!key) {
+    return { database: true, saved: false, error: "Período inválido." };
+  }
+  const current = await readAppState();
+  const existing = current.state[stateKey]?.[key];
+  if (existing && existing.locked !== false) {
+    return { database: true, saved: false, error: "O período já está fechado. Reabra antes de atualizar." };
+  }
+  if (existing && user?.role !== "admin") {
+    return { database: true, saved: false, error: "Somente administrador pode fechar novamente um período reaberto." };
+  }
+  const savedClosing = {
+    ...closing,
+    locked: true,
+    closedAt: new Date().toISOString(),
+    closedBy: user?.name || user?.username || "Sistema",
+    closedByUsername: user?.username || ""
+  };
+  const nextClosings = {
+    ...(current.state[stateKey] || {}),
+    [key]: savedClosing
+  };
+  const auditEntry = {
+    id: `audit-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`,
+    action: type === "week" ? "Semana fechada" : "Mês fechado",
+    detail: `Período ${key} fechado.`,
+    user: user?.name || user?.username || "Sistema",
+    username: user?.username || "",
+    route: "financeiro",
+    createdAt: new Date().toISOString()
+  };
+  await writeAppState({
+    [stateKey]: nextClosings,
+    auditLog: [auditEntry, ...(current.state.auditLog || [])].slice(0, 1000)
+  }, user, { allowClosings: true, bypassLocks: true });
+  await writeEvent(type === "week" ? "semana_fechada" : "mes_fechado", `Período ${key} fechado.`, user);
+  return { database: true, saved: true, key, closing: savedClosing };
+}
+
+async function reopenClosing(payload = {}, user = null) {
+  if (user?.role !== "admin") {
+    return { database: true, saved: false, statusCode: 403, error: "Acesso restrito ao administrador." };
+  }
+  const reason = String(payload.reason || "").trim();
+  if (reason.length < 5) {
+    return { database: true, saved: false, statusCode: 400, error: "Informe o motivo da reabertura." };
+  }
+  const type = payload.type === "week" ? "week" : "month";
+  const stateKey = type === "week" ? "weeklyClosings" : "monthlyClosings";
+  const key = String(payload.key || "");
+  const current = await readAppState();
+  const existing = current.state[stateKey]?.[key];
+  if (!existing) {
+    return { database: true, saved: false, statusCode: 404, error: "Fechamento não encontrado." };
+  }
+  const nextClosing = {
+    ...existing,
+    locked: false,
+    reopenedAt: new Date().toISOString(),
+    reopenedBy: user.name || user.username,
+    reopenedByUsername: user.username,
+    reopenReason: reason
+  };
+  const auditEntry = {
+    id: `audit-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`,
+    action: type === "week" ? "Semana reaberta" : "Mês reaberto",
+    detail: `Período ${key}: ${reason}`,
+    user: user.name || user.username,
+    username: user.username,
+    route: "financeiro",
+    createdAt: new Date().toISOString()
+  };
+  await writeAppState({
+    [stateKey]: {
+      ...(current.state[stateKey] || {}),
+      [key]: nextClosing
+    },
+    auditLog: [auditEntry, ...(current.state.auditLog || [])].slice(0, 1000)
+  }, user, { allowClosings: true, bypassLocks: true });
+  await writeEvent(type === "week" ? "semana_reaberta" : "mes_reaberto", `Período ${key}: ${reason}`, user);
+  return { database: true, saved: true, key, closing: nextClosing };
 }
 
 async function resetAppState(user = null) {
@@ -1465,7 +1844,35 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/state") {
       const payload = await collectBody(req);
-      sendJson(res, 200, await writeAppState(payload.state || payload));
+      sendJson(res, 200, await writeAppState(payload.state || payload, user));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/closings") {
+      const payload = await collectBody(req);
+      const result = await saveClosing(payload, user);
+      sendJson(res, result.saved ? 200 : 409, result);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/closings/reopen") {
+      const payload = await collectBody(req);
+      const result = await reopenClosing(payload, user);
+      sendJson(res, result.saved ? 200 : (result.statusCode || 400), result);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/financial-integrity") {
+      sendJson(res, 200, await financialIntegrity());
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/backup-restore-check") {
+      if (user?.role !== "admin") {
+        sendJson(res, 403, { error: "Acesso restrito ao administrador." });
+        return;
+      }
+      sendJson(res, 200, await backupRestoreCheck(user));
       return;
     }
 
@@ -1724,7 +2131,7 @@ async function handleRequest(req, res) {
     } catch (eventError) {
       console.error("Falha ao registrar erro da API.", eventError);
     }
-    sendJson(res, 400, { error: error.message || "Requisição inválida." });
+    sendJson(res, error.statusCode || 400, { error: error.message || "Requisição inválida." });
   }
 }
 
@@ -1739,8 +2146,14 @@ if (!process.env.VERCEL) {
 handleRequest._test = {
   backupVersionId,
   calculateCashFlow,
+  changedRecordDates,
+  financialIntegritySummary,
+  lockedClosingForDate,
   legacyBackupDate,
-  normalizeState
+  normalizeState,
+  stateWriteViolation,
+  validateBackupPayload,
+  weekRangeFromDate
 };
 
 module.exports = handleRequest;

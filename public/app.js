@@ -620,7 +620,12 @@ async function persistState() {
       return true;
     } else {
       rollbackUnsavedChange();
-      alertOfflineSave("database");
+      if (result.error) {
+        setSaveStatus("Alteração bloqueada", "offline");
+        showToast(result.error, "warning");
+      } else {
+        alertOfflineSave("database");
+      }
       return false;
     }
   } catch (error) {
@@ -8030,8 +8035,8 @@ function weeklyClosingPanel(data) {
           <p class="muted-inline">${formatIsoDateBr(range.start)} a ${formatIsoDateBr(range.end)}.</p>
         </div>
         <div class="actions">
-          <button type="button" id="close-week">${closing ? "Atualizar semana" : "Fechar semana"}</button>
-          ${closing && isAdminUser() ? `<button class="secondary" type="button" id="unlock-week">${locked ? "Destravar semana" : "Travar semana"}</button>` : ""}
+          ${!closing || !locked ? `<button type="button" id="close-week">${closing ? "Fechar novamente" : "Fechar semana"}</button>` : ""}
+          ${closing && locked && isAdminUser() ? `<button class="secondary" type="button" id="unlock-week">Reabrir semana</button>` : ""}
         </div>
       </div>
       <div class="summary">
@@ -8049,6 +8054,7 @@ function weeklyClosingPanel(data) {
           <span><b>Saldo da conta</b>${money(closing.accountBalance)}</span>
           <span><b>Lançamentos</b>${closing.cashEntries}</span>
           <span><b>Status</b>${locked ? "Travada" : "Destravada"}</span>
+          ${closing.reopenReason ? `<span><b>Motivo da reabertura</b>${escapeHtml(closing.reopenReason)}</span>` : ""}
         </div>
       ` : `<p class="muted">Esta semana ainda não foi fechada.</p>`}
     </section>
@@ -8083,8 +8089,8 @@ function monthlyClosingPanel(data) {
           <p class="muted-inline">Calcula faturamento, custos, retiradas e valor disponível do mês.</p>
         </div>
         <div class="actions">
-          <button type="button" id="close-month">${closing ? "Atualizar fechamento" : "Fechar mês"}</button>
-          ${closing && isAdminUser() ? `<button class="secondary" type="button" id="unlock-month">${locked ? "Destravar mês" : "Travar mês"}</button>` : ""}
+          ${!closing || !locked ? `<button type="button" id="close-month">${closing ? "Fechar novamente" : "Fechar mês"}</button>` : ""}
+          ${closing && locked && isAdminUser() ? `<button class="secondary" type="button" id="unlock-month">Reabrir mês</button>` : ""}
         </div>
       </div>
       <div class="summary">
@@ -8100,6 +8106,7 @@ function monthlyClosingPanel(data) {
           <span><b>Vanessa sugerido</b>${money(closing.suggestedWithdrawal?.vanessa || 0)}</span>
           <span><b>Raquel sugerido</b>${money(closing.suggestedWithdrawal?.raquel || 0)}</span>
           <span><b>Status</b>${locked ? "Travado" : "Destravado"}</span>
+          ${closing.reopenReason ? `<span><b>Motivo da reabertura</b>${escapeHtml(closing.reopenReason)}</span>` : ""}
         </div>
       ` : `<p class="muted">Este mês ainda não foi fechado.</p>`}
     </section>
@@ -8734,26 +8741,53 @@ function bindReportPeriodForm(renderFn, path) {
 }
 
 function bindMonthlyClosing(data, renderFn) {
+  async function saveClosing(type, key, closing) {
+    const response = await fetch("/api/closings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, key, closing })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.saved) {
+      showToast(result.error || "Não foi possível fechar o período.", "error");
+      return false;
+    }
+    await hydrateState();
+    showToast("Período fechado.", "success");
+    renderFn();
+    return true;
+  }
+
+  async function reopenClosing(type, key, label) {
+    const reason = prompt(`Informe o motivo para reabrir ${label}.`);
+    if (!reason) {
+      return false;
+    }
+    const response = await fetch("/api/closings/reopen", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, key, reason })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.saved) {
+      showToast(result.error || "Não foi possível reabrir o período.", "error");
+      return false;
+    }
+    await hydrateState();
+    showToast("Período reaberto. Alterações estão liberadas.", "success");
+    renderFn();
+    return true;
+  }
+
   const closeWeekButton = document.querySelector("#close-week");
   if (closeWeekButton) {
     closeWeekButton.addEventListener("click", async () => {
       const closing = weeklyClosingPayload(data);
       const key = weeklyClosingKey(closing.start, closing.end);
-      if (state.weeklyClosings?.[key] && !isAdminUser()) {
-        showToast("Somente admin pode atualizar uma semana fechada.", "warning");
+      if (!confirm(`Fechar a semana de ${formatIsoDateBr(closing.start)} a ${formatIsoDateBr(closing.end)}?`)) {
         return;
       }
-      if (state.weeklyClosings?.[key] && !confirm(`Atualizar o fechamento semanal de ${formatIsoDateBr(closing.start)} a ${formatIsoDateBr(closing.end)}?`)) {
-        return;
-      }
-      state.weeklyClosings = {
-        ...(state.weeklyClosings || {}),
-        [key]: closing
-      };
-      recordAudit("Semana fechada", `${formatIsoDateBr(closing.start)} a ${formatIsoDateBr(closing.end)} - disponível ${money(closing.availableForWithdrawal)}`);
-      if (await persistState()) {
-        renderFn();
-      }
+      await saveClosing("week", key, closing);
     });
   }
 
@@ -8762,27 +8796,7 @@ function bindMonthlyClosing(data, renderFn) {
     unlockWeekButton.addEventListener("click", async () => {
       const range = reportWeekRange();
       const key = weeklyClosingKey(range.start, range.end);
-      const closing = state.weeklyClosings?.[key];
-      if (!closing) {
-        return;
-      }
-      const locked = closing.locked !== false;
-      const action = locked ? "destravar" : "travar";
-      if (!confirm(`Deseja ${action} a semana de ${formatIsoDateBr(range.start)} a ${formatIsoDateBr(range.end)}?`)) {
-        return;
-      }
-      state.weeklyClosings = {
-        ...state.weeklyClosings,
-        [key]: {
-          ...closing,
-          locked: !locked,
-          lockUpdatedAt: new Date().toISOString()
-        }
-      };
-      recordAudit(locked ? "Semana destravada" : "Semana travada", `${formatIsoDateBr(range.start)} a ${formatIsoDateBr(range.end)}`);
-      if (await persistState()) {
-        renderFn();
-      }
+      await reopenClosing("week", key, `a semana de ${formatIsoDateBr(range.start)} a ${formatIsoDateBr(range.end)}`);
     });
   }
 
@@ -8791,49 +8805,94 @@ function bindMonthlyClosing(data, renderFn) {
     return;
   }
 
-  closeMonthButton.addEventListener("click", () => {
-    if (state.monthlyClosings[data.periodKey] && !isAdminUser()) {
-      showToast("Somente admin pode atualizar um mês fechado.", "warning");
-      return;
-    }
-    if (state.monthlyClosings[data.periodKey] && !confirm(`Atualizar o fechamento de ${formatMonthKeyBr(data.periodKey)}?`)) {
+  closeMonthButton.addEventListener("click", async () => {
+    if (!confirm(`Fechar ${formatMonthKeyBr(data.periodKey)}?`)) {
       return;
     }
 
     const closing = monthlyClosingPayload(data);
-    state.monthlyClosings = {
-      ...state.monthlyClosings,
-      [data.periodKey]: closing
-    };
-    recordAudit("Mês fechado", `${formatMonthKeyBr(data.periodKey)} - disponível ${money(closing.availableForWithdrawal)}`);
-    persistState();
-    renderFn();
+    await saveClosing("month", data.periodKey, closing);
   });
 
   const unlockMonthButton = document.querySelector("#unlock-month");
   if (unlockMonthButton) {
-    unlockMonthButton.addEventListener("click", () => {
-      const closing = state.monthlyClosings[data.periodKey];
-      if (!closing) {
-        return;
-      }
-      const locked = isMonthClosed(`${data.periodKey}-01`);
-      const action = locked ? "destravar" : "travar";
-      if (!confirm(`Deseja ${action} ${formatMonthKeyBr(data.periodKey)}?`)) {
-        return;
-      }
-      state.monthlyClosings = {
-        ...state.monthlyClosings,
-        [data.periodKey]: {
-          ...closing,
-          locked: !locked,
-          lockUpdatedAt: new Date().toISOString()
-        }
-      };
-      recordAudit(locked ? "Mês destravado" : "Mês travado", formatMonthKeyBr(data.periodKey));
-      persistState();
-      renderFn();
+    unlockMonthButton.addEventListener("click", async () => {
+      await reopenClosing("month", data.periodKey, formatMonthKeyBr(data.periodKey));
     });
+  }
+}
+
+function financialIntegrityHtml(result) {
+  if (!result?.database) {
+    return `<div class="backup-list-state warning-state"><strong>Integridade indisponível</strong><span>Não foi possível consultar o banco agora.</span></div>`;
+  }
+  const statusLabels = {
+    ok: "Tudo conferido",
+    warning: "Atenção necessária",
+    danger: "Correção necessária"
+  };
+  return `
+    <div class="backup-list-state ${result.status === "ok" ? "" : "warning-state"}">
+      <strong>${statusLabels[result.status] || "Conferência financeira"}</strong>
+      <span>Verificado em ${new Date(result.checkedAt).toLocaleString("pt-BR")}.</span>
+    </div>
+    <div class="summary">
+      <div class="metric"><span>Saldo acumulado</span><strong class="${result.totals?.balance < 0 ? "negative" : "positive"}">${money(result.totals?.balance || 0)}</strong></div>
+      <div class="metric"><span>Ajustes acumulados</span><strong class="${result.totals?.adjustments < 0 ? "negative" : "positive"}">${money(result.totals?.adjustments || 0)}</strong></div>
+      <div class="metric"><span>Último backup</span><strong>${result.backup?.updatedAt ? new Date(result.backup.updatedAt).toLocaleString("pt-BR") : "Ausente"}</strong></div>
+      <div class="metric"><span>Períodos reabertos</span><strong>${(result.closings?.unlockedMonths?.length || 0) + (result.closings?.unlockedWeeks?.length || 0)}</strong></div>
+    </div>
+    <div class="alert-list">
+      ${(result.checks || []).map(check => `
+        <span class="${check.level === "danger" ? "negative" : ""}">
+          <b>${escapeHtml(check.label)}</b>${escapeHtml(check.detail)}
+        </span>
+      `).join("")}
+    </div>
+  `;
+}
+
+async function loadFinancialIntegrity(targetId = "financial-integrity-panel") {
+  const target = document.querySelector(`#${targetId}`);
+  if (!target) {
+    return null;
+  }
+  try {
+    const response = await fetch("/api/financial-integrity", { cache: "no-store" });
+    const result = await response.json();
+    target.innerHTML = financialIntegrityHtml(result);
+    return result;
+  } catch (error) {
+    target.innerHTML = financialIntegrityHtml(null);
+    return null;
+  }
+}
+
+async function runBackupRestoreCheck() {
+  const status = document.querySelector("#backup-restore-check-status");
+  if (status) {
+    status.textContent = "Validando o backup mais recente...";
+  }
+  try {
+    const response = await fetch("/api/backup-restore-check", { method: "POST" });
+    const result = await response.json();
+    if (!response.ok || !result.valid) {
+      showToast(result.error || "O backup não passou no teste.", "error");
+      if (status) {
+        status.textContent = result.error || "Falha na validação.";
+      }
+      return;
+    }
+    showToast("Backup validado sem alterar os dados.", "success");
+    if (status) {
+      status.textContent = `Backup ${result.backupDate || ""} validado: ${result.bytes || 0} bytes e todas as áreas reconhecidas.`;
+    }
+    loadTechnicalEvents();
+  } catch (error) {
+    showToast("Falha ao testar o backup.", "error");
+    if (status) {
+      status.textContent = "Não foi possível concluir o teste.";
+    }
   }
 }
 
@@ -8915,6 +8974,15 @@ function renderFinance() {
   app.innerHTML = `
     ${financeFilterPanel(reportType, weekRange)}
     ${financeDashboardPanel(data)}
+    <section class="panel report-section">
+      <div class="section-heading">
+        <div>
+          <h2>Integridade financeira</h2>
+          <p class="muted-inline">Saldo acumulado, backup, fechamentos e ajustes conferidos diretamente no servidor.</p>
+        </div>
+      </div>
+      <div id="financial-integrity-panel"><p class="muted">Conferindo valores...</p></div>
+    </section>
     <section class="report-grid">
       <div class="metric report-metric"><span>Entradas operacionais</span><strong>${money(data.financial.income)}</strong></div>
       <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
@@ -8953,6 +9021,7 @@ function renderFinance() {
 
   bindReportPeriodForm(renderFinance, "financeiro");
   bindMonthlyClosing(data, renderFinance);
+  loadFinancialIntegrity();
   bindFinancialPlanning();
   document.querySelectorAll("[data-export-withdrawals]").forEach(button => {
     button.addEventListener("click", () => exportWithdrawalReport(data));
@@ -9143,6 +9212,7 @@ async function renderBackups() {
           <button type="button" id="manual-backup-download">Baixar backup JSON</button>
           <button class="secondary" type="button" id="manual-backup-supabase">Salvar no Supabase</button>
           <button class="secondary" type="button" id="system-check-run">Verificar sistema</button>
+          ${isAdminUser() ? `<button class="secondary" type="button" id="backup-restore-check-run">Testar restauração</button>` : ""}
           <label class="secondary file-action">
             Importar backup JSON
             <input id="manual-backup-import" type="file" accept="application/json,.json">
@@ -9151,6 +9221,10 @@ async function renderBackups() {
         <div id="system-check-panel" class="system-check-panel">
           <p class="muted">Use a verificacao antes de operar ou depois de publicar mudancas.</p>
         </div>
+        <div id="maintenance-financial-integrity">
+          <p class="muted">Conferindo integridade financeira...</p>
+        </div>
+        ${isAdminUser() ? `<p class="muted" id="backup-restore-check-status">O teste lê e normaliza o backup mais recente sem substituir os dados atuais.</p>` : ""}
         <div id="system-issues-panel">
           ${systemIssuesHtml()}
         </div>
@@ -9259,7 +9333,9 @@ async function renderBackups() {
   on("#manual-backup-download", "click", downloadBackup);
   on("#manual-backup-supabase", "click", saveManualBackupToSupabase);
   on("#system-check-run", "click", runSystemCheck);
+  on("#backup-restore-check-run", "click", runBackupRestoreCheck);
   bindSystemIssuesPanel();
+  loadFinancialIntegrity("maintenance-financial-integrity");
   loadRealDatabaseUsage();
   loadAutomaticBackups();
   loadUsersPanel();
@@ -9556,6 +9632,10 @@ async function runSystemCheck() {
       const result = await response.json();
       return response.ok && Boolean(result.database);
     }),
+    await checkFetch("Integridade financeira", "/api/financial-integrity", {}, async response => {
+      const result = await response.json();
+      return response.ok && Boolean(result.database) && result.status !== "danger";
+    }),
     await checkFetch("PDF", "/api/report-pdf", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -9634,6 +9714,10 @@ function renderAlerts() {
       </div>
     </section>
     <section class="panel">
+      <h2>Alertas financeiros automáticos</h2>
+      <div id="alerts-financial-integrity"><p class="muted">Conferindo saldo, backups e fechamentos...</p></div>
+    </section>
+    <section class="panel">
       <h2>Lista de alertas</h2>
       ${urgent.length ? `
         <div class="alert-card-list">
@@ -9659,6 +9743,7 @@ function renderAlerts() {
       </div>
     </section>
   `;
+  loadFinancialIntegrity("alerts-financial-integrity");
 }
 
 function renderSettings() {
