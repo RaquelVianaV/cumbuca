@@ -417,6 +417,10 @@ async function ensureUserTable() {
       updated_at timestamptz not null default now()
     )
   `);
+  await db.query(`
+    alter table cumbuca_app_users
+    add column if not exists permissions jsonb not null default '{}'::jsonb
+  `);
 
   const count = Number((await db.query("select count(*)::int as count from cumbuca_app_users")).rows[0]?.count || 0);
   if (count === 0) {
