@@ -6,11 +6,16 @@ process.env.VERCEL = "1";
 const handleRequest = require("../server");
 const {
   backupVersionId,
+  bulkFinancialClearRequested,
   calculateCashFlow,
+  financialPayloadChanged,
   financialIntegritySummary,
+  integrationStatus,
   legacyBackupDate,
   normalizeState,
+  normalizedPermissions,
   stateWriteViolation,
+  userCan,
   validateBackupPayload,
   weekRangeFromDate
 } = handleRequest._test;
@@ -86,6 +91,55 @@ test("admin reopens a period before financial values can change", () => {
   assert.equal(violation, null);
 });
 
+test("detailed permissions keep admin access and restrict operators", () => {
+  const operatorPermissions = normalizedPermissions({
+    editFinancial: false,
+    manageClosings: true,
+    restoreBackup: false,
+    clearData: false
+  }, "operator");
+  const operator = { role: "operator", permissions: operatorPermissions };
+  const admin = { role: "admin", permissions: normalizedPermissions({}, "admin") };
+
+  assert.equal(userCan(operator, "editFinancial"), false);
+  assert.equal(userCan(operator, "manageClosings"), true);
+  assert.equal(userCan(operator, "restoreBackup"), false);
+  assert.equal(userCan(admin, "clearData"), true);
+});
+
+test("financial payload detection ignores unrelated configuration changes", () => {
+  const current = normalizeState({ cashEntries: [] });
+  assert.equal(financialPayloadChanged(current, { appConfig: { storeName: "Nova" } }), false);
+  assert.equal(financialPayloadChanged(current, {
+    cashEntries: [{ id: "entry-1", date: "2026-06-12", type: "income", amount: 10 }]
+  }), true);
+});
+
+test("bulk financial clearing requires the dedicated clear-data permission", () => {
+  const current = normalizeState({
+    cashEntries: [{ id: "entry-1" }],
+    storeSales: [{ id: "sale-1" }],
+    channelReceipts: [{ id: "receipt-1" }]
+  });
+
+  assert.equal(bulkFinancialClearRequested(current, {
+    cashEntries: [],
+    storeSales: [],
+    channelReceipts: []
+  }), true);
+  assert.equal(bulkFinancialClearRequested(current, {
+    cashEntries: [],
+    storeSales: current.storeSales,
+    channelReceipts: current.channelReceipts
+  }), false);
+});
+
+test("integration status never exposes webhook URLs or tokens", () => {
+  const status = integrationStatus();
+  assert.deepEqual(Object.keys(status).sort(), ["alerts", "externalBackup", "tokenConfigured"].sort());
+  assert.equal(JSON.stringify(status).includes("http"), false);
+});
+
 test("weekly ranges use Monday through Sunday", () => {
   assert.deepEqual(weekRangeFromDate("2026-06-10"), {
     start: "2026-06-08",
@@ -154,6 +208,12 @@ test("authenticated HTTP flow serves session, finance calculation and reports", 
   const sessionPayload = await session.json();
   assert.equal(sessionPayload.authenticated, true);
   assert.equal(sessionPayload.user.role, "admin");
+  assert.equal(sessionPayload.user.permissions.clearData, true);
+
+  const integrations = await fetch(`${baseUrl}/api/integrations`, { headers: { Cookie: cookie } });
+  const integrationsPayload = await integrations.json();
+  assert.equal(integrations.status, 200);
+  assert.equal(Object.prototype.hasOwnProperty.call(integrationsPayload.alerts, "url"), false);
 
   const cashFlow = await fetch(`${baseUrl}/api/fluxo-de-caixa`, {
     method: "POST",

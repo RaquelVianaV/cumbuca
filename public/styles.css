@@ -2124,6 +2124,60 @@ textarea {
   white-space: normal;
 }
 
+.integration-status-grid,
+.permission-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.permission-summary span {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--muted);
+}
+
+.permission-summary span.allowed b {
+  color: var(--green-dark);
+}
+
+.permission-summary span.blocked b {
+  color: var(--red);
+}
+
+.permission-fieldset {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.permission-fieldset legend {
+  padding: 0 6px;
+  color: var(--green-dark);
+  font-weight: 850;
+}
+
+.permission-fieldset .check-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.permission-fieldset .check-row input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
 .maintenance-tabs-panel {
   padding: 10px;
 }
@@ -3955,7 +4009,9 @@ a.secondary.table-action,
   }
 
   .maintenance-steps,
-  .backup-actions {
+  .backup-actions,
+  .integration-status-grid,
+  .permission-summary {
     display: grid;
     grid-template-columns: 1fr;
   }

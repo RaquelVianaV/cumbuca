@@ -685,8 +685,18 @@ function isAdminUser() {
   return state.currentUser?.role === "admin";
 }
 
+function canUser(permission) {
+  return Boolean(isAdminUser() || state.currentUser?.permissions?.[permission]);
+}
+
 function canAccessMaintenanceTab(tab) {
-  return !["users", "events", "reset"].includes(tab) || isAdminUser();
+  if (["users", "events"].includes(tab)) {
+    return isAdminUser();
+  }
+  if (tab === "reset") {
+    return canUser("clearData");
+  }
+  return true;
 }
 
 function setMaintenanceTab(tab) {
@@ -8080,8 +8090,8 @@ function weeklyClosingPanel(data) {
           <p class="muted-inline">${formatIsoDateBr(range.start)} a ${formatIsoDateBr(range.end)}.</p>
         </div>
         <div class="actions">
-          ${!closing || !locked ? `<button type="button" id="close-week">${closing ? "Fechar novamente" : "Fechar semana"}</button>` : ""}
-          ${closing && locked && isAdminUser() ? `<button class="secondary" type="button" id="unlock-week">Reabrir semana</button>` : ""}
+          ${(!closing || !locked) && canUser("manageClosings") ? `<button type="button" id="close-week">${closing ? "Fechar novamente" : "Fechar semana"}</button>` : ""}
+          ${closing && locked && canUser("manageClosings") ? `<button class="secondary" type="button" id="unlock-week">Reabrir semana</button>` : ""}
         </div>
       </div>
       <div class="summary">
@@ -8134,8 +8144,8 @@ function monthlyClosingPanel(data) {
           <p class="muted-inline">Calcula faturamento, custos, retiradas e valor disponível do mês.</p>
         </div>
         <div class="actions">
-          ${!closing || !locked ? `<button type="button" id="close-month">${closing ? "Fechar novamente" : "Fechar mês"}</button>` : ""}
-          ${closing && locked && isAdminUser() ? `<button class="secondary" type="button" id="unlock-month">Reabrir mês</button>` : ""}
+          ${(!closing || !locked) && canUser("manageClosings") ? `<button type="button" id="close-month">${closing ? "Fechar novamente" : "Fechar mês"}</button>` : ""}
+          ${closing && locked && canUser("manageClosings") ? `<button class="secondary" type="button" id="unlock-month">Reabrir mês</button>` : ""}
         </div>
       </div>
       <div class="summary">
@@ -8941,6 +8951,57 @@ async function runBackupRestoreCheck() {
   }
 }
 
+function integrationStatusHtml(result) {
+  if (!result) {
+    return `<p class="muted">Não foi possível consultar as integrações.</p>`;
+  }
+  return `
+    <div class="integration-status-grid">
+      <div class="backup-list-state ${result.alerts?.configured ? "" : "warning-state"}">
+        <strong>Alertas externos</strong>
+        <span>${result.alerts?.configured ? "Webhook configurado." : "Não configurado no Vercel."}</span>
+        ${result.alerts?.configured && isAdminUser() ? `<button class="secondary table-action" type="button" id="test-external-alert">Enviar teste</button>` : ""}
+      </div>
+      <div class="backup-list-state ${result.externalBackup?.configured ? "" : "warning-state"}">
+        <strong>Backup externo</strong>
+        <span>${result.externalBackup?.configured ? "Cópia automática configurada." : "Não configurado no Vercel."}</span>
+        ${result.externalBackup?.configured && canUser("restoreBackup") ? `<button class="secondary table-action" type="button" id="test-external-backup">Enviar teste</button>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+async function testIntegration(path, successMessage) {
+  try {
+    const response = await fetch(path, { method: "POST" });
+    const result = await response.json();
+    if (!response.ok || !result.sent) {
+      showToast(result.error || "A integração não respondeu.", "error");
+      return;
+    }
+    showToast(successMessage, "success");
+    loadTechnicalEvents();
+  } catch (error) {
+    showToast("Falha ao testar integração.", "error");
+  }
+}
+
+async function loadIntegrationStatus() {
+  const target = document.querySelector("#integration-status");
+  if (!target) {
+    return;
+  }
+  try {
+    const response = await fetch("/api/integrations", { cache: "no-store" });
+    const result = await response.json();
+    target.innerHTML = integrationStatusHtml(result);
+    on("#test-external-alert", "click", () => testIntegration("/api/integrations/test-alert", "Alerta externo enviado."));
+    on("#test-external-backup", "click", () => testIntegration("/api/integrations/test-backup", "Backup externo de teste enviado."));
+  } catch (error) {
+    target.innerHTML = integrationStatusHtml(null);
+  }
+}
+
 function financeDashboardPanel(data) {
   const projection = withdrawalProjection(data);
   const savings = Number(state.financialPlanning?.savings || 0);
@@ -9258,7 +9319,7 @@ async function renderBackups() {
       <div class="maintenance-steps">
         <button type="button" id="hero-backup-download">Baixar backup</button>
         <button class="secondary" type="button" data-maintenance-scroll="cleanup-year-form">Limpar ano</button>
-        ${isAdminUser() ? `
+        ${canUser("clearData") ? `
           <button class="danger" type="button" data-maintenance-scroll="reset-all-panel">Reiniciar financeiro</button>
           <button class="danger" type="button" data-maintenance-scroll="reset-database-zone">Limpar todo o banco</button>
         ` : ""}
@@ -9316,7 +9377,7 @@ async function renderBackups() {
         </div>
         <div class="backup-actions">
           <button type="button" id="system-check-run">Verificar sistema</button>
-          ${isAdminUser() ? `<button class="secondary" type="button" id="backup-restore-check-run">Testar restauração</button>` : ""}
+          ${canUser("restoreBackup") ? `<button class="secondary" type="button" id="backup-restore-check-run">Testar restauração</button>` : ""}
         </div>
         <div id="system-check-panel" class="system-check-panel">
           <p class="muted">Execute a verificação depois de publicações ou antes de operações críticas.</p>
@@ -9324,7 +9385,11 @@ async function renderBackups() {
         <div id="maintenance-financial-integrity">
           <p class="muted">Conferindo integridade financeira...</p>
         </div>
-        ${isAdminUser() ? `<p class="muted" id="backup-restore-check-status">O teste lê e normaliza o backup mais recente sem substituir os dados atuais.</p>` : ""}
+        <div>
+          <h3>Integrações externas</h3>
+          <div id="integration-status"><p class="muted">Consultando configurações protegidas...</p></div>
+        </div>
+        ${canUser("restoreBackup") ? `<p class="muted" id="backup-restore-check-status">O teste lê e normaliza o backup mais recente sem substituir os dados atuais.</p>` : ""}
         <div id="system-issues-panel">
           ${systemIssuesHtml()}
         </div>
@@ -9342,6 +9407,7 @@ async function renderBackups() {
         <div id="real-db-usage">
           <p class="muted">Consultando Supabase...</p>
         </div>
+        ${canUser("clearData") ? `
         <div class="backup-actions">
           <button class="danger" type="button" id="delete-old-backups">Apagar backups antigos do Supabase</button>
         </div>
@@ -9356,6 +9422,7 @@ async function renderBackups() {
           <button class="secondary" type="button" id="cleanup-backup-first">Baixar backup antes</button>
           <button class="danger" type="submit">Apagar ano</button>
         </form>
+        ` : ""}
         <div id="cleanup-preview" class="cleanup-preview">
           ${cleanupPreviewHtml(selectedYear, preview)}
         </div>
@@ -9375,6 +9442,8 @@ async function renderBackups() {
             <p class="muted">Consultando eventos...</p>
           </div>
         </section>
+      ` : ""}
+      ${canUser("clearData") ? `
         <section class="panel report-section backup-manual-panel reset-all-panel maintenance-pane" data-maintenance-pane="reset" id="reset-all-panel" ${activeTab === "reset" ? "" : "hidden"}>
           <h2>Reiniciar financeiro</h2>
           <p class="muted-inline">Use para começar os valores novamente sem perder os cadastros e a configuração da operação.</p>
@@ -9423,6 +9492,7 @@ async function renderBackups() {
   on("#backup-restore-check-run", "click", runBackupRestoreCheck);
   bindSystemIssuesPanel();
   loadFinancialIntegrity("maintenance-financial-integrity");
+  loadIntegrationStatus();
   loadRealDatabaseUsage();
   loadAutomaticBackups();
   loadUsersPanel();
@@ -10010,9 +10080,9 @@ function automaticBackupsHtml(result) {
                 <td>
                   <div class="table-actions">
                     <a class="secondary table-action" href="/api/backup?id=${encodeURIComponent(reference)}" target="_blank" rel="noopener">Baixar</a>
-                    ${isAdminUser() ? `<button class="secondary table-action" type="button" data-backup-date="${date}" data-preview-auto-backup="${escapeHtml(reference)}">Prévia</button>` : ""}
-                    ${isAdminUser() ? `<button class="danger table-action" type="button" data-backup-date="${date}" data-restore-auto-backup="${escapeHtml(reference)}">Restaurar</button>` : ""}
-                    ${isAdminUser() ? `<button class="danger table-action" type="button" data-backup-date="${date}" data-delete-auto-backup="${escapeHtml(reference)}">Excluir</button>` : ""}
+                    ${canUser("restoreBackup") ? `<button class="secondary table-action" type="button" data-backup-date="${date}" data-preview-auto-backup="${escapeHtml(reference)}">Prévia</button>` : ""}
+                    ${canUser("restoreBackup") ? `<button class="danger table-action" type="button" data-backup-date="${date}" data-restore-auto-backup="${escapeHtml(reference)}">Restaurar</button>` : ""}
+                    ${canUser("clearData") ? `<button class="danger table-action" type="button" data-backup-date="${date}" data-delete-auto-backup="${escapeHtml(reference)}">Excluir</button>` : ""}
                   </div>
                 </td>
               </tr>
@@ -10152,7 +10222,7 @@ function showBackupPreviewModal(result, restoreReference = "", restoreDate = "")
       </div>
       <p class="muted">Atualizado: ${result.updatedAt ? new Date(result.updatedAt).toLocaleString("pt-BR") : new Date().toLocaleString("pt-BR")}</p>
       <div class="modal-actions">
-        ${restoreReference && isAdminUser() ? `<button class="danger" type="button" data-backup-date="${restoreDate}" data-modal-restore="${escapeHtml(restoreReference)}">Restaurar este backup</button>` : ""}
+        ${restoreReference && canUser("restoreBackup") ? `<button class="danger" type="button" data-backup-date="${restoreDate}" data-modal-restore="${escapeHtml(restoreReference)}">Restaurar este backup</button>` : ""}
         <button class="secondary" type="button" data-close-modal>Fechar</button>
       </div>
     </div>
@@ -10273,6 +10343,14 @@ function renderAccount() {
         <div class="metric"><span>Nome</span><strong>${escapeHtml(user.name || user.username || "")}</strong></div>
         <div class="metric"><span>Acesso</span><strong>${user.role === "admin" ? "Total" : "Operação"}</strong></div>
       </div>
+      <div class="permission-summary">
+        ${[
+          ["editFinancial", "Editar financeiro"],
+          ["manageClosings", "Fechar períodos"],
+          ["restoreBackup", "Restaurar backups"],
+          ["clearData", "Limpar dados"]
+        ].map(([key, label]) => `<span class="${canUser(key) ? "allowed" : "blocked"}"><b>${canUser(key) ? "Permitido" : "Bloqueado"}</b>${label}</span>`).join("")}
+      </div>
       <form id="change-password-form" class="form-grid">
         <label>Senha atual
           ${passwordFieldHtml({ name: "currentPassword", autocomplete: "current-password", required: true })}
@@ -10337,6 +10415,21 @@ function usersPanelHtml(result) {
               <option value="operator" ${editing?.role === "operator" ? "selected" : ""}>Operação</option>
             </select>
           </label>
+          <fieldset class="permission-fieldset">
+            <legend>Permissões</legend>
+            ${[
+              ["editFinancial", "Editar valores financeiros"],
+              ["manageClosings", "Fechar e reabrir períodos"],
+              ["restoreBackup", "Testar e restaurar backups"],
+              ["clearData", "Reiniciar, limpar e excluir dados"]
+            ].map(([key, label]) => `
+              <label class="check-row">
+                <input type="checkbox" name="permission_${key}" ${(editing?.role === "admin" || editing?.permissions?.[key]) ? "checked" : ""}>
+                <span>${label}</span>
+              </label>
+            `).join("")}
+            <small>Administradores sempre mantêm todas as permissões.</small>
+          </fieldset>
           <label>${editing ? "Nova senha" : "Senha"}
             ${passwordFieldHtml({
               name: "password",
@@ -10356,13 +10449,14 @@ function usersPanelHtml(result) {
         ${users.length ? `
           <div class="table-wrap report-table">
             <table>
-              <thead><tr><th>Usuário</th><th>Nome</th><th>Perfil</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th>Usuário</th><th>Nome</th><th>Perfil</th><th>Permissões</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 ${users.map(user => `
                   <tr>
                     <td>${escapeHtml(user.username)}</td>
                     <td>${escapeHtml(user.name)}</td>
                     <td>${user.role === "admin" ? "Admin" : "Operação"}</td>
+                    <td>${user.role === "admin" ? "Todas" : Object.values(user.permissions || {}).filter(Boolean).length}</td>
                     <td>${user.active ? "Ativo" : "Inativo"}</td>
                     <td>
                       <div class="table-actions">
@@ -10405,6 +10499,10 @@ function bindUsersPanel() {
     form.addEventListener("submit", async event => {
       event.preventDefault();
       const values = readForm(event.currentTarget);
+      values.permissions = Object.fromEntries(
+        ["editFinancial", "manageClosings", "restoreBackup", "clearData"]
+          .map(key => [key, values[`permission_${key}`] === "on"])
+      );
       const response = await fetch("/api/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

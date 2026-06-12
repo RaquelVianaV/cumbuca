@@ -14,6 +14,8 @@ test("finance, reports and maintenance expose the expected view tabs", () => {
   assert.match(app, /Fluxo e contas/);
   assert.match(app, /reportViewTab/);
   assert.match(app, /data-maintenance-pane="integrity"/);
+  assert.match(app, /permission-fieldset/);
+  assert.match(app, /integration-status/);
 });
 
 test("mobile tables receive column labels", () => {

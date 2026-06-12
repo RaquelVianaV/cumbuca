@@ -1,11 +1,11 @@
-const CACHE_NAME = "cumbuca-v44";
+const CACHE_NAME = "cumbuca-v45";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/login",
   "/login.html",
-  "/styles.css?v=20260611-19",
-  "/app.js?v=20260611-02",
+  "/styles.css?v=20260612-01",
+  "/app.js?v=20260612-01",
   "/login.js",
   "/logo-cumbuca.svg",
   "/manifest.json",

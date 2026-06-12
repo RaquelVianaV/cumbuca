@@ -18,7 +18,11 @@ const AUTH_PASSWORD = process.env.CUMBUCA_PASSWORD || "cumbuca2026";
 const AUTH_SECRET = process.env.CUMBUCA_AUTH_SECRET || "cumbuca-local-secret";
 const SESSION_COOKIE = "cumbuca_session";
 const DATABASE_URL = process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL || process.env.DATABASE_URL;
+const ALERT_WEBHOOK_URL = process.env.CUMBUCA_ALERT_WEBHOOK_URL || "";
+const EXTERNAL_BACKUP_URL = process.env.CUMBUCA_EXTERNAL_BACKUP_URL || "";
+const INTEGRATION_TOKEN = process.env.CUMBUCA_INTEGRATION_TOKEN || "";
 const loginAttempts = new Map();
+const permissionKeys = ["editFinancial", "manageClosings", "restoreBackup", "clearData"];
 const stateKeys = [
   "cashEntries",
   "weeklyMenusByPeriod",
@@ -109,6 +113,26 @@ function normalizeState(payload = {}) {
       Object.prototype.hasOwnProperty.call(payload, key) ? payload[key] : cloneJson(defaultState[key])
     ])
   );
+}
+
+function normalizedPermissions(value = {}, role = "operator") {
+  const source = value && typeof value === "object" ? value : {};
+  const defaults = role === "admin"
+    ? Object.fromEntries(permissionKeys.map(key => [key, true]))
+    : {
+      editFinancial: true,
+      manageClosings: false,
+      restoreBackup: false,
+      clearData: false
+    };
+  return Object.fromEntries(permissionKeys.map(key => [
+    key,
+    Object.prototype.hasOwnProperty.call(source, key) ? Boolean(source[key]) : defaults[key]
+  ]));
+}
+
+function userCan(user, permission) {
+  return Boolean(user && (user.role === "admin" || user.permissions?.[permission]));
 }
 
 function jsonEqual(left, right) {
@@ -208,6 +232,34 @@ function stateWriteViolation(currentState, payload = {}, { allowClosings = false
     }
   }
   return null;
+}
+
+function financialPayloadChanged(currentState, payload = {}) {
+  return ["cashEntries", "storeSales", "channelReceipts", "orders", "financialPlanning"]
+    .some(key => Object.prototype.hasOwnProperty.call(payload, key) && !jsonEqual(payload[key], currentState[key]));
+}
+
+function bulkFinancialClearRequested(currentState, payload = {}) {
+  const keys = ["cashEntries", "storeSales", "channelReceipts", "orders"];
+  let populatedCollectionsCleared = 0;
+  let recordsBefore = 0;
+  let recordsAfter = 0;
+
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(payload, key)) {
+      continue;
+    }
+    const before = Array.isArray(currentState[key]) ? currentState[key] : [];
+    const after = Array.isArray(payload[key]) ? payload[key] : [];
+    recordsBefore += before.length;
+    recordsAfter += after.length;
+    if (before.length > 0 && after.length === 0) {
+      populatedCollectionsCleared += 1;
+    }
+  }
+
+  const largeReduction = recordsBefore >= 20 && recordsAfter <= Math.floor(recordsBefore * 0.2);
+  return populatedCollectionsCleared >= 2 || largeReduction;
 }
 
 function databaseUrl() {
@@ -312,7 +364,8 @@ function envAuthUsers() {
         username: String(user.username),
         password: String(user.password),
         name: String(user.name || user.username),
-        role: user.role === "admin" ? "admin" : "operator"
+        role: user.role === "admin" ? "admin" : "operator",
+        permissions: normalizedPermissions(user.permissions, user.role === "admin" ? "admin" : "operator")
       }));
     return users.length ? users : fallback;
   } catch (error) {
@@ -357,6 +410,7 @@ async function ensureUserTable() {
       username text primary key,
       name text not null,
       role text not null default 'operator',
+      permissions jsonb not null default '{}'::jsonb,
       password_hash text not null,
       active boolean not null default true,
       created_at timestamptz not null default now(),
@@ -368,10 +422,16 @@ async function ensureUserTable() {
   if (count === 0) {
     for (const user of envAuthUsers()) {
       await db.query(
-        `insert into cumbuca_app_users (username, name, role, password_hash, active, created_at, updated_at)
-         values ($1, $2, $3, $4, true, now(), now())
+        `insert into cumbuca_app_users (username, name, role, permissions, password_hash, active, created_at, updated_at)
+         values ($1, $2, $3, $4::jsonb, $5, true, now(), now())
          on conflict (username) do nothing`,
-        [user.username, user.name || user.username, user.role === "admin" ? "admin" : "operator", passwordHash(user.password)]
+        [
+          user.username,
+          user.name || user.username,
+          user.role === "admin" ? "admin" : "operator",
+          JSON.stringify(normalizedPermissions(user.permissions, user.role)),
+          passwordHash(user.password)
+        ]
       );
     }
   }
@@ -383,6 +443,7 @@ function publicUser(row) {
     username: row.username,
     name: row.name,
     role: row.role === "admin" ? "admin" : "operator",
+    permissions: normalizedPermissions(row.permissions, row.role),
     active: row.active !== false,
     createdAt: row.created_at || null,
     updatedAt: row.updated_at || null
@@ -392,7 +453,7 @@ function publicUser(row) {
 async function findAuthUser(username, password) {
   if (await ensureUserTable()) {
     const result = await db.query(
-      "select username, name, role, password_hash, active from cumbuca_app_users where username = $1 and active = true",
+      "select username, name, role, permissions, password_hash, active from cumbuca_app_users where username = $1 and active = true",
       [username]
     );
     const row = result.rows[0];
@@ -401,6 +462,7 @@ async function findAuthUser(username, password) {
         username: row.username,
         name: row.name,
         role: row.role === "admin" ? "admin" : "operator",
+        permissions: normalizedPermissions(row.permissions, row.role),
         sessionSecret: row.password_hash
       };
     }
@@ -416,22 +478,32 @@ async function currentUser(req) {
   const [username, token] = cookieValue.split(".");
   if (username && token && await ensureUserTable()) {
     const result = await db.query(
-      "select username, name, role, password_hash, active from cumbuca_app_users where username = $1 and active = true",
+      "select username, name, role, permissions, password_hash, active from cumbuca_app_users where username = $1 and active = true",
       [username]
     );
     const row = result.rows[0];
     if (row && token === userSessionToken({ username: row.username, sessionSecret: row.password_hash })) {
-      return { username: row.username, name: row.name, role: row.role === "admin" ? "admin" : "operator" };
+      return {
+        username: row.username,
+        name: row.name,
+        role: row.role === "admin" ? "admin" : "operator",
+        permissions: normalizedPermissions(row.permissions, row.role)
+      };
     }
   }
 
   const user = envAuthUsers().find(item => item.username === username);
   if (user && token === userSessionToken({ ...user, sessionSecret: user.password })) {
-    return { username: user.username, name: user.name, role: user.role || "operator" };
+    return {
+      username: user.username,
+      name: user.name,
+      role: user.role || "operator",
+      permissions: normalizedPermissions(user.permissions, user.role)
+    };
   }
 
   if (cookieValue === sessionToken()) {
-    return { username: AUTH_USER, name: AUTH_USER, role: "admin" };
+    return { username: AUTH_USER, name: AUTH_USER, role: "admin", permissions: normalizedPermissions({}, "admin") };
   }
 
   return null;
@@ -529,6 +601,10 @@ async function ensureBackupTable() {
     )
   `);
   await db.query(`
+    alter table cumbuca_app_users
+    add column if not exists permissions jsonb not null default '{}'::jsonb
+  `);
+  await db.query(`
     create table if not exists cumbuca_app_backup_versions (
       backup_id text primary key,
       backup_date date not null,
@@ -585,6 +661,112 @@ async function writeEvent(eventType, detail = "", user = null) {
   return true;
 }
 
+async function postIntegration(url, payload) {
+  if (!url) {
+    return { configured: false, sent: false };
+  }
+  const headers = { "Content-Type": "application/json" };
+  if (INTEGRATION_TOKEN) {
+    headers.Authorization = `Bearer ${INTEGRATION_TOKEN}`;
+  }
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!response.ok) {
+    throw new Error(`Integração respondeu HTTP ${response.status}.`);
+  }
+  return { configured: true, sent: true, status: response.status };
+}
+
+async function sendExternalAlert(payload, user = null) {
+  try {
+    const result = await postIntegration(ALERT_WEBHOOK_URL, {
+      app: "Cumbuca",
+      type: "alert",
+      sentAt: new Date().toISOString(),
+      ...payload
+    });
+    if (result.sent) {
+      try {
+        await writeEvent("alerta_externo_enviado", String(payload.message || payload.title || "Alerta enviado."), user);
+      } catch (eventError) {
+        console.error("Falha ao registrar envio de alerta externo.", eventError);
+      }
+    }
+    return result;
+  } catch (error) {
+    try {
+      await writeEvent("alerta_externo_falhou", error.message, user);
+    } catch (eventError) {
+      console.error("Falha ao registrar erro do alerta externo.", eventError);
+    }
+    return { configured: true, sent: false, error: error.message };
+  }
+}
+
+async function sendExternalBackup(backupPayload, backupId, user = null) {
+  try {
+    const result = await postIntegration(EXTERNAL_BACKUP_URL, {
+      app: "Cumbuca",
+      type: "backup",
+      backupId,
+      sentAt: new Date().toISOString(),
+      backup: backupPayload
+    });
+    if (result.sent) {
+      try {
+        await writeEvent("backup_externo_enviado", `Backup ${backupId} enviado para cópia externa.`, user);
+      } catch (eventError) {
+        console.error("Falha ao registrar envio do backup externo.", eventError);
+      }
+    }
+    return result;
+  } catch (error) {
+    try {
+      await writeEvent("backup_externo_falhou", `Backup ${backupId}: ${error.message}`, user);
+    } catch (eventError) {
+      console.error("Falha ao registrar erro do backup externo.", eventError);
+    }
+    return { configured: true, sent: false, error: error.message };
+  }
+}
+
+function integrationStatus() {
+  return {
+    alerts: { configured: Boolean(ALERT_WEBHOOK_URL) },
+    externalBackup: { configured: Boolean(EXTERNAL_BACKUP_URL) },
+    tokenConfigured: Boolean(INTEGRATION_TOKEN)
+  };
+}
+
+async function maybeSendIntegrityAlert(result) {
+  if (!ALERT_WEBHOOK_URL || result.status !== "danger" || !db) {
+    return { configured: Boolean(ALERT_WEBHOOK_URL), sent: false };
+  }
+  const recent = await db.query(`
+    select id
+    from cumbuca_app_events
+    where event_type = 'alerta_externo_enviado'
+      and created_at >= now() - interval '6 hours'
+    limit 1
+  `);
+  if (recent.rows.length) {
+    return { configured: true, sent: false, cooldown: true };
+  }
+  const problems = (result.checks || [])
+    .filter(check => check.level === "danger")
+    .map(check => `${check.label}: ${check.detail}`);
+  return sendExternalAlert({
+    title: "Cumbuca requer atenção",
+    message: problems.join(" | "),
+    severity: "danger",
+    checks: result.checks
+  });
+}
+
 async function listEvents(limit = 40) {
   if (!await ensureEventTable()) {
     return { database: false, events: [] };
@@ -616,7 +798,7 @@ async function listUsers() {
   }
 
   const result = await db.query(`
-    select username, name, role, active, created_at, updated_at
+    select username, name, role, permissions, active, created_at, updated_at
     from cumbuca_app_users
     order by active desc, name asc, username asc
   `);
@@ -631,6 +813,7 @@ async function upsertUser(payload = {}, actor = null) {
   const username = String(payload.username || "").trim().toLowerCase();
   const name = String(payload.name || username).trim();
   const role = payload.role === "admin" ? "admin" : "operator";
+  const permissions = normalizedPermissions(payload.permissions, role);
   const password = String(payload.password || "");
   if (!/^[a-z0-9._-]{3,40}$/.test(username)) {
     return { database: true, saved: false, error: "Usuário deve ter 3 a 40 caracteres, usando letras, números, ponto, hífen ou underline." };
@@ -648,30 +831,30 @@ async function upsertUser(payload = {}, actor = null) {
     if (password) {
       await db.query(
         `update cumbuca_app_users
-         set name = $2, role = $3, password_hash = $4, active = true, updated_at = now()
+         set name = $2, role = $3, permissions = $4::jsonb, password_hash = $5, active = true, updated_at = now()
          where username = $1`,
-        [username, name, role, passwordHash(password)]
+        [username, name, role, JSON.stringify(permissions), passwordHash(password)]
       );
       await writeEvent("usuario_atualizado", `Usuário ${username} atualizado com nova senha.`, actor);
     } else {
       await db.query(
         `update cumbuca_app_users
-         set name = $2, role = $3, active = true, updated_at = now()
+         set name = $2, role = $3, permissions = $4::jsonb, active = true, updated_at = now()
          where username = $1`,
-        [username, name, role]
+        [username, name, role, JSON.stringify(permissions)]
       );
       await writeEvent("usuario_atualizado", `Usuário ${username} atualizado.`, actor);
     }
   } else {
     await db.query(
-      `insert into cumbuca_app_users (username, name, role, password_hash, active, created_at, updated_at)
-       values ($1, $2, $3, $4, true, now(), now())`,
-      [username, name, role, passwordHash(password)]
+      `insert into cumbuca_app_users (username, name, role, permissions, password_hash, active, created_at, updated_at)
+       values ($1, $2, $3, $4::jsonb, $5, true, now(), now())`,
+      [username, name, role, JSON.stringify(permissions), passwordHash(password)]
     );
     await writeEvent("usuario_criado", `Usuário ${username} criado.`, actor);
   }
 
-  return { database: true, saved: true, user: { username, name, role, active: true } };
+  return { database: true, saved: true, user: { username, name, role, permissions, active: true } };
 }
 
 async function setUserActive(username, active, actor = null) {
@@ -757,31 +940,38 @@ async function writeAutomaticBackup(payload = {}, { source = "automatic", protec
   const backupSource = protect ? "pre-reset" : source;
   const now = new Date();
   const backupId = backupVersionId(backupSource, now);
+  const backupPayload = {
+    app: "Cumbuca",
+    version: "1.0.0",
+    exportedAt: now.toISOString(),
+    source: backupSource,
+    data: normalizeState(payload)
+  };
   const result = await db.query(
     `insert into cumbuca_app_backup_versions (backup_id, backup_date, backup_at, source, payload)
      values ($1, $2::date, $3::timestamptz, $4, $5::jsonb)
      on conflict (backup_id)
-     do update set backup_at = excluded.backup_at, source = excluded.source, payload = excluded.payload`,
+     do update set backup_at = excluded.backup_at, source = excluded.source, payload = excluded.payload
+     returning (xmax = 0) as inserted`,
     [
       backupId,
       now.toISOString().slice(0, 10),
       now.toISOString(),
       backupSource,
-      JSON.stringify({
-      app: "Cumbuca",
-      version: "1.0.0",
-      exportedAt: now.toISOString(),
-      source: backupSource,
-      data: normalizeState(payload)
-      })
+      JSON.stringify(backupPayload)
     ]
   );
+  const shouldSendExternal = result.rows[0]?.inserted === true || backupSource !== "automatic";
+  const externalBackup = shouldSendExternal
+    ? await sendExternalBackup(backupPayload, backupId)
+    : { configured: Boolean(EXTERNAL_BACKUP_URL), sent: false, reusedHour: true };
   return {
     database: true,
     saved: result.rowCount > 0,
     protected: protect,
     reused: false,
-    backupId
+    backupId,
+    externalBackup
   };
 }
 
@@ -929,7 +1119,11 @@ async function restoreBackup(backupReference) {
 
   const payload = backup.payload?.data || backup.payload || {};
   const restoredState = normalizeState(payload);
-  const result = await writeAppState(restoredState, null, { allowClosings: true, bypassLocks: true });
+  const result = await writeAppState(restoredState, null, {
+    allowClosings: true,
+    bypassLocks: true,
+    bypassPermissions: true
+  });
   return {
     database: true,
     restored: true,
@@ -1136,11 +1330,13 @@ async function financialIntegrity() {
   if (recentTechnicalErrors.length) {
     result.status = "danger";
   }
+  const externalAlert = await maybeSendIntegrityAlert(result);
   return {
     database: true,
     ...result,
     restoreValidation,
-    recentTechnicalErrors: recentTechnicalErrors.slice(0, 10)
+    recentTechnicalErrors: recentTechnicalErrors.slice(0, 10),
+    externalAlert
   };
 }
 
@@ -1183,6 +1379,16 @@ async function writeAppState(payload = {}, user = null, options = {}) {
   }
 
   const currentBeforeWrite = await readAppState();
+  if (!options.bypassPermissions && financialPayloadChanged(currentBeforeWrite.state, payload) && !userCan(user, "editFinancial")) {
+    const error = new Error("Seu usuário não tem permissão para editar valores financeiros.");
+    error.statusCode = 403;
+    throw error;
+  }
+  if (!options.bypassPermissions && bulkFinancialClearRequested(currentBeforeWrite.state, payload) && !userCan(user, "clearData")) {
+    const error = new Error("Seu usuário não tem permissão para limpar valores financeiros em massa.");
+    error.statusCode = 403;
+    throw error;
+  }
   const violation = stateWriteViolation(currentBeforeWrite.state, payload, options);
   if (violation) {
     const error = new Error(violation.message);
@@ -1211,6 +1417,9 @@ async function saveClosing(payload = {}, user = null) {
   if (!await ensureStateTable()) {
     return { database: false };
   }
+  if (!userCan(user, "manageClosings")) {
+    return { database: true, saved: false, statusCode: 403, error: "Seu usuário não pode fechar períodos." };
+  }
   const type = payload.type === "week" ? "week" : "month";
   const stateKey = type === "week" ? "weeklyClosings" : "monthlyClosings";
   const key = String(payload.key || "");
@@ -1223,8 +1432,8 @@ async function saveClosing(payload = {}, user = null) {
   if (existing && existing.locked !== false) {
     return { database: true, saved: false, error: "O período já está fechado. Reabra antes de atualizar." };
   }
-  if (existing && user?.role !== "admin") {
-    return { database: true, saved: false, error: "Somente administrador pode fechar novamente um período reaberto." };
+  if (existing && !userCan(user, "manageClosings")) {
+    return { database: true, saved: false, statusCode: 403, error: "Seu usuário não pode fechar novamente este período." };
   }
   const savedClosing = {
     ...closing,
@@ -1255,8 +1464,8 @@ async function saveClosing(payload = {}, user = null) {
 }
 
 async function reopenClosing(payload = {}, user = null) {
-  if (user?.role !== "admin") {
-    return { database: true, saved: false, statusCode: 403, error: "Acesso restrito ao administrador." };
+  if (!userCan(user, "manageClosings")) {
+    return { database: true, saved: false, statusCode: 403, error: "Seu usuário não pode reabrir períodos." };
   }
   const reason = String(payload.reason || "").trim();
   if (reason.length < 5) {
@@ -1784,7 +1993,15 @@ async function handleRequest(req, res) {
       if (authUser) {
         clearLoginFailures(req, username);
         await writeEvent("login", `Usuário ${authUser.username} entrou no sistema.`, authUser);
-        sendJson(res, 200, { ok: true, user: { username: authUser.username, name: authUser.name, role: authUser.role } }, {
+        sendJson(res, 200, {
+          ok: true,
+          user: {
+            username: authUser.username,
+            name: authUser.name,
+            role: authUser.role,
+            permissions: normalizedPermissions(authUser.permissions, authUser.role)
+          }
+        }, {
           "Set-Cookie": sessionCookie(`${authUser.username}.${userSessionToken(authUser)}`, 60 * 60 * 24 * 30)
         });
         return;
@@ -1851,7 +2068,7 @@ async function handleRequest(req, res) {
     if (req.method === "POST" && url.pathname === "/api/closings") {
       const payload = await collectBody(req);
       const result = await saveClosing(payload, user);
-      sendJson(res, result.saved ? 200 : 409, result);
+      sendJson(res, result.saved ? 200 : (result.statusCode || 409), result);
       return;
     }
 
@@ -1867,9 +2084,45 @@ async function handleRequest(req, res) {
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/backup-restore-check") {
+    if (req.method === "GET" && url.pathname === "/api/integrations") {
+      sendJson(res, 200, integrationStatus());
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/integrations/test-alert") {
       if (user?.role !== "admin") {
         sendJson(res, 403, { error: "Acesso restrito ao administrador." });
+        return;
+      }
+      const result = await sendExternalAlert({
+        title: "Teste Cumbuca",
+        message: "Alerta externo configurado e funcionando.",
+        severity: "test"
+      }, user);
+      sendJson(res, result.sent ? 200 : 400, result);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/integrations/test-backup") {
+      if (!userCan(user, "restoreBackup")) {
+        sendJson(res, 403, { error: "Seu usuário não pode testar backups externos." });
+        return;
+      }
+      const current = await readAppState();
+      const result = await sendExternalBackup({
+        app: "Cumbuca",
+        version: "1.0.0",
+        exportedAt: new Date().toISOString(),
+        source: "integration-test",
+        data: current.state
+      }, `test-${Date.now()}`, user);
+      sendJson(res, result.sent ? 200 : 400, result);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/backup-restore-check") {
+      if (!userCan(user, "restoreBackup")) {
+        sendJson(res, 403, { error: "Seu usuário não pode testar restaurações." });
         return;
       }
       sendJson(res, 200, await backupRestoreCheck(user));
@@ -1877,8 +2130,8 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "POST" && url.pathname === "/api/reset-state") {
-      if (user?.role !== "admin") {
-        sendJson(res, 403, { error: "Acesso restrito ao administrador." });
+      if (!userCan(user, "clearData")) {
+        sendJson(res, 403, { error: "Seu usuário não pode limpar dados." });
         return;
       }
       const payload = await collectBody(req);
@@ -1896,8 +2149,8 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "POST" && url.pathname === "/api/reset-financial-state") {
-      if (user?.role !== "admin") {
-        sendJson(res, 403, { error: "Acesso restrito ao administrador." });
+      if (!userCan(user, "clearData")) {
+        sendJson(res, 403, { error: "Seu usuário não pode reiniciar o financeiro." });
         return;
       }
       const payload = await collectBody(req);
@@ -1929,8 +2182,8 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "POST" && url.pathname === "/api/backups/delete-old") {
-      if (user?.role !== "admin") {
-        sendJson(res, 403, { error: "Acesso restrito ao administrador." });
+      if (!userCan(user, "clearData")) {
+        sendJson(res, 403, { error: "Seu usuário não pode apagar backups." });
         return;
       }
       const payload = await collectBody(req);
@@ -1966,8 +2219,8 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "DELETE" && url.pathname === "/api/backup") {
-      if (user?.role !== "admin") {
-        sendJson(res, 403, { error: "Acesso restrito ao administrador." });
+      if (!userCan(user, "clearData")) {
+        sendJson(res, 403, { error: "Seu usuário não pode excluir backups." });
         return;
       }
       const backupReference = url.searchParams.get("id") || url.searchParams.get("date");
@@ -2006,8 +2259,8 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "POST" && url.pathname === "/api/restore-backup") {
-      if (user?.role !== "admin") {
-        sendJson(res, 403, { error: "Acesso restrito ao administrador." });
+      if (!userCan(user, "restoreBackup")) {
+        sendJson(res, 403, { error: "Seu usuário não pode restaurar backups." });
         return;
       }
       const payload = await collectBody(req);
@@ -2145,13 +2398,18 @@ if (!process.env.VERCEL) {
 
 handleRequest._test = {
   backupVersionId,
+  bulkFinancialClearRequested,
   calculateCashFlow,
   changedRecordDates,
+  financialPayloadChanged,
   financialIntegritySummary,
+  integrationStatus,
   lockedClosingForDate,
   legacyBackupDate,
   normalizeState,
+  normalizedPermissions,
   stateWriteViolation,
+  userCan,
   validateBackupPayload,
   weekRangeFromDate
 };
