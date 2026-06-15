@@ -93,11 +93,13 @@ const defaultState = {
     openingSavings: "",
     cycleNote: "",
     accounts: [],
-    reconciliationHistory: []
+    reconciliationHistory: [],
+    monthlyBudgets: {}
   },
   appConfig: {
     storeName: "Cumbuca",
-    defaultRoute: "hoje",
+    defaultRoute: "home",
+    homeDashboardVersion: "2026-06-budget",
     splitSavingsPercent: 10,
     splitVanessaPercent: 70,
     splitRaquelPercent: 30

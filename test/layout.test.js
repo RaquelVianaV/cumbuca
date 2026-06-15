@@ -17,6 +17,9 @@ test("finance, reports and maintenance expose the expected view tabs", () => {
   assert.match(app, /Parcelar valor total/);
   assert.match(app, /data-reverse-payment/);
   assert.match(app, /financialAccountNotifications/);
+  assert.match(app, /Orçamento mensal por categoria/);
+  assert.match(app, /Operação e financeiro/);
+  assert.match(css, /\.budget-progress/);
   assert.match(app, /reportViewTab/);
   assert.match(app, /data-maintenance-pane="integrity"/);
   assert.match(app, /permission-fieldset/);

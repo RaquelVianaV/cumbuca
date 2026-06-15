@@ -42,6 +42,7 @@ test("normalizeState fills missing keys without replacing supplied values", () =
   assert.deepEqual(state.weeklyClosings, {});
   assert.deepEqual(state.financialPlanning.accounts, []);
   assert.deepEqual(state.financialPlanning.reconciliationHistory, []);
+  assert.deepEqual(state.financialPlanning.monthlyBudgets, {});
   assert.equal(state.appConfig.storeName, "Cumbuca");
 });
 

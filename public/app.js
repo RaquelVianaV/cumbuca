@@ -19,7 +19,8 @@ let suppressIssueLog = false;
 const APP_DATA_RESET_VERSION = "2026-05-29-clean-start";
 const defaultAppConfig = {
   storeName: "Cumbuca",
-  defaultRoute: "hoje",
+  defaultRoute: "home",
+  homeDashboardVersion: "2026-06-budget",
   splitSavingsPercent: 10,
   splitVanessaPercent: 70,
   splitRaquelPercent: 30
@@ -439,7 +440,8 @@ const state = {
     openingSavings: "",
     cycleNote: "",
     accounts: [],
-    reconciliationHistory: []
+    reconciliationHistory: [],
+    monthlyBudgets: {}
   }),
   appConfig: localValue("appConfig", defaultAppConfig),
   reportPeriod: localValue("reportPeriod", {
@@ -556,12 +558,18 @@ function applyPayloadToState(saved = {}) {
     cycleNote: "",
     accounts: [],
     reconciliationHistory: [],
+    monthlyBudgets: {},
     ...(saved.financialPlanning || {})
   };
+  const savedAppConfig = saved.appConfig || {};
   state.appConfig = {
     ...defaultAppConfig,
-    ...(saved.appConfig || {})
+    ...savedAppConfig
   };
+  if (savedAppConfig.homeDashboardVersion !== defaultAppConfig.homeDashboardVersion) {
+    state.appConfig.defaultRoute = "home";
+    state.appConfig.homeDashboardVersion = defaultAppConfig.homeDashboardVersion;
+  }
 }
 
 function renderCurrentRoute() {
@@ -2578,9 +2586,26 @@ function homeMetricData() {
   const storeToday = state.storeSales
     .filter(entry => entry.date === todayKey)
     .reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+  const accountBalance = accountBalanceUntilDate(todayKey);
+  const forecastEnd = addDays(todayKey, 30);
+  const accountForecast = financialAccounts()
+    .filter(account => accountOpenAmount(account) >= 0.01)
+    .filter(account => String(account.dueDate || "") <= forecastEnd)
+    .reduce((totals, account) => {
+      totals[account.kind === "receivable" ? "receivable" : "payable"] += accountOpenAmount(account);
+      return totals;
+    }, { payable: 0, receivable: 0 });
+  const accountNotifications = financialAccountNotifications(7);
+  const budget = budgetSummary(monthKey);
 
   return {
     balance: income - expenses,
+    accountBalance,
+    projectedBalance30: accountBalance + accountForecast.receivable - accountForecast.payable,
+    payable30: accountForecast.payable,
+    receivable30: accountForecast.receivable,
+    accountNotifications,
+    budget,
     todayBalance: todayIncome - todayExpenses,
     todayIncome,
     todayExpenses,
@@ -2645,11 +2670,51 @@ function dashboardAlerts(metrics, weeklyOrders) {
     alerts.push(["Loja sem venda lançada hoje", "Atualize se já vendeu"]);
   }
 
-  if (!metrics.recentExpenses.length) {
-    alerts.push(["Sem despesas recentes", "Tudo limpo por enquanto"]);
-  }
+  budgetStatus(metrics.monthKey)
+    .filter(item => item.percent >= 100)
+    .forEach(item => alerts.push(["Orçamento excedido", `${item.label}: ${money(item.spent)} de ${money(item.limit)}`]));
 
   return alerts;
+}
+
+function monthlyBudgets() {
+  const value = state.financialPlanning?.monthlyBudgets;
+  return value && typeof value === "object" ? value : {};
+}
+
+function budgetStatus(monthKey = currentMonthKey()) {
+  const budgets = monthlyBudgets()[monthKey] || {};
+  const expenses = businessCashEntries(accountingCashEntries(state.cash))
+    .filter(entry => entry.type === "expense" && !isWithdrawalEntry(entry))
+    .filter(entry => cashAccountingDate(entry).startsWith(monthKey));
+  return Object.entries(budgets)
+    .map(([category, limit]) => {
+      const spent = expenses
+        .filter(entry => normalizedCategory(entry.category) === normalizedCategory(category))
+        .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+      const numericLimit = Number(limit || 0);
+      return {
+        category,
+        label: categoryName(category),
+        limit: numericLimit,
+        spent,
+        remaining: numericLimit - spent,
+        percent: numericLimit > 0 ? (spent / numericLimit) * 100 : 0
+      };
+    })
+    .filter(item => item.limit > 0)
+    .sort((a, b) => b.percent - a.percent);
+}
+
+function budgetSummary(monthKey = currentMonthKey()) {
+  const rows = budgetStatus(monthKey);
+  return {
+    rows,
+    limit: rows.reduce((sum, item) => sum + item.limit, 0),
+    spent: rows.reduce((sum, item) => sum + item.spent, 0),
+    exceeded: rows.filter(item => item.percent >= 100).length,
+    warning: rows.filter(item => item.percent >= 80 && item.percent < 100).length
+  };
 }
 
 function monthlyClientRows(currentKey = menuKey(state.menuWeek || 1)) {
@@ -2751,38 +2816,38 @@ function home() {
   const metrics = homeMetricData();
   const weeklyOrders = state.orders.filter(order => order.menuKey === menuKey(state.menuWeek || 1)).length;
   const alerts = dashboardAlerts(metrics, weeklyOrders);
-  const tools = [
-    ["fluxo-de-caixa", "Fluxo de Caixa", "Entradas, saídas e saldo", money(metrics.weekBalance), "Resultado da semana", "cash"],
-    ["menu-semanal", "Menu Semanal", "Pratos, preparo e pedidos", `${metrics.ready}/${metrics.planned || 0}`, "Prontos na semana", "menu"],
-    ["loja", "Loja", "Vendas do balcão por data", String(metrics.storeToday), "Cumbucas hoje", "store"],
-    ["financeiro", "Financeiro", "Conferência financeira", money(metrics.balance), "Resultado do mês", "finance"],
-    ["precificacao", "Precificação", "Ingredientes, margem e venda", String(state.ingredients.length), "Itens cadastrados", "price"],
-    ["relatorios", "Relatórios", "Leituras mensais e exportações", String(metrics.bowls), "Cumbucas no mês", "report"]
-  ];
+  const notifications = notificationRows(metrics, weeklyOrders);
+  const priorityCount = notifications.length;
+  const nextAccounts = financialAccounts()
+    .filter(account => accountOpenAmount(account) >= 0.01)
+    .sort((a, b) => String(a.dueDate || "").localeCompare(String(b.dueDate || "")))
+    .slice(0, 5);
 
   app.innerHTML = `
-    <section class="dashboard-band">
+    <section class="dashboard-band home-priority-band">
       <div class="dashboard-copy">
-        <span>Painel ${formatMonthKeyBr(metrics.monthKey)}</span>
-        <h2>Resumo rápido da operação</h2>
-        <p>Caixa, clientes, pedidos e produção em uma visão para abrir o dia com clareza.</p>
+        <span>${formatMonthKeyBr(metrics.monthKey)}</span>
+        <h2>Operação e financeiro</h2>
+        <p>O que precisa de decisão agora, sem repetir os relatórios detalhados.</p>
       </div>
       <div class="dashboard-kpis">
         <div class="metric dashboard-metric is-primary">
-          <span>Resultado operacional do mês</span>
-          <strong class="${metrics.balance < 0 ? "negative" : "positive"}">${money(metrics.balance)}</strong>
+          <span>Saldo da conta</span>
+          <strong class="${metrics.accountBalance < 0 ? "negative" : "positive"}">${money(metrics.accountBalance)}</strong>
         </div>
         <div class="metric dashboard-metric">
-          <span>Contas a vencer</span>
-          <strong>${metrics.pendingCashPayments.length}</strong>
+          <span>Projetado em 30 dias</span>
+          <strong class="${metrics.projectedBalance30 < 0 ? "negative" : "positive"}">${money(metrics.projectedBalance30)}</strong>
+          <small>A pagar ${money(metrics.payable30)} · receber ${money(metrics.receivable30)}</small>
         </div>
         <div class="metric dashboard-metric">
-          <span>Entradas da semana</span>
-          <strong>${money(metrics.weekIncome)}</strong>
+          <span>Pendências prioritárias</span>
+          <strong class="${priorityCount ? "negative" : "positive"}">${priorityCount}</strong>
         </div>
         <div class="metric dashboard-metric">
-          <span>Retiradas no mês</span>
-          <strong>${money(metrics.monthWithdrawals)}</strong>
+          <span>Orçamento do mês</span>
+          <strong>${metrics.budget.limit ? `${Math.round((metrics.budget.spent / metrics.budget.limit) * 100)}%` : "Sem limites"}</strong>
+          <small>${money(metrics.budget.spent)} de ${money(metrics.budget.limit)}</small>
         </div>
       </div>
     </section>
@@ -2790,142 +2855,72 @@ function home() {
     <section class="panel start-panel">
       <div class="section-heading">
         <div>
-          <h2>Começar agora</h2>
-          <p class="muted-inline">Ações mais usadas para operar o dia sem procurar nos menus.</p>
+          <h2>Ações principais</h2>
         </div>
       </div>
       <div class="quick-actions start-actions">
-        <a href="/fluxo-de-caixa"><b>Lançar entrada</b><small>Vendas e ajustes da conta</small></a>
-        <a href="/fluxo-de-caixa"><b>Lançar saída</b><small>Compras, boletos e despesas</small></a>
-        <a href="/menu-semanal"><b>Cadastrar cliente</b><small>Semanalista ou mensalista</small></a>
+        <a href="/fluxo-de-caixa"><b>Lançar caixa</b><small>Entrada, saída ou conciliação</small></a>
+        <a href="/financeiro?view=accounts"><b>Contas</b><small>Pagar, receber ou estornar</small></a>
         <a href="/menu-semanal"><b>Novo pedido</b><small>Pedido por cumbuca</small></a>
         <a href="/loja"><b>Venda da loja</b><small>Quantidade vendida hoje</small></a>
-        <a href="/backups"><b>Backup</b><small>Baixar antes de mudanças</small></a>
+        <a href="/financeiro?view=planning"><b>Orçamento</b><small>Limites por categoria</small></a>
+        <a href="/alertas"><b>Alertas</b><small>Pendências da operação</small></a>
       </div>
     </section>
 
-    <div class="dashboard-section-title">
-      <span>Ferramentas</span>
-      <strong>Atalhos principais</strong>
-    </div>
-    <div class="home-grid">
-      ${tools.map(([href, heading, text, value, label, tone]) => `
-        <a class="card tool-card tone-${tone}" href="/${href}">
-          <span class="card-icon" aria-hidden="true"></span>
-          <div>
-            <h2>${heading}</h2>
-            <p>${text}</p>
-          </div>
-          <div class="card-footer">
-            <span>
-              <b>${value}</b>
-              ${label}
-            </span>
-            <strong class="card-action">Abrir</strong>
-          </div>
-        </a>
-      `).join("")}
-    </div>
-
-    <section class="dashboard-lane">
+    <section class="dashboard-lane home-priority-lane">
       <div class="panel dashboard-panel">
-        <h2>Hoje e semana</h2>
-        <div class="focus-list">
-          <span><strong>${metrics.todayOrders.length}</strong> pedidos hoje</span>
-          <span><strong>${money(metrics.weekIncome)}</strong> entradas</span>
-          <span><strong>${money(metrics.weekExpenses)}</strong> saídas</span>
-          <span><strong>${weeklyOrders}</strong> pedidos na semana aberta</span>
+        <div class="section-heading">
+          <h2>Prioridades</h2>
+          <a class="secondary table-action" href="/alertas">Ver todas</a>
         </div>
-      </div>
-      <div class="panel dashboard-panel">
-        <h2>Notificações</h2>
         ${notifications.length ? `
           <div class="alert-list">
             ${notifications.slice(0, 6).map(item => `<span><b>${item.title}</b>${item.detail}<a class="secondary table-action" href="${item.action}">Abrir</a></span>`).join("")}
           </div>
-        ` : `<p class="muted">Nenhuma notificação agora.</p>`}
-      </div>
-    </section>
-
-    <section class="dashboard-lane">
-      ${growthDashboardPanel()}
-      ${monthlyClientsPanel(menuKey(state.menuWeek || 1))}
-    </section>
-
-    <section class="dashboard-lane">
-      <div class="panel dashboard-panel">
-        <h2>Produção por sabor</h2>
-        ${metrics.dishTotals.length ? `
-          <div class="recent-list">
-            ${metrics.dishTotals.map(item => `
-              <span><b>${item.quantity}</b>${item.dish || `Cumbuca ${item.slot}`}<small>Cumbuca ${item.slot}</small></span>
-            `).join("")}
-          </div>
-        ` : `<p class="muted">Nenhuma cumbuca planejada ou pedida nesta semana.</p>`}
+        ` : `<p class="muted">Nenhuma pendência prioritária agora.</p>`}
       </div>
       <div class="panel dashboard-panel">
-        <h2>Ações rápidas</h2>
-        <div class="quick-actions">
-          <a href="/fluxo-de-caixa"><b>Lançar canal</b><small>Cardápio, iFood e 99 Food</small></a>
-          <a href="/fluxo-de-caixa"><b>Lançar saída</b><small>Caixa</small></a>
-          <a href="/menu-semanal"><b>Novo pedido</b><small>Menu semanal</small></a>
-          <a href="/financeiro"><b>Conferir caixa</b><small>Fechamento</small></a>
-          <a href="/backups"><b>Manutenção</b><small>Backup e limpeza</small></a>
+        <div class="section-heading">
+          <h2>Próximos vencimentos</h2>
+          <a class="secondary table-action" href="/financeiro?view=accounts">Ver contas</a>
         </div>
-      </div>
-    </section>
-
-    <section class="dashboard-lane">
-      <div class="panel dashboard-panel">
-        <h2>Mensalistas no limite</h2>
-        ${metrics.lowMonthlyClients.length ? `
-          <div class="recent-list">
-            ${metrics.lowMonthlyClients.map(client => `
-              <span><b>${clientRemainingQuantity(client, menuKey(state.menuWeek || 1))}</b>${client.name || client.phone}<small>restantes</small></span>
-            `).join("")}
-          </div>
-        ` : `<p class="muted">Nenhum mensalista no limite agora.</p>`}
-      </div>
-      <div class="panel dashboard-panel">
-        <h2>Pagamentos pendentes</h2>
-        ${metrics.pendingPayments.length || metrics.pendingCashPayments.length ? `
-          <div class="recent-list">
-            ${metrics.pendingCashPayments.map(entry => `
+        ${nextAccounts.length ? `
+          <div class="recent-list compact">
+            ${nextAccounts.map(account => `
               <span>
-                <b>${money(entry.amount)}</b>
-                ${entry.description || categoryName(entry.category)}
-                <small>${formatIsoDateBr(entry.reminderDate)} - ${entry.dueDate ? dueDateDistanceLabel(entry.dueDate) : "Despesa programada"}</small>
+                <b>${money(accountOpenAmount(account))}</b>
+                ${escapeHtml(account.description)}
+                <small>${formatIsoDateBr(account.dueDate)} · ${account.kind === "receivable" ? "a receber" : "a pagar"}</small>
               </span>
             `).join("")}
-            ${metrics.pendingPayments.slice(0, 5).map(order => {
-              const client = clientByPhone(order.clientPhone);
-              return `<span><b>${money(order.amount)}</b>${client.name || order.clientPhone}<small>${orderQuantity(order)} cumbucas - pedido semanal</small></span>`;
-            }).join("")}
           </div>
-        ` : `<p class="muted">Nenhum pagamento ou conta pendente.</p>`}
+        ` : `<p class="muted">Nenhuma conta em aberto.</p>`}
       </div>
     </section>
 
-    <section class="dashboard-lane">
+    <section class="dashboard-lane home-secondary-lane">
       <div class="panel dashboard-panel">
-        <h2>Despesas recentes</h2>
-        ${metrics.recentExpenses.length ? `
-            <div class="recent-list compact">
-              ${metrics.recentExpenses.map(entry => `
-                <span><b>${money(entry.amount)}</b>${entry.description || "Despesa"}<small>${formatIsoDateBr(cashAccountingDate(entry))}</small></span>
-              `).join("")}
-            </div>
-          ` : `<p class="muted">Nenhuma despesa lançada ainda.</p>`}
+        <h2>Hoje e semana</h2>
+        <div class="focus-list">
+          <span><strong>${metrics.todayOrders.length}</strong> pedidos hoje</span>
+          <span><strong>${money(metrics.weekIncome)}</strong> entradas da semana</span>
+          <span><strong>${money(metrics.weekExpenses)}</strong> saídas da semana</span>
+          <span><strong>${weeklyOrders}</strong> pedidos na semana</span>
+        </div>
       </div>
       <div class="panel dashboard-panel">
-        <h2>Maiores gastos do mês</h2>
-        ${metrics.topMonthExpenses.length ? `
-            <div class="recent-list compact">
-              ${metrics.topMonthExpenses.map(entry => `
-                <span><b>${money(entry.amount)}</b>${entry.description || categoryName(entry.category)}<small>${categoryName(entry.category)} - ${formatIsoDateBr(cashAccountingDate(entry))}</small></span>
-              `).join("")}
-            </div>
-          ` : `<p class="muted">Nenhuma despesa operacional no mês.</p>`}
+        <h2>Orçamento por categoria</h2>
+        ${metrics.budget.rows.length ? `
+          <div class="budget-mini-list">
+            ${metrics.budget.rows.slice(0, 5).map(item => `
+              <span class="${item.percent >= 100 ? "negative" : item.percent >= 80 ? "warning-text" : ""}">
+                <b>${Math.round(item.percent)}%</b>${escapeHtml(item.label)}
+                <small>${money(item.spent)} de ${money(item.limit)}</small>
+              </span>
+            `).join("")}
+          </div>
+        ` : `<p class="muted">Defina limites no Planejamento financeiro.</p>`}
       </div>
     </section>
   `;
@@ -8915,6 +8910,61 @@ function financialCyclePanel() {
   `;
 }
 
+function monthlyBudgetPanel() {
+  const monthKey = reportPeriodKey();
+  const rows = budgetStatus(monthKey);
+  const summary = budgetSummary(monthKey);
+  const configured = monthlyBudgets()[monthKey] || {};
+  return `
+    <section class="panel report-section budget-panel">
+      <div class="section-heading">
+        <div>
+          <h2>Orçamento mensal por categoria</h2>
+          <p class="muted-inline">Limites de ${formatMonthKeyBr(monthKey)} comparados apenas com saídas operacionais realizadas.</p>
+        </div>
+      </div>
+      <div class="summary">
+        <div class="metric"><span>Orçado</span><strong>${money(summary.limit)}</strong></div>
+        <div class="metric"><span>Gasto</span><strong>${money(summary.spent)}</strong></div>
+        <div class="metric"><span>Em alerta</span><strong class="${summary.warning ? "warning-text" : "positive"}">${summary.warning}</strong></div>
+        <div class="metric"><span>Excedidos</span><strong class="${summary.exceeded ? "negative" : "positive"}">${summary.exceeded}</strong></div>
+      </div>
+      <form id="monthly-budget-form" class="form-grid budget-form">
+        <input name="month" type="hidden" value="${monthKey}">
+        <label>Categoria
+          <select name="category">
+            ${activeExpenseCategories()
+              .filter(([key]) => !["retirada", "vanessa", "raquel", "cofrinho", "ajuste-conta"].includes(key))
+              .map(([key, label]) => `<option value="${key}">${escapeHtml(label)}</option>`).join("")}
+          </select>
+        </label>
+        <label>Limite mensal
+          <input name="limit" type="text" inputmode="decimal" placeholder="0,00" required>
+        </label>
+        <button type="submit">Salvar limite</button>
+      </form>
+      ${rows.length ? `
+        <div class="budget-list">
+          ${rows.map(item => `
+            <article class="budget-row ${item.percent >= 100 ? "exceeded" : item.percent >= 80 ? "warning" : ""}">
+              <div>
+                <strong>${escapeHtml(item.label)}</strong>
+                <small>${money(item.spent)} de ${money(item.limit)}</small>
+              </div>
+              <div class="budget-progress" aria-label="${Math.round(item.percent)}% utilizado">
+                <span style="width:${Math.min(100, item.percent)}%"></span>
+              </div>
+              <b class="${item.remaining < 0 ? "negative" : "positive"}">${item.remaining < 0 ? "Excedeu " : "Restam "}${money(Math.abs(item.remaining))}</b>
+              <button class="danger table-action" type="button" data-delete-budget="${escapeHtml(item.category)}" data-budget-month="${monthKey}">Excluir</button>
+            </article>
+          `).join("")}
+        </div>
+      ` : `<p class="muted">Nenhum limite cadastrado para este mês.</p>`}
+      ${Object.keys(configured).length && !rows.length ? `<p class="muted">Os limites deste mês estão zerados.</p>` : ""}
+    </section>
+  `;
+}
+
 function financialPlanningPanel() {
   const planning = state.financialPlanning || {};
 
@@ -9235,11 +9285,58 @@ function bindFinancialPlanning() {
       openingSavings: state.financialPlanning?.openingSavings || "",
       cycleNote: state.financialPlanning?.cycleNote || "",
       accounts: financialAccounts(),
-      reconciliationHistory: state.financialPlanning?.reconciliationHistory || []
+      reconciliationHistory: state.financialPlanning?.reconciliationHistory || [],
+      monthlyBudgets: monthlyBudgets()
     };
     recordAudit("Planejamento financeiro", `Guardado ${money(state.financialPlanning.savings)}`);
     persistState();
     renderFinance();
+  });
+}
+
+function bindMonthlyBudget() {
+  on("#monthly-budget-form", "submit", async event => {
+    event.preventDefault();
+    const values = readForm(event.currentTarget);
+    const limit = parseMoneyInput(values.limit);
+    if (!values.category || limit <= 0) {
+      showToast("Informe categoria e limite maior que zero.", "error");
+      return;
+    }
+    state.financialPlanning = {
+      ...(state.financialPlanning || {}),
+      monthlyBudgets: {
+        ...monthlyBudgets(),
+        [values.month]: {
+          ...(monthlyBudgets()[values.month] || {}),
+          [values.category]: limit.toFixed(2)
+        }
+      }
+    };
+    recordAudit("Orçamento mensal atualizado", `${formatMonthKeyBr(values.month)} - ${categoryName(values.category)} - ${money(limit)}`);
+    if (await persistState()) {
+      renderFinance();
+    }
+  });
+
+  document.querySelectorAll("[data-delete-budget]").forEach(button => {
+    button.addEventListener("click", async () => {
+      const month = button.dataset.budgetMonth;
+      const category = button.dataset.deleteBudget;
+      if (!confirm(`Excluir o limite de ${categoryName(category)} em ${formatMonthKeyBr(month)}?`)) {
+        return;
+      }
+      const monthBudgets = { ...(monthlyBudgets()[month] || {}) };
+      delete monthBudgets[category];
+      state.financialPlanning = {
+        ...(state.financialPlanning || {}),
+        monthlyBudgets: { ...monthlyBudgets(), [month]: monthBudgets }
+      };
+      recordAudit("Orçamento mensal excluído", `${formatMonthKeyBr(month)} - ${categoryName(category)}`);
+      if (await persistState()) {
+        renderFinance();
+      }
+    });
   });
 }
 
@@ -9755,6 +9852,7 @@ function renderFinance() {
     `)}
     ${viewPaneHtml("planning", activeTab, `
       ${financialCyclePanel()}
+      ${monthlyBudgetPanel()}
       ${financialPlanningPanel()}
     `)}
     ${viewPaneHtml("withdrawals", activeTab, `
@@ -9775,6 +9873,7 @@ function renderFinance() {
   loadPendingDashboard();
   bindFinancialAccounts();
   bindFinancialPlanning();
+  bindMonthlyBudget();
   enhanceResponsiveTables(app);
   document.querySelectorAll("[data-export-withdrawals]").forEach(button => {
     button.addEventListener("click", () => exportWithdrawalReport(data));

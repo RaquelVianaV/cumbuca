@@ -162,3 +162,49 @@ test("controlled finance workflow covers installments, reversal, alerts and reco
   const testedAccount = database.state.financialPlanning.accounts.find(account => account.description === "Teste fornecedor");
   expect(testedAccount.payments[0].reversedAt).toBeTruthy();
 });
+
+test("home dashboard prioritizes projected balance and actions", async ({ page }, testInfo) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Operação e financeiro", exact: true })).toBeVisible();
+  await expect(page.getByText("Projetado em 30 dias", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Prioridades", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Próximos vencimentos", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ações principais", exact: true })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({ path: testInfo.outputPath("home-dashboard.png"), fullPage: true });
+});
+
+test("monthly category budget compares limits with operational expenses", async ({ page }, testInfo) => {
+  const database = await mockOnlineDatabase(page);
+  const today = new Date().toISOString().slice(0, 10);
+  const month = today.slice(0, 7);
+  database.state = {
+    cashEntries: [{
+      id: "budget-expense",
+      description: "Compra de teste",
+      date: today,
+      type: "expense",
+      category: "supermercado",
+      amount: "90.00"
+    }],
+    financialPlanning: {
+      monthlyBudgets: {
+        [month]: { supermercado: "100.00" }
+      }
+    }
+  };
+  await page.goto(`/financeiro?view=planning&ano=${today.slice(0, 4)}&mes=${Number(today.slice(5, 7))}`);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Orçamento mensal por categoria", exact: true })).toBeVisible();
+  await expect(page.locator(".budget-row").filter({ hasText: "Supermercado" })).toContainText("R$ 90,00 de R$ 100,00");
+  await expect(page.locator(".budget-row").filter({ hasText: "Supermercado" })).toContainText("Restam R$ 10,00");
+  await page.screenshot({ path: testInfo.outputPath("monthly-budget.png"), fullPage: true });
+  await page.locator('#monthly-budget-form input[name="limit"]').fill("80,00");
+  await page.getByRole("button", { name: "Salvar limite", exact: true }).click();
+  await expect(page.locator(".budget-row").filter({ hasText: "Supermercado" })).toContainText("Excedeu R$ 10,00");
+
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Orçamento por categoria", exact: true })).toBeVisible();
+  await expect(page.locator(".budget-mini-list").filter({ hasText: "Supermercado" })).toContainText("113%");
+  await expect(page.getByText("Orçamento excedido", { exact: true })).toBeVisible();
+});
