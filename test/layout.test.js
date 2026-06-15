@@ -11,11 +11,15 @@ const serviceWorker = fs.readFileSync(path.join(root, "public", "sw.js"), "utf8"
 
 test("finance, reports and maintenance expose the expected view tabs", () => {
   assert.match(app, /financeViewTab/);
-  assert.match(app, /Fluxo e contas/);
+  assert.match(app, /Contas a pagar e receber/);
+  assert.match(app, /finance-pending-dashboard/);
+  assert.match(app, /reconciliationHistory/);
   assert.match(app, /reportViewTab/);
   assert.match(app, /data-maintenance-pane="integrity"/);
   assert.match(app, /permission-fieldset/);
   assert.match(app, /integration-status/);
+  assert.match(css, /\.account-row/);
+  assert.match(css, /\.pending-grid/);
 });
 
 test("mobile tables receive column labels", () => {

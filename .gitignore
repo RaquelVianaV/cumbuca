@@ -8,5 +8,7 @@ node_modules/
 
 .vercel
 backups/
+playwright-report/
+test-results/
 
 .env*.local

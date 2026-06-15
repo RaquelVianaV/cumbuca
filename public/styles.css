@@ -2131,6 +2131,156 @@ textarea {
   gap: 10px;
 }
 
+.account-list {
+  display: grid;
+  gap: 10px;
+}
+
+.account-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) minmax(260px, 1fr) minmax(330px, 1.4fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid #dde3e8;
+  border-left: 4px solid #6f9d8c;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.account-row.overdue {
+  border-left-color: #b42318;
+  background: #fffafa;
+}
+
+.account-row.paid {
+  border-left-color: #16805d;
+  background: #f7fbf9;
+}
+
+.account-main,
+.account-values {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.account-main strong,
+.account-main small {
+  overflow-wrap: anywhere;
+}
+
+.account-values {
+  grid-template-columns: repeat(3, minmax(76px, 1fr));
+}
+
+.account-values span {
+  display: grid;
+  gap: 2px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.account-values b {
+  color: #18212b;
+  font-size: 14px;
+}
+
+.status-label {
+  color: #526272;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.account-settlement-form {
+  display: grid;
+  grid-template-columns: minmax(125px, 1fr) minmax(110px, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.account-settlement-form label {
+  gap: 4px;
+  font-size: 11px;
+}
+
+.account-settlement-form input,
+.account-settlement-form button {
+  min-height: 38px;
+}
+
+.pending-overview {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 16px;
+}
+
+.pending-overview > div:first-child {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  padding: 18px;
+  border: 1px solid #d9e4df;
+  border-radius: 6px;
+  background: #f6faf8;
+}
+
+.pending-overview.has-pending > div:first-child {
+  border-color: #ead7aa;
+  background: #fffaf0;
+}
+
+.pending-overview > div:first-child strong {
+  font-size: 34px;
+}
+
+.pending-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(135px, 1fr));
+  gap: 8px;
+}
+
+.pending-item {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  min-height: 110px;
+  padding: 12px;
+  border: 1px solid #dce5e1;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.pending-item > span {
+  color: #16805d;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.pending-item.warning > span {
+  color: #986b00;
+}
+
+.pending-item.danger > span {
+  color: #b42318;
+}
+
+.pending-item.warning {
+  border-color: #ead7aa;
+}
+
+.pending-item.danger {
+  border-color: #efc6c2;
+  background: #fffafa;
+}
+
+.pending-item small {
+  color: #64748b;
+  line-height: 1.35;
+}
+
 .permission-summary span {
   display: grid;
   gap: 4px;
@@ -3926,6 +4076,22 @@ a.secondary.table-action,
   .cash-command-panel {
     position: static;
   }
+
+  .account-row {
+    grid-template-columns: minmax(220px, 1fr) minmax(260px, 1fr);
+  }
+
+  .account-settlement-form {
+    grid-column: 1 / -1;
+  }
+
+  .pending-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .pending-grid {
+    grid-template-columns: repeat(3, minmax(150px, 1fr));
+  }
 }
 
 @media (max-width: 1200px) {
@@ -3945,6 +4111,45 @@ a.secondary.table-action,
 
   .panel {
     padding: 14px;
+  }
+
+  .account-row,
+  .account-settlement-form,
+  .account-values,
+  .pending-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .daily-reconciliation-panel .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cash-panel-tabs {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+  }
+
+  .cash-panel-tabs button {
+    flex: 0 0 auto;
+    min-width: 128px;
+    scroll-snap-align: start;
+  }
+
+  .account-row {
+    gap: 10px;
+  }
+
+  .account-settlement-form {
+    grid-column: auto;
+  }
+
+  .account-values {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .pending-item {
+    min-height: 0;
   }
 
   .dashboard-panel,

@@ -437,7 +437,9 @@ const state = {
     cycleStartDate: "",
     openingBalance: "",
     openingSavings: "",
-    cycleNote: ""
+    cycleNote: "",
+    accounts: [],
+    reconciliationHistory: []
   }),
   appConfig: localValue("appConfig", defaultAppConfig),
   reportPeriod: localValue("reportPeriod", {
@@ -552,6 +554,8 @@ function applyPayloadToState(saved = {}) {
     openingBalance: "",
     openingSavings: "",
     cycleNote: "",
+    accounts: [],
+    reconciliationHistory: [],
     ...(saved.financialPlanning || {})
   };
   state.appConfig = {
@@ -3434,7 +3438,10 @@ async function renderCash() {
             <label>Motivo
               <input name="reason" placeholder="Ex.: conta bancária zerada, diferença real do caixa" value="Conta conferida" required>
             </label>
-            <button type="submit">Lançar ajuste da diferença</button>
+            <label>Responsável
+              <input value="${escapeHtml(state.currentUser?.name || state.currentUser?.username || "Usuário")}" readonly>
+            </label>
+            <button type="submit" ${canUser("editFinancial") ? "" : "disabled"}>Conferir e lançar ajuste</button>
           </form>
           <div class="summary">
             <div class="metric"><span>Saldo calculado até o dia</span><strong id="reconciliation-calculated" class="${dailyAccountBalance < 0 ? "negative" : "positive"}">${money(dailyAccountBalance)}</strong></div>
@@ -3442,6 +3449,18 @@ async function renderCash() {
             <div class="metric"><span>Diferença a ajustar</span><strong id="reconciliation-difference" class="${-dailyAccountBalance < 0 ? "negative" : "positive"}">${money(-dailyAccountBalance)}</strong></div>
           </div>
           <p class="muted">Use esta conferência quando a conta real já está zerada ou diferente do saldo calculado. O lançamento fica marcado como Ajuste da conta.</p>
+          ${(state.financialPlanning?.reconciliationHistory || []).length ? `
+            <h3>Últimas conciliações</h3>
+            <div class="recent-list">
+              ${(state.financialPlanning.reconciliationHistory || []).slice(0, 8).map(item => `
+                <span>
+                  <b>${formatIsoDateBr(item.date)} · ${money(item.realBalance)}</b>
+                  Ajuste ${money(item.difference)}
+                  <small>${escapeHtml(item.authorizedBy || "Sistema")} · ${escapeHtml(item.reason || "Conta conferida")}</small>
+                </span>
+              `).join("")}
+            </div>
+          ` : ""}
         </div>
         ` : ""}
         ${activeCashPanel === "channels" ? channelReceiptsPanel(editingChannelReceipt, selectedChannelMonth) : ""}
@@ -3747,8 +3766,33 @@ async function renderCash() {
       const realBalance = parseMoneyInput(values.realBalance);
       const calculatedBalance = accountBalanceUntilDate(date);
       const difference = realBalance - calculatedBalance;
+      const reason = String(values.reason || "Conta conferida").trim();
+      const authorizedBy = state.currentUser?.name || state.currentUser?.username || "Sistema";
+      if (!canUser("editFinancial")) {
+        showToast("Seu usuário não pode autorizar ajustes financeiros.", "error");
+        return;
+      }
       if (Math.abs(difference) < 0.01) {
-        showToast("A conta já bate com o saldo informado.", "success");
+        state.financialPlanning = {
+          ...(state.financialPlanning || {}),
+          reconciliationHistory: [{
+            id: `reconciliation-${Date.now()}`,
+            date,
+            calculatedBalance: calculatedBalance.toFixed(2),
+            realBalance: realBalance.toFixed(2),
+            difference: "0.00",
+            reason,
+            authorizedBy,
+            username: state.currentUser?.username || "",
+            createdAt: new Date().toISOString(),
+            status: "matched"
+          }, ...(state.financialPlanning?.reconciliationHistory || [])].slice(0, 250)
+        };
+        recordAudit("Conciliação da conta", `${formatIsoDateBr(date)} - sem diferença - autorizado por ${authorizedBy}`);
+        if (await persistState()) {
+          showToast("Conciliação registrada sem diferença.", "success");
+          renderCash();
+        }
         return;
       }
       if (blockClosedPeriod(date, "lançar ajuste de conferência")) {
@@ -3756,19 +3800,40 @@ async function renderCash() {
       }
       const adjustmentType = difference > 0 ? "income" : "expense";
       const adjustmentAmount = Math.abs(difference);
-      const reason = String(values.reason || "Conta conferida").trim();
       const actionLabel = adjustmentType === "expense" ? "saída" : "entrada";
       if (!confirm(`Lançar ${actionLabel} de ajuste no valor de ${money(adjustmentAmount)} para bater com saldo real ${money(realBalance)}?`)) {
         return;
       }
+      const adjustmentId = `account-check-${Date.now()}`;
       state.cash.push({
-        id: `account-check-${Date.now()}`,
+        id: adjustmentId,
         description: `Ajuste de conferência - ${reason}`,
         date,
         type: adjustmentType,
         category: "ajuste-conta",
-        amount: adjustmentAmount.toFixed(2)
+        amount: adjustmentAmount.toFixed(2),
+        reconciliation: true,
+        authorizedBy,
+        authorizedUsername: state.currentUser?.username || "",
+        calculatedBalance: calculatedBalance.toFixed(2),
+        realBalance: realBalance.toFixed(2)
       });
+      state.financialPlanning = {
+        ...(state.financialPlanning || {}),
+        reconciliationHistory: [{
+          id: `reconciliation-${Date.now()}`,
+          adjustmentId,
+          date,
+          calculatedBalance: calculatedBalance.toFixed(2),
+          realBalance: realBalance.toFixed(2),
+          difference: difference.toFixed(2),
+          reason,
+          authorizedBy,
+          username: state.currentUser?.username || "",
+          createdAt: new Date().toISOString(),
+          status: "adjusted"
+        }, ...(state.financialPlanning?.reconciliationHistory || [])].slice(0, 250)
+      };
       state.cashFilter = {
         ...state.cashFilter,
         period: "day",
@@ -3780,7 +3845,12 @@ async function renderCash() {
         search: "",
         manualAll: false
       };
-      recordAudit("Conferência da conta", `${formatIsoDateBr(date)} - saldo real ${money(realBalance)} - ajuste ${money(difference)}`);
+      recordAudit("Conciliação da conta", `${formatIsoDateBr(date)} - saldo real ${money(realBalance)} - ajuste ${money(difference)} - autorizado por ${authorizedBy}`, {
+        entityId: adjustmentId,
+        calculatedBalance: calculatedBalance.toFixed(2),
+        realBalance: realBalance.toFixed(2),
+        difference: difference.toFixed(2)
+      });
       if (await persistState()) {
         showToast("Ajuste de conferência lançado.", "success");
         renderCash();
@@ -6505,6 +6575,7 @@ function reportChannelReceipts(periodKey) {
 
 function reportData() {
   const type = state.reportPeriod.type || "month";
+  const today = isoDate(new Date());
   const periodKey = reportPeriodKey();
   const selectedWeek = Number(state.reportPeriod.week || 1);
   const weekKey = reportWeekKey();
@@ -8347,6 +8418,131 @@ function upcomingBills(limit = 6, { includeOverdue = true } = {}) {
     .slice(0, limit);
 }
 
+function financialAccounts() {
+  return Array.isArray(state.financialPlanning?.accounts)
+    ? state.financialPlanning.accounts
+    : [];
+}
+
+function accountPaidTotal(account = {}) {
+  return (Array.isArray(account.payments) ? account.payments : [])
+    .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+}
+
+function accountOpenAmount(account = {}) {
+  return Math.max(0, Number(account.amount || 0) - accountPaidTotal(account));
+}
+
+function accountStatus(account = {}, today = isoDate(new Date())) {
+  const open = accountOpenAmount(account);
+  if (open < 0.01) {
+    return "paid";
+  }
+  return String(account.dueDate || "") < today ? "overdue" : "pending";
+}
+
+function accountsSummary() {
+  const today = isoDate(new Date());
+  return financialAccounts().reduce((summary, account) => {
+    const open = accountOpenAmount(account);
+    const status = accountStatus(account, today);
+    if (account.kind === "receivable") {
+      summary.receivable += open;
+    } else {
+      summary.payable += open;
+    }
+    if (status === "overdue") {
+      summary.overdue += 1;
+      summary.overdueAmount += open;
+    }
+    return summary;
+  }, { payable: 0, receivable: 0, overdue: 0, overdueAmount: 0 });
+}
+
+function accountsManagementPanel() {
+  const editingId = state.editFinancialAccountId;
+  const editing = financialAccounts().find(account => String(account.id) === String(editingId));
+  const accounts = [...financialAccounts()].sort((a, b) => String(a.dueDate || "").localeCompare(String(b.dueDate || "")));
+  const summary = accountsSummary();
+  return `
+    <section class="panel report-section accounts-panel">
+      <div class="section-heading">
+        <div>
+          <h2>Contas a pagar e receber</h2>
+          <p class="muted-inline">O compromisso não altera o saldo. Somente pagamentos e recebimentos registrados entram no caixa.</p>
+        </div>
+      </div>
+      <div class="summary">
+        <div class="metric"><span>A pagar</span><strong>${money(summary.payable)}</strong></div>
+        <div class="metric"><span>A receber</span><strong>${money(summary.receivable)}</strong></div>
+        <div class="metric"><span>Em atraso</span><strong class="${summary.overdue ? "negative" : "positive"}">${summary.overdue}</strong><small>${money(summary.overdueAmount)}</small></div>
+      </div>
+      <form id="financial-account-form" class="form-grid">
+        <input name="id" type="hidden" value="${escapeHtml(editing?.id || "")}">
+        <label>Tipo
+          <select name="kind">
+            <option value="payable" ${editing?.kind !== "receivable" ? "selected" : ""}>Conta a pagar</option>
+            <option value="receivable" ${editing?.kind === "receivable" ? "selected" : ""}>Conta a receber</option>
+          </select>
+        </label>
+        <label>Descrição
+          <input name="description" value="${escapeHtml(editing?.description || "")}" placeholder="Fornecedor, cliente ou compromisso" required>
+        </label>
+        <label>Vencimento
+          <input name="dueDate" type="date" value="${editing?.dueDate || isoDate(new Date())}" required>
+        </label>
+        <label>Valor total
+          <input name="amount" type="text" inputmode="decimal" value="${editing ? moneyInputValue(editing.amount) : ""}" placeholder="0,00" required>
+        </label>
+        <label>Categoria
+          <input name="category" value="${escapeHtml(editing?.category || "")}" placeholder="Ex.: fornecedor, venda futura">
+        </label>
+        <label>Observação
+          <input name="notes" value="${escapeHtml(editing?.notes || "")}" placeholder="Parcela, referência ou contato">
+        </label>
+        <div class="actions">
+          <button type="submit">${editing ? "Salvar conta" : "Adicionar conta"}</button>
+          ${editing ? `<button class="secondary" type="button" id="cancel-financial-account-edit">Cancelar</button>` : ""}
+        </div>
+      </form>
+      ${accounts.length ? `
+        <div class="account-list">
+          ${accounts.map(account => {
+            const open = accountOpenAmount(account);
+            const status = accountStatus(account);
+            const paid = accountPaidTotal(account);
+            return `
+              <article class="account-row ${status}">
+                <div class="account-main">
+                  <span class="status-label">${account.kind === "receivable" ? "A receber" : "A pagar"} · ${status === "paid" ? "Quitada" : status === "overdue" ? "Atrasada" : "Pendente"}</span>
+                  <strong>${escapeHtml(account.description || "Conta")}</strong>
+                  <small>Vencimento ${formatIsoDateBr(account.dueDate)}${account.category ? ` · ${escapeHtml(account.category)}` : ""}</small>
+                </div>
+                <div class="account-values">
+                  <span>Total <b>${money(account.amount)}</b></span>
+                  <span>Baixado <b>${money(paid)}</b></span>
+                  <span>Em aberto <b class="${status === "overdue" ? "negative" : ""}">${money(open)}</b></span>
+                </div>
+                ${open >= 0.01 ? `
+                  <form class="account-settlement-form" data-account-settlement="${escapeHtml(account.id)}">
+                    <label>Data<input name="date" type="date" value="${isoDate(new Date())}" required></label>
+                    <label>Valor<input name="amount" type="text" inputmode="decimal" value="${moneyInputValue(open)}" required></label>
+                    <button type="submit">${account.kind === "receivable" ? "Registrar recebimento" : "Registrar pagamento"}</button>
+                  </form>
+                ` : ""}
+                <div class="actions">
+                  <button class="secondary table-action" type="button" data-edit-financial-account="${escapeHtml(account.id)}">Editar</button>
+                  <button class="danger table-action" type="button" data-delete-financial-account="${escapeHtml(account.id)}">Excluir</button>
+                </div>
+              </article>
+            `;
+          }).join("")}
+        </div>
+      ` : `<p class="muted">Nenhuma conta cadastrada.</p>`}
+    </section>
+  `;
+}
+
 function upcomingBillsPanel({ title = "Próximas contas", limit = 6, showSummary = false, includeOverdue = true } = {}) {
   const bills = upcomingBills(limit, { includeOverdue });
   const total = bills.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
@@ -8401,17 +8597,26 @@ function cashForecastPanel(data) {
     : withdrawalProjection(data).dailyProfit;
   const horizons = [7, 15, 30].map(days => {
     const end = addDays(today, days);
-    const bills = state.cash
+    const legacyBills = state.cash
       .filter(isPendingBill)
       .filter(entry => {
         const due = String(entry.dueDate || entry.date || "");
         return due >= today && due <= end;
       })
       .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+    const planned = financialAccounts()
+      .filter(account => accountOpenAmount(account) >= 0.01)
+      .filter(account => String(account.dueDate || "") >= today && String(account.dueDate || "") <= end)
+      .reduce((totals, account) => {
+        totals[account.kind === "receivable" ? "receivable" : "payable"] += accountOpenAmount(account);
+        return totals;
+      }, { payable: 0, receivable: 0 });
+    const bills = legacyBills + planned.payable;
     return {
       days,
       bills,
-      projected: accountBalanceUntilDate(today) + (dailyAverage * days) - bills
+      receivable: planned.receivable,
+      projected: accountBalanceUntilDate(today) + (dailyAverage * days) + planned.receivable - bills
     };
   });
   return `
@@ -8423,7 +8628,7 @@ function cashForecastPanel(data) {
           <div class="metric">
             <span>Próximos ${item.days} dias</span>
             <strong class="${item.projected < 0 ? "negative" : "positive"}">${money(item.projected)}</strong>
-            <small>Contas previstas: ${money(item.bills)}</small>
+            <small>A pagar ${money(item.bills)} · a receber ${money(item.receivable)}</small>
           </div>
         `).join("")}
       </div>
@@ -8647,6 +8852,136 @@ function financialPlanningPanel() {
   `;
 }
 
+function bindFinancialAccounts() {
+  const form = document.querySelector("#financial-account-form");
+  if (form) {
+    form.addEventListener("submit", async event => {
+      event.preventDefault();
+      const values = readForm(event.currentTarget);
+      const amount = parseMoneyInput(values.amount);
+      if (!values.description || !values.dueDate || amount <= 0) {
+        showToast("Informe descrição, vencimento e valor maior que zero.", "error");
+        return;
+      }
+      const accounts = financialAccounts();
+      const current = accounts.find(account => String(account.id) === String(values.id));
+      if (current && amount + 0.009 < accountPaidTotal(current)) {
+        showToast(`O valor total não pode ser menor que o já baixado: ${money(accountPaidTotal(current))}.`, "error");
+        return;
+      }
+      const account = {
+        id: current?.id || `account-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        kind: values.kind === "receivable" ? "receivable" : "payable",
+        description: String(values.description || "").trim(),
+        dueDate: values.dueDate,
+        amount: amount.toFixed(2),
+        category: String(values.category || "").trim(),
+        notes: String(values.notes || "").trim(),
+        payments: Array.isArray(current?.payments) ? current.payments : [],
+        createdAt: current?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      state.financialPlanning = {
+        ...(state.financialPlanning || {}),
+        accounts: current
+          ? accounts.map(item => String(item.id) === String(current.id) ? account : item)
+          : [account, ...accounts]
+      };
+      state.editFinancialAccountId = null;
+      recordAudit(current ? "Conta atualizada" : "Conta cadastrada", `${account.description} - ${money(account.amount)} - vence ${formatIsoDateBr(account.dueDate)}`, {
+        entityId: account.id,
+        before: current || null,
+        after: account
+      });
+      if (await persistState()) {
+        renderFinance();
+      }
+    });
+  }
+
+  document.querySelectorAll("[data-edit-financial-account]").forEach(button => {
+    button.addEventListener("click", () => {
+      state.editFinancialAccountId = button.dataset.editFinancialAccount;
+      renderFinance();
+    });
+  });
+
+  on("#cancel-financial-account-edit", "click", () => {
+    state.editFinancialAccountId = null;
+    renderFinance();
+  });
+
+  document.querySelectorAll("[data-delete-financial-account]").forEach(button => {
+    button.addEventListener("click", async () => {
+      const id = button.dataset.deleteFinancialAccount;
+      const account = financialAccounts().find(item => String(item.id) === String(id));
+      if (!account || !confirm(`Excluir a conta "${account.description}"? Os lançamentos já realizados continuarão no histórico.`)) {
+        return;
+      }
+      state.financialPlanning = {
+        ...(state.financialPlanning || {}),
+        accounts: financialAccounts().filter(item => String(item.id) !== String(id))
+      };
+      recordAudit("Conta excluída", `${account.description} - ${money(account.amount)}`, { entityId: id, before: account });
+      if (await persistState()) {
+        renderFinance();
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-account-settlement]").forEach(settlementForm => {
+    settlementForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      const id = settlementForm.dataset.accountSettlement;
+      const account = financialAccounts().find(item => String(item.id) === String(id));
+      const values = readForm(settlementForm);
+      const amount = parseMoneyInput(values.amount);
+      const open = accountOpenAmount(account);
+      if (!account || !values.date || amount <= 0 || amount > open + 0.009) {
+        showToast(`Informe um valor entre R$ 0,01 e ${money(open)}.`, "error");
+        return;
+      }
+      if (blockClosedPeriod(values.date, account.kind === "receivable" ? "registrar recebimento" : "registrar pagamento")) {
+        return;
+      }
+      const payment = {
+        id: `settlement-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        date: values.date,
+        amount: amount.toFixed(2),
+        user: state.currentUser?.name || state.currentUser?.username || "Sistema",
+        createdAt: new Date().toISOString()
+      };
+      const updated = {
+        ...account,
+        payments: [...(account.payments || []), payment],
+        updatedAt: new Date().toISOString()
+      };
+      state.financialPlanning = {
+        ...(state.financialPlanning || {}),
+        accounts: financialAccounts().map(item => String(item.id) === String(id) ? updated : item)
+      };
+      state.cash.push({
+        id: `account-settlement-${payment.id}`,
+        description: `${account.kind === "receivable" ? "Recebimento" : "Pagamento"} - ${account.description}`,
+        date: values.date,
+        type: account.kind === "receivable" ? "income" : "expense",
+        category: account.category || (account.kind === "receivable" ? "outros" : "reason:outros"),
+        amount: amount.toFixed(2),
+        financialAccountId: account.id,
+        financialAccountSettlementId: payment.id
+      });
+      recordAudit(account.kind === "receivable" ? "Recebimento registrado" : "Pagamento registrado", `${account.description} - ${money(amount)} - restante ${money(open - amount)}`, {
+        entityId: account.id,
+        settlement: payment
+      });
+      if (await persistState()) {
+        showToast(account.kind === "receivable" ? "Recebimento registrado." : "Pagamento registrado.", "success");
+        renderFinance();
+      }
+    });
+  });
+}
+
 function bindFinancialPlanning() {
   const cycleForm = document.querySelector("#financial-cycle-form");
   if (cycleForm) {
@@ -8713,7 +9048,9 @@ function bindFinancialPlanning() {
       cycleStartDate: state.financialPlanning?.cycleStartDate || "",
       openingBalance: state.financialPlanning?.openingBalance || "",
       openingSavings: state.financialPlanning?.openingSavings || "",
-      cycleNote: state.financialPlanning?.cycleNote || ""
+      cycleNote: state.financialPlanning?.cycleNote || "",
+      accounts: financialAccounts(),
+      reconciliationHistory: state.financialPlanning?.reconciliationHistory || []
     };
     recordAudit("Planejamento financeiro", `Guardado ${money(state.financialPlanning.savings)}`);
     persistState();
@@ -8923,6 +9260,86 @@ async function loadFinancialIntegrity(targetId = "financial-integrity-panel") {
   }
 }
 
+function pendingDashboardHtml(integrity) {
+  const today = isoDate(new Date());
+  const accountSummary = accountsSummary();
+  const reconciliations = state.financialPlanning?.reconciliationHistory || [];
+  const missingAdjustments = reconciliations.filter(item =>
+    item.status === "adjusted"
+    && item.adjustmentId
+    && !state.cash.some(entry => String(entry.id) === String(item.adjustmentId))
+  );
+  const recentDifferences = reconciliations.filter(item => Math.abs(Number(item.difference || 0)) >= 0.01);
+  const balance = integrity?.totals?.balance ?? accountBalanceUntilDate(today);
+  const openPeriods = (integrity?.closings?.unlockedMonths?.length || 0) + (integrity?.closings?.unlockedWeeks?.length || 0);
+  const backupMissing = !integrity?.backup?.updatedAt;
+  const backupAge = integrity?.backup?.updatedAt
+    ? Math.max(0, (Date.now() - new Date(integrity.backup.updatedAt).getTime()) / 3600000)
+    : null;
+  const items = [
+    {
+      level: balance < 0 ? "danger" : "ok",
+      title: "Saldo da conta",
+      detail: balance < 0 ? `Saldo negativo de ${money(Math.abs(balance))}.` : `Saldo atual ${money(balance)}.`
+    },
+    {
+      level: accountSummary.overdue ? "danger" : "ok",
+      title: "Contas vencidas",
+      detail: accountSummary.overdue ? `${accountSummary.overdue} conta(s), total ${money(accountSummary.overdueAmount)}.` : "Nenhuma conta vencida."
+    },
+    {
+      level: openPeriods ? "warning" : "ok",
+      title: "Períodos reabertos",
+      detail: openPeriods ? `${openPeriods} período(s) permitem novas alterações.` : "Nenhum período reaberto."
+    },
+    {
+      level: missingAdjustments.length ? "danger" : recentDifferences.length ? "warning" : "ok",
+      title: "Diferenças da conciliação",
+      detail: missingAdjustments.length
+        ? `${missingAdjustments.length} conciliação(ões) sem o ajuste correspondente.`
+        : recentDifferences.length ? `${recentDifferences.length} diferença(s) conciliada(s) no histórico.` : "Nenhuma diferença registrada."
+    },
+    {
+      level: backupMissing || backupAge > 26 ? "danger" : "ok",
+      title: "Backup",
+      detail: backupMissing ? "Nenhum backup encontrado." : `Último backup há ${Math.round(backupAge)} hora(s).`
+    }
+  ];
+  const pendingCount = items.filter(item => item.level !== "ok").length;
+  return `
+    <div class="pending-overview ${pendingCount ? "has-pending" : ""}">
+      <div>
+        <span>Pendências financeiras</span>
+        <strong>${pendingCount}</strong>
+        <small>${pendingCount ? "item(ns) para revisar" : "Tudo em ordem"}</small>
+      </div>
+      <div class="pending-grid">
+        ${items.map(item => `
+          <article class="pending-item ${item.level}">
+            <span>${item.level === "danger" ? "Corrigir" : item.level === "warning" ? "Revisar" : "OK"}</span>
+            <strong>${item.title}</strong>
+            <small>${item.detail}</small>
+          </article>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+async function loadPendingDashboard() {
+  const target = document.querySelector("#finance-pending-dashboard");
+  if (!target) {
+    return;
+  }
+  try {
+    const response = await fetch("/api/financial-integrity", { cache: "no-store" });
+    const result = await response.json();
+    target.innerHTML = pendingDashboardHtml(result);
+  } catch (error) {
+    target.innerHTML = pendingDashboardHtml(null);
+  }
+}
+
 async function runBackupRestoreCheck() {
   const status = document.querySelector("#backup-restore-check-status");
   if (status) {
@@ -9078,7 +9495,9 @@ function renderFinance() {
   const weekRange = reportWeekRange();
   const tabs = [
     ["summary", "Resumo"],
-    ["cash", "Fluxo e contas"],
+    ["pending", "Pendências"],
+    ["accounts", "Contas"],
+    ["cash", "Fluxo"],
     ["planning", "Planejamento"],
     ["withdrawals", "Retiradas"],
     ["audit", "Auditoria"],
@@ -9113,10 +9532,25 @@ function renderFinance() {
       ${simplifiedStatementPanel(data)}
       ${withdrawalProjectionPanel(data)}
     `)}
-    ${viewPaneHtml("cash", activeTab, `
+    ${viewPaneHtml("pending", activeTab, `
+      <section class="panel report-section">
+        <div class="section-heading">
+          <div>
+            <h2>Painel de pendências</h2>
+            <p class="muted-inline">Saldo negativo, contas vencidas, períodos abertos, diferenças e backup em uma única conferência.</p>
+          </div>
+        </div>
+        <div id="finance-pending-dashboard"><p class="muted">Conferindo pendências...</p></div>
+      </section>
+    `)}
+    ${viewPaneHtml("accounts", activeTab, `
       ${cashForecastPanel(data)}
+      ${accountsManagementPanel()}
       ${billsStatusPanel()}
       ${upcomingBillsPanel()}
+    `)}
+    ${viewPaneHtml("cash", activeTab, `
+      ${cashForecastPanel(data)}
       <section class="panel report-section">
         <h2>O que entrou no caixa ${reportTitleSuffix(data)}</h2>
         ${reportIncomeCashTable(data)}
@@ -9149,6 +9583,8 @@ function renderFinance() {
   bindViewTabs("financeViewTab", renderFinance);
   bindMonthlyClosing(data, renderFinance);
   loadFinancialIntegrity();
+  loadPendingDashboard();
+  bindFinancialAccounts();
   bindFinancialPlanning();
   enhanceResponsiveTables(app);
   document.querySelectorAll("[data-export-withdrawals]").forEach(button => {

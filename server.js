@@ -91,7 +91,9 @@ const defaultState = {
     cycleStartDate: "",
     openingBalance: "",
     openingSavings: "",
-    cycleNote: ""
+    cycleNote: "",
+    accounts: [],
+    reconciliationHistory: []
   },
   appConfig: {
     storeName: "Cumbuca",

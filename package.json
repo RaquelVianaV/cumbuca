@@ -7,8 +7,9 @@
     "start": "node server.js",
     "dev": "node server.js",
     "check": "node --check server.js && node --check public/app.js",
-    "test": "node --test",
-    "verify": "npm run check && npm test",
+    "test": "node --test test/server.test.js test/layout.test.js",
+    "test:visual": "playwright test",
+    "verify": "npm run check && npm test && npm run test:visual",
     "deploy": "npm run verify && npx vercel --prod --yes"
   },
   "dependencies": {
@@ -18,5 +19,8 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.0"
   }
 }
