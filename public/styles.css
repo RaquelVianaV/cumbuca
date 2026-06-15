@@ -2210,6 +2210,45 @@ textarea {
   min-height: 38px;
 }
 
+.account-payment-history {
+  grid-column: 1 / -1;
+  padding-top: 4px;
+}
+
+.account-payment-history summary {
+  color: #315f52;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.settlement-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.settlement-list > span {
+  display: grid;
+  grid-template-columns: minmax(90px, auto) minmax(180px, 1fr) minmax(180px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid #e1e7e4;
+  border-radius: 5px;
+  background: #f8faf9;
+  font-size: 12px;
+}
+
+.settlement-list > span.reversed {
+  color: #6b7280;
+  text-decoration: line-through;
+}
+
+.settlement-list small {
+  overflow-wrap: anywhere;
+}
+
 .pending-overview {
   display: grid;
   grid-template-columns: 180px minmax(0, 1fr);
@@ -4121,6 +4160,10 @@ a.secondary.table-action,
   }
 
   .daily-reconciliation-panel .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settlement-list > span {
     grid-template-columns: 1fr;
   }
 

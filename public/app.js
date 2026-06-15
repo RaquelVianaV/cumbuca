@@ -1290,6 +1290,15 @@ function addDays(dateKey, days) {
   return isoDate(date);
 }
 
+function addMonthsClamped(dateKey, months) {
+  const source = new Date(`${dateKey}T12:00:00`);
+  const day = source.getDate();
+  const target = new Date(source.getFullYear(), source.getMonth() + Number(months || 0), 1, 12);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0, 12).getDate();
+  target.setDate(Math.min(day, lastDay));
+  return isoDate(target);
+}
+
 function startOfWeek(date) {
   const copy = new Date(date);
   const day = copy.getDay() || 7;
@@ -2730,6 +2739,7 @@ function notificationRows(metrics = homeMetricData(), weeklyOrders = 0) {
   const backupOld = !backupAt || (Date.now() - new Date(backupAt).getTime()) > 7 * 86400000;
   return [
     ...dashboardAlerts(metrics, weeklyOrders).map(([title, detail]) => ({ type: "alerta", title, detail, action: "/alertas" })),
+    ...financialAccountNotifications(7),
     backupOld ? { type: "backup", title: "Backup manual antigo", detail: "Baixe ou salve um backup no Supabase.", action: "/backups" } : null,
     ...systemIssues().slice(0, 3).map(issue => ({ type: issue.type, title: issue.message, detail: new Date(issue.createdAt).toLocaleString("pt-BR"), action: "/backups" }))
   ].filter(Boolean);
@@ -8406,12 +8416,22 @@ function upcomingBills(limit = 6, { includeOverdue = true } = {}) {
   const today = isoDate(new Date());
   const end = isoDate(new Date(Date.now() + 30 * 86400000));
 
-  return state.cash
+  const legacy = state.cash
     .filter(isPendingBill)
     .map(entry => ({
       ...entry,
       reminderDate: paymentReminderDate(entry)
-    }))
+    }));
+  const planned = financialAccounts()
+    .filter(account => accountOpenAmount(account) >= 0.01)
+    .map(account => ({
+      ...account,
+      amount: accountOpenAmount(account),
+      reminderDate: account.dueDate,
+      plannedAccount: true
+    }));
+
+  return [...legacy, ...planned]
     .filter(entry => entry.reminderDate && entry.reminderDate <= end)
     .filter(entry => includeOverdue || entry.reminderDate >= today)
     .sort((a, b) => String(a.reminderDate).localeCompare(String(b.reminderDate)))
@@ -8426,7 +8446,43 @@ function financialAccounts() {
 
 function accountPaidTotal(account = {}) {
   return (Array.isArray(account.payments) ? account.payments : [])
+    .filter(payment => !payment.reversedAt)
     .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+}
+
+function splitMoneyAcrossInstallments(total, count) {
+  const safeCount = Math.max(1, Math.min(36, Number(count || 1)));
+  const totalCents = Math.round(Number(total || 0) * 100);
+  const base = Math.floor(totalCents / safeCount);
+  const remainder = totalCents - (base * safeCount);
+  return Array.from({ length: safeCount }, (_, index) => ((base + (index < remainder ? 1 : 0)) / 100).toFixed(2));
+}
+
+function accountSeriesFromValues(values = {}) {
+  const mode = ["installments", "monthly"].includes(values.scheduleMode) ? values.scheduleMode : "single";
+  const count = mode === "single" ? 1 : Math.max(2, Math.min(36, Number(values.scheduleCount || 2)));
+  const amount = parseMoneyInput(values.amount);
+  const amounts = mode === "installments"
+    ? splitMoneyAcrossInstallments(amount, count)
+    : Array.from({ length: count }, () => amount.toFixed(2));
+  const seriesId = `account-series-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  return amounts.map((scheduledAmount, index) => ({
+    id: `account-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
+    seriesId: count > 1 ? seriesId : "",
+    seriesType: mode,
+    seriesNumber: index + 1,
+    seriesCount: count,
+    kind: values.kind === "receivable" ? "receivable" : "payable",
+    description: String(values.description || "").trim(),
+    dueDate: addMonthsClamped(values.dueDate, index),
+    amount: scheduledAmount,
+    category: String(values.category || "").trim(),
+    notes: String(values.notes || "").trim(),
+    payments: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }));
 }
 
 function accountOpenAmount(account = {}) {
@@ -8457,6 +8513,27 @@ function accountsSummary() {
     }
     return summary;
   }, { payable: 0, receivable: 0, overdue: 0, overdueAmount: 0 });
+}
+
+function financialAccountNotifications(days = 7) {
+  const today = isoDate(new Date());
+  const end = addDays(today, days);
+  return financialAccounts()
+    .filter(account => accountOpenAmount(account) >= 0.01)
+    .filter(account => String(account.dueDate || "") <= end)
+    .sort((a, b) => String(a.dueDate || "").localeCompare(String(b.dueDate || "")))
+    .map(account => {
+      const overdue = String(account.dueDate || "") < today;
+      return {
+        type: overdue ? "danger" : "warning",
+        title: overdue
+          ? `${account.kind === "receivable" ? "Recebimento" : "Conta"} em atraso`
+          : `${account.kind === "receivable" ? "Recebimento" : "Conta"} vence em breve`,
+        detail: `${account.description} - ${money(accountOpenAmount(account))} - ${dueDateDistanceLabel(account.dueDate)}`,
+        action: "/financeiro?view=accounts",
+        accountId: account.id
+      };
+    });
 }
 
 function accountsManagementPanel() {
@@ -8500,6 +8577,16 @@ function accountsManagementPanel() {
         <label>Observação
           <input name="notes" value="${escapeHtml(editing?.notes || "")}" placeholder="Parcela, referência ou contato">
         </label>
+        <label>Geração
+          <select name="scheduleMode" id="financial-account-schedule" ${editing ? "disabled" : ""}>
+            <option value="single">Conta única</option>
+            <option value="installments">Parcelar valor total</option>
+            <option value="monthly">Repetir valor mensal</option>
+          </select>
+        </label>
+        <label id="financial-account-count-field" ${editing ? "hidden" : ""}>Quantidade
+          <input name="scheduleCount" type="number" min="2" max="36" step="1" value="2">
+        </label>
         <div class="actions">
           <button type="submit">${editing ? "Salvar conta" : "Adicionar conta"}</button>
           ${editing ? `<button class="secondary" type="button" id="cancel-financial-account-edit">Cancelar</button>` : ""}
@@ -8516,7 +8603,7 @@ function accountsManagementPanel() {
                 <div class="account-main">
                   <span class="status-label">${account.kind === "receivable" ? "A receber" : "A pagar"} · ${status === "paid" ? "Quitada" : status === "overdue" ? "Atrasada" : "Pendente"}</span>
                   <strong>${escapeHtml(account.description || "Conta")}</strong>
-                  <small>Vencimento ${formatIsoDateBr(account.dueDate)}${account.category ? ` · ${escapeHtml(account.category)}` : ""}</small>
+                  <small>Vencimento ${formatIsoDateBr(account.dueDate)}${account.seriesCount > 1 ? ` · ${account.seriesNumber}/${account.seriesCount}` : ""}${account.category ? ` · ${escapeHtml(account.category)}` : ""}</small>
                 </div>
                 <div class="account-values">
                   <span>Total <b>${money(account.amount)}</b></span>
@@ -8529,6 +8616,21 @@ function accountsManagementPanel() {
                     <label>Valor<input name="amount" type="text" inputmode="decimal" value="${moneyInputValue(open)}" required></label>
                     <button type="submit">${account.kind === "receivable" ? "Registrar recebimento" : "Registrar pagamento"}</button>
                   </form>
+                ` : ""}
+                ${(account.payments || []).length ? `
+                  <details class="account-payment-history">
+                    <summary>Histórico de baixas (${account.payments.length})</summary>
+                    <div class="settlement-list">
+                      ${account.payments.map(payment => `
+                        <span class="${payment.reversedAt ? "reversed" : ""}">
+                          <b>${money(payment.amount)}</b>
+                          ${payment.reversedAt ? "Estornado" : account.kind === "receivable" ? "Recebido" : "Pago"} em ${formatIsoDateBr(payment.date)}
+                          <small>${escapeHtml(payment.user || "Sistema")}${payment.reversedAt ? ` · estorno em ${formatIsoDateBr(payment.reversalDate)} · ${escapeHtml(payment.reversalReason || "")}` : ""}</small>
+                          ${payment.reversedAt ? "" : `<button class="danger table-action" type="button" data-reverse-account="${escapeHtml(account.id)}" data-reverse-payment="${escapeHtml(payment.id)}">Estornar</button>`}
+                        </span>
+                      `).join("")}
+                    </div>
+                  </details>
                 ` : ""}
                 <div class="actions">
                   <button class="secondary table-action" type="button" data-edit-financial-account="${escapeHtml(account.id)}">Editar</button>
@@ -8577,14 +8679,18 @@ function billsStatusPanel() {
   const paid = bills.filter(entry => entry.paidAt);
   const pending = bills.filter(entry => !entry.paidAt && String(entry.dueDate || entry.date || "") >= today);
   const overdue = bills.filter(entry => !entry.paidAt && String(entry.dueDate || entry.date || "") < today);
+  const plannedPaid = financialAccounts().filter(account => accountStatus(account, today) === "paid");
+  const plannedPending = financialAccounts().filter(account => accountStatus(account, today) === "pending");
+  const plannedOverdue = financialAccounts().filter(account => accountStatus(account, today) === "overdue");
   const total = entries => entries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const plannedTotal = entries => entries.reduce((sum, account) => sum + accountOpenAmount(account), 0);
   return `
     <section class="panel report-section">
       <h2>Contas por situação</h2>
       <div class="summary">
-        <div class="metric"><span>Pagas</span><strong>${paid.length}</strong><small>${money(total(paid))}</small></div>
-        <div class="metric"><span>Pendentes</span><strong>${pending.length}</strong><small>${money(total(pending))}</small></div>
-        <div class="metric"><span>Vencidas</span><strong class="${overdue.length ? "negative" : "positive"}">${overdue.length}</strong><small>${money(total(overdue))}</small></div>
+        <div class="metric"><span>Pagas</span><strong>${paid.length + plannedPaid.length}</strong><small>${money(total(paid) + plannedPaid.reduce((sum, account) => sum + Number(account.amount || 0), 0))}</small></div>
+        <div class="metric"><span>Pendentes</span><strong>${pending.length + plannedPending.length}</strong><small>${money(total(pending) + plannedTotal(plannedPending))}</small></div>
+        <div class="metric"><span>Vencidas</span><strong class="${overdue.length || plannedOverdue.length ? "negative" : "positive"}">${overdue.length + plannedOverdue.length}</strong><small>${money(total(overdue) + plannedTotal(plannedOverdue))}</small></div>
       </div>
     </section>
   `;
@@ -8869,34 +8975,46 @@ function bindFinancialAccounts() {
         showToast(`O valor total não pode ser menor que o já baixado: ${money(accountPaidTotal(current))}.`, "error");
         return;
       }
-      const account = {
-        id: current?.id || `account-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      const series = current ? [] : accountSeriesFromValues(values);
+      const account = current ? {
+        ...current,
         kind: values.kind === "receivable" ? "receivable" : "payable",
         description: String(values.description || "").trim(),
         dueDate: values.dueDate,
         amount: amount.toFixed(2),
         category: String(values.category || "").trim(),
         notes: String(values.notes || "").trim(),
-        payments: Array.isArray(current?.payments) ? current.payments : [],
-        createdAt: current?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString()
-      };
+      } : series[0];
       state.financialPlanning = {
         ...(state.financialPlanning || {}),
         accounts: current
           ? accounts.map(item => String(item.id) === String(current.id) ? account : item)
-          : [account, ...accounts]
+          : [...series, ...accounts]
       };
       state.editFinancialAccountId = null;
-      recordAudit(current ? "Conta atualizada" : "Conta cadastrada", `${account.description} - ${money(account.amount)} - vence ${formatIsoDateBr(account.dueDate)}`, {
+      const generationDetail = current || series.length === 1
+        ? ""
+        : ` - ${series.length} ${values.scheduleMode === "installments" ? "parcela(s)" : "competência(s)"}`;
+      recordAudit(current ? "Conta atualizada" : "Conta cadastrada", `${account.description} - ${money(amount)}${generationDetail} - inicia ${formatIsoDateBr(account.dueDate)}`, {
         entityId: account.id,
         before: current || null,
-        after: account
+        after: current ? account : series
       });
       if (await persistState()) {
         renderFinance();
       }
     });
+  }
+
+  const scheduleField = document.querySelector("#financial-account-schedule");
+  const scheduleCountField = document.querySelector("#financial-account-count-field");
+  if (scheduleField && scheduleCountField) {
+    const updateScheduleFields = () => {
+      scheduleCountField.hidden = scheduleField.value === "single";
+    };
+    scheduleField.addEventListener("change", updateScheduleFields);
+    updateScheduleFields();
   }
 
   document.querySelectorAll("[data-edit-financial-account]").forEach(button => {
@@ -8976,6 +9094,73 @@ function bindFinancialAccounts() {
       });
       if (await persistState()) {
         showToast(account.kind === "receivable" ? "Recebimento registrado." : "Pagamento registrado.", "success");
+        renderFinance();
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-reverse-payment]").forEach(button => {
+    button.addEventListener("click", async () => {
+      const accountId = button.dataset.reverseAccount;
+      const paymentId = button.dataset.reversePayment;
+      const account = financialAccounts().find(item => String(item.id) === String(accountId));
+      const payment = account?.payments?.find(item => String(item.id) === String(paymentId));
+      if (!account || !payment || payment.reversedAt) {
+        showToast("Esta baixa não está disponível para estorno.", "error");
+        return;
+      }
+      const reversalDate = prompt("Data do estorno (AAAA-MM-DD):", isoDate(new Date()));
+      if (!reversalDate || !/^\d{4}-\d{2}-\d{2}$/.test(reversalDate)) {
+        return;
+      }
+      const reason = prompt("Informe o motivo do estorno:");
+      if (!reason?.trim()) {
+        showToast("O motivo do estorno é obrigatório.", "error");
+        return;
+      }
+      if (blockClosedPeriod(reversalDate, "estornar a baixa")) {
+        return;
+      }
+      if (!confirm(`Estornar ${money(payment.amount)} de "${account.description}"? O lançamento original será preservado.`)) {
+        return;
+      }
+      const reversalCashEntryId = `account-reversal-${payment.id}-${Date.now()}`;
+      const updatedPayment = {
+        ...payment,
+        reversedAt: new Date().toISOString(),
+        reversalDate,
+        reversalReason: reason.trim(),
+        reversedBy: state.currentUser?.name || state.currentUser?.username || "Sistema",
+        reversalCashEntryId
+      };
+      const updatedAccount = {
+        ...account,
+        payments: account.payments.map(item => String(item.id) === String(payment.id) ? updatedPayment : item),
+        updatedAt: new Date().toISOString()
+      };
+      state.financialPlanning = {
+        ...(state.financialPlanning || {}),
+        accounts: financialAccounts().map(item => String(item.id) === String(account.id) ? updatedAccount : item)
+      };
+      state.cash.push({
+        id: reversalCashEntryId,
+        description: `Estorno - ${account.description}`,
+        date: reversalDate,
+        type: account.kind === "receivable" ? "expense" : "income",
+        category: account.category || (account.kind === "receivable" ? "reason:outros" : "outros"),
+        amount: Number(payment.amount || 0).toFixed(2),
+        financialAccountId: account.id,
+        financialAccountSettlementId: payment.id,
+        reversal: true,
+        reversalReason: reason.trim()
+      });
+      recordAudit("Baixa estornada", `${account.description} - ${money(payment.amount)} - ${reason.trim()}`, {
+        entityId: account.id,
+        settlementId: payment.id,
+        reversalCashEntryId
+      });
+      if (await persistState()) {
+        showToast("Baixa estornada e saldo da conta reaberto.", "success");
         renderFinance();
       }
     });
@@ -9503,6 +9688,10 @@ function renderFinance() {
     ["audit", "Auditoria"],
     ["closing", "Fechamento"]
   ];
+  const requestedTab = new URLSearchParams(location.search).get("view");
+  if (tabs.some(([key]) => key === requestedTab)) {
+    state.financeViewTab = requestedTab;
+  }
   const activeTab = tabs.some(([key]) => key === state.financeViewTab) ? state.financeViewTab : "summary";
 
   app.innerHTML = `
@@ -10271,9 +10460,17 @@ function renderAlerts() {
   const weeklyOrders = state.orders.filter(order => order.menuKey === menuKey(state.menuWeek || 1)).length;
   const alerts = dashboardAlerts(metrics, weeklyOrders);
   const notifications = notificationRows(metrics, weeklyOrders);
+  const secondaryNotifications = notifications.filter(item => !item.accountId);
   const today = todayOperationData();
   const urgent = [
     ...alerts.map(([label, detail]) => ({ label, detail, type: "warning" })),
+    ...financialAccountNotifications(7).map(item => ({
+      label: item.title,
+      detail: item.detail,
+      type: item.type,
+      href: item.action,
+      action: "Ver conta"
+    })),
     ...metrics.pendingPayments.map(order => {
       const client = clientByPhone(order.clientPhone);
       return { label: "Cobrar cliente", detail: `${client.name || order.clientPhone} - ${money(order.amount)}`, type: "danger", href: clientChargeWhatsAppUrl(client, order.amount), action: "WhatsApp" };
@@ -10324,10 +10521,10 @@ function renderAlerts() {
           `).join("")}
         </div>
       ` : `<p class="muted">Nenhuma pendência crítica agora.</p>`}
-      ${notifications.length ? `
+      ${secondaryNotifications.length ? `
         <h2>Notificações recentes</h2>
         <div class="alert-list">
-          ${notifications.slice(0, 8).map(item => `<span><b>${item.title}</b>${item.detail}<a class="secondary table-action" href="${item.action}">Abrir</a></span>`).join("")}
+          ${secondaryNotifications.slice(0, 8).map(item => `<span><b>${item.title}</b>${item.detail}<a class="secondary table-action" href="${item.action}">Abrir</a></span>`).join("")}
         </div>
       ` : ""}
       <div class="start-actions">
