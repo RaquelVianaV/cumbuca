@@ -252,6 +252,10 @@ const defaultIncomeCategories = [
   ["cardapio-web", "Cardápio Web"],
   ["ifood", "iFood"],
   ["99-food", "99 Food"],
+  ["vanessa", "Vanessa"],
+  ["raquel", "Raquel"],
+  ["cofrinho", "Cofrinho"],
+  ["diferenca", "Diferença"],
   ["ajuste-conta", "Ajuste da conta"]
 ];
 const channelDefinitions = [
@@ -1332,13 +1336,19 @@ function archivedCategoryKeys(type) {
 
 function activeIncomeCategories() {
   const archived = archivedCategoryKeys("income");
-  return uniqueCategories(state.cashCategories?.income || defaultIncomeCategories)
+  return uniqueCategories([
+    ...(state.cashCategories?.income || []),
+    ...defaultIncomeCategories
+  ])
     .filter(([key]) => !archived.has(key));
 }
 
 function activeExpenseCategories() {
   const archived = archivedCategoryKeys("expense");
-  return uniqueCategories(state.cashCategories?.expense || defaultExpenseCategories)
+  return uniqueCategories([
+    ...(state.cashCategories?.expense || []),
+    ...defaultExpenseCategories
+  ])
     .filter(([key]) => !archived.has(key));
 }
 
@@ -1398,6 +1408,8 @@ function filterCashEntries(entries) {
       entry.description,
       entry.category,
       categoryName(entry.category),
+      cashDisplayCategory(entry),
+      cashDisplayCategoryName(entry),
       entry.type === "expense" ? "saída" : "entrada"
     ].some(value => String(value || "").toLowerCase().includes(query)))
     : entries;
@@ -1407,8 +1419,13 @@ function filterCashEntries(entries) {
     : searchedEntries;
 
   const categorizedEntries = category && category !== "all"
-    ? typedEntries.filter(entry => normalizedCategory(entry.category) === normalizedCategory(category)
-      || slugifyCategory(categoryName(entry.category)) === category)
+    ? typedEntries.filter(entry => {
+      const displayCategory = cashDisplayCategory(entry);
+      return normalizedCategory(entry.category) === normalizedCategory(category)
+        || normalizedCategory(displayCategory) === normalizedCategory(category)
+        || slugifyCategory(categoryName(entry.category)) === category
+        || slugifyCategory(cashDisplayCategoryName(entry)) === category;
+    })
     : typedEntries;
 
   if (!period || period === "all") {
@@ -1552,10 +1569,11 @@ function cashFilterCategoryOptions(selected = "all", type = "all") {
 
 function cashCategorySummary(entries = []) {
   const rows = Object.entries(entries.reduce((acc, entry) => {
-    const key = normalizedCategory(entry.category) || "outros";
+    const displayCategory = cashDisplayCategory(entry);
+    const key = normalizedCategory(displayCategory) || "outros";
     if (!acc[key]) {
       acc[key] = {
-        label: categoryName(entry.category),
+        label: cashDisplayCategoryName(entry),
         income: 0,
         expenses: 0
       };
@@ -2060,6 +2078,23 @@ function withdrawalTarget(entry = {}) {
     return "raquel";
   }
   return "other";
+}
+
+function cashDisplayCategory(entry = {}) {
+  if (isWithdrawalEntry(entry)) {
+    const target = withdrawalTarget(entry);
+    if (target === "savings") {
+      return "cofrinho";
+    }
+    if (target === "vanessa" || target === "raquel") {
+      return target;
+    }
+  }
+  return entry.category;
+}
+
+function cashDisplayCategoryName(entry = {}) {
+  return categoryName(cashDisplayCategory(entry));
 }
 
 function withdrawalGroupKey(entry = {}) {
@@ -4817,7 +4852,7 @@ function cashTable(entries) {
               <td>${formatIsoDateBr(item.date)}</td>
               <td>${item.description}</td>
               <td><span class="cash-type-badge ${item.type === "income" ? "income" : "expense"}">${item.type === "income" ? "Entrada" : "Saída"}</span></td>
-              <td><span class="cash-category-badge ${accountAdjustment ? "account-adjustment" : ""}">${categoryName(item.category)}</span></td>
+              <td><span class="cash-category-badge ${accountAdjustment ? "account-adjustment" : ""}">${cashDisplayCategoryName(item)}</span></td>
               <td>
                 ${item.dueDate ? formatIsoDateBr(item.dueDate) : "-"}
                 ${isBillEntry(item) ? `<br><small>${item.paidAt ? `Pago em ${formatIsoDateBr(String(item.paidAt).slice(0, 10))}` : "A pagar"}</small>` : ""}
