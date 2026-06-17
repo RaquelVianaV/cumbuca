@@ -415,6 +415,7 @@ const state = {
   editClientIndex: null,
   editOrderId: null,
   editCashId: null,
+  editReconciliationId: null,
   cashSort: { key: "", direction: "desc" },
   editWithdrawalGroup: null,
   editChannelReceiptId: null,
@@ -2014,15 +2015,21 @@ function withdrawalSplitFromRaquel(raquelAmount) {
   return { total, savings, remaining: base, vanessa, raquel };
 }
 
-function accountBalanceUntilDate(dateKey) {
+function accountBalanceUntilDate(dateKey, excludeIds = []) {
   const date = String(dateKey || isoDate(new Date())).slice(0, 10);
   const cycleStart = String(state.financialPlanning?.cycleStartDate || "");
+  const ignoredIds = new Set((excludeIds || []).map(id => String(id)));
   const entries = accountingCashEntries(state.cash)
+    .filter(entry => !ignoredIds.has(String(entry.id || "")))
     .filter(entry => {
       const entryDate = cashAccountingDate(entry);
       return entryDate <= date && (!cycleStart || entryDate >= cycleStart);
     });
   return cashTotals(entries).balance;
+}
+
+function reconciliationCalculatedBalance(dateKey, reconciliation = null) {
+  return accountBalanceUntilDate(dateKey, reconciliation?.adjustmentId ? [reconciliation.adjustmentId] : []);
 }
 
 function weekRangeForDate(dateKey = isoDate(new Date())) {
@@ -2340,19 +2347,29 @@ function financialSummary(cashEntries = []) {
   return summary;
 }
 
-function withdrawalBreakdownMetrics(withdrawals = {}, className = "metric") {
+function withdrawalBreakdownAmounts(withdrawals = {}, control = {}) {
+  return {
+    vanessa: partnerReceivedBalance(withdrawals.vanessa, control?.differenceVanessa),
+    savings: Number(withdrawals.savings || 0),
+    raquel: partnerReceivedBalance(withdrawals.raquel, control?.differenceRaquel)
+  };
+}
+
+function withdrawalBreakdownMetrics(withdrawals = {}, className = "metric", control = {}) {
+  const amounts = withdrawalBreakdownAmounts(withdrawals, control);
   return `
-    <div class="${className}"><span>Vanessa tirou</span><strong>${money(withdrawals.vanessa || 0)}</strong></div>
-    <div class="${className}"><span>Cofrinho</span><strong>${money(withdrawals.savings || 0)}</strong></div>
-    <div class="${className}"><span>Raquel tirou</span><strong>${money(withdrawals.raquel || 0)}</strong></div>
+    <div class="${className}"><span>Vanessa tirou</span><strong>${money(amounts.vanessa)}</strong></div>
+    <div class="${className}"><span>Cofrinho</span><strong>${money(amounts.savings)}</strong></div>
+    <div class="${className}"><span>Raquel tirou</span><strong>${money(amounts.raquel)}</strong></div>
   `;
 }
 
-function withdrawalBreakdownStatement(withdrawals = {}) {
+function withdrawalBreakdownStatement(withdrawals = {}, control = {}) {
+  const amounts = withdrawalBreakdownAmounts(withdrawals, control);
   return `
-    <div class="statement-line"><span>(-) Vanessa tirou</span><strong>${money(withdrawals.vanessa || 0)}</strong></div>
-    <div class="statement-line"><span>(-) Cofrinho</span><strong>${money(withdrawals.savings || 0)}</strong></div>
-    <div class="statement-line"><span>(-) Raquel tirou</span><strong>${money(withdrawals.raquel || 0)}</strong></div>
+    <div class="statement-line"><span>(-) Vanessa tirou</span><strong>${money(amounts.vanessa)}</strong></div>
+    <div class="statement-line"><span>(-) Cofrinho</span><strong>${money(amounts.savings)}</strong></div>
+    <div class="statement-line"><span>(-) Raquel tirou</span><strong>${money(amounts.raquel)}</strong></div>
   `;
 }
 
@@ -3115,6 +3132,7 @@ function renderToday() {
                 ${entry.description || categoryName(entry.category)}
                 <small>${entry.dueDate ? dueDateDistanceLabel(entry.dueDate) : formatIsoDateBr(entry.date)}</small>
                 <span class="today-order-actions">
+                  ${entry.id ? `<a class="secondary table-action" href="/fluxo-de-caixa?edit=${encodeURIComponent(entry.id)}">Editar</a>` : ""}
                   <button class="secondary table-action" type="button" data-pay-bill="${entry.id || ""}">Marcar pago</button>
                 </span>
               </span>
@@ -3317,11 +3335,17 @@ function bindTodayForms(today) {
 async function renderCash() {
   title.textContent = "Fluxo de Caixa";
   setActive("fluxo-de-caixa");
-  const requestedCashPanel = new URLSearchParams(location.search).get("panel");
+  const cashParams = new URLSearchParams(location.search);
+  const requestedCashPanel = cashParams.get("panel");
+  const requestedEditCashId = cashParams.get("edit");
   ensureCashEntryIds();
   const today = isoDate(new Date());
   if (state.cashFilter?.period === "all" && !state.cashFilter.manualAll) {
     state.cashFilter = { period: "month", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", search: "" };
+  }
+  if (requestedEditCashId && state.cash.some(entry => String(entry.id) === String(requestedEditCashId))) {
+    state.editCashId = requestedEditCashId;
+    state.cashPanelTab = "entry";
   }
   const editing = state.editCashId !== null
     ? state.cash.find(entry => String(entry.id) === String(state.editCashId))
@@ -3339,13 +3363,22 @@ async function renderCash() {
   const selectedDate = currentCashFilter.date || today;
   const selectedMonth = currentCashFilter.month || today.slice(0, 7);
   const selectedYear = currentCashFilter.year || today.slice(0, 4);
+  const reconciliationHistory = state.financialPlanning?.reconciliationHistory || [];
+  const editingReconciliation = state.editReconciliationId
+    ? reconciliationHistory.find(item => String(item.id) === String(state.editReconciliationId))
+    : null;
   const selectedFilterType = currentCashFilter.type || "all";
   const selectedFilterCategory = currentCashFilter.category || "all";
   const selectedChannelMonth = currentCashFilter.month || today.slice(0, 7);
   const selectedPeriodCashEntries = cashEntriesForSelectedPeriod();
   const totalCash = cashTotals(selectedPeriodCashEntries);
   const selectedAdjustmentTotals = accountAdjustmentTotals(selectedPeriodCashEntries);
-  const dailyAccountBalance = accountBalanceUntilDate(selectedDate);
+  const reconciliationDate = editingReconciliation?.date || selectedDate;
+  const dailyAccountBalance = reconciliationCalculatedBalance(reconciliationDate, editingReconciliation);
+  const reconciliationRealBalance = editingReconciliation
+    ? Number(editingReconciliation.realBalance || 0)
+    : dailyAccountBalance;
+  const reconciliationDifference = reconciliationRealBalance - dailyAccountBalance;
   const adjustmentLabel = selectedAdjustmentTotals.balance === 0
     ? "Sem ajuste no período"
     : `${selectedAdjustmentTotals.balance > 0 ? "Ajuste entrou" : "Ajuste saiu"} ${money(Math.abs(selectedAdjustmentTotals.balance))}`;
@@ -3360,9 +3393,9 @@ async function renderCash() {
       : currentCashFilter.period === "month"
         ? (selectedMonth === today.slice(0, 7) ? today : selectedMonthEnd)
         : today;
-  const usesAccumulatedBalance = ["day", "week", "month"].includes(currentCashFilter.period);
-  const displayedCashBalance = usesAccumulatedBalance ? accountBalanceUntilDate(accountBalanceDate) : totalCash.balance;
-  const balanceLabel = usesAccumulatedBalance ? "Saldo acumulado da conta" : "Saldo do período";
+  const displayedCashBalance = accountBalanceUntilDate(accountBalanceDate);
+  const periodBalance = totalCash.balance;
+  const balanceLabel = "Saldo acumulado da conta";
   const zeroAccountDate = accountBalanceDate;
   const canZeroAccount = Math.abs(displayedCashBalance) >= 0.01;
   const previewWithdrawal = withdrawalSplitFromRaquel(0);
@@ -3395,7 +3428,7 @@ async function renderCash() {
   app.innerHTML = `
     <section class="cash-hero">
       <div>
-        <span>Fluxo de caixa</span>
+        <span>Saldo da conta</span>
         <h2>${money(displayedCashBalance)}</h2>
         <div class="cash-hero-actions">
           <button class="secondary" type="button" id="zero-account-balance" ${canZeroAccount ? "" : "disabled"}>Zerar conta</button>
@@ -3405,6 +3438,7 @@ async function renderCash() {
         <span><b>${money(operationalTotals.income)}</b>Entradas operacionais</span>
         <span><b>${money(operationalTotals.expenses)}</b>Saídas operacionais</span>
         <span><b>${money(displayedCashBalance)}</b>${balanceLabel}</span>
+        <span><b>${money(periodBalance)}</b>Resultado do filtro</span>
       </div>
     </section>
     <section class="account-check-card">
@@ -3470,24 +3504,28 @@ async function renderCash() {
             </div>
           </div>
           <form id="daily-reconciliation-form" class="form-grid">
+            <input name="reconciliationId" type="hidden" value="${escapeHtml(editingReconciliation?.id || "")}">
             <label>Data da conferência
-              <input name="date" type="date" value="${selectedDate}" required>
+              <input name="date" type="date" value="${reconciliationDate}" required>
             </label>
             <label>Saldo real da conta
-              <input name="realBalance" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(0)}" required>
+              <input name="realBalance" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(reconciliationRealBalance)}" required>
             </label>
             <label>Motivo
-              <input name="reason" placeholder="Ex.: conta bancária zerada, diferença real do caixa" value="Conta conferida" required>
+              <input name="reason" placeholder="Ex.: conta bancária zerada, diferença real do caixa" value="${escapeHtml(editingReconciliation?.reason || "Conta conferida")}" required>
             </label>
             <label>Responsável
-              <input value="${escapeHtml(state.currentUser?.name || state.currentUser?.username || "Usuário")}" readonly>
+              <input value="${escapeHtml(editingReconciliation?.authorizedBy || state.currentUser?.name || state.currentUser?.username || "Usuário")}" readonly>
             </label>
-            <button type="submit" ${canUser("editFinancial") ? "" : "disabled"}>Conferir e lançar ajuste</button>
+            <div class="actions">
+              <button type="submit" ${canUser("editFinancial") ? "" : "disabled"}>${editingReconciliation ? "Salvar conciliação" : "Conferir e lançar ajuste"}</button>
+              ${editingReconciliation ? `<button class="secondary" type="button" id="cancel-reconciliation-edit">Cancelar</button>` : ""}
+            </div>
           </form>
           <div class="summary">
             <div class="metric"><span>Saldo calculado até o dia</span><strong id="reconciliation-calculated" class="${dailyAccountBalance < 0 ? "negative" : "positive"}">${money(dailyAccountBalance)}</strong></div>
-            <div class="metric"><span>Saldo real informado</span><strong id="reconciliation-real">${money(0)}</strong></div>
-            <div class="metric"><span>Diferença a ajustar</span><strong id="reconciliation-difference" class="${-dailyAccountBalance < 0 ? "negative" : "positive"}">${money(-dailyAccountBalance)}</strong></div>
+            <div class="metric"><span>Saldo real informado</span><strong id="reconciliation-real">${money(reconciliationRealBalance)}</strong></div>
+            <div class="metric"><span>Diferença a ajustar</span><strong id="reconciliation-difference" class="${reconciliationDifference < 0 ? "negative" : "positive"}">${money(reconciliationDifference)}</strong></div>
           </div>
           <p class="muted">Use esta conferência quando a conta real já está zerada ou diferente do saldo calculado. O lançamento fica marcado como Ajuste da conta.</p>
           ${(state.financialPlanning?.reconciliationHistory || []).length ? `
@@ -3498,6 +3536,7 @@ async function renderCash() {
                   <b>${formatIsoDateBr(item.date)} · ${money(item.realBalance)}</b>
                   Ajuste ${money(item.difference)}
                   <small>${escapeHtml(item.authorizedBy || "Sistema")} · ${escapeHtml(item.reason || "Conta conferida")}</small>
+                  ${canUser("editFinancial") ? `<button class="secondary table-action" type="button" data-edit-reconciliation="${escapeHtml(item.id)}">Editar</button>` : ""}
                 </span>
               `).join("")}
             </div>
@@ -3731,6 +3770,9 @@ async function renderCash() {
       if (state.cashPanelTab !== "channels") {
         state.editChannelReceiptId = null;
       }
+      if (state.cashPanelTab !== "reconciliation") {
+        state.editReconciliationId = null;
+      }
       if (state.cashPanelTab !== "categories") {
         state.editCashCategory = null;
       }
@@ -3787,7 +3829,10 @@ async function renderCash() {
     const updateReconciliationPreview = () => {
       const date = dailyReconciliationForm.elements.date.value || today;
       const realBalance = parseMoneyInput(dailyReconciliationForm.elements.realBalance.value);
-      const calculatedBalance = accountBalanceUntilDate(date);
+      const reconciliationId = dailyReconciliationForm.elements.reconciliationId?.value || "";
+      const currentReconciliation = (state.financialPlanning?.reconciliationHistory || [])
+        .find(item => String(item.id) === String(reconciliationId));
+      const calculatedBalance = reconciliationCalculatedBalance(date, currentReconciliation);
       const difference = realBalance - calculatedBalance;
       const calculatedElement = document.querySelector("#reconciliation-calculated");
       const realElement = document.querySelector("#reconciliation-real");
@@ -3800,12 +3845,29 @@ async function renderCash() {
     };
     dailyReconciliationForm.addEventListener("input", updateReconciliationPreview);
 
+    on("#cancel-reconciliation-edit", "click", () => {
+      state.editReconciliationId = null;
+      renderCash();
+    });
+
+    document.querySelectorAll("[data-edit-reconciliation]").forEach(button => {
+      button.addEventListener("click", event => {
+        state.editReconciliationId = event.currentTarget.dataset.editReconciliation;
+        state.cashPanelTab = "reconciliation";
+        renderCash();
+      });
+    });
+
     dailyReconciliationForm.addEventListener("submit", async event => {
       event.preventDefault();
       const values = readForm(event.currentTarget);
+      const reconciliationId = values.reconciliationId || "";
+      const history = state.financialPlanning?.reconciliationHistory || [];
       const date = values.date || today;
+      const previousReconciliation = history.find(item => String(item.id) === String(reconciliationId))
+        || (!reconciliationId ? history.find(item => String(item.date) === String(date)) : null);
       const realBalance = parseMoneyInput(values.realBalance);
-      const calculatedBalance = accountBalanceUntilDate(date);
+      const calculatedBalance = reconciliationCalculatedBalance(date, previousReconciliation);
       const difference = realBalance - calculatedBalance;
       const reason = String(values.reason || "Conta conferida").trim();
       const authorizedBy = state.currentUser?.name || state.currentUser?.username || "Sistema";
@@ -3813,25 +3875,43 @@ async function renderCash() {
         showToast("Seu usuário não pode autorizar ajustes financeiros.", "error");
         return;
       }
+      if (previousReconciliation?.date && previousReconciliation.date !== date
+        && blockClosedPeriod(previousReconciliation.date, "editar conciliação")) {
+        return;
+      }
+      if (previousReconciliation?.adjustmentId) {
+        const previousAdjustment = state.cash.find(entry => String(entry.id) === String(previousReconciliation.adjustmentId));
+        if (previousAdjustment?.date && blockClosedPeriod(previousAdjustment.date, "editar ajuste de conciliação")) {
+          return;
+        }
+      }
       if (Math.abs(difference) < 0.01) {
+        if (previousReconciliation?.adjustmentId) {
+          state.cash = state.cash.filter(entry => String(entry.id) !== String(previousReconciliation.adjustmentId));
+        }
+        const nextReconciliation = {
+          id: previousReconciliation?.id || `reconciliation-${Date.now()}`,
+          date,
+          calculatedBalance: calculatedBalance.toFixed(2),
+          realBalance: realBalance.toFixed(2),
+          difference: "0.00",
+          reason,
+          authorizedBy,
+          username: state.currentUser?.username || previousReconciliation?.username || "",
+          createdAt: previousReconciliation?.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          status: "matched"
+        };
         state.financialPlanning = {
           ...(state.financialPlanning || {}),
-          reconciliationHistory: [{
-            id: `reconciliation-${Date.now()}`,
-            date,
-            calculatedBalance: calculatedBalance.toFixed(2),
-            realBalance: realBalance.toFixed(2),
-            difference: "0.00",
-            reason,
-            authorizedBy,
-            username: state.currentUser?.username || "",
-            createdAt: new Date().toISOString(),
-            status: "matched"
-          }, ...(state.financialPlanning?.reconciliationHistory || [])].slice(0, 250)
+          reconciliationHistory: previousReconciliation
+            ? history.map(item => String(item.id) === String(previousReconciliation.id) ? nextReconciliation : item)
+            : [nextReconciliation, ...history].slice(0, 250)
         };
-        recordAudit("Conciliação da conta", `${formatIsoDateBr(date)} - sem diferença - autorizado por ${authorizedBy}`);
+        state.editReconciliationId = null;
+        recordAudit(previousReconciliation ? "Conciliação editada" : "Conciliação da conta", `${formatIsoDateBr(date)} - sem diferença - autorizado por ${authorizedBy}`);
         if (await persistState()) {
-          showToast("Conciliação registrada sem diferença.", "success");
+          showToast(previousReconciliation ? "Conciliação atualizada." : "Conciliação registrada sem diferença.", "success");
           renderCash();
         }
         return;
@@ -3842,11 +3922,11 @@ async function renderCash() {
       const adjustmentType = difference > 0 ? "income" : "expense";
       const adjustmentAmount = Math.abs(difference);
       const actionLabel = adjustmentType === "expense" ? "saída" : "entrada";
-      if (!confirm(`Lançar ${actionLabel} de ajuste no valor de ${money(adjustmentAmount)} para bater com saldo real ${money(realBalance)}?`)) {
+      if (!confirm(`${previousReconciliation ? "Salvar" : "Lançar"} ${actionLabel} de ajuste no valor de ${money(adjustmentAmount)} para bater com saldo real ${money(realBalance)}?`)) {
         return;
       }
-      const adjustmentId = `account-check-${Date.now()}`;
-      state.cash.push({
+      const adjustmentId = previousReconciliation?.adjustmentId || `account-check-${Date.now()}`;
+      const adjustmentEntry = {
         id: adjustmentId,
         description: `Ajuste de conferência - ${reason}`,
         date,
@@ -3858,23 +3938,33 @@ async function renderCash() {
         authorizedUsername: state.currentUser?.username || "",
         calculatedBalance: calculatedBalance.toFixed(2),
         realBalance: realBalance.toFixed(2)
-      });
+      };
+      if (previousReconciliation?.adjustmentId && state.cash.some(entry => String(entry.id) === String(adjustmentId))) {
+        state.cash = state.cash.map(entry => String(entry.id) === String(adjustmentId) ? adjustmentEntry : entry);
+      } else {
+        state.cash.push(adjustmentEntry);
+      }
+      const nextReconciliation = {
+        id: previousReconciliation?.id || `reconciliation-${Date.now()}`,
+        adjustmentId,
+        date,
+        calculatedBalance: calculatedBalance.toFixed(2),
+        realBalance: realBalance.toFixed(2),
+        difference: difference.toFixed(2),
+        reason,
+        authorizedBy,
+        username: state.currentUser?.username || previousReconciliation?.username || "",
+        createdAt: previousReconciliation?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        status: "adjusted"
+      };
       state.financialPlanning = {
         ...(state.financialPlanning || {}),
-        reconciliationHistory: [{
-          id: `reconciliation-${Date.now()}`,
-          adjustmentId,
-          date,
-          calculatedBalance: calculatedBalance.toFixed(2),
-          realBalance: realBalance.toFixed(2),
-          difference: difference.toFixed(2),
-          reason,
-          authorizedBy,
-          username: state.currentUser?.username || "",
-          createdAt: new Date().toISOString(),
-          status: "adjusted"
-        }, ...(state.financialPlanning?.reconciliationHistory || [])].slice(0, 250)
+        reconciliationHistory: previousReconciliation
+          ? history.map(item => String(item.id) === String(previousReconciliation.id) ? nextReconciliation : item)
+          : [nextReconciliation, ...history].slice(0, 250)
       };
+      state.editReconciliationId = null;
       state.cashFilter = {
         ...state.cashFilter,
         period: "day",
@@ -3886,14 +3976,14 @@ async function renderCash() {
         search: "",
         manualAll: false
       };
-      recordAudit("Conciliação da conta", `${formatIsoDateBr(date)} - saldo real ${money(realBalance)} - ajuste ${money(difference)} - autorizado por ${authorizedBy}`, {
+      recordAudit(previousReconciliation ? "Conciliação editada" : "Conciliação da conta", `${formatIsoDateBr(date)} - saldo real ${money(realBalance)} - ajuste ${money(difference)} - autorizado por ${authorizedBy}`, {
         entityId: adjustmentId,
         calculatedBalance: calculatedBalance.toFixed(2),
         realBalance: realBalance.toFixed(2),
         difference: difference.toFixed(2)
       });
       if (await persistState()) {
-        showToast("Ajuste de conferência lançado.", "success");
+        showToast(previousReconciliation ? "Conciliação atualizada." : "Ajuste de conferência lançado.", "success");
         renderCash();
       }
     });
@@ -7173,13 +7263,14 @@ function reportCsvRows(kind, data) {
   }
 
   if (kind === "financial") {
+    const withdrawalAmounts = withdrawalBreakdownAmounts(data.financial.withdrawals, data.partnerWithdrawalControl);
     const rows = [
       { seção: "resumo", data: "", descrição: "Entradas no caixa", tipo: "entrada", categoria: "", valor: data.financial.income },
       { seção: "resumo", data: "", descrição: "Saídas operacionais", tipo: "saída", categoria: "operacional", valor: data.financial.operationalExpenses },
       { seção: "resumo", data: "", descrição: "Lucro antes das retiradas", tipo: "saldo", categoria: "", valor: data.financial.profitBeforeWithdrawals },
-      { seção: "resumo", data: "", descrição: "Vanessa tirou", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.vanessa },
-      { seção: "resumo", data: "", descrição: "Cofrinho", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.savings },
-      { seção: "resumo", data: "", descrição: "Raquel tirou", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.raquel },
+      { seção: "resumo", data: "", descrição: "Vanessa tirou", tipo: "saída", categoria: "retirada", valor: withdrawalAmounts.vanessa },
+      { seção: "resumo", data: "", descrição: "Cofrinho", tipo: "saída", categoria: "retirada", valor: withdrawalAmounts.savings },
+      { seção: "resumo", data: "", descrição: "Raquel tirou", tipo: "saída", categoria: "retirada", valor: withdrawalAmounts.raquel },
       { seção: "resumo", data: "", descrição: "Resultado após retiradas", tipo: "saldo", categoria: "", valor: data.financial.availableForWithdrawal },
       { seção: "ajustes da conta", data: "", descrição: "Entradas de ajuste", tipo: "entrada", categoria: "ajuste da conta", valor: data.accountAdjustmentTotals.income },
       { seção: "ajustes da conta", data: "", descrição: "Saídas de ajuste", tipo: "saída", categoria: "ajuste da conta", valor: data.accountAdjustmentTotals.expenses },
@@ -7297,6 +7388,7 @@ function reportPdfHtml(data) {
   const periodLabel = data.type === "week"
     ? reportWeekRangeLabel()
     : formatMonthKeyBr(data.periodKey);
+  const withdrawalAmounts = withdrawalBreakdownAmounts(data.financial.withdrawals, data.partnerWithdrawalControl);
   const unusedLegacySummary = [
     ["Receita de pedidos", money(data.orderRevenue)],
     ["Cumbucas vendidas", data.totalQuantity],
@@ -7315,9 +7407,9 @@ function reportPdfHtml(data) {
     ["Entradas", money(data.totalIncome)],
     ["Saídas", money(data.expenses)],
     ["Lucro antes retiradas", money(data.financial.profitBeforeWithdrawals)],
-    ["Vanessa tirou", money(data.financial.withdrawals.vanessa)],
-    ["Cofrinho", money(data.financial.withdrawals.savings)],
-    ["Raquel tirou", money(data.financial.withdrawals.raquel)],
+    ["Vanessa tirou", money(withdrawalAmounts.vanessa)],
+    ["Cofrinho", money(withdrawalAmounts.savings)],
+    ["Raquel tirou", money(withdrawalAmounts.raquel)],
     ["Resultado após retiradas", money(data.financial.availableForWithdrawal)],
     ["Ajustes da conta", money(data.accountAdjustmentTotals.balance)],
     ["Saldo da conta", money(data.accountBalance)],
@@ -7506,6 +7598,7 @@ function oldPrintReportPdfWithPopup() {
 
 async function downloadReportPdf() {
   const data = reportData();
+  const withdrawalAmounts = withdrawalBreakdownAmounts(data.financial.withdrawals, data.partnerWithdrawalControl);
   const periodLabel = data.type === "week" ? reportWeekRangeLabel() : formatMonthKeyBr(data.periodKey);
   const filename = data.type === "week"
     ? `cumbuca-relatorio-${data.weekKey}.pdf`
@@ -7528,9 +7621,9 @@ async function downloadReportPdf() {
       savingsBalance: data.savingsBalance,
       savingsUpdatedAt: data.savingsUpdatedAt,
       withdrawalTotal: data.financial.withdrawals.total,
-      withdrawalVanessa: data.financial.withdrawals.vanessa,
-      withdrawalSavings: data.financial.withdrawals.savings,
-      withdrawalRaquel: data.financial.withdrawals.raquel,
+      withdrawalVanessa: withdrawalAmounts.vanessa,
+      withdrawalSavings: withdrawalAmounts.savings,
+      withdrawalRaquel: withdrawalAmounts.raquel,
       withdrawalRows: reportPdfWithdrawalRows(data),
       accountIncome: data.income,
       weeklyRevenue: data.orderRevenue,
@@ -7596,6 +7689,7 @@ async function downloadReportPdf() {
 
 async function downloadReportXlsx() {
   const data = reportData();
+  const withdrawalAmounts = withdrawalBreakdownAmounts(data.financial.withdrawals, data.partnerWithdrawalControl);
   const periodLabel = data.type === "week" ? reportWeekRangeLabel() : formatMonthKeyBr(data.periodKey);
   const filename = data.type === "week"
     ? `cumbuca-relatorio-${data.weekKey}.xlsx`
@@ -7618,9 +7712,9 @@ async function downloadReportXlsx() {
       savingsBalance: data.savingsBalance,
       savingsUpdatedAt: data.savingsUpdatedAt,
       withdrawalTotal: data.financial.withdrawals.total,
-      withdrawalVanessa: data.financial.withdrawals.vanessa,
-      withdrawalSavings: data.financial.withdrawals.savings,
-      withdrawalRaquel: data.financial.withdrawals.raquel,
+      withdrawalVanessa: withdrawalAmounts.vanessa,
+      withdrawalSavings: withdrawalAmounts.savings,
+      withdrawalRaquel: withdrawalAmounts.raquel,
       withdrawalRows: [
         ["Cofrinho", Number(data.financial.withdrawals.savings || 0)],
         ["Vanessa", Number(data.financial.withdrawals.vanessa || 0)],
@@ -7871,6 +7965,9 @@ function comparisonReportRows(data) {
   const previousStore = previousReportStoreSales(data);
   const previousTotals = cashTotals(previousCash);
   const previousFinancial = financialSummary(previousCash);
+  const currentWithdrawalAmounts = withdrawalBreakdownAmounts(data.financial.withdrawals, data.partnerWithdrawalControl);
+  const previousWithdrawalControl = partnerPeriodTotals(withdrawalHistoryGroups(previousCash));
+  const previousWithdrawalAmounts = withdrawalBreakdownAmounts(previousFinancial.withdrawals, previousWithdrawalControl);
   const previousOrderQuantity = previousOrders.reduce((sum, order) => sum + orderQuantity(order), 0);
   const previousStoreQuantity = previousStore.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
   const previousOrderRevenue = previousOrders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
@@ -7879,9 +7976,9 @@ function comparisonReportRows(data) {
     ["Entradas", data.income, previousTotals.income],
     ["Saídas", data.expenses, previousTotals.expenses],
     ["Lucro", data.financial.profitBeforeWithdrawals, previousFinancial.profitBeforeWithdrawals],
-    ["Vanessa tirou", data.financial.withdrawals.vanessa, previousFinancial.withdrawals.vanessa],
-    ["Cofrinho", data.financial.withdrawals.savings, previousFinancial.withdrawals.savings],
-    ["Raquel tirou", data.financial.withdrawals.raquel, previousFinancial.withdrawals.raquel],
+    ["Vanessa tirou", currentWithdrawalAmounts.vanessa, previousWithdrawalAmounts.vanessa],
+    ["Cofrinho", currentWithdrawalAmounts.savings, previousWithdrawalAmounts.savings],
+    ["Raquel tirou", currentWithdrawalAmounts.raquel, previousWithdrawalAmounts.raquel],
     ["Pedidos", data.orders.length, previousOrders.length],
     ["Cumbucas", data.totalSoldQuantity, previousOrderQuantity + previousStoreQuantity],
     ["Ticket médio", data.averageTicket, previousAverageTicket]
@@ -8237,7 +8334,7 @@ function weeklyClosingPanel(data) {
         <div class="metric"><span>Entradas operacionais</span><strong>${money(data.financial.income)}</strong></div>
         <div class="metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
         <div class="metric"><span>Lucro antes retiradas</span><strong>${money(data.financial.profitBeforeWithdrawals)}</strong></div>
-        ${withdrawalBreakdownMetrics(data.financial.withdrawals)}
+        ${withdrawalBreakdownMetrics(data.financial.withdrawals, "metric", data.partnerWithdrawalControl)}
         <div class="metric"><span>Resultado após retiradas</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
         <div class="metric"><span>Ajustes da conta</span><strong class="${data.accountAdjustmentTotals.balance < 0 ? "negative" : "positive"}">${money(data.accountAdjustmentTotals.balance)}</strong></div>
       </div>
@@ -8291,7 +8388,7 @@ function monthlyClosingPanel(data) {
         <div class="metric"><span>Faturamento</span><strong>${money(data.financial.income)}</strong></div>
         <div class="metric"><span>Custos operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
         <div class="metric"><span>Lucro antes retiradas</span><strong>${money(data.financial.profitBeforeWithdrawals)}</strong></div>
-        ${withdrawalBreakdownMetrics(data.financial.withdrawals)}
+        ${withdrawalBreakdownMetrics(data.financial.withdrawals, "metric", data.partnerWithdrawalControl)}
       </div>
       ${closing ? `
         <div class="closing-record">
@@ -8589,7 +8686,7 @@ function financialAccountNotifications(days = 7) {
           ? `${account.kind === "receivable" ? "Recebimento" : "Conta"} em atraso`
           : `${account.kind === "receivable" ? "Recebimento" : "Conta"} vence em breve`,
         detail: `${account.description} - ${money(accountOpenAmount(account))} - ${dueDateDistanceLabel(account.dueDate)}`,
-        action: "/financeiro?view=accounts",
+        action: `/financeiro?view=accounts&account=${encodeURIComponent(account.id)}`,
         accountId: account.id
       };
     });
@@ -8604,7 +8701,7 @@ function accountsManagementPanel() {
     <section class="panel report-section accounts-panel">
       <div class="section-heading">
         <div>
-          <h2>Contas a pagar e receber</h2>
+          <h2>${editing ? "Editar conta registrada" : "Contas a pagar e receber"}</h2>
           <p class="muted-inline">O compromisso não altera o saldo. Somente pagamentos e recebimentos registrados entram no caixa.</p>
         </div>
       </div>
@@ -8657,8 +8754,9 @@ function accountsManagementPanel() {
             const open = accountOpenAmount(account);
             const status = accountStatus(account);
             const paid = accountPaidTotal(account);
+            const isEditing = String(account.id) === String(editingId);
             return `
-              <article class="account-row ${status}">
+              <article class="account-row ${status} ${isEditing ? "editing" : ""}">
                 <div class="account-main">
                   <span class="status-label">${account.kind === "receivable" ? "A receber" : "A pagar"} · ${status === "paid" ? "Quitada" : status === "overdue" ? "Atrasada" : "Pendente"}</span>
                   <strong>${escapeHtml(account.description || "Conta")}</strong>
@@ -8692,7 +8790,7 @@ function accountsManagementPanel() {
                   </details>
                 ` : ""}
                 <div class="actions">
-                  <button class="secondary table-action" type="button" data-edit-financial-account="${escapeHtml(account.id)}">Editar</button>
+                  <button class="secondary table-action" type="button" data-edit-financial-account="${escapeHtml(account.id)}">${isEditing ? "Editando" : "Editar"}</button>
                   <button class="danger table-action" type="button" data-delete-financial-account="${escapeHtml(account.id)}">Excluir</button>
                 </div>
               </article>
@@ -8724,6 +8822,7 @@ function upcomingBillsPanel({ title = "Próximas contas", limit = 6, showSummary
               <b>${money(entry.amount)}</b>
               ${entry.description || categoryName(entry.category)}
               <small>${formatIsoDateBr(entry.reminderDate)} - ${entry.dueDate ? dueDateDistanceLabel(entry.dueDate) : "Despesa programada"}</small>
+              ${entry.id ? `<span class="today-order-actions"><a class="secondary table-action" href="/fluxo-de-caixa?edit=${encodeURIComponent(entry.id)}">Editar</a></span>` : ""}
             </span>
           `).join("")}
         </div>
@@ -8842,7 +8941,7 @@ function simplifiedStatementPanel(data) {
       <div class="statement-line"><span>Receitas operacionais</span><strong>${money(data.financial.income)}</strong></div>
       <div class="statement-line"><span>(-) Custos operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
       <div class="statement-line"><span>(=) Lucro operacional</span><strong>${money(data.financial.profitBeforeWithdrawals)}</strong></div>
-      ${withdrawalBreakdownStatement(data.financial.withdrawals)}
+      ${withdrawalBreakdownStatement(data.financial.withdrawals, data.partnerWithdrawalControl)}
       <div class="statement-line statement-total"><span>(=) Resultado após retiradas</span><strong class="${finalResult < 0 ? "negative" : "positive"}">${money(finalResult)}</strong></div>
     </section>
   `;
@@ -9816,7 +9915,7 @@ function financeDashboardPanel(data) {
       </div>
       <div class="finance-dashboard-grid">
         <div class="metric"><span>Lucro antes retiradas</span><strong class="${data.financial.profitBeforeWithdrawals < 0 ? "negative" : "positive"}">${money(data.financial.profitBeforeWithdrawals)}</strong></div>
-        ${withdrawalBreakdownMetrics(data.financial.withdrawals)}
+        ${withdrawalBreakdownMetrics(data.financial.withdrawals, "metric", data.partnerWithdrawalControl)}
         <div class="metric"><span>Retirada projetada</span><strong class="${projection.projectedAvailableForWithdrawal < 0 ? "negative" : "positive"}">${money(projection.projectedAvailableForWithdrawal)}</strong></div>
         <div class="metric"><span>Guardado + disponível</span><strong class="${availableAfterSavings < 0 ? "negative" : "positive"}">${money(availableAfterSavings)}</strong></div>
         <div class="metric"><span>Meta mensal</span><strong>${monthlyGoal > 0 ? `${goalProgress}%` : "Sem meta"}</strong></div>
@@ -9865,9 +9964,15 @@ function renderFinance() {
     ["audit", "Auditoria"],
     ["closing", "Fechamento"]
   ];
-  const requestedTab = new URLSearchParams(location.search).get("view");
+  const financeParams = new URLSearchParams(location.search);
+  const requestedTab = financeParams.get("view");
+  const requestedAccountId = financeParams.get("account");
   if (tabs.some(([key]) => key === requestedTab)) {
     state.financeViewTab = requestedTab;
+  }
+  if (requestedAccountId && financialAccounts().some(account => String(account.id) === String(requestedAccountId))) {
+    state.financeViewTab = "accounts";
+    state.editFinancialAccountId = requestedAccountId;
   }
   const activeTab = tabs.some(([key]) => key === state.financeViewTab) ? state.financeViewTab : "summary";
 
@@ -9887,7 +9992,7 @@ function renderFinance() {
       <div class="metric report-metric"><span>Entradas operacionais</span><strong>${money(data.financial.income)}</strong></div>
       <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
       <div class="metric report-metric"><span>Lucro</span><strong class="${data.financial.profitBeforeWithdrawals < 0 ? "negative" : "positive"}">${money(data.financial.profitBeforeWithdrawals)}</strong></div>
-      ${withdrawalBreakdownMetrics(data.financial.withdrawals, "metric report-metric")}
+      ${withdrawalBreakdownMetrics(data.financial.withdrawals, "metric report-metric", data.partnerWithdrawalControl)}
       <div class="metric report-metric"><span>Resultado após retiradas</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
       <div class="metric report-metric"><span>Saldo da conta</span><strong class="${data.accountBalance < 0 ? "negative" : "positive"}">${money(data.accountBalance)}</strong></div>
       <div class="metric report-metric"><span>Ajustes</span><strong class="${data.accountAdjustmentTotals.balance < 0 ? "negative" : "positive"}">${money(data.accountAdjustmentTotals.balance)}</strong></div>
@@ -10034,7 +10139,7 @@ function renderReports() {
       <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
       <div class="metric report-metric"><span>Saldo da conta</span><strong class="${data.accountBalance < 0 ? "negative" : "positive"}">${money(data.accountBalance)}</strong></div>
       <div class="metric report-metric"><span>Lucro antes retiradas</span><strong class="${data.financial.profitBeforeWithdrawals < 0 ? "negative" : "positive"}">${money(data.financial.profitBeforeWithdrawals)}</strong></div>
-      ${withdrawalBreakdownMetrics(data.financial.withdrawals, "metric report-metric")}
+      ${withdrawalBreakdownMetrics(data.financial.withdrawals, "metric report-metric", data.partnerWithdrawalControl)}
       <div class="metric report-metric"><span>Resultado após retiradas</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
     </section>
     ${viewTabsHtml("reportViewTab", activeTab, tabs)}
@@ -10507,6 +10612,7 @@ function bindSystemIssuesPanel() {
 
 function reportExportPayload(data = reportData()) {
   const periodLabel = data.type === "week" ? reportWeekRangeLabel() : formatMonthKeyBr(data.periodKey);
+  const withdrawalAmounts = withdrawalBreakdownAmounts(data.financial.withdrawals, data.partnerWithdrawalControl);
   return {
     periodLabel,
     data: {
@@ -10524,9 +10630,9 @@ function reportExportPayload(data = reportData()) {
       savingsBalance: data.savingsBalance,
       savingsUpdatedAt: data.savingsUpdatedAt,
       withdrawalTotal: data.financial.withdrawals.total,
-      withdrawalVanessa: data.financial.withdrawals.vanessa,
-      withdrawalSavings: data.financial.withdrawals.savings,
-      withdrawalRaquel: data.financial.withdrawals.raquel,
+      withdrawalVanessa: withdrawalAmounts.vanessa,
+      withdrawalSavings: withdrawalAmounts.savings,
+      withdrawalRaquel: withdrawalAmounts.raquel,
       withdrawalRows: reportPdfWithdrawalRows(data),
       accountIncome: data.income,
       weeklyRevenue: data.orderRevenue,

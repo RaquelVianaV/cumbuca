@@ -2163,6 +2163,12 @@ textarea {
   background: #f7fbf9;
 }
 
+.account-row.editing {
+  border-color: #0f6f5f;
+  border-left-color: #0f6f5f;
+  box-shadow: 0 0 0 2px rgba(15, 111, 95, 0.12);
+}
+
 .account-main,
 .account-values {
   display: grid;
