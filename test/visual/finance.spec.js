@@ -57,6 +57,7 @@ test("finance summary and pending dashboard fit the viewport", async ({ page }, 
   await page.getByRole("button", { name: "Pendências", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Painel de pendências", exact: true })).toBeVisible();
   await expect(page.locator("#finance-pending-dashboard")).not.toContainText("Conferindo pendências...");
+  await expect(page.locator(".pending-item").filter({ hasText: "Diferenças da conciliação" })).toHaveAttribute("href", "/fluxo-de-caixa?panel=reconciliation");
   await expectNoHorizontalOverflow(page);
   const screenshotPath = testInfo.outputPath("finance-pending.png");
   await page.screenshot({ path: screenshotPath, fullPage: true });
@@ -149,6 +150,17 @@ test("controlled finance workflow covers installments, reversal, alerts and reco
   await firstAccount.locator("details").click();
   await expect(firstAccount).toContainText("Estornado");
 
+  let adjustedAccount = page.locator(".account-row").filter({ hasText: "Assinatura mensal" }).first();
+  await adjustedAccount.locator('form[data-account-settlement] input[name="amount"]').fill("28,50");
+  await adjustedAccount.getByRole("button", { name: "Registrar pagamento", exact: true }).click();
+  adjustedAccount = page.locator(".account-row").filter({ hasText: "Assinatura mensal" }).first();
+  await expect(adjustedAccount).toContainText("Total R$ 28,50");
+  await expect(adjustedAccount).toContainText("Baixado R$ 28,50");
+
+  page.once("dialog", dialog => dialog.accept());
+  await adjustedAccount.getByRole("button", { name: "Excluir", exact: true }).click();
+  await expect(page.locator(".account-row").filter({ hasText: "Assinatura mensal" })).toHaveCount(1);
+
   await page.goto("/alertas");
   await expect(page.locator(".alert-card").filter({ hasText: "Conta vence em breve" }).first()).toBeVisible();
 
@@ -158,9 +170,10 @@ test("controlled finance workflow covers installments, reversal, alerts and reco
   page.once("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "Conferir e lançar ajuste", exact: true }).click();
   await expect.poll(() => database.state.cashEntries?.some(entry => entry.reconciliation)).toBe(true);
-  expect(database.state.financialPlanning.accounts).toHaveLength(5);
+  expect(database.state.financialPlanning.accounts).toHaveLength(4);
   const testedAccount = database.state.financialPlanning.accounts.find(account => account.description === "Teste fornecedor");
   expect(testedAccount.payments[0].reversedAt).toBeTruthy();
+  expect(database.state.cashEntries?.some(entry => entry.description === "Pagamento - Assinatura mensal" && entry.amount === "28.50")).toBe(true);
 });
 
 test("home dashboard prioritizes projected balance and actions", async ({ page }, testInfo) => {

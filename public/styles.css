@@ -2260,7 +2260,7 @@ textarea {
   gap: 16px;
 }
 
-.pending-overview > div:first-child {
+.pending-summary {
   display: grid;
   align-content: center;
   gap: 4px;
@@ -2268,14 +2268,16 @@ textarea {
   border: 1px solid #d9e4df;
   border-radius: 6px;
   background: #f6faf8;
+  color: inherit;
+  text-decoration: none;
 }
 
-.pending-overview.has-pending > div:first-child {
+.pending-overview.has-pending .pending-summary {
   border-color: #ead7aa;
   background: #fffaf0;
 }
 
-.pending-overview > div:first-child strong {
+.pending-summary strong {
   font-size: 34px;
 }
 
@@ -2294,6 +2296,20 @@ textarea {
   border: 1px solid #dce5e1;
   border-radius: 6px;
   background: #fff;
+  color: inherit;
+  text-align: left;
+  text-decoration: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.pending-summary:hover,
+.pending-item:hover,
+.pending-summary:focus-visible,
+.pending-item:focus-visible {
+  border-color: #087f5b;
+  box-shadow: 0 8px 20px rgba(8, 127, 91, 0.12);
+  outline: none;
+  transform: translateY(-1px);
 }
 
 .pending-item > span {

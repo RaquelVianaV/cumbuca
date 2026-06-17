@@ -1712,8 +1712,9 @@ function buildReportPdf(payload = {}) {
   doc.fillColor("#573220").font("Helvetica-Bold").fontSize(12).text("Resumo da capa", 62, 330);
   doc.fillColor("#121417").font("Helvetica").fontSize(11)
     .text(`Lucro operacional: ${brl(data.profitBeforeWithdrawals)}`, 62, 358)
-    .text(`Saldo da conta: ${brl(data.accountBalance)}`, 62, 382)
-    .text(`Disponível para retirada: ${brl(data.availableForWithdrawal)}`, 62, 406);
+    .text(`Vanessa tirou: ${brl(data.withdrawalVanessa)}`, 62, 382)
+    .text(`Cofrinho: ${brl(data.withdrawalSavings)}`, 62, 406)
+    .text(`Raquel tirou: ${brl(data.withdrawalRaquel)}`, 62, 430);
   doc.fillColor("#69707d").fontSize(9).text("Conferir os lançamentos e assinar o fechamento ao final do relatório.", 42, 760, {
     width: 510,
     align: "center"
@@ -1732,8 +1733,10 @@ function buildReportPdf(payload = {}) {
     ["Entradas operacionais", brl(data.totalIncome)],
     ["Saídas operacionais", brl(data.operationalExpenses)],
     ["Lucro operacional", brl(data.profitBeforeWithdrawals)],
-    ["Disponível para retirada", brl(data.availableForWithdrawal)],
-    ["Retiradas", brl(data.withdrawalTotal)],
+    ["Vanessa tirou", brl(data.withdrawalVanessa)],
+    ["Cofrinho", brl(data.withdrawalSavings)],
+    ["Raquel tirou", brl(data.withdrawalRaquel)],
+    ["Resultado após retiradas", brl(data.availableForWithdrawal)],
     ["Saldo da conta", brl(data.accountBalance)],
     ["Ajustes da conta", brl(data.accountAdjustmentBalance)],
     ["Cofrinho atual", brl(data.savingsBalance)],
@@ -1809,8 +1812,10 @@ async function buildReportXlsx(payload = {}) {
     ["Entradas operacionais", data.totalIncome || 0],
     ["Saídas operacionais", data.operationalExpenses || 0],
     ["Lucro operacional", data.profitBeforeWithdrawals || 0],
-    ["Retiradas", data.withdrawalTotal || 0],
-    ["Disponível para retirada", data.availableForWithdrawal || 0],
+    ["Vanessa tirou", data.withdrawalVanessa || 0],
+    ["Cofrinho", data.withdrawalSavings || 0],
+    ["Raquel tirou", data.withdrawalRaquel || 0],
+    ["Resultado após retiradas", data.availableForWithdrawal || 0],
     ["Saldo da conta", data.accountBalance || 0],
     ["Ajustes da conta", data.accountAdjustmentBalance || 0],
     ["Cofrinho atual", data.savingsBalance || 0],
