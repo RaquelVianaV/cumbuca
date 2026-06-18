@@ -1220,31 +1220,31 @@ function financialIntegritySummary(state, backup = null) {
       id: "account-balance",
       level: totals.balance < 0 ? "danger" : "ok",
       label: "Saldo acumulado",
-      detail: totals.balance < 0 ? `Saldo negativo de ${totals.balance.toFixed(2)}.` : `Saldo ${totals.balance.toFixed(2)}.`
+      detail: totals.balance < 0 ? `Saldo negativo de ${brl(Math.abs(totals.balance))}.` : `Saldo ${brl(totals.balance)}.`
     },
     {
       id: "backup",
       level: backupAgeHours === null || backupAgeHours > 26 ? "danger" : "ok",
       label: "Backup automático",
-      detail: backupAgeHours === null ? "Nenhum backup encontrado." : `Último backup há ${Math.round(backupAgeHours)} hora(s).`
+      detail: backupAgeHours === null ? "Nenhum backup encontrado." : `Ultimo backup ${relativeHoursPtBr(backupAgeHours)}.`
     },
     {
       id: "previous-month",
       level: previousMonthClosed ? "ok" : "warning",
       label: "Fechamento mensal",
-      detail: previousMonthClosed ? `${previousMonth} está fechado.` : `${previousMonth} ainda está aberto.`
+      detail: previousMonthClosed ? `${formatMonthKeyPtBr(previousMonth)} esta fechado.` : `${formatMonthKeyPtBr(previousMonth)} ainda esta aberto.`
     },
     {
       id: "reopened-periods",
       level: unlockedMonths.length || unlockedWeeks.length ? "warning" : "ok",
       label: "Períodos reabertos",
-      detail: `${unlockedMonths.length} mês(es) e ${unlockedWeeks.length} semana(s) reabertos.`
+      detail: reopenedPeriodsText(unlockedMonths.length, unlockedWeeks.length)
     },
     {
       id: "adjustments",
       level: Math.abs(totals.adjustments) >= 0.01 ? "warning" : "ok",
       label: "Ajustes acumulados",
-      detail: `Saldo dos ajustes ${totals.adjustments.toFixed(2)}.`
+      detail: Math.abs(totals.adjustments) >= 0.01 ? `Saldo dos ajustes ${brl(totals.adjustments)}.` : "Sem ajustes acumulados."
     }
   ];
   const status = checks.some(check => check.level === "danger")
@@ -1268,6 +1268,51 @@ function financialIntegritySummary(state, backup = null) {
     },
     checks
   };
+}
+
+function formatMonthKeyPtBr(key) {
+  const [year, month] = String(key || "").split("-").map(Number);
+  if (!year || !month) {
+    return key || "";
+  }
+  return new Intl.DateTimeFormat("pt-BR", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC"
+  }).format(new Date(Date.UTC(year, month - 1, 1)));
+}
+
+function relativeHoursPtBr(hours) {
+  const rounded = Math.round(Math.max(0, Number(hours || 0)));
+  if (rounded <= 0) {
+    return "ha menos de 1 hora";
+  }
+  return rounded === 1 ? "ha 1 hora" : `ha ${rounded} horas`;
+}
+
+function reopenedPeriodsText(months, weeks) {
+  const monthCount = Number(months || 0);
+  const weekCount = Number(weeks || 0);
+  if (!monthCount && !weekCount) {
+    return "Nenhum periodo reaberto.";
+  }
+  const monthText = monthCount === 1 ? "1 mes" : `${monthCount} meses`;
+  const weekText = weekCount === 1 ? "1 semana" : `${weekCount} semanas`;
+  return `${monthText} e ${weekText} reabertos.`;
+}
+
+function formatBytesPtBr(bytes) {
+  const value = Number(bytes || 0);
+  const formatter = new Intl.NumberFormat("pt-BR", {
+    maximumFractionDigits: 1
+  });
+  if (value >= 1024 * 1024) {
+    return `${formatter.format(value / (1024 * 1024))} MB`;
+  }
+  if (value >= 1024) {
+    return `${formatter.format(value / 1024)} KB`;
+  }
+  return `${formatter.format(value)} bytes`;
 }
 
 function validateBackupPayload(backup) {
@@ -1303,7 +1348,104 @@ async function latestBackup() {
   return result.rows[0] || null;
 }
 
-async function financialIntegrity() {
+function missingReconciliationAdjustments(state = {}) {
+  const cashEntries = Array.isArray(state.cashEntries) ? state.cashEntries : [];
+  const history = Array.isArray(state.financialPlanning?.reconciliationHistory)
+    ? state.financialPlanning.reconciliationHistory
+    : [];
+  return history.filter(item =>
+    item?.status === "adjusted"
+    && item.adjustmentId
+    && Math.abs(number(item.difference)) >= 0.01
+    && !cashEntries.some(entry => String(entry.id) === String(item.adjustmentId))
+  );
+}
+
+function reconciliationAdjustmentEntry(item = {}) {
+  const difference = number(item.difference);
+  return {
+    id: String(item.adjustmentId),
+    description: `Ajuste de conferência - ${item.reason || "Conta conferida"}`,
+    date: String(item.date || "").slice(0, 10),
+    type: difference > 0 ? "income" : "expense",
+    category: "ajuste-conta",
+    amount: Math.abs(difference).toFixed(2),
+    reconciliation: true,
+    authorizedBy: item.authorizedBy || "Sistema",
+    authorizedUsername: item.username || "",
+    calculatedBalance: String(item.calculatedBalance || "0.00"),
+    realBalance: String(item.realBalance || "0.00")
+  };
+}
+
+async function repairFinancialIntegrity(user = null) {
+  if (!userCan(user, "editFinancial")) {
+    return { repaired: false, statusCode: 403, error: "Seu usuário não pode corrigir pendências financeiras." };
+  }
+  const current = await readAppState();
+  if (!current.database) {
+    return { repaired: false, database: false };
+  }
+
+  const backup = await writeAutomaticBackup(current.state, { source: "integrity-repair-preflight" });
+  const missing = missingReconciliationAdjustments(current.state);
+  const restoredEntries = missing
+    .map(reconciliationAdjustmentEntry)
+    .filter(entry => entry.id && entry.date && number(entry.amount) > 0);
+
+  if (!restoredEntries.length) {
+    return {
+      database: true,
+      repaired: false,
+      backup: Boolean(backup.saved || backup.database),
+      restoredAdjustments: []
+    };
+  }
+
+  const nextCashEntries = [
+    ...(Array.isArray(current.state.cashEntries) ? current.state.cashEntries : []),
+    ...restoredEntries
+  ];
+  await writeAppState({
+    cashEntries: nextCashEntries,
+    auditLog: [
+      {
+        id: `audit-${Date.now()}`,
+        action: "Conciliação corrigida",
+        detail: `${restoredEntries.length} ajuste(s) de conciliação recriado(s) pela conferência financeira.`,
+        metadata: {
+          adjustmentIds: restoredEntries.map(entry => entry.id),
+          backupId: backup.backupId || ""
+        },
+        user: user?.name || user?.username || "Sistema",
+        username: user?.username || "",
+        createdAt: new Date().toISOString()
+      },
+      ...(Array.isArray(current.state.auditLog) ? current.state.auditLog : [])
+    ].slice(0, 500)
+  }, user, { bypassLocks: true });
+  await writeEvent(
+    "integridade_financeira_corrigida",
+    `${restoredEntries.length} ajuste(s) de conciliação recriado(s).`,
+    user
+  );
+  return {
+    database: true,
+    repaired: true,
+    backup: true,
+    restoredAdjustments: restoredEntries.map(entry => ({
+      id: entry.id,
+      date: entry.date,
+      type: entry.type,
+      amount: entry.amount
+    }))
+  };
+}
+
+async function financialIntegrity(options = {}) {
+  const repair = options.repair
+    ? await repairFinancialIntegrity(options.user)
+    : null;
   const current = await readAppState();
   if (!current.database) {
     return { database: false, status: "danger", checks: [] };
@@ -1321,7 +1463,7 @@ async function financialIntegrity() {
     level: restoreValidation.valid ? "ok" : "danger",
     label: "Teste de restauração",
     detail: restoreValidation.valid
-      ? `Backup legível e completo (${restoreValidation.bytes} bytes).`
+      ? `Backup legivel e completo (${formatBytesPtBr(restoreValidation.bytes)}).`
       : (restoreValidation.error || "Backup inválido.")
   });
   result.checks.push({
@@ -1342,6 +1484,7 @@ async function financialIntegrity() {
   return {
     database: true,
     ...result,
+    repair,
     restoreValidation,
     recentTechnicalErrors: recentTechnicalErrors.slice(0, 10),
     externalAlert
@@ -2093,7 +2236,10 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/financial-integrity") {
-      sendJson(res, 200, await financialIntegrity());
+      sendJson(res, 200, await financialIntegrity({
+        repair: url.searchParams.get("repair") === "1",
+        user
+      }));
       return;
     }
 

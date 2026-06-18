@@ -420,6 +420,7 @@ const state = {
   editOrderId: null,
   editCashId: null,
   editReconciliationId: null,
+  editSavingsEntryId: null,
   cashSort: { key: "", direction: "desc" },
   editWithdrawalGroup: null,
   editChannelReceiptId: null,
@@ -723,7 +724,7 @@ function setMaintenanceTab(tab) {
 
 function bindViewTabs(storageKey, renderFn) {
   document.querySelectorAll(`[data-view-tab-group="${storageKey}"] [data-view-tab]`).forEach(button => {
-    button.addEventListener("click", event => {
+    button.addEventListener("click", async event => {
       const tab = event.currentTarget.dataset.viewTab;
       state[storageKey] = tab;
       localStorage.setItem(storageKey, JSON.stringify(tab));
@@ -2102,6 +2103,98 @@ function withdrawalGroupKey(entry = {}) {
   return match ? `withdrawal-${match[1]}` : String(entry.id || "");
 }
 
+function withdrawalSavingsLoanId(groupKey = "") {
+  return `${String(groupKey || "")}-savings-loan`;
+}
+
+function withdrawalSavingsLoanEntry(group = {}) {
+  const loanId = withdrawalSavingsLoanId(group.key || "");
+  return accountingCashEntries(state.cash).find(entry => String(entry.id || "") === loanId) || null;
+}
+
+function cashSavingsCoverageId(entryId = "") {
+  return `cash-savings-coverage-${String(entryId || "")}`;
+}
+
+function cashSavingsCoverageHistoryId(entryId = "") {
+  return `savings-coverage-${String(entryId || "")}`;
+}
+
+function cashSavingsCoverageReversalHistoryId(entryId = "") {
+  return `savings-coverage-reversal-${String(entryId || "")}`;
+}
+
+function isCashSavingsCoverageEntry(entry = {}) {
+  return Boolean(entry.automaticSavingsCoverage && entry.savingsCoverageFor);
+}
+
+function cashSavingsCoverageEntry(entryId = "") {
+  return state.cash.find(entry =>
+    isCashSavingsCoverageEntry(entry)
+    && String(entry.savingsCoverageFor || "") === String(entryId || "")
+  ) || null;
+}
+
+function cashSavingsCoverageEligible(entry = {}) {
+  return entry.type === "expense"
+    && !isPendingBill(entry)
+    && !isWithdrawalEntry(entry)
+    && !isAccountAdjustmentEntry(entry)
+    && !entry.reversalOf
+    && !entry.automaticSavingsCoverage;
+}
+
+function removeCashSavingsCoverage(entryId = "") {
+  const id = String(entryId || "");
+  const historyId = cashSavingsCoverageHistoryId(id);
+  const previousCoverage = cashSavingsCoverageEntry(id);
+  state.cash = state.cash.filter(entry =>
+    !(isCashSavingsCoverageEntry(entry) && String(entry.savingsCoverageFor || "") === id)
+  );
+  if (previousCoverage || savingsHistoryRows().some(entry => String(entry.id || "") === historyId)) {
+    applySavingsHistory(savingsHistoryRows().filter(entry => String(entry.id || "") !== historyId));
+  }
+  return previousCoverage;
+}
+
+function setCashSavingsCoverage(entry = {}, amount = 0) {
+  const coverageAmount = Math.max(0, Number(amount || 0));
+  const entryId = String(entry.id || "");
+  const historyId = cashSavingsCoverageHistoryId(entryId);
+  const baseRows = savingsHistoryRows().filter(item => String(item.id || "") !== historyId);
+  state.cash = state.cash.filter(item =>
+    !(isCashSavingsCoverageEntry(item) && String(item.savingsCoverageFor || "") === entryId)
+  );
+
+  if (coverageAmount <= 0.009) {
+    applySavingsHistory(baseRows);
+    return null;
+  }
+
+  state.cash.push({
+    id: cashSavingsCoverageId(entryId),
+    description: `Cobertura do cofrinho - ${entry.description || "saída"}`,
+    date: entry.date,
+    type: "income",
+    category: "ajuste-conta",
+    amount: coverageAmount.toFixed(2),
+    automaticSavingsCoverage: true,
+    savingsCoverageFor: entry.id
+  });
+  applySavingsHistory([
+    {
+      id: historyId,
+      date: entry.date,
+      type: "withdrawal",
+      amount: coverageAmount.toFixed(2),
+      balance: "0.00",
+      description: `Cobertura automática da saída: ${entry.description || "lançamento"}`
+    },
+    ...baseRows
+  ]);
+  return coverageAmount;
+}
+
 function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
   const groups = new Map();
   entries.filter(isWithdrawalEntry).forEach(entry => {
@@ -2261,38 +2354,100 @@ function savingsBalance() {
   return Number(state.financialPlanning?.savings || 0);
 }
 
+function savingsExpectedBalance() {
+  const saved = state.financialPlanning?.savingsExpectedBalance;
+  if (saved !== undefined && saved !== null && String(saved) !== "") {
+    return Number(saved || 0);
+  }
+  return 3995.40;
+}
+
+function savingsDebtAmount() {
+  return Math.max(0, savingsExpectedBalance() - savingsBalance());
+}
+
+function setSavingsExpectedBalance(amount, date = isoDate(new Date())) {
+  state.financialPlanning = {
+    ...(state.financialPlanning || {}),
+    savingsExpectedBalance: Math.max(0, Number(amount || 0)).toFixed(2),
+    savingsExpectedUpdatedAt: date || isoDate(new Date())
+  };
+}
+
 function savingsHistoryRows() {
   return Array.isArray(state.financialPlanning?.savingsHistory)
     ? state.financialPlanning.savingsHistory
     : [];
 }
 
-function updateSavingsBalance({ amount, date, type, description }) {
-  const current = savingsBalance();
-  const numericAmount = Number(amount || 0);
-  const nextBalance = type === "withdrawal"
-    ? Math.max(0, current - numericAmount)
-    : type === "set"
-      ? Math.max(0, numericAmount)
-      : Math.max(0, current + numericAmount);
+function savingsHistoryId() {
+  return `savings-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
+function recalculateSavingsHistory(rows = savingsHistoryRows()) {
+  const normalized = rows
+    .filter(Boolean)
+    .map((entry, index) => ({
+      ...entry,
+      id: entry.id || savingsHistoryId(),
+      type: ["set", "deposit", "withdrawal"].includes(entry.type) ? entry.type : "deposit",
+      __index: index
+    }));
+  const chronological = [...normalized].sort((left, right) => {
+    const dateCompare = String(left.date || "").localeCompare(String(right.date || ""));
+    return dateCompare || (right.__index - left.__index);
+  });
+  let balance = 0;
+  const recalculated = new Map();
+  chronological.forEach(entry => {
+    const amount = Math.max(0, Number(entry.amount || 0));
+    if (entry.type === "set") {
+      balance = amount;
+    } else if (entry.type === "withdrawal") {
+      balance = Math.max(0, balance - amount);
+    } else {
+      balance = Math.max(0, balance + amount);
+    }
+    recalculated.set(String(entry.id), {
+      ...entry,
+      amount: amount.toFixed(2),
+      balance: balance.toFixed(2)
+    });
+  });
+  return [...recalculated.values()]
+    .sort((left, right) => {
+      const dateCompare = String(right.date || "").localeCompare(String(left.date || ""));
+      return dateCompare || (left.__index - right.__index);
+    })
+    .map(({ __index, ...entry }) => entry)
+    .slice(0, 40);
+}
+
+function applySavingsHistory(rows = savingsHistoryRows()) {
+  const history = recalculateSavingsHistory(rows);
+  const latest = history[0] || null;
   state.financialPlanning = {
     ...(state.financialPlanning || {}),
-    savings: nextBalance.toFixed(2),
-    savingsUpdatedAt: date || isoDate(new Date()),
-    savingsHistory: [
-      {
-        id: `savings-${Date.now()}`,
-        date: date || isoDate(new Date()),
-        type,
-        amount: numericAmount.toFixed(2),
-        balance: nextBalance.toFixed(2),
-        description: description || ""
-      },
-      ...savingsHistoryRows()
-    ].slice(0, 40)
+    savings: latest ? String(latest.balance || "0.00") : "0.00",
+    savingsUpdatedAt: latest?.date || "",
+    savingsHistory: history
   };
-  return nextBalance;
+  return Number(state.financialPlanning.savings || 0);
+}
+
+function updateSavingsBalance({ amount, date, type, description, id }) {
+  const numericAmount = Number(amount || 0);
+  return applySavingsHistory([
+    {
+      id: id || savingsHistoryId(),
+      date: date || isoDate(new Date()),
+      type,
+      amount: numericAmount.toFixed(2),
+      balance: "0.00",
+      description: description || ""
+    },
+    ...savingsHistoryRows()
+  ]);
 }
 
 function partnersHistoryRows() {
@@ -2488,6 +2643,41 @@ function formatMonthKeyBr(key) {
     return key || "";
   }
   return monthYear.format(new Date(year, month - 1, 1));
+}
+
+function formatDateTimeBr(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "Sem data";
+  }
+  return date.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function relativeHoursLabel(value) {
+  const hours = Number(value || 0);
+  const rounded = Math.round(Math.max(0, hours));
+  if (rounded <= 0) {
+    return "há menos de 1 hora";
+  }
+  return rounded === 1 ? "há 1 hora" : `há ${rounded} horas`;
+}
+
+function formatBytesLabel(bytes) {
+  const value = Number(bytes || 0);
+  const formatter = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
+  if (value >= 1024 * 1024) {
+    return `${formatter.format(value / (1024 * 1024))} MB`;
+  }
+  if (value >= 1024) {
+    return `${formatter.format(value / 1024)} KB`;
+  }
+  return `${formatter.format(value)} bytes`;
 }
 
 function reportWeekRangeLabel() {
@@ -2920,9 +3110,9 @@ function home() {
           <strong class="${metrics.accountBalance < 0 ? "negative" : "positive"}">${money(metrics.accountBalance)}</strong>
         </div>
         <div class="metric dashboard-metric">
-          <span>Projetado em 30 dias</span>
+          <span>Projeção 30 dias</span>
           <strong class="${metrics.projectedBalance30 < 0 ? "negative" : "positive"}">${money(metrics.projectedBalance30)}</strong>
-          <small>A pagar ${money(metrics.payable30)} · receber ${money(metrics.receivable30)}</small>
+          <small><span>A pagar ${money(metrics.payable30)}</span><span>receber ${money(metrics.receivable30)}</span></small>
         </div>
         <div class="metric dashboard-metric">
           <span>Pendências prioritárias</span>
@@ -2931,7 +3121,7 @@ function home() {
         <div class="metric dashboard-metric">
           <span>Orçamento do mês</span>
           <strong>${metrics.budget.limit ? `${Math.round((metrics.budget.spent / metrics.budget.limit) * 100)}%` : "Sem limites"}</strong>
-          <small>${money(metrics.budget.spent)} de ${money(metrics.budget.limit)}</small>
+          <small><span>${money(metrics.budget.spent)}</span><span>de ${money(metrics.budget.limit)}</span></small>
         </div>
       </div>
     </section>
@@ -3433,10 +3623,22 @@ async function renderCash() {
   const balanceLabel = "Saldo acumulado da conta";
   const zeroAccountDate = accountBalanceDate;
   const canZeroAccount = Math.abs(displayedCashBalance) >= 0.01;
+  const editingWithdrawalLoan = editingWithdrawal ? withdrawalSavingsLoanEntry(editingWithdrawal) : null;
+  const availableForWithdrawal = displayedCashBalance
+    + Number(editingWithdrawal?.total || 0)
+    - Number(editingWithdrawalLoan?.amount || 0);
   const previewWithdrawal = withdrawalSplitFromRaquel(0);
   const withdrawalFormValues = editingWithdrawal || previewWithdrawal;
+  const previewSavingsLoan = Math.max(0, Number(withdrawalFormValues.total || 0) - availableForWithdrawal);
+  const previewAccountAfterWithdrawal = availableForWithdrawal + previewSavingsLoan - Number(withdrawalFormValues.total || 0);
   const savingsPlanning = state.financialPlanning || {};
   const savingsCurrent = savingsBalance();
+  const savingsExpected = savingsExpectedBalance();
+  const savingsDebt = savingsDebtAmount();
+  const savingsRows = savingsHistoryRows();
+  const editingSavingsEntry = state.editSavingsEntryId
+    ? savingsRows.find(entry => String(entry.id) === String(state.editSavingsEntryId))
+    : null;
   const partnersPeriod = state.cashFilter?.month || today.slice(0, 7);
   const partnersRecord = partnersRecordForPeriod(partnersPeriod);
   const partnersDashboard = partnerDashboard(selectedDate, partnersPeriod);
@@ -3473,7 +3675,7 @@ async function renderCash() {
         <span><b>${money(operationalTotals.income)}</b>Entradas operacionais</span>
         <span><b>${money(operationalTotals.expenses)}</b>Saídas operacionais</span>
         <span><b>${money(displayedCashBalance)}</b>${balanceLabel}</span>
-        <span><b>${money(periodBalance)}</b>Resultado do filtro</span>
+        <span><b>${money(periodBalance)}</b>Saldo do filtro<small>Entradas - saídas do filtro atual</small></span>
       </div>
     </section>
     <section class="account-check-card">
@@ -3571,7 +3773,12 @@ async function renderCash() {
                   <b>${formatIsoDateBr(item.date)} · ${money(item.realBalance)}</b>
                   Ajuste ${money(item.difference)}
                   <small>${escapeHtml(item.authorizedBy || "Sistema")} · ${escapeHtml(item.reason || "Conta conferida")}</small>
-                  ${canUser("editFinancial") ? `<button class="secondary table-action" type="button" data-edit-reconciliation="${escapeHtml(item.id)}">Editar</button>` : ""}
+                  ${canUser("editFinancial") ? `
+                    <div class="table-actions">
+                      <button class="secondary table-action" type="button" data-edit-reconciliation="${escapeHtml(item.id)}">Editar</button>
+                      <button class="danger table-action" type="button" data-delete-reconciliation="${escapeHtml(item.id)}">Excluir</button>
+                    </div>
+                  ` : ""}
                 </span>
               `).join("")}
             </div>
@@ -3581,18 +3788,46 @@ async function renderCash() {
         ${activeCashPanel === "channels" ? channelReceiptsPanel(editingChannelReceipt, selectedChannelMonth) : ""}
         ${activeCashPanel === "savings" ? `
         <div class="cash-tab-section savings-panel">
-        <h2>Cofrinho</h2>
+        <h2>${editingSavingsEntry ? "Editar registro do cofrinho" : "Cofrinho"}</h2>
         <form id="savings-form" class="form-grid single">
+          <input name="savingsEntryId" type="hidden" value="${escapeHtml(editingSavingsEntry?.id || "")}">
           <div class="summary compact-summary">
             <div class="metric"><span>Valor atual</span><strong>${money(savingsCurrent)}</strong></div>
+            <div class="metric"><span>Deveria ter hoje</span><strong>${money(savingsExpected)}</strong></div>
+            <div class="metric"><span>Devemos ao cofrinho</span><strong class="${savingsDebt > 0 ? "negative" : "positive"}">${money(savingsDebt)}</strong></div>
             <div class="metric"><span>Atualizado em</span><strong>${savingsPlanning.savingsUpdatedAt ? formatIsoDateBr(savingsPlanning.savingsUpdatedAt) : "Sem data"}</strong></div>
-            <div class="metric"><span>Últimos registros</span><strong>${savingsHistoryRows().length}</strong></div>
+            <div class="metric"><span>Últimos registros</span><strong>${savingsRows.length}</strong></div>
           </div>
+          ${editingSavingsEntry ? `
+          <label>Data do registro
+            <input name="date" type="date" value="${escapeHtml(editingSavingsEntry.date || today)}" required>
+          </label>
+          <label>Tipo de registro
+            <select name="type">
+              <option value="set" ${editingSavingsEntry.type === "set" ? "selected" : ""}>Saldo informado</option>
+              <option value="deposit" ${editingSavingsEntry.type === "deposit" ? "selected" : ""}>Entrada no cofrinho</option>
+              <option value="withdrawal" ${editingSavingsEntry.type === "withdrawal" ? "selected" : ""}>Retirada do cofrinho</option>
+            </select>
+          </label>
+          <label>Valor
+            <input name="amount" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(editingSavingsEntry.amount)}" required>
+          </label>
+          <label>Observação
+            <input name="description" placeholder="Ex.: tirei para compra, conferência do caixa" value="${escapeHtml(editingSavingsEntry.description || "")}">
+          </label>
+          <div class="actions">
+            <button type="submit">Salvar registro</button>
+            <button class="secondary" type="button" id="cancel-savings-edit">Cancelar</button>
+          </div>
+          ` : `
           <label>Data do registro
             <input name="date" type="date" value="${today}" required>
           </label>
           <label>Valor que tenho no cofrinho hoje
             <input name="balance" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(savingsCurrent)}" required>
+          </label>
+          <label>Valor que deveria ter hoje
+            <input name="expectedBalance" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(savingsExpected)}" required>
           </label>
           <label>Retirada feita do cofrinho
             <input name="withdrawal" type="text" inputmode="decimal" placeholder="0,00">
@@ -3601,15 +3836,22 @@ async function renderCash() {
             <input name="description" placeholder="Ex.: tirei para compra, conferência do caixa">
           </label>
           <button type="submit">Salvar cofrinho</button>
+          `}
         </form>
         <h3>Histórico do cofrinho</h3>
-        ${savingsHistoryRows().length ? `
+        ${savingsRows.length ? `
           <div class="recent-list">
-            ${savingsHistoryRows().slice(0, 8).map(entry => `
+            ${savingsRows.slice(0, 8).map(entry => `
               <span>
                 <b>${entry.type === "withdrawal" ? "-" : entry.type === "deposit" ? "+" : ""}${money(entry.amount)}</b>
                 ${entry.type === "withdrawal" ? "Retirada" : entry.type === "deposit" ? "Entrada" : "Saldo informado"}
                 <small>${formatIsoDateBr(entry.date)} - saldo ${money(entry.balance)}${entry.description ? ` - ${escapeHtml(entry.description)}` : ""}</small>
+                ${canUser("editFinancial") ? `
+                  <span class="today-order-actions">
+                    <button class="secondary table-action" type="button" data-edit-savings-entry="${escapeHtml(entry.id)}">Editar</button>
+                    <button class="danger table-action" type="button" data-delete-savings-entry="${escapeHtml(entry.id)}">Excluir</button>
+                  </span>
+                ` : ""}
               </span>
             `).join("")}
           </div>
@@ -3671,21 +3913,17 @@ async function renderCash() {
             </label>
           </div>
           <div class="withdrawal-preview" aria-live="polite">
-            <span><b>Caixa disponível</b>${money(displayedCashBalance)}</span>
+            <span><b>Caixa disponível</b>${money(availableForWithdrawal)}</span>
             <span><b>Total informado</b>${money(withdrawalFormValues.total)}</span>
+            <span><b>Empréstimo do cofrinho</b>${money(previewSavingsLoan)}</span>
+            <span><b>Saldo da conta depois</b>${money(Math.max(0, previewAccountAfterWithdrawal))}</span>
             <span><b>Cofrinho</b>${money(withdrawalFormValues.savings)}</span>
             <span><b>Vanessa / Raquel</b>${money(withdrawalFormValues.vanessa)} / ${money(withdrawalFormValues.raquel)}</span>
             <span><b>Ajuste Vanessa</b>${partnerDifferenceLabel(withdrawalFormValues.differenceVanessa || 0)}</span>
             <span><b>Ajuste Raquel</b>${partnerDifferenceLabel(withdrawalFormValues.differenceRaquel || 0)}</span>
           </div>
-          ${isAdminUser() ? `
-            <label class="checkbox-row">
-              <input name="adminOverride" type="checkbox" value="yes">
-              Autorizar retirada acima do disponível
-            </label>
-          ` : ""}
           <div class="actions">
-            <button type="submit" ${(displayedCashBalance > 0 || editingWithdrawal) ? "" : "disabled"}>${editingWithdrawal ? "Salvar retirada" : "Registrar retiradas"}</button>
+            <button type="submit" ${(availableForWithdrawal > 0 || savingsCurrent > 0 || editingWithdrawal) ? "" : "disabled"}>${editingWithdrawal ? "Salvar retirada" : "Registrar retiradas"}</button>
             ${editingWithdrawal ? `<button class="secondary" type="button" id="cancel-withdrawal-edit">Cancelar</button>` : ""}
           </div>
         </form>
@@ -3805,6 +4043,9 @@ async function renderCash() {
       if (state.cashPanelTab !== "channels") {
         state.editChannelReceiptId = null;
       }
+      if (state.cashPanelTab !== "savings") {
+        state.editSavingsEntryId = null;
+      }
       if (state.cashPanelTab !== "reconciliation") {
         state.editReconciliationId = null;
       }
@@ -3890,6 +4131,54 @@ async function renderCash() {
         state.editReconciliationId = event.currentTarget.dataset.editReconciliation;
         state.cashPanelTab = "reconciliation";
         renderCash();
+      });
+    });
+
+    document.querySelectorAll("[data-delete-reconciliation]").forEach(button => {
+      button.addEventListener("click", async event => {
+        const reconciliationId = event.currentTarget.dataset.deleteReconciliation;
+        const history = state.financialPlanning?.reconciliationHistory || [];
+        const reconciliation = history.find(item => String(item.id) === String(reconciliationId));
+        if (!reconciliation) {
+          showToast("Conciliação não encontrada.", "warning");
+          return;
+        }
+        if (!canUser("editFinancial")) {
+          showToast("Seu usuário não pode apagar conciliações financeiras.", "error");
+          return;
+        }
+        if (blockClosedPeriod(reconciliation.date, "apagar conciliação")) {
+          return;
+        }
+        if (reconciliation.adjustmentId) {
+          const adjustmentEntry = state.cash.find(entry => String(entry.id) === String(reconciliation.adjustmentId));
+          if (adjustmentEntry?.date && blockClosedPeriod(adjustmentEntry.date, "apagar ajuste de conciliação")) {
+            return;
+          }
+        }
+        const deleteMessage = reconciliation.adjustmentId
+          ? `Apagar a conciliação de ${formatIsoDateBr(reconciliation.date)}? O ajuste de caixa vinculado também será removido.`
+          : `Apagar a conciliação de ${formatIsoDateBr(reconciliation.date)}?`;
+        if (!confirm(deleteMessage)) {
+          return;
+        }
+        state.cash = state.cash.filter(entry => String(entry.id) !== String(reconciliation.adjustmentId || ""));
+        state.financialPlanning = {
+          ...(state.financialPlanning || {}),
+          reconciliationHistory: history.filter(item => String(item.id) !== String(reconciliation.id))
+        };
+        if (String(state.editReconciliationId || "") === String(reconciliation.id)) {
+          state.editReconciliationId = null;
+        }
+        recordAudit("Conciliação apagada", `${formatIsoDateBr(reconciliation.date)} - saldo real ${money(reconciliation.realBalance)} - ajuste ${money(reconciliation.difference)}`, {
+          entityId: reconciliation.adjustmentId || reconciliation.id,
+          reconciliationId: reconciliation.id,
+          adjustmentId: reconciliation.adjustmentId || ""
+        });
+        if (await persistState()) {
+          showToast("Conciliação apagada.", "success");
+          renderCash();
+        }
       });
     });
 
@@ -4026,7 +4315,7 @@ async function renderCash() {
 
   const cashForm = document.querySelector("#cash-form");
   if (cashForm) {
-    cashForm.addEventListener("submit", event => {
+    cashForm.addEventListener("submit", async event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
     const amount = parseMoneyInput(values.amount);
@@ -4050,8 +4339,9 @@ async function renderCash() {
     if (isDuplicate && !confirm("Já existe um lançamento igual. Salvar mesmo assim?")) {
       return;
     }
+    const entryId = editing?.id || Date.now();
     const entry = {
-      id: editing?.id || Date.now(),
+      id: entryId,
       ...values,
       amount: amount.toFixed(2)
     };
@@ -4061,6 +4351,18 @@ async function renderCash() {
       entry.paidAt = editing?.paidAt || `${values.date}T12:00:00.000Z`;
     } else {
       delete entry.paidAt;
+    }
+
+    const previousCoverage = editing ? cashSavingsCoverageEntry(editing.id) : null;
+    let automaticSavingsCoverage = 0;
+    if (cashSavingsCoverageEligible(entry)) {
+      const baseBalance = accountBalanceUntilDate(entry.date, [entry.id, previousCoverage?.id].filter(Boolean));
+      automaticSavingsCoverage = Math.max(0, amount - baseBalance);
+      const availableSavings = savingsBalance() + Number(previousCoverage?.amount || 0);
+      if (automaticSavingsCoverage > availableSavings + 0.009) {
+        showToast(`O saldo da conta não cobre esta saída e faltam ${money(automaticSavingsCoverage - availableSavings)} no cofrinho.`, "error");
+        return;
+      }
     }
 
     if (editing) {
@@ -4075,8 +4377,25 @@ async function renderCash() {
       state.cash.push(entry);
       recordAudit("Caixa criado", `${entry.description || "Lançamento"} - ${money(entry.amount)}`);
     }
-    persistState();
-    renderCash();
+    if (cashSavingsCoverageEligible(entry)) {
+      setCashSavingsCoverage(entry, automaticSavingsCoverage);
+    } else if (editing) {
+      removeCashSavingsCoverage(editing.id);
+    }
+
+    if (automaticSavingsCoverage > 0.009) {
+      recordAudit("Cofrinho usado automaticamente", `${entry.description || "Lançamento"} - cobertura ${money(automaticSavingsCoverage)}`, {
+        entityId: String(entry.id || ""),
+        coverageId: cashSavingsCoverageId(entry.id)
+      });
+    }
+
+    if (await persistState()) {
+      if (automaticSavingsCoverage > 0.009) {
+        showToast(`Saída salva. Cofrinho cobriu ${money(automaticSavingsCoverage)}.`, "success");
+      }
+      renderCash();
+    }
     });
   }
 
@@ -4402,20 +4721,101 @@ async function renderCash() {
 
   const savingsForm = document.querySelector("#savings-form");
   if (savingsForm) {
-    savingsForm.addEventListener("submit", event => {
+    on("#cancel-savings-edit", "click", () => {
+      state.editSavingsEntryId = null;
+      renderCash();
+    });
+
+    document.querySelectorAll("[data-edit-savings-entry]").forEach(button => {
+      button.addEventListener("click", event => {
+        state.editSavingsEntryId = event.currentTarget.dataset.editSavingsEntry;
+        state.cashPanelTab = "savings";
+        renderCash();
+      });
+    });
+
+    document.querySelectorAll("[data-delete-savings-entry]").forEach(button => {
+      button.addEventListener("click", async event => {
+        const savingsEntryId = event.currentTarget.dataset.deleteSavingsEntry;
+        const rows = savingsHistoryRows();
+        const removed = rows.find(entry => String(entry.id) === String(savingsEntryId));
+        if (!removed) {
+          showToast("Registro do cofrinho não encontrado.", "warning");
+          return;
+        }
+        if (!confirm(`Excluir este registro do cofrinho no valor de ${money(removed.amount)}?`)) {
+          return;
+        }
+        if (blockClosedPeriod(removed.date, "excluir registro do cofrinho")) {
+          return;
+        }
+        const nextBalance = applySavingsHistory(rows.filter(entry => String(entry.id) !== String(savingsEntryId)));
+        if (String(state.editSavingsEntryId || "") === String(savingsEntryId)) {
+          state.editSavingsEntryId = null;
+        }
+        recordAudit("Cofrinho excluído", `${formatIsoDateBr(removed.date)} - ${money(removed.amount)} - saldo ${money(nextBalance)}`, {
+          entityId: String(removed.id || ""),
+          before: removed,
+          after: null
+        });
+        if (await persistState()) {
+          showToast("Registro do cofrinho excluído.", "success");
+          renderCash();
+        }
+      });
+    });
+
+    savingsForm.addEventListener("submit", async event => {
       event.preventDefault();
       const values = readForm(event.currentTarget);
+      const savingsEntryId = values.savingsEntryId || "";
+      if (savingsEntryId) {
+        const amount = parseMoneyInput(values.amount);
+        const date = values.date || today;
+        const type = ["set", "deposit", "withdrawal"].includes(values.type) ? values.type : "deposit";
+        if (amount < 0) {
+          showToast("Informe um valor válido para o cofrinho.", "error");
+          return;
+        }
+        const rows = savingsHistoryRows();
+        const original = rows.find(entry => String(entry.id) === String(savingsEntryId));
+        if (!original) {
+          showToast("Registro do cofrinho não encontrado.", "warning");
+          state.editSavingsEntryId = null;
+          renderCash();
+          return;
+        }
+        const nextBalance = applySavingsHistory(rows.map(entry => String(entry.id) === String(savingsEntryId)
+          ? {
+            ...entry,
+            date,
+            type,
+            amount: amount.toFixed(2),
+            description: values.description || ""
+          }
+          : entry));
+        state.editSavingsEntryId = null;
+        recordAudit("Cofrinho editado", `${formatIsoDateBr(date)} - ${type === "withdrawal" ? "retirada" : type === "set" ? "saldo informado" : "entrada"} ${money(amount)} - saldo ${money(nextBalance)}`);
+        if (await persistState()) {
+          showToast("Registro do cofrinho atualizado.", "success");
+          renderCash();
+        }
+        return;
+      }
+
       const balance = parseMoneyInput(values.balance);
+      const expectedBalance = parseMoneyInput(values.expectedBalance);
       const withdrawal = parseMoneyInput(values.withdrawal);
       const date = values.date || today;
 
-      if (balance < 0 || withdrawal < 0) {
+      if (balance < 0 || expectedBalance < 0 || withdrawal < 0) {
         showToast("Informe valores válidos para o cofrinho.", "error");
         return;
       }
 
+      setSavingsExpectedBalance(expectedBalance, date);
       const description = values.description || "Saldo informado no caixa";
-      const nextBalance = updateSavingsBalance({
+      let nextBalance = updateSavingsBalance({
         amount: balance,
         date,
         type: "set",
@@ -4423,25 +4823,18 @@ async function renderCash() {
       });
 
       if (withdrawal > 0) {
-        state.financialPlanning = {
-          ...state.financialPlanning,
-          savingsHistory: [
-            {
-              id: `savings-withdrawal-${Date.now()}`,
-              date,
-              type: "withdrawal",
-              amount: withdrawal.toFixed(2),
-              balance: nextBalance.toFixed(2),
-              description: values.description || "Retirada registrada no cofrinho"
-            },
-            ...savingsHistoryRows()
-          ].slice(0, 40)
-        };
+        nextBalance = updateSavingsBalance({
+          amount: withdrawal,
+          date,
+          type: "withdrawal",
+          description: values.description || "Retirada registrada no cofrinho"
+        });
       }
 
       recordAudit("Cofrinho atualizado", `Saldo ${money(nextBalance)}${withdrawal > 0 ? ` - retirada ${money(withdrawal)}` : ""}`);
-      persistState();
-      renderCash();
+      if (await persistState()) {
+        renderCash();
+      }
     });
   }
 
@@ -4481,11 +4874,15 @@ async function renderCash() {
       withdrawalForm.elements.amount.value = moneyInputValue(expected.total);
       const differenceVanessa = expected.vanessa - split.vanessa;
       const differenceRaquel = expected.raquel - split.raquel;
+      const savingsLoan = Math.max(0, split.total - availableForWithdrawal);
+      const accountAfterWithdrawal = availableForWithdrawal + savingsLoan - split.total;
       const preview = withdrawalForm.querySelector(".withdrawal-preview");
       preview.innerHTML = `
-        <span><b>Caixa disponível</b>${money(displayedCashBalance)}</span>
-        <span><b>Divisão calculada</b>${money(split.distributionBase)}</span>
+        <span><b>Caixa disponível</b>${money(availableForWithdrawal)}</span>
         <span><b>Total informado</b>${money(split.total)}</span>
+        <span><b>Empréstimo do cofrinho</b>${money(savingsLoan)}</span>
+        <span><b>Saldo da conta depois</b>${money(Math.max(0, accountAfterWithdrawal))}</span>
+        <span><b>Divisão calculada</b>${money(split.distributionBase)}</span>
         <span><b>Cofrinho</b>${money(split.savings)}</span>
         <span><b>Vanessa / Raquel</b>${money(split.vanessa)} / ${money(split.raquel)}</span>
         <span><b>Ajuste Vanessa</b>${partnerDifferenceLabel(differenceVanessa)}</span>
@@ -4511,7 +4908,9 @@ async function renderCash() {
     const previousWithdrawal = state.editWithdrawalGroup
       ? withdrawalHistoryGroups(state.cash).find(group => group.key === state.editWithdrawalGroup)
       : null;
-    const available = displayedCashBalance + Number(previousWithdrawal?.total || 0);
+    const previousSavingsLoan = previousWithdrawal ? withdrawalSavingsLoanEntry(previousWithdrawal) : null;
+    const previousSavingsLoanAmount = Number(previousSavingsLoan?.amount || 0);
+    const available = displayedCashBalance + Number(previousWithdrawal?.total || 0) - previousSavingsLoanAmount;
     const expected = withdrawalSplitFromRaquel(values.raquel);
     const split = {
       distributionBase: expected.total,
@@ -4530,12 +4929,12 @@ async function renderCash() {
       return;
     }
 
-    const adminOverride = isAdminUser() && values.adminOverride === "yes";
-    if (split.total > available && !adminOverride) {
-      showToast("A retirada não pode ser maior que o caixa disponível.", "error");
-      return;
-    }
-    if (split.total > available && adminOverride && !confirm(`Autorizar retirada acima do disponível em ${money(split.total - available)}?`)) {
+    const savingsLoan = Math.max(0, split.total - available);
+    const projectedSavingsBalance = savingsBalance()
+      + (split.savings - Number(previousWithdrawal?.savings || 0))
+      - (savingsLoan - previousSavingsLoanAmount);
+    if (projectedSavingsBalance < -0.009) {
+      showToast(`O cofrinho não cobre o excedente de ${money(savingsLoan)}. Atualize o saldo do cofrinho ou reduza a retirada.`, "error");
       return;
     }
 
@@ -4550,7 +4949,19 @@ async function renderCash() {
     const idBase = previousWithdrawal
       ? previousWithdrawal.key.replace(/^withdrawal-/, "")
       : Date.now();
+    const savingsLoanEntry = savingsLoan > 0.009
+      ? {
+        id: `withdrawal-${idBase}-savings-loan`,
+        description: "Empréstimo do cofrinho para retirada",
+        date: values.date,
+        type: "income",
+        category: "ajuste-conta",
+        amount: savingsLoan.toFixed(2),
+        withdrawalGroup: `withdrawal-${idBase}`
+      }
+      : null;
     const withdrawalEntries = [
+      savingsLoanEntry,
       {
         id: `withdrawal-${idBase}-savings`,
         description: "Retirada - cofrinho",
@@ -4581,9 +4992,12 @@ async function renderCash() {
         distributionBase: split.distributionBase.toFixed(2),
         expectedAmount: expected.raquel.toFixed(2)
       }
-    ].filter(entry => Number(entry.amount || 0) > 0);
+    ].filter(entry => entry && Number(entry.amount || 0) > 0);
     if (previousWithdrawal) {
-      const previousIds = new Set(previousWithdrawal.entries.map(entry => String(entry.id)));
+      const previousIds = new Set([
+        ...previousWithdrawal.entries.map(entry => String(entry.id)),
+        previousSavingsLoan?.id
+      ].filter(Boolean).map(String));
       state.cash = state.cash.filter(entry => !previousIds.has(String(entry.id)));
     }
     state.cash.push(...withdrawalEntries);
@@ -4596,7 +5010,18 @@ async function renderCash() {
         description: previousWithdrawal ? "Ajuste da retirada - cofrinho" : "Retirada - cofrinho"
       });
     }
-    const auditDetail = `Calculado ${money(split.distributionBase)} - retirado ${money(split.total)} - cofrinho ${money(split.savings)}, Vanessa ${money(split.vanessa)} (${partnerDifferenceLabel(expected.vanessa - split.vanessa)}), Raquel ${money(split.raquel)} (${partnerDifferenceLabel(expected.raquel - split.raquel)})${adminOverride ? " - autorização administrativa acima do disponível" : ""}`;
+    const savingsLoanDifference = savingsLoan - previousSavingsLoanAmount;
+    if (Math.abs(savingsLoanDifference) > 0.009) {
+      updateSavingsBalance({
+        amount: Math.abs(savingsLoanDifference),
+        date: values.date,
+        type: savingsLoanDifference > 0 ? "withdrawal" : "deposit",
+        description: savingsLoanDifference > 0
+          ? "Empréstimo do cofrinho para cobrir retirada"
+          : "Devolução ao cofrinho por ajuste de retirada"
+      });
+    }
+    const auditDetail = `Calculado ${money(split.distributionBase)} - retirado ${money(split.total)} - cofrinho ${money(split.savings)}, Vanessa ${money(split.vanessa)} (${partnerDifferenceLabel(expected.vanessa - split.vanessa)}), Raquel ${money(split.raquel)} (${partnerDifferenceLabel(expected.raquel - split.raquel)})${savingsLoan > 0 ? ` - empréstimo do cofrinho ${money(savingsLoan)}` : ""}`;
     recordAudit(previousWithdrawal ? "Retirada editada" : "Retirada registrada", auditDetail);
     state.editWithdrawalGroup = null;
     if (await persistState()) {
@@ -4733,9 +5158,13 @@ async function renderCash() {
       if (!confirm(`Estornar ${original.description || "este lançamento"} no valor de ${money(original.amount)}? O original continuará no histórico.`)) {
         return;
       }
+      const coverage = cashSavingsCoverageEntry(original.id);
       const reversalId = `reversal-${Date.now()}`;
+      const coverageReversalId = coverage ? `reversal-${coverage.id}` : "";
       state.cash = state.cash.map(item => String(item.id) === String(id)
         ? { ...item, reversedBy: reversalId, reversedAt: new Date().toISOString() }
+        : coverage && String(item.id) === String(coverage.id)
+          ? { ...item, reversedBy: coverageReversalId, reversedAt: new Date().toISOString() }
         : item);
       state.cash.push({
         id: reversalId,
@@ -4746,10 +5175,30 @@ async function renderCash() {
         amount: Number(original.amount || 0).toFixed(2),
         reversalOf: original.id
       });
+      if (coverage) {
+        state.cash.push({
+          id: coverageReversalId,
+          description: `Estorno - ${coverage.description || "Cobertura do cofrinho"}`,
+          date: reversalDate,
+          type: "expense",
+          category: "ajuste-conta",
+          amount: Number(coverage.amount || 0).toFixed(2),
+          reversalOf: coverage.id,
+          automaticSavingsCoverageReversal: true,
+          savingsCoverageFor: original.id
+        });
+        updateSavingsBalance({
+          id: cashSavingsCoverageReversalHistoryId(original.id),
+          amount: Number(coverage.amount || 0),
+          date: reversalDate,
+          type: "deposit",
+          description: `Devolução ao cofrinho por estorno: ${original.description || "lançamento"}`
+        });
+      }
       recordAudit("Lançamento estornado", `${original.description || "Lançamento"} - ${money(original.amount)}`, {
         entityId: String(original.id || ""),
         before: original,
-        after: { reversalId }
+        after: { reversalId, coverageReversalId }
       });
       if (await persistState()) {
         showToast("Estorno registrado sem apagar o lançamento original.", "success");
@@ -4759,7 +5208,7 @@ async function renderCash() {
   });
 
   document.querySelectorAll("[data-delete-cash]").forEach(button => {
-    button.addEventListener("click", event => {
+    button.addEventListener("click", async event => {
       if (!confirm("Excluir este lançamento?")) {
         return;
       }
@@ -4769,6 +5218,11 @@ async function renderCash() {
       if (blockClosedPeriod(removed?.date, "excluir lançamentos")) {
         return;
       }
+      const coverage = cashSavingsCoverageEntry(id);
+      if (coverage?.date && blockClosedPeriod(coverage.date, "excluir cobertura do cofrinho")) {
+        return;
+      }
+      removeCashSavingsCoverage(id);
       state.cash = state.cash.filter(item => String(item.id) !== String(id));
       if (String(state.editCashId) === String(id)) {
         state.editCashId = null;
@@ -4778,8 +5232,9 @@ async function renderCash() {
         before: removed || null,
         after: null
       });
-      persistState();
-      renderCash();
+      if (await persistState()) {
+        renderCash();
+      }
     });
   });
 
@@ -4847,6 +5302,7 @@ function cashTable(entries) {
         <tbody>
           ${sortedEntries.map(item => {
             const accountAdjustment = isAccountAdjustmentEntry(item);
+            const automaticCoverage = isCashSavingsCoverageEntry(item) || item.automaticSavingsCoverageReversal;
             return `
             <tr class="cash-row ${item.type === "income" ? "income-row" : "expense-row"} ${accountAdjustment ? "account-adjustment-row" : ""}">
               <td>${formatIsoDateBr(item.date)}</td>
@@ -4860,10 +5316,12 @@ function cashTable(entries) {
               <td class="${item.type === "income" ? "positive" : "negative"}">${money(item.amount)}</td>
               <td>
                 <div class="table-actions">
-                  ${isPendingBill(item) ? `<button class="secondary table-action" type="button" data-pay-bill="${item.id || ""}">Marcar pago</button>` : ""}
-                  <button class="secondary table-action" type="button" data-edit-cash="${item.id || ""}">Editar</button>
-                  ${!item.reversedBy && !item.reversalOf ? `<button class="secondary table-action" type="button" data-reverse-cash="${item.id || ""}">Estornar</button>` : ""}
-                  ${isAdminUser() ? `<button class="danger table-action" type="button" data-delete-cash="${item.id || ""}">Excluir</button>` : ""}
+                  ${automaticCoverage ? `<small>Cobertura automÃ¡tica</small>` : `
+                    ${isPendingBill(item) ? `<button class="secondary table-action" type="button" data-pay-bill="${item.id || ""}">Marcar pago</button>` : ""}
+                    <button class="secondary table-action" type="button" data-edit-cash="${item.id || ""}">Editar</button>
+                    ${!item.reversedBy && !item.reversalOf ? `<button class="secondary table-action" type="button" data-reverse-cash="${item.id || ""}">Estornar</button>` : ""}
+                    ${isAdminUser() ? `<button class="danger table-action" type="button" data-delete-cash="${item.id || ""}">Excluir</button>` : ""}
+                  `}
                 </div>
               </td>
             </tr>
@@ -9012,7 +9470,8 @@ function withdrawalProjection(data) {
   const dailyProfit = data.financial.profitBeforeWithdrawals / elapsedDays;
   const projectedProfitBeforeWithdrawals = dailyProfit * totalDays;
   const projectedAvailableForWithdrawal = projectedProfitBeforeWithdrawals - data.financial.withdrawals.total;
-  const currentSplit = withdrawalSplit(Math.max(0, data.financial.availableForWithdrawal));
+  const currentAccountBalance = accountBalanceUntilDate(today);
+  const currentSplit = withdrawalSplit(Math.max(0, currentAccountBalance));
   const projectedSplit = withdrawalSplit(Math.max(0, projectedAvailableForWithdrawal));
 
   return {
@@ -9023,6 +9482,7 @@ function withdrawalProjection(data) {
     dailyProfit,
     projectedProfitBeforeWithdrawals,
     projectedAvailableForWithdrawal,
+    currentAccountBalance,
     currentSplit,
     projectedSplit
   };
@@ -9483,6 +9943,8 @@ function bindFinancialPlanning() {
       savings: parseMoneyInput(values.savings).toFixed(2),
       savingsUpdatedAt: state.financialPlanning?.savingsUpdatedAt || "",
       savingsHistory: savingsHistoryRows(),
+      savingsExpectedBalance: state.financialPlanning?.savingsExpectedBalance || savingsExpectedBalance().toFixed(2),
+      savingsExpectedUpdatedAt: state.financialPlanning?.savingsExpectedUpdatedAt || "",
       partnersHistory: partnersHistoryRows(),
       monthlyGoal: parseMoneyInput(values.monthlyGoal).toFixed(2),
       improvements: textLines(values.improvements),
@@ -9712,25 +10174,77 @@ function financialIntegrityHtml(result) {
     warning: "Atenção necessária",
     danger: "Correção necessária"
   };
+  const statusText = statusLabels[result.status] || "Conferência financeira";
+  const checkedAt = formatDateTimeBr(result.checkedAt);
+  const reopenedCount = (result.closings?.unlockedMonths?.length || 0) + (result.closings?.unlockedWeeks?.length || 0);
+  const backupLabel = result.backup?.updatedAt ? formatDateTimeBr(result.backup.updatedAt) : "Ausente";
   return `
-    <div class="backup-list-state ${result.status === "ok" ? "" : "warning-state"}">
-      <strong>${statusLabels[result.status] || "Conferência financeira"}</strong>
-      <span>Verificado em ${new Date(result.checkedAt).toLocaleString("pt-BR")}.</span>
+    <div class="integrity-status ${result.status || "ok"}">
+      <div>
+        <strong>${statusText}</strong>
+        <span>Verificado em ${checkedAt}</span>
+      </div>
+      <small>${result.status === "ok" ? "Sem pendências críticas" : "Revise os itens marcados abaixo"}</small>
     </div>
-    <div class="summary">
-      <div class="metric"><span>Saldo acumulado</span><strong class="${result.totals?.balance < 0 ? "negative" : "positive"}">${money(result.totals?.balance || 0)}</strong></div>
-      <div class="metric"><span>Ajustes acumulados</span><strong class="${result.totals?.adjustments < 0 ? "negative" : "positive"}">${money(result.totals?.adjustments || 0)}</strong></div>
-      <div class="metric"><span>Último backup</span><strong>${result.backup?.updatedAt ? new Date(result.backup.updatedAt).toLocaleString("pt-BR") : "Ausente"}</strong></div>
-      <div class="metric"><span>Períodos reabertos</span><strong>${(result.closings?.unlockedMonths?.length || 0) + (result.closings?.unlockedWeeks?.length || 0)}</strong></div>
+    <div class="integrity-metrics">
+      <div class="integrity-metric"><span>Saldo acumulado</span><strong class="${result.totals?.balance < 0 ? "negative" : "positive"}">${money(result.totals?.balance || 0)}</strong></div>
+      <div class="integrity-metric"><span>Ajustes acumulados</span><strong class="${result.totals?.adjustments < 0 ? "negative" : "positive"}">${money(result.totals?.adjustments || 0)}</strong></div>
+      <div class="integrity-metric"><span>Último backup</span><strong>${backupLabel}</strong></div>
+      <div class="integrity-metric"><span>Períodos reabertos</span><strong>${reopenedCount}</strong></div>
     </div>
-    <div class="alert-list">
+    <div class="integrity-check-list">
       ${(result.checks || []).map(check => `
-        <span class="${check.level === "danger" ? "negative" : ""}">
-          <b>${escapeHtml(check.label)}</b>${escapeHtml(check.detail)}
-        </span>
+        <article class="integrity-check ${check.level || "ok"}">
+          <span>${check.level === "danger" ? "Corrigir" : check.level === "warning" ? "Revisar" : "OK"}</span>
+          <div>
+            <b>${escapeHtml(check.label)}</b>
+            <small>${escapeHtml(integrityCheckDetail(check, result))}</small>
+          </div>
+        </article>
       `).join("")}
     </div>
   `;
+}
+
+function integrityCheckDetail(check, result) {
+  if (!check) {
+    return "";
+  }
+  if (check.id === "account-balance") {
+    const balance = Number(result.totals?.balance || 0);
+    return balance < 0 ? `Saldo negativo de ${money(Math.abs(balance))}.` : `Saldo ${money(balance)}.`;
+  }
+  if (check.id === "backup") {
+    if (!result.backup?.updatedAt) {
+      return "Nenhum backup encontrado.";
+    }
+    const age = Math.max(0, (Date.now() - new Date(result.backup.updatedAt).getTime()) / 3600000);
+    return `Último backup ${relativeHoursLabel(age)}.`;
+  }
+  if (check.id === "previous-month") {
+    const month = formatMonthKeyBr(result.closings?.previousMonth);
+    return result.closings?.previousMonthClosed ? `${month} está fechado.` : `${month} ainda está aberto.`;
+  }
+  if (check.id === "reopened-periods") {
+    const months = result.closings?.unlockedMonths?.length || 0;
+    const weeks = result.closings?.unlockedWeeks?.length || 0;
+    if (!months && !weeks) {
+      return "Nenhum período reaberto.";
+    }
+    return `${months === 1 ? "1 mês" : `${months} meses`} e ${weeks === 1 ? "1 semana" : `${weeks} semanas`} reabertos.`;
+  }
+  if (check.id === "adjustments") {
+    const adjustments = Number(result.totals?.adjustments || 0);
+    return Math.abs(adjustments) >= 0.01 ? `Saldo dos ajustes ${money(adjustments)}.` : "Sem ajustes acumulados.";
+  }
+  if (check.id === "backup-restorable" && result.restoreValidation?.valid) {
+    return `Backup legível e completo (${formatBytesLabel(result.restoreValidation.bytes)}).`;
+  }
+  if (check.id === "technical-errors") {
+    const count = result.recentTechnicalErrors?.length || 0;
+    return count ? `${count} erro(s) registrado(s). Consulte o log técnico.` : "Nenhum erro técnico recente.";
+  }
+  return check.detail || "";
 }
 
 async function loadFinancialIntegrity(targetId = "financial-integrity-panel") {
@@ -9827,7 +10341,7 @@ async function loadPendingDashboard() {
     return;
   }
   try {
-    const response = await fetch("/api/financial-integrity", { cache: "no-store" });
+    const response = await fetch("/api/financial-integrity?repair=1", { cache: "no-store" });
     const result = await response.json();
     target.innerHTML = pendingDashboardHtml(result);
   } catch (error) {

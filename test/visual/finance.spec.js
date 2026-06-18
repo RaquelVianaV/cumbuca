@@ -170,6 +170,11 @@ test("controlled finance workflow covers installments, reversal, alerts and reco
   page.once("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "Conferir e lançar ajuste", exact: true }).click();
   await expect.poll(() => database.state.cashEntries?.some(entry => entry.reconciliation)).toBe(true);
+  await expect(page.getByRole("button", { name: "Excluir", exact: true })).toBeVisible();
+  page.once("dialog", dialog => dialog.accept());
+  await page.getByRole("button", { name: "Excluir", exact: true }).click();
+  await expect.poll(() => database.state.financialPlanning.reconciliationHistory).toHaveLength(0);
+  expect(database.state.cashEntries?.some(entry => entry.reconciliation)).toBe(false);
   expect(database.state.financialPlanning.accounts).toHaveLength(4);
   const testedAccount = database.state.financialPlanning.accounts.find(account => account.description === "Teste fornecedor");
   expect(testedAccount.payments[0].reversedAt).toBeTruthy();
@@ -179,7 +184,7 @@ test("controlled finance workflow covers installments, reversal, alerts and reco
 test("home dashboard prioritizes projected balance and actions", async ({ page }, testInfo) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Operação e financeiro", exact: true })).toBeVisible();
-  await expect(page.getByText("Projetado em 30 dias", { exact: true })).toBeVisible();
+  await expect(page.getByText("Projeção 30 dias", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Prioridades", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Próximos vencimentos", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Ações principais", exact: true })).toBeVisible();
