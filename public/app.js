@@ -179,9 +179,19 @@ function toggleTheme() {
 
 function updateThemeButtonText() {
   if (themeToggleButton) {
-    const isDark = document.documentElement.classList.contains('dark-mode');
-    themeToggleButton.textContent = isDark ? '☀️' : '🌙';
-    themeToggleButton.title = isDark ? 'Ativar modo claro' : 'Ativar modo escuro';
+    const isDark = document.documentElement.classList.contains("dark-mode");
+    const label = isDark ? "Ativar modo claro" : "Ativar modo escuro";
+    const icon = themeToggleButton.querySelector(".theme-toggle-icon");
+    const text = themeToggleButton.querySelector(".theme-toggle-label");
+    if (icon) {
+      icon.textContent = isDark ? "\u2600\uFE0F" : "\uD83C\uDF19";
+    }
+    if (text) {
+      text.textContent = isDark ? "Escuro" : "Claro";
+    }
+    themeToggleButton.title = label;
+    themeToggleButton.setAttribute("aria-label", label);
+    themeToggleButton.setAttribute("aria-pressed", String(isDark));
   }
 }
 
