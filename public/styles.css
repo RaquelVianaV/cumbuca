@@ -302,7 +302,80 @@ button {
   border: 1px solid rgba(87, 50, 32, 0.08);
   border-radius: 999px;
   background: rgba(245, 246, 242, 0.82);
-  overflow: hidden;
+  overflow: visible;
+}
+
+.status-group[open] {
+  border-radius: 16px;
+}
+
+.system-status-summary {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.73rem;
+  font-weight: 900;
+  white-space: nowrap;
+  cursor: pointer;
+  list-style: none;
+}
+
+.system-status-summary::-webkit-details-marker {
+  display: none;
+}
+
+.system-status-summary::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #9ca3af;
+  box-shadow: 0 0 0 4px rgba(156, 163, 175, 0.12);
+}
+
+.system-status-summary::after {
+  content: "Detalhes";
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 850;
+}
+
+.system-status-summary.online {
+  color: var(--green-dark);
+  background: #ecfdf5;
+  border-color: rgba(8, 127, 91, 0.14);
+}
+
+.system-status-summary.online::before {
+  background: var(--green);
+  box-shadow: 0 0 0 4px rgba(8, 127, 91, 0.1);
+}
+
+.system-status-summary.offline {
+  color: var(--red);
+  background: #fff7ed;
+  border-color: #fed7aa;
+}
+
+.system-status-summary.offline::before {
+  background: var(--red);
+  box-shadow: 0 0 0 4px rgba(194, 65, 12, 0.1);
+}
+
+.status-details {
+  display: none;
+  gap: 6px;
+  padding-top: 5px;
+}
+
+.status-group[open] .status-details {
+  display: flex;
+  flex-wrap: wrap;
 }
 
 .server-status {
@@ -479,6 +552,22 @@ html.dark-mode .nav a.active {
 html.dark-mode .status-group {
   border-color: rgba(245, 243, 240, 0.08);
   background: rgba(15, 14, 12, 0.72);
+}
+
+html.dark-mode .system-status-summary {
+  color: #b9b0a7;
+}
+
+html.dark-mode .system-status-summary.online {
+  color: #a7f3d0;
+  background: rgba(8, 127, 91, 0.18);
+  border-color: rgba(52, 211, 153, 0.18);
+}
+
+html.dark-mode .system-status-summary.offline {
+  color: #fdba74;
+  background: rgba(194, 65, 12, 0.16);
+  border-color: rgba(251, 146, 60, 0.2);
 }
 
 html.dark-mode .current-user,
@@ -5049,6 +5138,21 @@ a.secondary.table-action,
     display: grid;
     grid-template-columns: 1fr;
     padding: 6px;
+  }
+
+  .status-group[open] {
+    border-radius: 8px;
+  }
+
+  .system-status-summary {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .status-details,
+  .status-group[open] .status-details {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .server-status {

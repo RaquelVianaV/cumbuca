@@ -1,6 +1,7 @@
 const app = document.querySelector('#app');
 const title = document.querySelector('#page-title');
 const todayDate = document.querySelector('#today-date');
+const systemStatusSummary = document.querySelector('#system-status-summary');
 const serverStatus = document.querySelector('#server-status');
 const databaseStatus = document.querySelector('#database-status');
 const saveStatus = document.querySelector('#save-status');
@@ -123,6 +124,7 @@ async function updateServerStatus() {
     databaseStatus.textContent = result.database ? "Banco online" : "Banco offline";
     databaseStatus.classList.toggle("online", Boolean(result.database));
     databaseStatus.classList.toggle("offline", !result.database);
+    updateSystemStatusSummary();
   } catch (error) {
     systemStatus.server = false;
     systemStatus.database = false;
@@ -133,7 +135,45 @@ async function updateServerStatus() {
     databaseStatus.textContent = "Banco offline";
     databaseStatus.classList.add("offline");
     databaseStatus.classList.remove("online");
+    updateSystemStatusSummary();
   }
+}
+
+function updateSystemStatusSummary() {
+  if (!systemStatusSummary) {
+    return;
+  }
+
+  const serverOffline = serverStatus?.classList.contains("offline");
+  const serverOnline = serverStatus?.classList.contains("online");
+  const databaseOffline = databaseStatus?.classList.contains("offline");
+  const databaseOnline = databaseStatus?.classList.contains("online");
+  const saveOffline = saveStatus?.classList.contains("offline");
+  const saveOnline = saveStatus?.classList.contains("online");
+
+  let text = "Verificando sistema";
+  let mode = "checking";
+  if (serverOffline) {
+    text = "Servidor offline";
+    mode = "offline";
+  } else if (databaseOffline) {
+    text = "Banco offline";
+    mode = "offline";
+  } else if (saveOffline) {
+    text = "Salvamento bloqueado";
+    mode = "offline";
+  } else if (serverOnline && databaseOnline && saveOnline) {
+    text = "Online e salvando";
+    mode = "online";
+  } else if (serverOnline && databaseOnline) {
+    text = "Online, conferindo salvamento";
+    mode = "checking";
+  }
+
+  systemStatusSummary.textContent = text;
+  systemStatusSummary.classList.toggle("online", mode === "online");
+  systemStatusSummary.classList.toggle("offline", mode === "offline");
+  systemStatusSummary.classList.toggle("checking", mode === "checking");
 }
 
 function setSaveStatus(text, mode = "checking") {
@@ -144,6 +184,7 @@ function setSaveStatus(text, mode = "checking") {
   saveStatus.textContent = text;
   saveStatus.classList.toggle("online", mode === "online");
   saveStatus.classList.toggle("offline", mode === "offline");
+  updateSystemStatusSummary();
 }
 
 function showToast(text, mode = "success") {
