@@ -103,9 +103,18 @@ test('main navigation menu is accessible and complete', async ({ page }) => {
   expect(links.length).toBeGreaterThan(0);
 
   // Check for key sections
-  const hasHome = await page.locator('a:has-text("Home"), a:has-text("Início")').isVisible().catch(() => false);
-  const hasFinance = await page.locator('a:has-text("Financeiro")').isVisible().catch(() => false);
-  const hasCashFlow = await page.locator('a:has-text("Fluxo")').isVisible().catch(() => false);
+  const hasHome = await page
+    .locator('a:has-text("Home"), a:has-text("Início")')
+    .isVisible()
+    .catch(() => false);
+  const hasFinance = await page
+    .locator('a:has-text("Financeiro")')
+    .isVisible()
+    .catch(() => false);
+  const hasCashFlow = await page
+    .locator('a:has-text("Fluxo")')
+    .isVisible()
+    .catch(() => false);
 
   expect(hasHome || hasFinance || hasCashFlow).toBe(true);
 });
@@ -114,7 +123,9 @@ test('reports view displays financial summaries', async ({ page }) => {
   await page.goto('/');
 
   // Navigate to reports if available, otherwise check relatorios
-  const reportsLink = page.locator('a:has-text("Relatório"), a:has-text("Relatorios"), a:has-text("Relatórios")').first();
+  const reportsLink = page
+    .locator('a:has-text("Relatório"), a:has-text("Relatorios"), a:has-text("Relatórios")')
+    .first();
 
   if (await reportsLink.isVisible()) {
     await reportsLink.click();
@@ -133,11 +144,11 @@ test('reports view displays financial summaries', async ({ page }) => {
 test('alerts dashboard shows operational warnings', async ({ page }) => {
   await page.goto('/alertas');
 
-  await expect(page.getByRole('heading', { name: 'Alertas', exact: true })).toBeVisible().catch(
-    async () => {
+  await expect(page.getByRole('heading', { name: 'Alertas', exact: true }))
+    .toBeVisible()
+    .catch(async () => {
       await expect(page.getByRole('heading', { name: 'Avisos', exact: true })).toBeVisible();
-    }
-  );
+    });
 
   // Verify alert structure
   const alertCards = page.locator('.alert-card, [data-alert], [class*="alert"]');
@@ -147,11 +158,11 @@ test('alerts dashboard shows operational warnings', async ({ page }) => {
 
 test('menu tab shows operational configuration and settings', async ({ page }) => {
   await page.goto('/menu-semanal');
-  await expect(page.getByRole('heading', { name: 'Menu', exact: true })).toBeVisible().catch(
-    async () => {
+  await expect(page.getByRole('heading', { name: 'Menu', exact: true }))
+    .toBeVisible()
+    .catch(async () => {
       await expect(page.locator('#page-title')).toHaveText('Menu Semanal');
-    }
-  );
+    });
 
   // Verify settings elements exist
   const inputs = await page.locator('input, select, textarea').count();
@@ -178,7 +189,9 @@ test('cash flow daily reconciliation workflow is accessible', async ({ page }) =
 test('pricing tab displays operational cost tracking', async ({ page }) => {
   await page.goto('/');
 
-  const pricingLink = page.locator('a:has-text("Precificação"), a:has-text("Preços"), button:has-text("Precificação")').first();
+  const pricingLink = page
+    .locator('a:has-text("Precificação"), a:has-text("Preços"), button:has-text("Precificação")')
+    .first();
 
   if (await pricingLink.isVisible()) {
     await pricingLink.click();
@@ -187,9 +200,11 @@ test('pricing tab displays operational cost tracking', async ({ page }) => {
         name: 'Precificação|Produtos|Serviços',
         exact: false,
       })
-    ).toBeVisible().catch(() => {
-      console.log('Pricing section may not exist');
-    });
+    )
+      .toBeVisible()
+      .catch(() => {
+        console.log('Pricing section may not exist');
+      });
   }
 });
 
