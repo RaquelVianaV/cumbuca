@@ -18,6 +18,12 @@ let lastConfirmedPayload = null;
 let offlineAlertOpen = false;
 let suppressIssueLog = false;
 const APP_DATA_RESET_VERSION = "2026-05-29-clean-start";
+const THEME_STORAGE_KEY = "cumbuca-theme";
+const themePreferenceOptions = [
+  ["system", "Sistema"],
+  ["light", "Claro"],
+  ["dark", "Escuro"]
+];
 const defaultAppConfig = {
   storeName: "Cumbuca",
   defaultRoute: "home",
@@ -163,18 +169,37 @@ function showToast(text, mode = "success") {
 }
 
 function toggleTheme() {
+  const isDark = document.documentElement.classList.contains("dark-mode");
+  applyThemePreference(isDark ? "light" : "dark", { persist: true });
+}
+
+function storedThemePreference() {
+  const preference = localStorage.getItem(THEME_STORAGE_KEY);
+  return themePreferenceOptions.some(([value]) => value === preference) ? preference : "system";
+}
+
+function systemPrefersDark() {
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
+function applyThemePreference(preference = storedThemePreference(), options = {}) {
+  const nextPreference = themePreferenceOptions.some(([value]) => value === preference) ? preference : "system";
+  const isDark = nextPreference === "dark" || (nextPreference === "system" && systemPrefersDark());
   const html = document.documentElement;
-  const isDark = html.classList.contains('dark-mode');
-  const newTheme = isDark ? 'light' : 'dark';
-  if (newTheme === 'dark') {
-    html.classList.add('dark-mode');
-    html.setAttribute('data-theme-override', 'dark');
+  html.classList.toggle("dark-mode", isDark);
+  if (nextPreference === "system") {
+    html.removeAttribute("data-theme-override");
   } else {
-    html.classList.remove('dark-mode');
-    html.setAttribute('data-theme-override', 'light');
+    html.setAttribute("data-theme-override", nextPreference);
   }
-  localStorage.setItem('cumbuca-theme', newTheme);
+  if (options.persist) {
+    localStorage.setItem(THEME_STORAGE_KEY, nextPreference);
+  }
   updateThemeButtonText();
+  const themeSelect = document.querySelector("#settings-theme-preference");
+  if (themeSelect) {
+    themeSelect.value = nextPreference;
+  }
 }
 
 function updateThemeButtonText() {
@@ -282,7 +307,16 @@ if (logoutButton) {
 
 if (themeToggleButton) {
   themeToggleButton.addEventListener("click", toggleTheme);
+  applyThemePreference(storedThemePreference());
   updateThemeButtonText();
+}
+
+if (window.matchMedia) {
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if (storedThemePreference() === "system") {
+      applyThemePreference("system");
+    }
+  });
 }
 
 const LOW_MONTHLY_QUANTITY = 5;
@@ -11436,6 +11470,11 @@ function renderSettings() {
             ${configRouteOptions.map(([value, label]) => `<option value="${value}" ${config.defaultRoute === value ? "selected" : ""}>${label}</option>`).join("")}
           </select>
         </label>
+        <label>Tema
+          <select id="settings-theme-preference" name="themePreference">
+            ${themePreferenceOptions.map(([value, label]) => `<option value="${value}" ${storedThemePreference() === value ? "selected" : ""}>${label}</option>`).join("")}
+          </select>
+        </label>
         <label>Reserva (%)
           <input name="splitSavingsPercent" type="number" min="0" max="100" step="1" value="${Number(config.splitSavingsPercent || 0)}">
         </label>
@@ -11450,9 +11489,14 @@ function renderSettings() {
     </section>
   `;
 
+  on("#settings-theme-preference", "change", event => {
+    applyThemePreference(event.currentTarget.value, { persist: true });
+  });
+
   on("#settings-form", "submit", async event => {
     event.preventDefault();
     const form = readForm(event.currentTarget);
+    applyThemePreference(String(form.themePreference || "system"), { persist: true });
     state.appConfig = {
       ...defaultAppConfig,
       storeName: String(form.storeName || "Cumbuca").trim() || "Cumbuca",

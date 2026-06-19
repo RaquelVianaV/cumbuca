@@ -12,18 +12,21 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/logo-cumbuca.svg">
-    <link rel="preload" href="/app.js?v=20260619-02" as="script">
+    <link rel="preload" href="/app.js?v=20260619-03" as="script">
     <link rel="preload" href="/logo-cumbuca.svg" as="image">
-    <link rel="stylesheet" href="/styles.css?v=20260619-02">
+    <link rel="stylesheet" href="/styles.css?v=20260619-03">
     <script>
       (function () {
-        const theme = localStorage.getItem('cumbuca-theme');
+        const storedTheme = localStorage.getItem('cumbuca-theme');
+        const theme = ['light', 'dark', 'system'].includes(storedTheme) ? storedTheme : 'system';
         const isDark =
           theme === 'dark' ||
-          (theme !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
         if (isDark) {
           document.documentElement.classList.add('dark-mode');
-          document.documentElement.setAttribute('data-theme-override', theme === 'dark' ? 'dark' : '');
+        }
+        if (theme !== 'system') {
+          document.documentElement.setAttribute('data-theme-override', theme);
         }
       })();
     </script>
@@ -86,7 +89,7 @@
       </main>
     </div>
 
-    <script src="/app.js?v=20260619-02" defer></script>
+    <script src="/app.js?v=20260619-03" defer></script>
     <script src="/sw-register.js" defer></script>
   </body>
 </html>
