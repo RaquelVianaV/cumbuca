@@ -1,59 +1,60 @@
-const http = require("http");
-const fs = require("fs");
-const path = require("path");
-const crypto = require("crypto");
-const PDFDocument = require("pdfkit");
-const JSZip = require("jszip");
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const PDFDocument = require('pdfkit');
+const JSZip = require('jszip');
 let Pool = null;
 try {
-  ({ Pool } = require("pg"));
+  ({ Pool } = require('pg'));
 } catch (error) {
   Pool = null;
 }
 
 const PORT = process.env.PORT || 3000;
-const PUBLIC_DIR = path.join(__dirname, "public");
-const AUTH_USER = process.env.CUMBUCA_USER || "cumbuca";
-const AUTH_PASSWORD = process.env.CUMBUCA_PASSWORD || "cumbuca2026";
-const AUTH_SECRET = process.env.CUMBUCA_AUTH_SECRET || "cumbuca-local-secret";
-const SESSION_COOKIE = "cumbuca_session";
-const DATABASE_URL = process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL || process.env.DATABASE_URL;
-const ALERT_WEBHOOK_URL = process.env.CUMBUCA_ALERT_WEBHOOK_URL || "";
-const EXTERNAL_BACKUP_URL = process.env.CUMBUCA_EXTERNAL_BACKUP_URL || "";
-const INTEGRATION_TOKEN = process.env.CUMBUCA_INTEGRATION_TOKEN || "";
+const PUBLIC_DIR = path.join(__dirname, 'public');
+const AUTH_USER = process.env.CUMBUCA_USER || 'cumbuca';
+const AUTH_PASSWORD = process.env.CUMBUCA_PASSWORD || 'cumbuca2026';
+const AUTH_SECRET = process.env.CUMBUCA_AUTH_SECRET || 'cumbuca-local-secret';
+const SESSION_COOKIE = 'cumbuca_session';
+const DATABASE_URL =
+  process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL || process.env.DATABASE_URL;
+const ALERT_WEBHOOK_URL = process.env.CUMBUCA_ALERT_WEBHOOK_URL || '';
+const EXTERNAL_BACKUP_URL = process.env.CUMBUCA_EXTERNAL_BACKUP_URL || '';
+const INTEGRATION_TOKEN = process.env.CUMBUCA_INTEGRATION_TOKEN || '';
 const loginAttempts = new Map();
-const permissionKeys = ["editFinancial", "manageClosings", "restoreBackup", "clearData"];
+const permissionKeys = ['editFinancial', 'manageClosings', 'restoreBackup', 'clearData'];
 const stateKeys = [
-  "cashEntries",
-  "weeklyMenusByPeriod",
-  "menuWeek",
-  "menuPeriod",
-  "menuDatesByPeriod",
-  "clients",
-  "orders",
-  "storeSales",
-  "channelReceipts",
-  "cashCategories",
-  "archivedCashCategories",
-  "suppliers",
-  "expenseReasons",
-  "archivedExpenseReasons",
-  "auditLog",
-  "monthlyClosings",
-  "weeklyClosings",
-  "pricingIngredients",
-  "pricingConfig",
-  "cashFilter",
-  "financialPlanning",
-  "appConfig"
+  'cashEntries',
+  'weeklyMenusByPeriod',
+  'menuWeek',
+  'menuPeriod',
+  'menuDatesByPeriod',
+  'clients',
+  'orders',
+  'storeSales',
+  'channelReceipts',
+  'cashCategories',
+  'archivedCashCategories',
+  'suppliers',
+  'expenseReasons',
+  'archivedExpenseReasons',
+  'auditLog',
+  'monthlyClosings',
+  'weeklyClosings',
+  'pricingIngredients',
+  'pricingConfig',
+  'cashFilter',
+  'financialPlanning',
+  'appConfig',
 ];
 
 const financialResetKeys = [
-  "cashEntries",
-  "storeSales",
-  "channelReceipts",
-  "monthlyClosings",
-  "weeklyClosings"
+  'cashEntries',
+  'storeSales',
+  'channelReceipts',
+  'monthlyClosings',
+  'weeklyClosings',
 ];
 
 const defaultState = {
@@ -62,7 +63,7 @@ const defaultState = {
   menuWeek: 1,
   menuPeriod: {
     year: new Date().getFullYear(),
-    month: new Date().getMonth() + 1
+    month: new Date().getMonth() + 1,
   },
   menuDatesByPeriod: {},
   clients: [],
@@ -79,31 +80,31 @@ const defaultState = {
   weeklyClosings: {},
   pricingIngredients: [],
   pricingConfig: {},
-  cashFilter: { period: "all" },
+  cashFilter: { period: 'all' },
   financialPlanning: {
-    savings: "",
-    savingsUpdatedAt: "",
+    savings: '',
+    savingsUpdatedAt: '',
     savingsHistory: [],
     partnersHistory: [],
-    monthlyGoal: "",
+    monthlyGoal: '',
     improvements: [],
     purchases: [],
-    cycleStartDate: "",
-    openingBalance: "",
-    openingSavings: "",
-    cycleNote: "",
+    cycleStartDate: '',
+    openingBalance: '',
+    openingSavings: '',
+    cycleNote: '',
     accounts: [],
     reconciliationHistory: [],
-    monthlyBudgets: {}
+    monthlyBudgets: {},
   },
   appConfig: {
-    storeName: "Cumbuca",
-    defaultRoute: "home",
-    homeDashboardVersion: "2026-06-budget",
+    storeName: 'Cumbuca',
+    defaultRoute: 'home',
+    homeDashboardVersion: '2026-06-budget',
     splitSavingsPercent: 10,
     splitVanessaPercent: 70,
-    splitRaquelPercent: 30
-  }
+    splitRaquelPercent: 30,
+  },
 };
 
 function cloneJson(value) {
@@ -112,31 +113,36 @@ function cloneJson(value) {
 
 function normalizeState(payload = {}) {
   return Object.fromEntries(
-    stateKeys.map(key => [
+    stateKeys.map((key) => [
       key,
-      Object.prototype.hasOwnProperty.call(payload, key) ? payload[key] : cloneJson(defaultState[key])
+      Object.prototype.hasOwnProperty.call(payload, key)
+        ? payload[key]
+        : cloneJson(defaultState[key]),
     ])
   );
 }
 
-function normalizedPermissions(value = {}, role = "operator") {
-  const source = value && typeof value === "object" ? value : {};
-  const defaults = role === "admin"
-    ? Object.fromEntries(permissionKeys.map(key => [key, true]))
-    : {
-      editFinancial: true,
-      manageClosings: false,
-      restoreBackup: false,
-      clearData: false
-    };
-  return Object.fromEntries(permissionKeys.map(key => [
-    key,
-    Object.prototype.hasOwnProperty.call(source, key) ? Boolean(source[key]) : defaults[key]
-  ]));
+function normalizedPermissions(value = {}, role = 'operator') {
+  const source = value && typeof value === 'object' ? value : {};
+  const defaults =
+    role === 'admin'
+      ? Object.fromEntries(permissionKeys.map((key) => [key, true]))
+      : {
+          editFinancial: true,
+          manageClosings: false,
+          restoreBackup: false,
+          clearData: false,
+        };
+  return Object.fromEntries(
+    permissionKeys.map((key) => [
+      key,
+      Object.prototype.hasOwnProperty.call(source, key) ? Boolean(source[key]) : defaults[key],
+    ])
+  );
 }
 
 function userCan(user, permission) {
-  return Boolean(user && (user.role === "admin" || user.permissions?.[permission]));
+  return Boolean(user && (user.role === 'admin' || user.permissions?.[permission]));
 }
 
 function jsonEqual(left, right) {
@@ -144,11 +150,11 @@ function jsonEqual(left, right) {
 }
 
 function monthKeyFromDate(dateKey) {
-  return String(dateKey || "").slice(0, 7);
+  return String(dateKey || '').slice(0, 7);
 }
 
 function weekRangeFromDate(dateKey) {
-  const date = new Date(`${String(dateKey || "").slice(0, 10)}T00:00:00Z`);
+  const date = new Date(`${String(dateKey || '').slice(0, 10)}T00:00:00Z`);
   if (Number.isNaN(date.getTime())) {
     return null;
   }
@@ -159,7 +165,7 @@ function weekRangeFromDate(dateKey) {
   end.setUTCDate(end.getUTCDate() + 6);
   return {
     start: start.toISOString().slice(0, 10),
-    end: end.toISOString().slice(0, 10)
+    end: end.toISOString().slice(0, 10),
   };
 }
 
@@ -168,37 +174,37 @@ function weeklyClosingKey(start, end) {
 }
 
 function lockedClosingForDate(state, dateKey) {
-  const date = String(dateKey || "").slice(0, 10);
+  const date = String(dateKey || '').slice(0, 10);
   if (!date) {
     return null;
   }
   const monthKey = monthKeyFromDate(date);
   const monthClosing = state.monthlyClosings?.[monthKey];
   if (monthClosing && monthClosing.locked !== false) {
-    return { type: "month", key: monthKey, closing: monthClosing };
+    return { type: 'month', key: monthKey, closing: monthClosing };
   }
   const range = weekRangeFromDate(date);
-  const weekKey = range ? weeklyClosingKey(range.start, range.end) : "";
+  const weekKey = range ? weeklyClosingKey(range.start, range.end) : '';
   const weekClosing = weekKey ? state.weeklyClosings?.[weekKey] : null;
   return weekClosing && weekClosing.locked !== false
-    ? { type: "week", key: weekKey, closing: weekClosing }
+    ? { type: 'week', key: weekKey, closing: weekClosing }
     : null;
 }
 
 function recordIdentity(record = {}, index = 0) {
-  return String(record.id || record.orderId || record.saleId || `${record.date || ""}:${index}`);
+  return String(record.id || record.orderId || record.saleId || `${record.date || ''}:${index}`);
 }
 
 function changedRecordDates(previous = [], next = []) {
   const before = new Map(previous.map((record, index) => [recordIdentity(record, index), record]));
   const after = new Map(next.map((record, index) => [recordIdentity(record, index), record]));
   const dates = new Set();
-  new Set([...before.keys(), ...after.keys()]).forEach(key => {
+  new Set([...before.keys(), ...after.keys()]).forEach((key) => {
     const oldRecord = before.get(key);
     const newRecord = after.get(key);
     if (!jsonEqual(oldRecord, newRecord)) {
-      [oldRecord, newRecord].filter(Boolean).forEach(record => {
-        const date = String(record.date || record.paidAt || record.createdAt || "").slice(0, 10);
+      [oldRecord, newRecord].filter(Boolean).forEach((record) => {
+        const date = String(record.date || record.paidAt || record.createdAt || '').slice(0, 10);
         if (date) {
           dates.add(date);
         }
@@ -208,18 +214,28 @@ function changedRecordDates(previous = [], next = []) {
   return [...dates];
 }
 
-function stateWriteViolation(currentState, payload = {}, { allowClosings = false, bypassLocks = false } = {}) {
+function stateWriteViolation(
+  currentState,
+  payload = {},
+  { allowClosings = false, bypassLocks = false } = {}
+) {
   if (!allowClosings) {
-    for (const key of ["monthlyClosings", "weeklyClosings"]) {
-      if (Object.prototype.hasOwnProperty.call(payload, key) && !jsonEqual(payload[key], currentState[key])) {
-        return { statusCode: 403, message: "Fechamentos devem ser alterados pelos controles de fechamento." };
+    for (const key of ['monthlyClosings', 'weeklyClosings']) {
+      if (
+        Object.prototype.hasOwnProperty.call(payload, key) &&
+        !jsonEqual(payload[key], currentState[key])
+      ) {
+        return {
+          statusCode: 403,
+          message: 'Fechamentos devem ser alterados pelos controles de fechamento.',
+        };
       }
     }
   }
   if (bypassLocks) {
     return null;
   }
-  for (const key of ["cashEntries", "storeSales", "channelReceipts", "orders"]) {
+  for (const key of ['cashEntries', 'storeSales', 'channelReceipts', 'orders']) {
     if (!Object.prototype.hasOwnProperty.call(payload, key)) {
       continue;
     }
@@ -227,10 +243,10 @@ function stateWriteViolation(currentState, payload = {}, { allowClosings = false
     for (const date of dates) {
       const locked = lockedClosingForDate(currentState, date);
       if (locked) {
-        const period = locked.type === "month" ? locked.key : locked.key.replace("_", " a ");
+        const period = locked.type === 'month' ? locked.key : locked.key.replace('_', ' a ');
         return {
           statusCode: 409,
-          message: `O período ${period} está fechado. Reabra o período antes de alterar valores.`
+          message: `O período ${period} está fechado. Reabra o período antes de alterar valores.`,
         };
       }
     }
@@ -239,12 +255,15 @@ function stateWriteViolation(currentState, payload = {}, { allowClosings = false
 }
 
 function financialPayloadChanged(currentState, payload = {}) {
-  return ["cashEntries", "storeSales", "channelReceipts", "orders", "financialPlanning"]
-    .some(key => Object.prototype.hasOwnProperty.call(payload, key) && !jsonEqual(payload[key], currentState[key]));
+  return ['cashEntries', 'storeSales', 'channelReceipts', 'orders', 'financialPlanning'].some(
+    (key) =>
+      Object.prototype.hasOwnProperty.call(payload, key) &&
+      !jsonEqual(payload[key], currentState[key])
+  );
 }
 
 function bulkFinancialClearRequested(currentState, payload = {}) {
-  const keys = ["cashEntries", "storeSales", "channelReceipts", "orders"];
+  const keys = ['cashEntries', 'storeSales', 'channelReceipts', 'orders'];
   let populatedCollectionsCleared = 0;
   let recordsBefore = 0;
   let recordsAfter = 0;
@@ -268,12 +287,12 @@ function bulkFinancialClearRequested(currentState, payload = {}) {
 
 function databaseUrl() {
   if (!DATABASE_URL) {
-    return "";
+    return '';
   }
 
   try {
     const url = new URL(DATABASE_URL);
-    ["sslmode", "sslcert", "sslkey", "sslrootcert", "channel_binding"].forEach(param => {
+    ['sslmode', 'sslcert', 'sslkey', 'sslrootcert', 'channel_binding'].forEach((param) => {
       url.searchParams.delete(param);
     });
     return url.toString();
@@ -282,77 +301,101 @@ function databaseUrl() {
   }
 }
 
-const db = DATABASE_URL && Pool
-  ? new Pool({
-    connectionString: databaseUrl(),
-    ssl: process.env.PGSSLMODE === "disable" ? false : { rejectUnauthorized: false }
-  })
-  : null;
+const db =
+  DATABASE_URL && Pool
+    ? new Pool({
+        connectionString: databaseUrl(),
+        ssl: process.env.PGSSLMODE === 'disable' ? false : { rejectUnauthorized: false },
+      })
+    : null;
 
 const mimeTypes = {
-  ".html": "text/html; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".svg": "image/svg+xml; charset=utf-8",
-  ".ico": "image/x-icon"
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml; charset=utf-8',
+  '.ico': 'image/x-icon',
 };
 
 const tools = [
   {
-    id: "fluxo-de-caixa",
-    title: "Fluxo de Caixa",
-    description: "Registre entradas e saídas, veja saldo previsto e acompanhe o mês."
+    id: 'fluxo-de-caixa',
+    title: 'Fluxo de Caixa',
+    description: 'Registre entradas e saídas, veja saldo previsto e acompanhe o mês.',
   },
   {
-    id: "menu-semanal",
-    title: "Menu Semanal",
-    description: "Planeje refeições da semana com custos, status e observações."
+    id: 'menu-semanal',
+    title: 'Menu Semanal',
+    description: 'Planeje refeições da semana com custos, status e observações.',
   },
   {
-    id: "precificacao",
-    title: "Precificação",
-    description: "Calcule preço de venda a partir de custo, perdas, taxas e margem."
+    id: 'precificacao',
+    title: 'Precificação',
+    description: 'Calcule preço de venda a partir de custo, perdas, taxas e margem.',
   },
   {
-    id: "relatorios",
-    title: "Relatórios",
-    description: "Consolide vendas, caixa, clientes e cardápio por período."
-  }
+    id: 'relatorios',
+    title: 'Relatórios',
+    description: 'Consolide vendas, caixa, clientes e cardápio por período.',
+  },
 ];
+
+const securityHeaders = {
+  'Content-Security-Policy':
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; block-all-mixed-content",
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Permissions-Policy': 'geolocation=(), microphone=(), camera=(), payment=()',
+  'Cross-Origin-Resource-Policy': 'same-origin',
+  'X-XSS-Protection': '0',
+  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
+};
+
+function mergeHeaders(headers = {}) {
+  return { ...securityHeaders, ...headers };
+}
 
 function sendJson(res, statusCode, payload, extraHeaders = {}) {
   const body = JSON.stringify(payload);
-  res.writeHead(statusCode, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Content-Length": Buffer.byteLength(body),
-    ...extraHeaders
-  });
+  res.writeHead(
+    statusCode,
+    mergeHeaders({
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Length': Buffer.byteLength(body),
+      ...extraHeaders,
+    })
+  );
   res.end(body);
 }
 
 function redirect(res, location) {
-  res.writeHead(302, { Location: location });
+  res.writeHead(302, mergeHeaders({ Location: location }));
   res.end();
 }
 
 function parseCookies(req) {
-  return String(req.headers.cookie || "")
-    .split(";")
-    .map(cookie => cookie.trim())
+  return String(req.headers.cookie || '')
+    .split(';')
+    .map((cookie) => cookie.trim())
     .filter(Boolean)
     .reduce((cookies, cookie) => {
-      const index = cookie.indexOf("=");
+      const index = cookie.indexOf('=');
       if (index === -1) {
         return cookies;
       }
-      cookies[decodeURIComponent(cookie.slice(0, index))] = decodeURIComponent(cookie.slice(index + 1));
+      cookies[decodeURIComponent(cookie.slice(0, index))] = decodeURIComponent(
+        cookie.slice(index + 1)
+      );
       return cookies;
     }, {});
 }
 
 function envAuthUsers() {
-  const fallback = [{ username: AUTH_USER, password: AUTH_PASSWORD, name: AUTH_USER, role: "admin" }];
+  const fallback = [
+    { username: AUTH_USER, password: AUTH_PASSWORD, name: AUTH_USER, role: 'admin' },
+  ];
   if (!process.env.CUMBUCA_USERS) {
     return fallback;
   }
@@ -363,13 +406,16 @@ function envAuthUsers() {
       return fallback;
     }
     const users = parsed
-      .filter(user => user?.username && user?.password)
-      .map(user => ({
+      .filter((user) => user?.username && user?.password)
+      .map((user) => ({
         username: String(user.username),
         password: String(user.password),
         name: String(user.name || user.username),
-        role: user.role === "admin" ? "admin" : "operator",
-        permissions: normalizedPermissions(user.permissions, user.role === "admin" ? "admin" : "operator")
+        role: user.role === 'admin' ? 'admin' : 'operator',
+        permissions: normalizedPermissions(
+          user.permissions,
+          user.role === 'admin' ? 'admin' : 'operator'
+        ),
       }));
     return users.length ? users : fallback;
   } catch (error) {
@@ -379,9 +425,9 @@ function envAuthUsers() {
 
 function userSessionToken(user) {
   return crypto
-    .createHmac("sha256", AUTH_SECRET)
-    .update(`${user.username}:${user.sessionSecret || user.password || ""}`)
-    .digest("hex");
+    .createHmac('sha256', AUTH_SECRET)
+    .update(`${user.username}:${user.sessionSecret || user.password || ''}`)
+    .digest('hex');
 }
 
 function sessionToken() {
@@ -389,18 +435,20 @@ function sessionToken() {
 }
 
 function passwordHash(password) {
-  const salt = crypto.randomBytes(16).toString("hex");
-  const hash = crypto.pbkdf2Sync(String(password || ""), salt, 120000, 32, "sha256").toString("hex");
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto
+    .pbkdf2Sync(String(password || ''), salt, 120000, 32, 'sha256')
+    .toString('hex');
   return `pbkdf2$${salt}$${hash}`;
 }
 
 function verifyPassword(password, storedHash) {
-  const [scheme, salt, hash] = String(storedHash || "").split("$");
-  if (scheme !== "pbkdf2" || !salt || !hash) {
+  const [scheme, salt, hash] = String(storedHash || '').split('$');
+  if (scheme !== 'pbkdf2' || !salt || !hash) {
     return false;
   }
-  const candidate = crypto.pbkdf2Sync(String(password || ""), salt, 120000, 32, "sha256");
-  const expected = Buffer.from(hash, "hex");
+  const candidate = crypto.pbkdf2Sync(String(password || ''), salt, 120000, 32, 'sha256');
+  const expected = Buffer.from(hash, 'hex');
   return expected.length === candidate.length && crypto.timingSafeEqual(expected, candidate);
 }
 
@@ -426,7 +474,9 @@ async function ensureUserTable() {
     add column if not exists permissions jsonb not null default '{}'::jsonb
   `);
 
-  const count = Number((await db.query("select count(*)::int as count from cumbuca_app_users")).rows[0]?.count || 0);
+  const count = Number(
+    (await db.query('select count(*)::int as count from cumbuca_app_users')).rows[0]?.count || 0
+  );
   if (count === 0) {
     for (const user of envAuthUsers()) {
       await db.query(
@@ -436,9 +486,9 @@ async function ensureUserTable() {
         [
           user.username,
           user.name || user.username,
-          user.role === "admin" ? "admin" : "operator",
+          user.role === 'admin' ? 'admin' : 'operator',
           JSON.stringify(normalizedPermissions(user.permissions, user.role)),
-          passwordHash(user.password)
+          passwordHash(user.password),
         ]
       );
     }
@@ -450,18 +500,18 @@ function publicUser(row) {
   return {
     username: row.username,
     name: row.name,
-    role: row.role === "admin" ? "admin" : "operator",
+    role: row.role === 'admin' ? 'admin' : 'operator',
     permissions: normalizedPermissions(row.permissions, row.role),
     active: row.active !== false,
     createdAt: row.created_at || null,
-    updatedAt: row.updated_at || null
+    updatedAt: row.updated_at || null,
   };
 }
 
 async function findAuthUser(username, password) {
   if (await ensureUserTable()) {
     const result = await db.query(
-      "select username, name, role, permissions, password_hash, active from cumbuca_app_users where username = $1 and active = true",
+      'select username, name, role, permissions, password_hash, active from cumbuca_app_users where username = $1 and active = true',
       [username]
     );
     const row = result.rows[0];
@@ -469,62 +519,75 @@ async function findAuthUser(username, password) {
       return {
         username: row.username,
         name: row.name,
-        role: row.role === "admin" ? "admin" : "operator",
+        role: row.role === 'admin' ? 'admin' : 'operator',
         permissions: normalizedPermissions(row.permissions, row.role),
-        sessionSecret: row.password_hash
+        sessionSecret: row.password_hash,
       };
     }
     return null;
   }
 
-  const envUser = envAuthUsers().find(user => user.username === username && user.password === password) || null;
+  const envUser =
+    envAuthUsers().find((user) => user.username === username && user.password === password) || null;
   return envUser ? { ...envUser, sessionSecret: envUser.password } : null;
 }
 
 async function currentUser(req) {
-  const cookieValue = parseCookies(req)[SESSION_COOKIE] || "";
-  const [username, token] = cookieValue.split(".");
-  if (username && token && await ensureUserTable()) {
+  const cookieValue = parseCookies(req)[SESSION_COOKIE] || '';
+  const [username, token] = cookieValue.split('.');
+  if (username && token && (await ensureUserTable())) {
     const result = await db.query(
-      "select username, name, role, permissions, password_hash, active from cumbuca_app_users where username = $1 and active = true",
+      'select username, name, role, permissions, password_hash, active from cumbuca_app_users where username = $1 and active = true',
       [username]
     );
     const row = result.rows[0];
-    if (row && token === userSessionToken({ username: row.username, sessionSecret: row.password_hash })) {
+    if (
+      row &&
+      token === userSessionToken({ username: row.username, sessionSecret: row.password_hash })
+    ) {
       return {
         username: row.username,
         name: row.name,
-        role: row.role === "admin" ? "admin" : "operator",
-        permissions: normalizedPermissions(row.permissions, row.role)
+        role: row.role === 'admin' ? 'admin' : 'operator',
+        permissions: normalizedPermissions(row.permissions, row.role),
       };
     }
   }
 
-  const user = envAuthUsers().find(item => item.username === username);
+  const user = envAuthUsers().find((item) => item.username === username);
   if (user && token === userSessionToken({ ...user, sessionSecret: user.password })) {
     return {
       username: user.username,
       name: user.name,
-      role: user.role || "operator",
-      permissions: normalizedPermissions(user.permissions, user.role)
+      role: user.role || 'operator',
+      permissions: normalizedPermissions(user.permissions, user.role),
     };
   }
 
   if (cookieValue === sessionToken()) {
-    return { username: AUTH_USER, name: AUTH_USER, role: "admin", permissions: normalizedPermissions({}, "admin") };
+    return {
+      username: AUTH_USER,
+      name: AUTH_USER,
+      role: 'admin',
+      permissions: normalizedPermissions({}, 'admin'),
+    };
   }
 
   return null;
 }
 
 function sessionCookie(value, maxAge) {
-  const secure = process.env.VERCEL ? "; Secure" : "";
-  return `${SESSION_COOKIE}=${encodeURIComponent(value)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${secure}`;
+  const secure = process.env.VERCEL ? '; Secure' : '';
+  return `${SESSION_COOKIE}=${encodeURIComponent(
+    value
+  )}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${secure}`;
 }
 
 function loginAttemptKey(req, username) {
-  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
-  return `${forwarded || req.socket.remoteAddress || "local"}:${username || ""}`;
+  const forwarded = String(req.headers['x-forwarded-for'] || '')
+    .split(',')[0]
+    .trim();
+  return `${forwarded || req.socket.remoteAddress || 'local'}:${username || ''}`;
 }
 
 function loginBlocked(req, username) {
@@ -542,7 +605,7 @@ function registerLoginFailure(req, username) {
   const count = current.count + 1;
   loginAttempts.set(key, {
     count,
-    blockedUntil: count >= 5 ? Date.now() + 10 * 60 * 1000 : 0
+    blockedUntil: count >= 5 ? Date.now() + 10 * 60 * 1000 : 0,
   });
 }
 
@@ -552,15 +615,15 @@ function clearLoginFailures(req, username) {
 
 function collectBody(req) {
   return new Promise((resolve, reject) => {
-    let body = "";
-    req.on("data", chunk => {
+    let body = '';
+    req.on('data', (chunk) => {
       body += chunk;
       if (body.length > 1_000_000) {
         req.destroy();
-        reject(new Error("Payload muito grande."));
+        reject(new Error('Payload muito grande.'));
       }
     });
-    req.on("end", () => {
+    req.on('end', () => {
       if (!body) {
         resolve({});
         return;
@@ -656,15 +719,19 @@ async function ensureEventTable() {
   return true;
 }
 
-async function writeEvent(eventType, detail = "", user = null) {
-  if (!await ensureEventTable()) {
+async function writeEvent(eventType, detail = '', user = null) {
+  if (!(await ensureEventTable())) {
     return false;
   }
 
   await db.query(
     `insert into cumbuca_app_events (event_type, detail, username, created_at)
      values ($1, $2, $3, now())`,
-    [String(eventType || "evento"), String(detail || ""), String(user?.username || user?.name || "sistema")]
+    [
+      String(eventType || 'evento'),
+      String(detail || ''),
+      String(user?.username || user?.name || 'sistema'),
+    ]
   );
   return true;
 }
@@ -673,15 +740,15 @@ async function postIntegration(url, payload) {
   if (!url) {
     return { configured: false, sent: false };
   }
-  const headers = { "Content-Type": "application/json" };
+  const headers = { 'Content-Type': 'application/json' };
   if (INTEGRATION_TOKEN) {
     headers.Authorization = `Bearer ${INTEGRATION_TOKEN}`;
   }
   const response = await fetch(url, {
-    method: "POST",
+    method: 'POST',
     headers,
     body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(10000)
+    signal: AbortSignal.timeout(10000),
   });
   if (!response.ok) {
     throw new Error(`Integração respondeu HTTP ${response.status}.`);
@@ -692,24 +759,28 @@ async function postIntegration(url, payload) {
 async function sendExternalAlert(payload, user = null) {
   try {
     const result = await postIntegration(ALERT_WEBHOOK_URL, {
-      app: "Cumbuca",
-      type: "alert",
+      app: 'Cumbuca',
+      type: 'alert',
       sentAt: new Date().toISOString(),
-      ...payload
+      ...payload,
     });
     if (result.sent) {
       try {
-        await writeEvent("alerta_externo_enviado", String(payload.message || payload.title || "Alerta enviado."), user);
+        await writeEvent(
+          'alerta_externo_enviado',
+          String(payload.message || payload.title || 'Alerta enviado.'),
+          user
+        );
       } catch (eventError) {
-        console.error("Falha ao registrar envio de alerta externo.", eventError);
+        console.error('Falha ao registrar envio de alerta externo.', eventError);
       }
     }
     return result;
   } catch (error) {
     try {
-      await writeEvent("alerta_externo_falhou", error.message, user);
+      await writeEvent('alerta_externo_falhou', error.message, user);
     } catch (eventError) {
-      console.error("Falha ao registrar erro do alerta externo.", eventError);
+      console.error('Falha ao registrar erro do alerta externo.', eventError);
     }
     return { configured: true, sent: false, error: error.message };
   }
@@ -718,25 +789,29 @@ async function sendExternalAlert(payload, user = null) {
 async function sendExternalBackup(backupPayload, backupId, user = null) {
   try {
     const result = await postIntegration(EXTERNAL_BACKUP_URL, {
-      app: "Cumbuca",
-      type: "backup",
+      app: 'Cumbuca',
+      type: 'backup',
       backupId,
       sentAt: new Date().toISOString(),
-      backup: backupPayload
+      backup: backupPayload,
     });
     if (result.sent) {
       try {
-        await writeEvent("backup_externo_enviado", `Backup ${backupId} enviado para cópia externa.`, user);
+        await writeEvent(
+          'backup_externo_enviado',
+          `Backup ${backupId} enviado para cópia externa.`,
+          user
+        );
       } catch (eventError) {
-        console.error("Falha ao registrar envio do backup externo.", eventError);
+        console.error('Falha ao registrar envio do backup externo.', eventError);
       }
     }
     return result;
   } catch (error) {
     try {
-      await writeEvent("backup_externo_falhou", `Backup ${backupId}: ${error.message}`, user);
+      await writeEvent('backup_externo_falhou', `Backup ${backupId}: ${error.message}`, user);
     } catch (eventError) {
-      console.error("Falha ao registrar erro do backup externo.", eventError);
+      console.error('Falha ao registrar erro do backup externo.', eventError);
     }
     return { configured: true, sent: false, error: error.message };
   }
@@ -746,12 +821,12 @@ function integrationStatus() {
   return {
     alerts: { configured: Boolean(ALERT_WEBHOOK_URL) },
     externalBackup: { configured: Boolean(EXTERNAL_BACKUP_URL) },
-    tokenConfigured: Boolean(INTEGRATION_TOKEN)
+    tokenConfigured: Boolean(INTEGRATION_TOKEN),
   };
 }
 
 async function maybeSendIntegrityAlert(result) {
-  if (!ALERT_WEBHOOK_URL || result.status !== "danger" || !db) {
+  if (!ALERT_WEBHOOK_URL || result.status !== 'danger' || !db) {
     return { configured: Boolean(ALERT_WEBHOOK_URL), sent: false };
   }
   const recent = await db.query(`
@@ -765,18 +840,18 @@ async function maybeSendIntegrityAlert(result) {
     return { configured: true, sent: false, cooldown: true };
   }
   const problems = (result.checks || [])
-    .filter(check => check.level === "danger")
-    .map(check => `${check.label}: ${check.detail}`);
+    .filter((check) => check.level === 'danger')
+    .map((check) => `${check.label}: ${check.detail}`);
   return sendExternalAlert({
-    title: "Cumbuca requer atenção",
-    message: problems.join(" | "),
-    severity: "danger",
-    checks: result.checks
+    title: 'Cumbuca requer atenção',
+    message: problems.join(' | '),
+    severity: 'danger',
+    checks: result.checks,
   });
 }
 
 async function listEvents(limit = 40) {
-  if (!await ensureEventTable()) {
+  if (!(await ensureEventTable())) {
     return { database: false, events: [] };
   }
 
@@ -792,16 +867,16 @@ async function listEvents(limit = 40) {
 }
 
 async function listUsers() {
-  if (!await ensureUserTable()) {
+  if (!(await ensureUserTable())) {
     return {
       database: false,
-      users: envAuthUsers().map(user => ({
+      users: envAuthUsers().map((user) => ({
         username: user.username,
         name: user.name,
         role: user.role,
         active: true,
-        source: "env"
-      }))
+        source: 'env',
+      })),
     };
   }
 
@@ -814,25 +889,38 @@ async function listUsers() {
 }
 
 async function upsertUser(payload = {}, actor = null) {
-  if (!await ensureUserTable()) {
-    return { database: false, saved: false, error: "Banco indisponível." };
+  if (!(await ensureUserTable())) {
+    return { database: false, saved: false, error: 'Banco indisponível.' };
   }
 
-  const username = String(payload.username || "").trim().toLowerCase();
+  const username = String(payload.username || '')
+    .trim()
+    .toLowerCase();
   const name = String(payload.name || username).trim();
-  const role = payload.role === "admin" ? "admin" : "operator";
+  const role = payload.role === 'admin' ? 'admin' : 'operator';
   const permissions = normalizedPermissions(payload.permissions, role);
-  const password = String(payload.password || "");
+  const password = String(payload.password || '');
   if (!/^[a-z0-9._-]{3,40}$/.test(username)) {
-    return { database: true, saved: false, error: "Usuário deve ter 3 a 40 caracteres, usando letras, números, ponto, hífen ou underline." };
+    return {
+      database: true,
+      saved: false,
+      error:
+        'Usuário deve ter 3 a 40 caracteres, usando letras, números, ponto, hífen ou underline.',
+    };
   }
   if (!name) {
-    return { database: true, saved: false, error: "Informe o nome." };
+    return { database: true, saved: false, error: 'Informe o nome.' };
   }
 
-  const existing = await db.query("select username from cumbuca_app_users where username = $1", [username]);
+  const existing = await db.query('select username from cumbuca_app_users where username = $1', [
+    username,
+  ]);
   if (!existing.rows.length && password.length < 4) {
-    return { database: true, saved: false, error: "Informe uma senha com pelo menos 4 caracteres." };
+    return {
+      database: true,
+      saved: false,
+      error: 'Informe uma senha com pelo menos 4 caracteres.',
+    };
   }
 
   if (existing.rows.length) {
@@ -843,7 +931,11 @@ async function upsertUser(payload = {}, actor = null) {
          where username = $1`,
         [username, name, role, JSON.stringify(permissions), passwordHash(password)]
       );
-      await writeEvent("usuario_atualizado", `Usuário ${username} atualizado com nova senha.`, actor);
+      await writeEvent(
+        'usuario_atualizado',
+        `Usuário ${username} atualizado com nova senha.`,
+        actor
+      );
     } else {
       await db.query(
         `update cumbuca_app_users
@@ -851,7 +943,7 @@ async function upsertUser(payload = {}, actor = null) {
          where username = $1`,
         [username, name, role, JSON.stringify(permissions)]
       );
-      await writeEvent("usuario_atualizado", `Usuário ${username} atualizado.`, actor);
+      await writeEvent('usuario_atualizado', `Usuário ${username} atualizado.`, actor);
     }
   } else {
     await db.query(
@@ -859,101 +951,117 @@ async function upsertUser(payload = {}, actor = null) {
        values ($1, $2, $3, $4::jsonb, $5, true, now(), now())`,
       [username, name, role, JSON.stringify(permissions), passwordHash(password)]
     );
-    await writeEvent("usuario_criado", `Usuário ${username} criado.`, actor);
+    await writeEvent('usuario_criado', `Usuário ${username} criado.`, actor);
   }
 
   return { database: true, saved: true, user: { username, name, role, permissions, active: true } };
 }
 
 async function setUserActive(username, active, actor = null) {
-  if (!await ensureUserTable()) {
-    return { database: false, saved: false, error: "Banco indisponível." };
+  if (!(await ensureUserTable())) {
+    return { database: false, saved: false, error: 'Banco indisponível.' };
   }
 
-  const normalized = String(username || "").trim().toLowerCase();
+  const normalized = String(username || '')
+    .trim()
+    .toLowerCase();
   if (actor?.username === normalized && active === false) {
-    return { database: true, saved: false, error: "Você não pode desativar seu próprio usuário." };
+    return { database: true, saved: false, error: 'Você não pode desativar seu próprio usuário.' };
   }
 
   const result = await db.query(
-    "update cumbuca_app_users set active = $2, updated_at = now() where username = $1",
+    'update cumbuca_app_users set active = $2, updated_at = now() where username = $1',
     [normalized, Boolean(active)]
   );
   if (!result.rowCount) {
-    return { database: true, saved: false, error: "Usuário não encontrado." };
+    return { database: true, saved: false, error: 'Usuário não encontrado.' };
   }
-  await writeEvent(active ? "usuario_reativado" : "usuario_desativado", `Usuário ${normalized}.`, actor);
+  await writeEvent(
+    active ? 'usuario_reativado' : 'usuario_desativado',
+    `Usuário ${normalized}.`,
+    actor
+  );
   return { database: true, saved: true };
 }
 
 async function changeOwnPassword(user, payload = {}) {
   if (!user?.username) {
-    return { database: false, saved: false, error: "Sessão inválida." };
+    return { database: false, saved: false, error: 'Sessão inválida.' };
   }
-  if (!await ensureUserTable()) {
-    return { database: false, saved: false, error: "Banco indisponivel." };
+  if (!(await ensureUserTable())) {
+    return { database: false, saved: false, error: 'Banco indisponivel.' };
   }
 
-  const currentPassword = String(payload.currentPassword || "");
-  const newPassword = String(payload.newPassword || "");
+  const currentPassword = String(payload.currentPassword || '');
+  const newPassword = String(payload.newPassword || '');
   if (newPassword.length < 4) {
-    return { database: true, saved: false, error: "A nova senha precisa ter pelo menos 4 caracteres." };
+    return {
+      database: true,
+      saved: false,
+      error: 'A nova senha precisa ter pelo menos 4 caracteres.',
+    };
   }
 
   const result = await db.query(
-    "select username, password_hash from cumbuca_app_users where username = $1 and active = true",
+    'select username, password_hash from cumbuca_app_users where username = $1 and active = true',
     [user.username]
   );
   const row = result.rows[0];
   if (!row || !verifyPassword(currentPassword, row.password_hash)) {
-    return { database: true, saved: false, error: "Senha atual incorreta." };
+    return { database: true, saved: false, error: 'Senha atual incorreta.' };
   }
 
   const nextHash = passwordHash(newPassword);
   await db.query(
-    "update cumbuca_app_users set password_hash = $2, updated_at = now() where username = $1",
+    'update cumbuca_app_users set password_hash = $2, updated_at = now() where username = $1',
     [user.username, nextHash]
   );
-  await writeEvent("senha_alterada", `Usuário ${user.username} alterou a própria senha.`, user);
+  await writeEvent('senha_alterada', `Usuário ${user.username} alterou a própria senha.`, user);
   return {
     database: true,
     saved: true,
-    session: `${user.username}.${userSessionToken({ username: user.username, sessionSecret: nextHash })}`
+    session: `${user.username}.${userSessionToken({
+      username: user.username,
+      sessionSecret: nextHash,
+    })}`,
   };
 }
 
-function backupVersionId(source = "automatic", date = new Date()) {
+function backupVersionId(source = 'automatic', date = new Date()) {
   const timestamp = date.toISOString();
-  const normalizedSource = String(source || "automatic")
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "automatic";
-  if (normalizedSource === "automatic") {
+  const normalizedSource =
+    String(source || 'automatic')
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'automatic';
+  if (normalizedSource === 'automatic') {
     return `${timestamp.slice(0, 13)}:00:00.000Z-automatic`;
   }
-  return `${timestamp.replace(/[-:.TZ]/g, "")}-${normalizedSource}-${crypto.randomBytes(4).toString("hex")}`;
+  return `${timestamp.replace(/[-:.TZ]/g, '')}-${normalizedSource}-${crypto
+    .randomBytes(4)
+    .toString('hex')}`;
 }
 
 function legacyBackupDate(backupReference) {
-  const reference = String(backupReference || "");
-  const date = reference.startsWith("legacy-") ? reference.slice(7) : reference;
-  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : "";
+  const reference = String(backupReference || '');
+  const date = reference.startsWith('legacy-') ? reference.slice(7) : reference;
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '';
 }
 
-async function writeAutomaticBackup(payload = {}, { source = "automatic", protect = false } = {}) {
-  if (!await ensureBackupTable()) {
+async function writeAutomaticBackup(payload = {}, { source = 'automatic', protect = false } = {}) {
+  if (!(await ensureBackupTable())) {
     return { database: false, saved: false };
   }
 
-  const backupSource = protect ? "pre-reset" : source;
+  const backupSource = protect ? 'pre-reset' : source;
   const now = new Date();
   const backupId = backupVersionId(backupSource, now);
   const backupPayload = {
-    app: "Cumbuca",
-    version: "1.0.0",
+    app: 'Cumbuca',
+    version: '1.0.0',
     exportedAt: now.toISOString(),
     source: backupSource,
-    data: normalizeState(payload)
+    data: normalizeState(payload),
   };
   const result = await db.query(
     `insert into cumbuca_app_backup_versions (backup_id, backup_date, backup_at, source, payload)
@@ -966,10 +1074,10 @@ async function writeAutomaticBackup(payload = {}, { source = "automatic", protec
       now.toISOString().slice(0, 10),
       now.toISOString(),
       backupSource,
-      JSON.stringify(backupPayload)
+      JSON.stringify(backupPayload),
     ]
   );
-  const shouldSendExternal = result.rows[0]?.inserted === true || backupSource !== "automatic";
+  const shouldSendExternal = result.rows[0]?.inserted === true || backupSource !== 'automatic';
   const externalBackup = shouldSendExternal
     ? await sendExternalBackup(backupPayload, backupId)
     : { configured: Boolean(EXTERNAL_BACKUP_URL), sent: false, reusedHour: true };
@@ -979,12 +1087,12 @@ async function writeAutomaticBackup(payload = {}, { source = "automatic", protec
     protected: protect,
     reused: false,
     backupId,
-    externalBackup
+    externalBackup,
   };
 }
 
 async function listBackups() {
-  if (!await ensureBackupTable()) {
+  if (!(await ensureBackupTable())) {
     return { database: false, backups: [] };
   }
 
@@ -1003,11 +1111,12 @@ async function listBackups() {
 }
 
 async function databaseUsage() {
-  if (!await ensureStateTable() || !await ensureBackupTable()) {
+  if (!(await ensureStateTable()) || !(await ensureBackupTable())) {
     return { database: false, tables: [] };
   }
 
-  const result = await db.query(`
+  const result = await db.query(
+    `
     select
       table_name,
       pg_total_relation_size(format('%I.%I', table_schema, table_name)::regclass) as total_bytes,
@@ -1016,26 +1125,35 @@ async function databaseUsage() {
     where table_schema = 'public'
       and table_name = any($1::text[])
     order by table_name
-  `, [["cumbuca_app_state", "cumbuca_app_backups", "cumbuca_app_backup_versions"]]);
+  `,
+    [['cumbuca_app_state', 'cumbuca_app_backups', 'cumbuca_app_backup_versions']]
+  );
 
   const counts = {};
-  counts.cumbuca_app_state = Number((await db.query("select count(*)::int as count from cumbuca_app_state")).rows[0]?.count || 0);
-  counts.cumbuca_app_backups = Number((await db.query("select count(*)::int as count from cumbuca_app_backups")).rows[0]?.count || 0);
-  counts.cumbuca_app_backup_versions = Number((await db.query("select count(*)::int as count from cumbuca_app_backup_versions")).rows[0]?.count || 0);
+  counts.cumbuca_app_state = Number(
+    (await db.query('select count(*)::int as count from cumbuca_app_state')).rows[0]?.count || 0
+  );
+  counts.cumbuca_app_backups = Number(
+    (await db.query('select count(*)::int as count from cumbuca_app_backups')).rows[0]?.count || 0
+  );
+  counts.cumbuca_app_backup_versions = Number(
+    (await db.query('select count(*)::int as count from cumbuca_app_backup_versions')).rows[0]
+      ?.count || 0
+  );
 
   return {
     database: true,
-    tables: result.rows.map(row => ({
+    tables: result.rows.map((row) => ({
       name: row.table_name,
       rows: counts[row.table_name] || 0,
       totalBytes: Number(row.total_bytes || 0),
-      tableBytes: Number(row.table_bytes || 0)
-    }))
+      tableBytes: Number(row.table_bytes || 0),
+    })),
   };
 }
 
 async function deleteOldBackups(keepDays = 30) {
-  if (!await ensureBackupTable()) {
+  if (!(await ensureBackupTable())) {
     return { database: false, deleted: 0 };
   }
 
@@ -1054,43 +1172,43 @@ async function deleteOldBackups(keepDays = 30) {
   return {
     database: true,
     deleted: (versionResult.rowCount || 0) + (legacyResult.rowCount || 0),
-    keepDays: days
+    keepDays: days,
   };
 }
 
 async function readBackup(backupReference) {
-  if (!await ensureBackupTable()) {
+  if (!(await ensureBackupTable())) {
     return { database: false, backup: null };
   }
 
-  const reference = String(backupReference || "");
+  const reference = String(backupReference || '');
   const legacyDate = legacyBackupDate(reference);
   const isLegacyDate = Boolean(legacyDate);
   const result = isLegacyDate
     ? await db.query(
-      `select backup_id, backup_date, payload, backup_at as created_at, backup_at as updated_at, source
+        `select backup_id, backup_date, payload, backup_at as created_at, backup_at as updated_at, source
        from cumbuca_app_backup_versions
        where backup_id = $1 or backup_id = $2
        order by backup_at desc
        limit 1`,
-      [reference, `legacy-${legacyDate}`]
-    )
+        [reference, `legacy-${legacyDate}`]
+      )
     : await db.query(
-      `select backup_id, backup_date, payload, backup_at as created_at, backup_at as updated_at, source
+        `select backup_id, backup_date, payload, backup_at as created_at, backup_at as updated_at, source
        from cumbuca_app_backup_versions
        where backup_id = $1
        limit 1`,
-      [reference]
-    );
+        [reference]
+      );
   return { database: true, backup: result.rows[0] || null };
 }
 
 async function deleteBackup(backupReference) {
-  if (!await ensureBackupTable()) {
+  if (!(await ensureBackupTable())) {
     return { database: false, deleted: 0 };
   }
 
-  const reference = String(backupReference || "");
+  const reference = String(backupReference || '');
   const legacyDate = legacyBackupDate(reference);
   const result = await db.query(
     `delete from cumbuca_app_backup_versions
@@ -1110,7 +1228,7 @@ async function deleteBackup(backupReference) {
   return {
     database: true,
     deleted: (result.rowCount || 0) + legacyDeleted,
-    backupReference: reference
+    backupReference: reference,
   };
 }
 
@@ -1122,7 +1240,7 @@ async function restoreBackup(backupReference) {
 
   const backup = backupResult.backup;
   if (!backup) {
-    return { database: true, restored: false, error: "Backup não encontrado." };
+    return { database: true, restored: false, error: 'Backup não encontrado.' };
   }
 
   const payload = backup.payload?.data || backup.payload || {};
@@ -1130,14 +1248,14 @@ async function restoreBackup(backupReference) {
   const result = await writeAppState(restoredState, null, {
     allowClosings: true,
     bypassLocks: true,
-    bypassPermissions: true
+    bypassPermissions: true,
   });
   return {
     database: true,
     restored: true,
-    backupId: backup.backup_id || "",
+    backupId: backup.backup_id || '',
     backupDate: backup.backup_date,
-    keys: result.saved || []
+    keys: result.saved || [],
   };
 }
 
@@ -1147,33 +1265,48 @@ function backupPreview(payload = {}) {
     cash: Array.isArray(data.cashEntries) ? data.cashEntries.length : 0,
     orders: Array.isArray(data.orders) ? data.orders.length : 0,
     clients: Array.isArray(data.clients) ? data.clients.length : 0,
-    menus: data.weeklyMenusByPeriod && typeof data.weeklyMenusByPeriod === "object" ? Object.keys(data.weeklyMenusByPeriod).length : 0,
-    menuDates: data.menuDatesByPeriod && typeof data.menuDatesByPeriod === "object" ? Object.keys(data.menuDatesByPeriod).length : 0,
+    menus:
+      data.weeklyMenusByPeriod && typeof data.weeklyMenusByPeriod === 'object'
+        ? Object.keys(data.weeklyMenusByPeriod).length
+        : 0,
+    menuDates:
+      data.menuDatesByPeriod && typeof data.menuDatesByPeriod === 'object'
+        ? Object.keys(data.menuDatesByPeriod).length
+        : 0,
     storeSales: Array.isArray(data.storeSales) ? data.storeSales.length : 0,
     channelReceipts: Array.isArray(data.channelReceipts) ? data.channelReceipts.length : 0,
     auditLog: Array.isArray(data.auditLog) ? data.auditLog.length : 0,
-    monthlyClosings: data.monthlyClosings && typeof data.monthlyClosings === "object" ? Object.keys(data.monthlyClosings).length : 0,
-    weeklyClosings: data.weeklyClosings && typeof data.weeklyClosings === "object" ? Object.keys(data.weeklyClosings).length : 0
+    monthlyClosings:
+      data.monthlyClosings && typeof data.monthlyClosings === 'object'
+        ? Object.keys(data.monthlyClosings).length
+        : 0,
+    weeklyClosings:
+      data.weeklyClosings && typeof data.weeklyClosings === 'object'
+        ? Object.keys(data.weeklyClosings).length
+        : 0,
   };
 }
 
 async function verifyPersistence() {
-  if (!await ensureStateTable()) {
+  if (!(await ensureStateTable())) {
     return { database: false };
   }
 
   const marker = {
     checkedAt: new Date().toISOString(),
-    id: crypto.randomUUID()
+    id: crypto.randomUUID(),
   };
   await db.query(
     `insert into cumbuca_app_state (key, value, updated_at)
      values ($1, $2::jsonb, now())
      on conflict (key)
      do update set value = excluded.value, updated_at = now()`,
-    ["__healthcheck", JSON.stringify(marker)]
+    ['__healthcheck', JSON.stringify(marker)]
   );
-  const readBack = await db.query("select value, updated_at from cumbuca_app_state where key = $1", ["__healthcheck"]);
+  const readBack = await db.query(
+    'select value, updated_at from cumbuca_app_state where key = $1',
+    ['__healthcheck']
+  );
   const saved = readBack.rows[0]?.value?.id === marker.id;
 
   return {
@@ -1181,29 +1314,34 @@ async function verifyPersistence() {
     saved,
     checkedAt: marker.checkedAt,
     stateUpdatedAt: readBack.rows[0]?.updated_at || null,
-    automaticBackup: false
+    automaticBackup: false,
   };
 }
 
 function cashEntryIncluded(entry = {}) {
-  return !(entry.type === "expense" && entry.dueDate && !entry.paidAt);
+  return !(entry.type === 'expense' && entry.dueDate && !entry.paidAt);
 }
 
 function financialIntegritySummary(state, backup = null) {
-  const cashEntries = Array.isArray(state.cashEntries) ? state.cashEntries.filter(cashEntryIncluded) : [];
-  const totals = cashEntries.reduce((result, entry) => {
-    const amount = Math.abs(number(entry.amount));
-    if (entry.type === "expense") {
-      result.expenses += amount;
-    } else {
-      result.income += amount;
-    }
-    if (String(entry.category || "").replace(/^supplier:/, "reason:") === "ajuste-conta") {
-      result.adjustments += entry.type === "expense" ? -amount : amount;
-    }
-    result.balance = result.income - result.expenses;
-    return result;
-  }, { income: 0, expenses: 0, adjustments: 0, balance: 0 });
+  const cashEntries = Array.isArray(state.cashEntries)
+    ? state.cashEntries.filter(cashEntryIncluded)
+    : [];
+  const totals = cashEntries.reduce(
+    (result, entry) => {
+      const amount = Math.abs(number(entry.amount));
+      if (entry.type === 'expense') {
+        result.expenses += amount;
+      } else {
+        result.income += amount;
+      }
+      if (String(entry.category || '').replace(/^supplier:/, 'reason:') === 'ajuste-conta') {
+        result.adjustments += entry.type === 'expense' ? -amount : amount;
+      }
+      result.balance = result.income - result.expenses;
+      return result;
+    },
+    { income: 0, expenses: 0, adjustments: 0, balance: 0 }
+  );
   const unlockedMonths = Object.entries(state.monthlyClosings || {})
     .filter(([, closing]) => closing?.locked === false)
     .map(([key]) => key);
@@ -1211,100 +1349,124 @@ function financialIntegritySummary(state, backup = null) {
     .filter(([, closing]) => closing?.locked === false)
     .map(([key]) => key);
   const now = new Date();
-  const previousMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
-  const previousMonthClosed = Boolean(state.monthlyClosings?.[previousMonth]?.locked !== false && state.monthlyClosings?.[previousMonth]);
+  const previousMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
+    .toISOString()
+    .slice(0, 7);
+  const previousMonthClosed = Boolean(
+    state.monthlyClosings?.[previousMonth]?.locked !== false &&
+      state.monthlyClosings?.[previousMonth]
+  );
   const backupAt = backup?.updated_at || backup?.created_at || null;
-  const backupAgeHours = backupAt ? Math.max(0, (Date.now() - new Date(backupAt).getTime()) / 3600000) : null;
+  const backupAgeHours = backupAt
+    ? Math.max(0, (Date.now() - new Date(backupAt).getTime()) / 3600000)
+    : null;
   const checks = [
     {
-      id: "account-balance",
-      level: totals.balance < 0 ? "danger" : "ok",
-      label: "Saldo acumulado",
-      detail: totals.balance < 0 ? `Saldo negativo de ${brl(Math.abs(totals.balance))}.` : `Saldo ${brl(totals.balance)}.`
+      id: 'account-balance',
+      level: totals.balance < 0 ? 'danger' : 'ok',
+      label: 'Saldo acumulado',
+      detail:
+        totals.balance < 0
+          ? `Saldo negativo de ${brl(Math.abs(totals.balance))}.`
+          : `Saldo ${brl(totals.balance)}.`,
     },
     {
-      id: "backup",
-      level: backupAgeHours === null || backupAgeHours > 26 ? "danger" : "ok",
-      label: "Backup automático",
-      detail: backupAgeHours === null ? "Nenhum backup encontrado." : `Ultimo backup ${relativeHoursPtBr(backupAgeHours)}.`
+      id: 'backup',
+      level: backupAgeHours === null || backupAgeHours > 26 ? 'danger' : 'ok',
+      label: 'Backup automático',
+      detail:
+        backupAgeHours === null
+          ? 'Nenhum backup encontrado.'
+          : `Ultimo backup ${relativeHoursPtBr(backupAgeHours)}.`,
     },
     {
-      id: "previous-month",
-      level: previousMonthClosed ? "ok" : "warning",
-      label: "Fechamento mensal",
-      detail: previousMonthClosed ? `${formatMonthKeyPtBr(previousMonth)} esta fechado.` : `${formatMonthKeyPtBr(previousMonth)} ainda esta aberto.`
+      id: 'previous-month',
+      level: previousMonthClosed ? 'ok' : 'warning',
+      label: 'Fechamento mensal',
+      detail: previousMonthClosed
+        ? `${formatMonthKeyPtBr(previousMonth)} esta fechado.`
+        : `${formatMonthKeyPtBr(previousMonth)} ainda esta aberto.`,
     },
     {
-      id: "reopened-periods",
-      level: unlockedMonths.length || unlockedWeeks.length ? "warning" : "ok",
-      label: "Períodos reabertos",
-      detail: reopenedPeriodsText(unlockedMonths.length, unlockedWeeks.length)
+      id: 'reopened-periods',
+      level: unlockedMonths.length || unlockedWeeks.length ? 'warning' : 'ok',
+      label: 'Períodos reabertos',
+      detail: reopenedPeriodsText(unlockedMonths.length, unlockedWeeks.length),
     },
     {
-      id: "adjustments",
-      level: Math.abs(totals.adjustments) >= 0.01 ? "warning" : "ok",
-      label: "Ajustes acumulados",
-      detail: Math.abs(totals.adjustments) >= 0.01 ? `Saldo dos ajustes ${brl(totals.adjustments)}.` : "Sem ajustes acumulados."
-    }
+      id: 'adjustments',
+      level: Math.abs(totals.adjustments) >= 0.01 ? 'warning' : 'ok',
+      label: 'Ajustes acumulados',
+      detail:
+        Math.abs(totals.adjustments) >= 0.01
+          ? `Saldo dos ajustes ${brl(totals.adjustments)}.`
+          : 'Sem ajustes acumulados.',
+    },
   ];
-  const status = checks.some(check => check.level === "danger")
-    ? "danger"
-    : checks.some(check => check.level === "warning") ? "warning" : "ok";
+  const status = checks.some((check) => check.level === 'danger')
+    ? 'danger'
+    : checks.some((check) => check.level === 'warning')
+    ? 'warning'
+    : 'ok';
   return {
     status,
     checkedAt: new Date().toISOString(),
     totals,
-    backup: backup ? {
-      id: backup.backup_id || "",
-      date: backup.backup_date,
-      updatedAt: backupAt,
-      source: backup.source || ""
-    } : null,
+    backup: backup
+      ? {
+          id: backup.backup_id || '',
+          date: backup.backup_date,
+          updatedAt: backupAt,
+          source: backup.source || '',
+        }
+      : null,
     closings: {
       previousMonth,
       previousMonthClosed,
       unlockedMonths,
-      unlockedWeeks
+      unlockedWeeks,
     },
-    checks
+    checks,
   };
 }
 
 function formatMonthKeyPtBr(key) {
-  const [year, month] = String(key || "").split("-").map(Number);
+  const [year, month] = String(key || '')
+    .split('-')
+    .map(Number);
   if (!year || !month) {
-    return key || "";
+    return key || '';
   }
-  return new Intl.DateTimeFormat("pt-BR", {
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC"
+  return new Intl.DateTimeFormat('pt-BR', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
   }).format(new Date(Date.UTC(year, month - 1, 1)));
 }
 
 function relativeHoursPtBr(hours) {
   const rounded = Math.round(Math.max(0, Number(hours || 0)));
   if (rounded <= 0) {
-    return "ha menos de 1 hora";
+    return 'ha menos de 1 hora';
   }
-  return rounded === 1 ? "ha 1 hora" : `ha ${rounded} horas`;
+  return rounded === 1 ? 'ha 1 hora' : `ha ${rounded} horas`;
 }
 
 function reopenedPeriodsText(months, weeks) {
   const monthCount = Number(months || 0);
   const weekCount = Number(weeks || 0);
   if (!monthCount && !weekCount) {
-    return "Nenhum periodo reaberto.";
+    return 'Nenhum periodo reaberto.';
   }
-  const monthText = monthCount === 1 ? "1 mes" : `${monthCount} meses`;
-  const weekText = weekCount === 1 ? "1 semana" : `${weekCount} semanas`;
+  const monthText = monthCount === 1 ? '1 mes' : `${monthCount} meses`;
+  const weekText = weekCount === 1 ? '1 semana' : `${weekCount} semanas`;
   return `${monthText} e ${weekText} reabertos.`;
 }
 
 function formatBytesPtBr(bytes) {
   const value = Number(bytes || 0);
-  const formatter = new Intl.NumberFormat("pt-BR", {
-    maximumFractionDigits: 1
+  const formatter = new Intl.NumberFormat('pt-BR', {
+    maximumFractionDigits: 1,
   });
   if (value >= 1024 * 1024) {
     return `${formatter.format(value / (1024 * 1024))} MB`;
@@ -1317,26 +1479,28 @@ function formatBytesPtBr(bytes) {
 
 function validateBackupPayload(backup) {
   if (!backup) {
-    return { valid: false, error: "Nenhum backup encontrado." };
+    return { valid: false, error: 'Nenhum backup encontrado.' };
   }
   const raw = backup.payload?.data || backup.payload;
-  if (!raw || typeof raw !== "object") {
-    return { valid: false, error: "Conteúdo do backup inválido." };
+  if (!raw || typeof raw !== 'object') {
+    return { valid: false, error: 'Conteúdo do backup inválido.' };
   }
   const normalized = normalizeState(raw);
-  const missingKeys = stateKeys.filter(key => !Object.prototype.hasOwnProperty.call(normalized, key));
+  const missingKeys = stateKeys.filter(
+    (key) => !Object.prototype.hasOwnProperty.call(normalized, key)
+  );
   const serialized = JSON.stringify(normalized);
   const roundTrip = JSON.parse(serialized);
   return {
     valid: missingKeys.length === 0 && jsonEqual(normalized, roundTrip),
     missingKeys,
     bytes: Buffer.byteLength(serialized),
-    preview: backupPreview(normalized)
+    preview: backupPreview(normalized),
   };
 }
 
 async function latestBackup() {
-  if (!await ensureBackupTable()) {
+  if (!(await ensureBackupTable())) {
     return null;
   }
   const result = await db.query(`
@@ -1353,11 +1517,12 @@ function missingReconciliationAdjustments(state = {}) {
   const history = Array.isArray(state.financialPlanning?.reconciliationHistory)
     ? state.financialPlanning.reconciliationHistory
     : [];
-  return history.filter(item =>
-    item?.status === "adjusted"
-    && item.adjustmentId
-    && Math.abs(number(item.difference)) >= 0.01
-    && !cashEntries.some(entry => String(entry.id) === String(item.adjustmentId))
+  return history.filter(
+    (item) =>
+      item?.status === 'adjusted' &&
+      item.adjustmentId &&
+      Math.abs(number(item.difference)) >= 0.01 &&
+      !cashEntries.some((entry) => String(entry.id) === String(item.adjustmentId))
   );
 }
 
@@ -1365,67 +1530,77 @@ function reconciliationAdjustmentEntry(item = {}) {
   const difference = number(item.difference);
   return {
     id: String(item.adjustmentId),
-    description: `Ajuste de conferência - ${item.reason || "Conta conferida"}`,
-    date: String(item.date || "").slice(0, 10),
-    type: difference > 0 ? "income" : "expense",
-    category: "ajuste-conta",
+    description: `Ajuste de conferência - ${item.reason || 'Conta conferida'}`,
+    date: String(item.date || '').slice(0, 10),
+    type: difference > 0 ? 'income' : 'expense',
+    category: 'ajuste-conta',
     amount: Math.abs(difference).toFixed(2),
     reconciliation: true,
-    authorizedBy: item.authorizedBy || "Sistema",
-    authorizedUsername: item.username || "",
-    calculatedBalance: String(item.calculatedBalance || "0.00"),
-    realBalance: String(item.realBalance || "0.00")
+    authorizedBy: item.authorizedBy || 'Sistema',
+    authorizedUsername: item.username || '',
+    calculatedBalance: String(item.calculatedBalance || '0.00'),
+    realBalance: String(item.realBalance || '0.00'),
   };
 }
 
 async function repairFinancialIntegrity(user = null) {
-  if (!userCan(user, "editFinancial")) {
-    return { repaired: false, statusCode: 403, error: "Seu usuário não pode corrigir pendências financeiras." };
+  if (!userCan(user, 'editFinancial')) {
+    return {
+      repaired: false,
+      statusCode: 403,
+      error: 'Seu usuário não pode corrigir pendências financeiras.',
+    };
   }
   const current = await readAppState();
   if (!current.database) {
     return { repaired: false, database: false };
   }
 
-  const backup = await writeAutomaticBackup(current.state, { source: "integrity-repair-preflight" });
+  const backup = await writeAutomaticBackup(current.state, {
+    source: 'integrity-repair-preflight',
+  });
   const missing = missingReconciliationAdjustments(current.state);
   const restoredEntries = missing
     .map(reconciliationAdjustmentEntry)
-    .filter(entry => entry.id && entry.date && number(entry.amount) > 0);
+    .filter((entry) => entry.id && entry.date && number(entry.amount) > 0);
 
   if (!restoredEntries.length) {
     return {
       database: true,
       repaired: false,
       backup: Boolean(backup.saved || backup.database),
-      restoredAdjustments: []
+      restoredAdjustments: [],
     };
   }
 
   const nextCashEntries = [
     ...(Array.isArray(current.state.cashEntries) ? current.state.cashEntries : []),
-    ...restoredEntries
+    ...restoredEntries,
   ];
-  await writeAppState({
-    cashEntries: nextCashEntries,
-    auditLog: [
-      {
-        id: `audit-${Date.now()}`,
-        action: "Conciliação corrigida",
-        detail: `${restoredEntries.length} ajuste(s) de conciliação recriado(s) pela conferência financeira.`,
-        metadata: {
-          adjustmentIds: restoredEntries.map(entry => entry.id),
-          backupId: backup.backupId || ""
+  await writeAppState(
+    {
+      cashEntries: nextCashEntries,
+      auditLog: [
+        {
+          id: `audit-${Date.now()}`,
+          action: 'Conciliação corrigida',
+          detail: `${restoredEntries.length} ajuste(s) de conciliação recriado(s) pela conferência financeira.`,
+          metadata: {
+            adjustmentIds: restoredEntries.map((entry) => entry.id),
+            backupId: backup.backupId || '',
+          },
+          user: user?.name || user?.username || 'Sistema',
+          username: user?.username || '',
+          createdAt: new Date().toISOString(),
         },
-        user: user?.name || user?.username || "Sistema",
-        username: user?.username || "",
-        createdAt: new Date().toISOString()
-      },
-      ...(Array.isArray(current.state.auditLog) ? current.state.auditLog : [])
-    ].slice(0, 500)
-  }, user, { bypassLocks: true });
+        ...(Array.isArray(current.state.auditLog) ? current.state.auditLog : []),
+      ].slice(0, 500),
+    },
+    user,
+    { bypassLocks: true }
+  );
   await writeEvent(
-    "integridade_financeira_corrigida",
+    'integridade_financeira_corrigida',
     `${restoredEntries.length} ajuste(s) de conciliação recriado(s).`,
     user
   );
@@ -1433,52 +1608,50 @@ async function repairFinancialIntegrity(user = null) {
     database: true,
     repaired: true,
     backup: true,
-    restoredAdjustments: restoredEntries.map(entry => ({
+    restoredAdjustments: restoredEntries.map((entry) => ({
       id: entry.id,
       date: entry.date,
       type: entry.type,
-      amount: entry.amount
-    }))
+      amount: entry.amount,
+    })),
   };
 }
 
 async function financialIntegrity(options = {}) {
-  const repair = options.repair
-    ? await repairFinancialIntegrity(options.user)
-    : null;
+  const repair = options.repair ? await repairFinancialIntegrity(options.user) : null;
   const current = await readAppState();
   if (!current.database) {
-    return { database: false, status: "danger", checks: [] };
+    return { database: false, status: 'danger', checks: [] };
   }
   const backup = await latestBackup();
   const result = financialIntegritySummary(current.state, backup);
   const restoreValidation = validateBackupPayload(backup);
   const eventsResult = await listEvents(100);
-  const recentTechnicalErrors = (eventsResult.events || []).filter(event => {
+  const recentTechnicalErrors = (eventsResult.events || []).filter((event) => {
     const recent = Date.now() - new Date(event.created_at).getTime() <= 24 * 3600000;
-    return recent && ["erro_api", "teste_restauracao_falhou"].includes(event.event_type);
+    return recent && ['erro_api', 'teste_restauracao_falhou'].includes(event.event_type);
   });
   result.checks.push({
-    id: "backup-restorable",
-    level: restoreValidation.valid ? "ok" : "danger",
-    label: "Teste de restauração",
+    id: 'backup-restorable',
+    level: restoreValidation.valid ? 'ok' : 'danger',
+    label: 'Teste de restauração',
     detail: restoreValidation.valid
       ? `Backup legivel e completo (${formatBytesPtBr(restoreValidation.bytes)}).`
-      : (restoreValidation.error || "Backup inválido.")
+      : restoreValidation.error || 'Backup inválido.',
   });
   result.checks.push({
-    id: "technical-errors",
-    level: recentTechnicalErrors.length ? "danger" : "ok",
-    label: "Erros técnicos em 24h",
+    id: 'technical-errors',
+    level: recentTechnicalErrors.length ? 'danger' : 'ok',
+    label: 'Erros técnicos em 24h',
     detail: recentTechnicalErrors.length
       ? `${recentTechnicalErrors.length} erro(s) registrado(s). Consulte o log técnico.`
-      : "Nenhum erro técnico recente."
+      : 'Nenhum erro técnico recente.',
   });
   if (!restoreValidation.valid) {
-    result.status = "danger";
+    result.status = 'danger';
   }
   if (recentTechnicalErrors.length) {
-    result.status = "danger";
+    result.status = 'danger';
   }
   const externalAlert = await maybeSendIntegrityAlert(result);
   return {
@@ -1487,7 +1660,7 @@ async function financialIntegrity(options = {}) {
     repair,
     restoreValidation,
     recentTechnicalErrors: recentTechnicalErrors.slice(0, 10),
-    externalAlert
+    externalAlert,
   };
 }
 
@@ -1496,47 +1669,60 @@ async function backupRestoreCheck(user = null) {
   const validation = validateBackupPayload(backup);
   if (validation.valid) {
     await writeEvent(
-      "teste_restauracao",
+      'teste_restauracao',
       `Backup ${backup.backup_id} validado sem alterar os dados (${validation.bytes} bytes).`,
       user
     );
   } else {
-    await writeEvent("teste_restauracao_falhou", validation.error || "Backup inválido.", user);
+    await writeEvent('teste_restauracao_falhou', validation.error || 'Backup inválido.', user);
   }
   return {
     database: Boolean(db),
     checkedAt: new Date().toISOString(),
-    backupId: backup?.backup_id || "",
+    backupId: backup?.backup_id || '',
     backupDate: backup?.backup_date || null,
-    ...validation
+    ...validation,
   };
 }
 
 async function readAppState() {
-  if (!await ensureStateTable()) {
+  if (!(await ensureStateTable())) {
     return { database: false, state: normalizeState({}) };
   }
 
-  const result = await db.query("select key, value from cumbuca_app_state where key = any($1::text[])", [stateKeys]);
+  const result = await db.query(
+    'select key, value from cumbuca_app_state where key = any($1::text[])',
+    [stateKeys]
+  );
   return {
     database: true,
-    state: normalizeState(Object.fromEntries(result.rows.map(row => [row.key, row.value])))
+    state: normalizeState(Object.fromEntries(result.rows.map((row) => [row.key, row.value]))),
   };
 }
 
 async function writeAppState(payload = {}, user = null, options = {}) {
-  if (!await ensureStateTable()) {
+  if (!(await ensureStateTable())) {
     return { database: false };
   }
 
   const currentBeforeWrite = await readAppState();
-  if (!options.bypassPermissions && financialPayloadChanged(currentBeforeWrite.state, payload) && !userCan(user, "editFinancial")) {
-    const error = new Error("Seu usuário não tem permissão para editar valores financeiros.");
+  if (
+    !options.bypassPermissions &&
+    financialPayloadChanged(currentBeforeWrite.state, payload) &&
+    !userCan(user, 'editFinancial')
+  ) {
+    const error = new Error('Seu usuário não tem permissão para editar valores financeiros.');
     error.statusCode = 403;
     throw error;
   }
-  if (!options.bypassPermissions && bulkFinancialClearRequested(currentBeforeWrite.state, payload) && !userCan(user, "clearData")) {
-    const error = new Error("Seu usuário não tem permissão para limpar valores financeiros em massa.");
+  if (
+    !options.bypassPermissions &&
+    bulkFinancialClearRequested(currentBeforeWrite.state, payload) &&
+    !userCan(user, 'clearData')
+  ) {
+    const error = new Error(
+      'Seu usuário não tem permissão para limpar valores financeiros em massa.'
+    );
     error.statusCode = 403;
     throw error;
   }
@@ -1546,8 +1732,7 @@ async function writeAppState(payload = {}, user = null, options = {}) {
     error.statusCode = violation.statusCode;
     throw error;
   }
-  const entries = Object.entries(payload)
-    .filter(([key]) => stateKeys.includes(key));
+  const entries = Object.entries(payload).filter(([key]) => stateKeys.includes(key));
 
   for (const [key, value] of entries) {
     await db.query(
@@ -1561,74 +1746,110 @@ async function writeAppState(payload = {}, user = null, options = {}) {
 
   const current = await readAppState();
   const backup = await writeAutomaticBackup(current.state);
-  return { database: true, saved: entries.map(([key]) => key), backup: Boolean(backup.saved || backup.database) };
+  return {
+    database: true,
+    saved: entries.map(([key]) => key),
+    backup: Boolean(backup.saved || backup.database),
+  };
 }
 
 async function saveClosing(payload = {}, user = null) {
-  if (!await ensureStateTable()) {
+  if (!(await ensureStateTable())) {
     return { database: false };
   }
-  if (!userCan(user, "manageClosings")) {
-    return { database: true, saved: false, statusCode: 403, error: "Seu usuário não pode fechar períodos." };
+  if (!userCan(user, 'manageClosings')) {
+    return {
+      database: true,
+      saved: false,
+      statusCode: 403,
+      error: 'Seu usuário não pode fechar períodos.',
+    };
   }
-  const type = payload.type === "week" ? "week" : "month";
-  const stateKey = type === "week" ? "weeklyClosings" : "monthlyClosings";
-  const key = String(payload.key || "");
-  const closing = payload.closing && typeof payload.closing === "object" ? payload.closing : {};
+  const type = payload.type === 'week' ? 'week' : 'month';
+  const stateKey = type === 'week' ? 'weeklyClosings' : 'monthlyClosings';
+  const key = String(payload.key || '');
+  const closing = payload.closing && typeof payload.closing === 'object' ? payload.closing : {};
   if (!key) {
-    return { database: true, saved: false, error: "Período inválido." };
+    return { database: true, saved: false, error: 'Período inválido.' };
   }
   const current = await readAppState();
   const existing = current.state[stateKey]?.[key];
   if (existing && existing.locked !== false) {
-    return { database: true, saved: false, error: "O período já está fechado. Reabra antes de atualizar." };
+    return {
+      database: true,
+      saved: false,
+      error: 'O período já está fechado. Reabra antes de atualizar.',
+    };
   }
-  if (existing && !userCan(user, "manageClosings")) {
-    return { database: true, saved: false, statusCode: 403, error: "Seu usuário não pode fechar novamente este período." };
+  if (existing && !userCan(user, 'manageClosings')) {
+    return {
+      database: true,
+      saved: false,
+      statusCode: 403,
+      error: 'Seu usuário não pode fechar novamente este período.',
+    };
   }
   const savedClosing = {
     ...closing,
     locked: true,
     closedAt: new Date().toISOString(),
-    closedBy: user?.name || user?.username || "Sistema",
-    closedByUsername: user?.username || ""
+    closedBy: user?.name || user?.username || 'Sistema',
+    closedByUsername: user?.username || '',
   };
   const nextClosings = {
     ...(current.state[stateKey] || {}),
-    [key]: savedClosing
+    [key]: savedClosing,
   };
   const auditEntry = {
-    id: `audit-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`,
-    action: type === "week" ? "Semana fechada" : "Mês fechado",
+    id: `audit-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
+    action: type === 'week' ? 'Semana fechada' : 'Mês fechado',
     detail: `Período ${key} fechado.`,
-    user: user?.name || user?.username || "Sistema",
-    username: user?.username || "",
-    route: "financeiro",
-    createdAt: new Date().toISOString()
+    user: user?.name || user?.username || 'Sistema',
+    username: user?.username || '',
+    route: 'financeiro',
+    createdAt: new Date().toISOString(),
   };
-  await writeAppState({
-    [stateKey]: nextClosings,
-    auditLog: [auditEntry, ...(current.state.auditLog || [])].slice(0, 1000)
-  }, user, { allowClosings: true, bypassLocks: true });
-  await writeEvent(type === "week" ? "semana_fechada" : "mes_fechado", `Período ${key} fechado.`, user);
+  await writeAppState(
+    {
+      [stateKey]: nextClosings,
+      auditLog: [auditEntry, ...(current.state.auditLog || [])].slice(0, 1000),
+    },
+    user,
+    { allowClosings: true, bypassLocks: true }
+  );
+  await writeEvent(
+    type === 'week' ? 'semana_fechada' : 'mes_fechado',
+    `Período ${key} fechado.`,
+    user
+  );
   return { database: true, saved: true, key, closing: savedClosing };
 }
 
 async function reopenClosing(payload = {}, user = null) {
-  if (!userCan(user, "manageClosings")) {
-    return { database: true, saved: false, statusCode: 403, error: "Seu usuário não pode reabrir períodos." };
+  if (!userCan(user, 'manageClosings')) {
+    return {
+      database: true,
+      saved: false,
+      statusCode: 403,
+      error: 'Seu usuário não pode reabrir períodos.',
+    };
   }
-  const reason = String(payload.reason || "").trim();
+  const reason = String(payload.reason || '').trim();
   if (reason.length < 5) {
-    return { database: true, saved: false, statusCode: 400, error: "Informe o motivo da reabertura." };
+    return {
+      database: true,
+      saved: false,
+      statusCode: 400,
+      error: 'Informe o motivo da reabertura.',
+    };
   }
-  const type = payload.type === "week" ? "week" : "month";
-  const stateKey = type === "week" ? "weeklyClosings" : "monthlyClosings";
-  const key = String(payload.key || "");
+  const type = payload.type === 'week' ? 'week' : 'month';
+  const stateKey = type === 'week' ? 'weeklyClosings' : 'monthlyClosings';
+  const key = String(payload.key || '');
   const current = await readAppState();
   const existing = current.state[stateKey]?.[key];
   if (!existing) {
-    return { database: true, saved: false, statusCode: 404, error: "Fechamento não encontrado." };
+    return { database: true, saved: false, statusCode: 404, error: 'Fechamento não encontrado.' };
   }
   const nextClosing = {
     ...existing,
@@ -1636,68 +1857,86 @@ async function reopenClosing(payload = {}, user = null) {
     reopenedAt: new Date().toISOString(),
     reopenedBy: user.name || user.username,
     reopenedByUsername: user.username,
-    reopenReason: reason
+    reopenReason: reason,
   };
   const auditEntry = {
-    id: `audit-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`,
-    action: type === "week" ? "Semana reaberta" : "Mês reaberto",
+    id: `audit-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
+    action: type === 'week' ? 'Semana reaberta' : 'Mês reaberto',
     detail: `Período ${key}: ${reason}`,
     user: user.name || user.username,
     username: user.username,
-    route: "financeiro",
-    createdAt: new Date().toISOString()
+    route: 'financeiro',
+    createdAt: new Date().toISOString(),
   };
-  await writeAppState({
-    [stateKey]: {
-      ...(current.state[stateKey] || {}),
-      [key]: nextClosing
+  await writeAppState(
+    {
+      [stateKey]: {
+        ...(current.state[stateKey] || {}),
+        [key]: nextClosing,
+      },
+      auditLog: [auditEntry, ...(current.state.auditLog || [])].slice(0, 1000),
     },
-    auditLog: [auditEntry, ...(current.state.auditLog || [])].slice(0, 1000)
-  }, user, { allowClosings: true, bypassLocks: true });
-  await writeEvent(type === "week" ? "semana_reaberta" : "mes_reaberto", `Período ${key}: ${reason}`, user);
+    user,
+    { allowClosings: true, bypassLocks: true }
+  );
+  await writeEvent(
+    type === 'week' ? 'semana_reaberta' : 'mes_reaberto',
+    `Período ${key}: ${reason}`,
+    user
+  );
   return { database: true, saved: true, key, closing: nextClosing };
 }
 
 async function resetAppState(user = null) {
-  if (!await ensureStateTable()) {
+  if (!(await ensureStateTable())) {
     return { database: false };
   }
 
   const current = await readAppState();
   const backupSaved = await writeAutomaticBackup(current.state, { protect: true });
   if (!backupSaved.saved) {
-    return { database: true, reset: false, backup: false, error: "O backup de segurança falhou. Nenhum dado foi apagado." };
+    return {
+      database: true,
+      reset: false,
+      backup: false,
+      error: 'O backup de segurança falhou. Nenhum dado foi apagado.',
+    };
   }
-  await db.query("delete from cumbuca_app_state where key = any($1::text[])", [stateKeys]);
-  await writeEvent("limpeza_completa", "Estado do sistema apagado após backup automático.", user);
+  await db.query('delete from cumbuca_app_state where key = any($1::text[])', [stateKeys]);
+  await writeEvent('limpeza_completa', 'Estado do sistema apagado após backup automático.', user);
   return { database: true, reset: true, backup: true, state: normalizeState({}) };
 }
 
 async function resetFinancialState(user = null) {
-  if (!await ensureStateTable()) {
+  if (!(await ensureStateTable())) {
     return { database: false };
   }
 
   const current = await readAppState();
   const backupSaved = await writeAutomaticBackup(current.state, { protect: true });
   if (!backupSaved.saved) {
-    return { database: true, reset: false, backup: false, error: "O backup de segurança falhou. Nenhum dado foi apagado." };
+    return {
+      database: true,
+      reset: false,
+      backup: false,
+      error: 'O backup de segurança falhou. Nenhum dado foi apagado.',
+    };
   }
   const nextState = normalizeState(current.state);
   nextState.financialPlanning = {
     ...(nextState.financialPlanning || {}),
-    savings: "",
-    savingsUpdatedAt: "",
+    savings: '',
+    savingsUpdatedAt: '',
     savingsHistory: [],
     partnersHistory: [],
-    cycleStartDate: "",
-    openingBalance: "",
-    openingSavings: "",
-    cycleNote: ""
+    cycleStartDate: '',
+    openingBalance: '',
+    openingSavings: '',
+    cycleNote: '',
   };
   const client = await db.connect();
   try {
-    await client.query("begin");
+    await client.query('begin');
     for (const key of financialResetKeys) {
       nextState[key] = cloneJson(defaultState[key]);
       await client.query(
@@ -1715,49 +1954,53 @@ async function resetFinancialState(user = null) {
        do update set value = excluded.value, updated_at = now()`,
       [JSON.stringify(nextState.financialPlanning)]
     );
-    await client.query("commit");
+    await client.query('commit');
   } catch (error) {
-    await client.query("rollback");
+    await client.query('rollback');
     throw error;
   } finally {
     client.release();
   }
-  await writeEvent("reinicio_financeiro", "Movimentações financeiras apagadas; cadastros e configurações preservados.", user);
+  await writeEvent(
+    'reinicio_financeiro',
+    'Movimentações financeiras apagadas; cadastros e configurações preservados.',
+    user
+  );
   return {
     database: true,
     reset: true,
     backup: true,
-    resetKeys: [...financialResetKeys, "financialPlanning"],
-    state: nextState
+    resetKeys: [...financialResetKeys, 'financialPlanning'],
+    state: nextState,
   };
 }
 
 function calculateCashFlow(entries = []) {
-  const normalized = entries.map(item => {
+  const normalized = entries.map((item) => {
     const amount = Math.abs(number(item.amount));
-    const type = item.type === "expense" ? "expense" : "income";
+    const type = item.type === 'expense' ? 'expense' : 'income';
     return {
-      id: item.id || "",
-      description: String(item.description || "").trim() || "Lançamento",
-      date: String(item.date || ""),
+      id: item.id || '',
+      description: String(item.description || '').trim() || 'Lançamento',
+      date: String(item.date || ''),
       type,
       amount,
-      category: String(item.category || "").trim() || "outros"
+      category: String(item.category || '').trim() || 'outros',
     };
   });
 
   const income = normalized
-    .filter(item => item.type === "income")
+    .filter((item) => item.type === 'income')
     .reduce((sum, item) => sum + item.amount, 0);
   const expenses = normalized
-    .filter(item => item.type === "expense")
+    .filter((item) => item.type === 'expense')
     .reduce((sum, item) => sum + item.amount, 0);
 
   return {
     income,
     expenses,
     balance: income - expenses,
-    entries: normalized.sort((a, b) => a.date.localeCompare(b.date))
+    entries: normalized.sort((a, b) => a.date.localeCompare(b.date)),
   };
 }
 
@@ -1786,19 +2029,19 @@ function calculatePricing(payload = {}) {
     lossCost,
     totalCost,
     suggestedPrice: price,
-    profit: price - totalCost - price * (feePercent / 100)
+    profit: price - totalCost - price * (feePercent / 100),
   };
 }
 
 function brl(value) {
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL"
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
   }).format(number(value));
 }
 
 function pdfText(value) {
-  return String(value ?? "");
+  return String(value ?? '');
 }
 
 function addPdfTable(doc, headers, rows, widths) {
@@ -1809,13 +2052,13 @@ function addPdfTable(doc, headers, rows, widths) {
   function drawRow(values, isHeader = false) {
     const cells = Array.isArray(values) ? values : Object.values(values || {});
     let x = startX;
-    doc.font(isHeader ? "Helvetica-Bold" : "Helvetica").fontSize(isHeader ? 8 : 8);
+    doc.font(isHeader ? 'Helvetica-Bold' : 'Helvetica').fontSize(isHeader ? 8 : 8);
     cells.forEach((value, index) => {
-      doc.rect(x, y, widths[index], rowHeight).stroke("#d1d5db");
+      doc.rect(x, y, widths[index], rowHeight).stroke('#d1d5db');
       doc.text(pdfText(value), x + 4, y + 6, {
         width: widths[index] - 8,
         height: rowHeight - 8,
-        ellipsis: true
+        ellipsis: true,
       });
       x += widths[index];
     });
@@ -1827,65 +2070,85 @@ function addPdfTable(doc, headers, rows, widths) {
   }
 
   drawRow(headers, true);
-  rows.forEach(row => drawRow(row));
+  rows.forEach((row) => drawRow(row));
   doc.x = startX;
   doc.y = y + 10;
 }
 
 function addPdfSectionTitle(doc, title) {
   doc.x = doc.page.margins.left;
-  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(13).text(title);
+  doc.fillColor('#573220').font('Helvetica-Bold').fontSize(13).text(title);
   doc.x = doc.page.margins.left;
 }
 
 function buildReportPdf(payload = {}) {
   const data = payload.data || {};
-  const doc = new PDFDocument({ size: "A4", margin: 42 });
+  const doc = new PDFDocument({ size: 'A4', margin: 42 });
   const chunks = [];
 
-  doc.on("data", chunk => chunks.push(chunk));
+  doc.on('data', (chunk) => chunks.push(chunk));
 
-  doc.rect(0, 0, 595.28, 841.89).fill("#fffdf8");
-  doc.rect(0, 0, 595.28, 150).fill("#087f5b");
-  doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(28).text("CUMBUCA", 42, 42);
-  doc.font("Helvetica").fontSize(15).text("Relatório financeiro e operacional", 42, 82);
-  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(22).text(payload.periodLabel || data.periodKey || "", 42, 205);
-  doc.fillColor("#69707d").font("Helvetica").fontSize(11).text(`Gerado em ${new Date().toLocaleString("pt-BR")}`, 42, 238);
-  doc.roundedRect(42, 310, 510, 120, 8).stroke("#d1d5db");
-  doc.fillColor("#573220").font("Helvetica-Bold").fontSize(12).text("Resumo da capa", 62, 330);
-  doc.fillColor("#121417").font("Helvetica").fontSize(11)
+  doc.rect(0, 0, 595.28, 841.89).fill('#fffdf8');
+  doc.rect(0, 0, 595.28, 150).fill('#087f5b');
+  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(28).text('CUMBUCA', 42, 42);
+  doc.font('Helvetica').fontSize(15).text('Relatório financeiro e operacional', 42, 82);
+  doc
+    .fillColor('#573220')
+    .font('Helvetica-Bold')
+    .fontSize(22)
+    .text(payload.periodLabel || data.periodKey || '', 42, 205);
+  doc
+    .fillColor('#69707d')
+    .font('Helvetica')
+    .fontSize(11)
+    .text(`Gerado em ${new Date().toLocaleString('pt-BR')}`, 42, 238);
+  doc.roundedRect(42, 310, 510, 120, 8).stroke('#d1d5db');
+  doc.fillColor('#573220').font('Helvetica-Bold').fontSize(12).text('Resumo da capa', 62, 330);
+  doc
+    .fillColor('#121417')
+    .font('Helvetica')
+    .fontSize(11)
     .text(`Lucro operacional: ${brl(data.profitBeforeWithdrawals)}`, 62, 358)
     .text(`Vanessa tirou: ${brl(data.withdrawalVanessa)}`, 62, 382)
     .text(`Cofrinho: ${brl(data.withdrawalSavings)}`, 62, 406)
     .text(`Raquel tirou: ${brl(data.withdrawalRaquel)}`, 62, 430);
-  doc.fillColor("#69707d").fontSize(9).text("Conferir os lançamentos e assinar o fechamento ao final do relatório.", 42, 760, {
-    width: 510,
-    align: "center"
-  });
+  doc
+    .fillColor('#69707d')
+    .fontSize(9)
+    .text('Conferir os lançamentos e assinar o fechamento ao final do relatório.', 42, 760, {
+      width: 510,
+      align: 'center',
+    });
   doc.addPage();
 
-  doc.rect(0, 0, 595.28, 86).fill("#573220");
-  doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(21).text("RELATÓRIO FINANCEIRO", 42, 28);
-  doc.font("Helvetica").fontSize(10).text(payload.periodLabel || data.periodKey || "", 42, 55);
-  doc.font("Helvetica-Bold").fontSize(9).text(`Gerado em ${new Date().toLocaleDateString("pt-BR")}`, 410, 34, {
-    width: 135,
-    align: "right"
-  });
+  doc.rect(0, 0, 595.28, 86).fill('#573220');
+  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(21).text('RELATÓRIO FINANCEIRO', 42, 28);
+  doc
+    .font('Helvetica')
+    .fontSize(10)
+    .text(payload.periodLabel || data.periodKey || '', 42, 55);
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(9)
+    .text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 410, 34, {
+      width: 135,
+      align: 'right',
+    });
 
   const summary = [
-    ["Entradas operacionais", brl(data.totalIncome)],
-    ["Saídas operacionais", brl(data.operationalExpenses)],
-    ["Lucro operacional", brl(data.profitBeforeWithdrawals)],
-    ["Vanessa tirou", brl(data.withdrawalVanessa)],
-    ["Cofrinho", brl(data.withdrawalSavings)],
-    ["Raquel tirou", brl(data.withdrawalRaquel)],
-    ["Resultado após retiradas", brl(data.availableForWithdrawal)],
-    ["Saldo da conta", brl(data.accountBalance)],
-    ["Ajustes da conta", brl(data.accountAdjustmentBalance)],
-    ["Cofrinho atual", brl(data.savingsBalance)],
-    ["Cumbucas", data.totalSoldQuantity || 0],
-    ["Semanal", data.weeklyCashQuantity || 0],
-    ["Loja", data.storeQuantity || 0]
+    ['Entradas operacionais', brl(data.totalIncome)],
+    ['Saídas operacionais', brl(data.operationalExpenses)],
+    ['Lucro operacional', brl(data.profitBeforeWithdrawals)],
+    ['Vanessa tirou', brl(data.withdrawalVanessa)],
+    ['Cofrinho', brl(data.withdrawalSavings)],
+    ['Raquel tirou', brl(data.withdrawalRaquel)],
+    ['Resultado após retiradas', brl(data.availableForWithdrawal)],
+    ['Saldo da conta', brl(data.accountBalance)],
+    ['Ajustes da conta', brl(data.accountAdjustmentBalance)],
+    ['Cofrinho atual', brl(data.savingsBalance)],
+    ['Cumbucas', data.totalSoldQuantity || 0],
+    ['Semanal', data.weeklyCashQuantity || 0],
+    ['Loja', data.storeQuantity || 0],
   ];
 
   const boxWidth = 168;
@@ -1894,56 +2157,94 @@ function buildReportPdf(payload = {}) {
     const row = Math.floor(index / 3);
     const x = 42 + col * 172;
     const y = 105 + row * 58;
-    doc.roundedRect(x, y, boxWidth, 48, 5).fill(index === 0 ? "#087f5b" : "#f9fafb").stroke("#e5e7eb");
-    doc.fillColor(index === 0 ? "#ffffff" : "#69707d").font("Helvetica-Bold").fontSize(8).text(label.toUpperCase(), x + 10, y + 9);
-    doc.fillColor(index === 0 ? "#ffffff" : "#121417").fontSize(14).text(pdfText(value), x + 10, y + 24, { width: boxWidth - 20 });
+    doc
+      .roundedRect(x, y, boxWidth, 48, 5)
+      .fill(index === 0 ? '#087f5b' : '#f9fafb')
+      .stroke('#e5e7eb');
+    doc
+      .fillColor(index === 0 ? '#ffffff' : '#69707d')
+      .font('Helvetica-Bold')
+      .fontSize(8)
+      .text(label.toUpperCase(), x + 10, y + 9);
+    doc
+      .fillColor(index === 0 ? '#ffffff' : '#121417')
+      .fontSize(14)
+      .text(pdfText(value), x + 10, y + 24, { width: boxWidth - 20 });
   });
 
   doc.y = 105 + Math.ceil(summary.length / 3) * 58 + 20;
-  addPdfSectionTitle(doc, "Resumo de entradas");
-  addPdfTable(doc, ["Grupo", "Origem", "Valor"], data.incomeSummaryRows || [
-    ["Conta", "Total da conta", brl(data.accountIncome ?? data.totalIncome ?? 0)],
-    ["Semanal", "Total semanal", brl(data.weeklyRevenue ?? 0)],
-    ["Total", "Conta + semanal", brl(Number(data.accountIncome ?? data.totalIncome ?? 0) + Number(data.weeklyRevenue ?? 0))]
-  ], [90, 260, 110]);
+  addPdfSectionTitle(doc, 'Resumo de entradas');
+  addPdfTable(
+    doc,
+    ['Grupo', 'Origem', 'Valor'],
+    data.incomeSummaryRows || [
+      ['Conta', 'Total da conta', brl(data.accountIncome ?? data.totalIncome ?? 0)],
+      ['Semanal', 'Total semanal', brl(data.weeklyRevenue ?? 0)],
+      [
+        'Total',
+        'Conta + semanal',
+        brl(Number(data.accountIncome ?? data.totalIncome ?? 0) + Number(data.weeklyRevenue ?? 0)),
+      ],
+    ],
+    [90, 260, 110]
+  );
 
-  addPdfSectionTitle(doc, "Entradas por canal");
-  addPdfTable(doc, ["Grupo", "Canal", "Valor"], data.incomeChannelRows || [], [110, 250, 110]);
+  addPdfSectionTitle(doc, 'Entradas por canal');
+  addPdfTable(doc, ['Grupo', 'Canal', 'Valor'], data.incomeChannelRows || [], [110, 250, 110]);
 
   if ((data.negativeDifferenceRows || []).length) {
-    addPdfSectionTitle(doc, "Diferenças negativas");
-    addPdfTable(doc, ["Indicador", "Atual", "Anterior", "Diferença"], data.negativeDifferenceRows || [], [110, 110, 110, 110]);
+    addPdfSectionTitle(doc, 'Diferenças negativas');
+    addPdfTable(
+      doc,
+      ['Indicador', 'Atual', 'Anterior', 'Diferença'],
+      data.negativeDifferenceRows || [],
+      [110, 110, 110, 110]
+    );
   }
 
-  addPdfSectionTitle(doc, "Saídas por categoria");
-  addPdfTable(doc, ["Categoria", "Total"], data.expenseCategoryRows || [], [300, 120]);
+  addPdfSectionTitle(doc, 'Saídas por categoria');
+  addPdfTable(doc, ['Categoria', 'Total'], data.expenseCategoryRows || [], [300, 120]);
 
-  addPdfSectionTitle(doc, "Principais despesas");
-  addPdfTable(doc, ["Descrição", "Categoria", "Valor"], data.expenseRows || [], [250, 140, 100]);
+  addPdfSectionTitle(doc, 'Principais despesas');
+  addPdfTable(doc, ['Descrição', 'Categoria', 'Valor'], data.expenseRows || [], [250, 140, 100]);
 
-  addPdfSectionTitle(doc, "Comparativo mensal");
-  addPdfTable(doc, ["Indicador", "Atual", "Anterior", "Diferença"], data.comparisonRows || [], [110, 110, 110, 110]);
+  addPdfSectionTitle(doc, 'Comparativo mensal');
+  addPdfTable(
+    doc,
+    ['Indicador', 'Atual', 'Anterior', 'Diferença'],
+    data.comparisonRows || [],
+    [110, 110, 110, 110]
+  );
 
-  addPdfSectionTitle(doc, "Retiradas e diferenças");
-  addPdfTable(doc, ["Destino", "Valor"], data.withdrawalRows || [], [250, 140]);
+  addPdfSectionTitle(doc, 'Retiradas e diferenças');
+  addPdfTable(doc, ['Destino', 'Valor'], data.withdrawalRows || [], [250, 140]);
 
-  addPdfSectionTitle(doc, "Cumbucas vendidas na loja");
-  addPdfTable(doc, ["Data", "Quantidade", "Observação"], data.storeRows || [], [82, 90, 340]);
+  addPdfSectionTitle(doc, 'Cumbucas vendidas na loja');
+  addPdfTable(doc, ['Data', 'Quantidade', 'Observação'], data.storeRows || [], [82, 90, 340]);
 
   const footerY = 760;
-  doc.moveTo(42, footerY).lineTo(245, footerY).stroke("#d1d5db");
-  doc.moveTo(295, footerY).lineTo(510, footerY).stroke("#d1d5db");
-  doc.fillColor("#69707d").font("Helvetica").fontSize(8).text("Responsável pelo fechamento", 42, footerY + 8);
-  doc.text("Conferência financeira", 295, footerY + 8);
-  doc.text("Observações: conferir contas, despesas maiores e cumbucas vendidas antes do fechamento.", 300, footerY, {
-    width: 240,
-    align: "right"
-  });
+  doc.moveTo(42, footerY).lineTo(245, footerY).stroke('#d1d5db');
+  doc.moveTo(295, footerY).lineTo(510, footerY).stroke('#d1d5db');
+  doc
+    .fillColor('#69707d')
+    .font('Helvetica')
+    .fontSize(8)
+    .text('Responsável pelo fechamento', 42, footerY + 8);
+  doc.text('Conferência financeira', 295, footerY + 8);
+  doc.text(
+    'Observações: conferir contas, despesas maiores e cumbucas vendidas antes do fechamento.',
+    300,
+    footerY,
+    {
+      width: 240,
+      align: 'right',
+    }
+  );
 
   doc.end();
 
-  return new Promise(resolve => {
-    doc.on("end", () => resolve(Buffer.concat(chunks)));
+  return new Promise((resolve) => {
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
   });
 }
 
@@ -1951,45 +2252,70 @@ async function buildReportXlsx(payload = {}) {
   const data = payload.data || {};
   const zip = new JSZip();
   const summaryRows = [
-    ["Período", payload.periodLabel || data.periodKey || ""],
-    ["Entradas operacionais", data.totalIncome || 0],
-    ["Saídas operacionais", data.operationalExpenses || 0],
-    ["Lucro operacional", data.profitBeforeWithdrawals || 0],
-    ["Vanessa tirou", data.withdrawalVanessa || 0],
-    ["Cofrinho", data.withdrawalSavings || 0],
-    ["Raquel tirou", data.withdrawalRaquel || 0],
-    ["Resultado após retiradas", data.availableForWithdrawal || 0],
-    ["Saldo da conta", data.accountBalance || 0],
-    ["Ajustes da conta", data.accountAdjustmentBalance || 0],
-    ["Cofrinho atual", data.savingsBalance || 0],
-    ["Atualização cofrinho", data.savingsUpdatedAt || ""],
-    ["Cumbucas semanal", data.weeklyCashQuantity || 0],
-    ["Cumbucas loja", data.storeQuantity || 0],
-    ["Cumbucas total", data.totalSoldQuantity || 0]
+    ['Período', payload.periodLabel || data.periodKey || ''],
+    ['Entradas operacionais', data.totalIncome || 0],
+    ['Saídas operacionais', data.operationalExpenses || 0],
+    ['Lucro operacional', data.profitBeforeWithdrawals || 0],
+    ['Vanessa tirou', data.withdrawalVanessa || 0],
+    ['Cofrinho', data.withdrawalSavings || 0],
+    ['Raquel tirou', data.withdrawalRaquel || 0],
+    ['Resultado após retiradas', data.availableForWithdrawal || 0],
+    ['Saldo da conta', data.accountBalance || 0],
+    ['Ajustes da conta', data.accountAdjustmentBalance || 0],
+    ['Cofrinho atual', data.savingsBalance || 0],
+    ['Atualização cofrinho', data.savingsUpdatedAt || ''],
+    ['Cumbucas semanal', data.weeklyCashQuantity || 0],
+    ['Cumbucas loja', data.storeQuantity || 0],
+    ['Cumbucas total', data.totalSoldQuantity || 0],
   ];
 
   const sheets = [
-    ["Resumo", summaryRows],
-    ["Entradas", [["Data", "Descrição", "Valor"], ...(data.incomeRows || [])]],
-    ["Despesas", [["Data", "Descrição", "Categoria", "Valor"], ...(data.expenseRows || [])]],
-    ["Canais", [["Data", "Débito", "Crédito", "Cartão de crédito online", "Pix", "Dinheiro", "iFood", "99 Food", "Total"], ...(data.channelRows || [])]],
-    ["Comparativo", [["Indicador", "Atual", "Anterior", "Diferença"], ...(data.comparisonRows || [])]],
-    ["Clientes", [["Cliente", "Telefone", "Perfil", "Pedidos", "Cumbucas", "Total", "Pendências"], ...(data.clientRows || [])]],
-    ["Retiradas", [["Destino", "Valor"], ...(data.withdrawalRows || [])]],
-    ["Loja", [["Data", "Quantidade", "Observação"], ...(data.storeRows || [])]],
-    ["Caixa", [["Data", "Descrição", "Tipo", "Categoria", "Valor"], ...(data.cashRows || [])]]
+    ['Resumo', summaryRows],
+    ['Entradas', [['Data', 'Descrição', 'Valor'], ...(data.incomeRows || [])]],
+    ['Despesas', [['Data', 'Descrição', 'Categoria', 'Valor'], ...(data.expenseRows || [])]],
+    [
+      'Canais',
+      [
+        [
+          'Data',
+          'Débito',
+          'Crédito',
+          'Cartão de crédito online',
+          'Pix',
+          'Dinheiro',
+          'iFood',
+          '99 Food',
+          'Total',
+        ],
+        ...(data.channelRows || []),
+      ],
+    ],
+    [
+      'Comparativo',
+      [['Indicador', 'Atual', 'Anterior', 'Diferença'], ...(data.comparisonRows || [])],
+    ],
+    [
+      'Clientes',
+      [
+        ['Cliente', 'Telefone', 'Perfil', 'Pedidos', 'Cumbucas', 'Total', 'Pendências'],
+        ...(data.clientRows || []),
+      ],
+    ],
+    ['Retiradas', [['Destino', 'Valor'], ...(data.withdrawalRows || [])]],
+    ['Loja', [['Data', 'Quantidade', 'Observação'], ...(data.storeRows || [])]],
+    ['Caixa', [['Data', 'Descrição', 'Tipo', 'Categoria', 'Valor'], ...(data.cashRows || [])]],
   ];
 
   function xml(value) {
-    return String(value ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
   function columnName(index) {
-    let name = "";
+    let name = '';
     let current = index + 1;
     while (current > 0) {
       const remainder = (current - 1) % 26;
@@ -2000,99 +2326,142 @@ async function buildReportXlsx(payload = {}) {
   }
 
   function sheetXml(rows) {
-    const body = rows.map((row, rowIndex) => {
-      const cells = row.map((value, columnIndex) => {
-        const ref = `${columnName(columnIndex)}${rowIndex + 1}`;
-        if (typeof value === "number" && Number.isFinite(value)) {
-          return `<c r="${ref}"><v>${value}</v></c>`;
-        }
-        return `<c r="${ref}" t="inlineStr"><is><t>${xml(value)}</t></is></c>`;
-      }).join("");
-      return `<row r="${rowIndex + 1}">${cells}</row>`;
-    }).join("");
+    const body = rows
+      .map((row, rowIndex) => {
+        const cells = row
+          .map((value, columnIndex) => {
+            const ref = `${columnName(columnIndex)}${rowIndex + 1}`;
+            if (typeof value === 'number' && Number.isFinite(value)) {
+              return `<c r="${ref}"><v>${value}</v></c>`;
+            }
+            return `<c r="${ref}" t="inlineStr"><is><t>${xml(value)}</t></is></c>`;
+          })
+          .join('');
+        return `<row r="${rowIndex + 1}">${cells}</row>`;
+      })
+      .join('');
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${body}</sheetData></worksheet>`;
   }
 
-  zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  zip.file(
+    '[Content_Types].xml',
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
   <Default Extension="xml" ContentType="application/xml"/>
   <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
-  ${sheets.map((_, index) => `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("")}
-</Types>`);
-  zip.folder("_rels").file(".rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  ${sheets
+    .map(
+      (_, index) =>
+        `<Override PartName="/xl/worksheets/sheet${
+          index + 1
+        }.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`
+    )
+    .join('')}
+</Types>`
+  );
+  zip.folder('_rels').file(
+    '.rels',
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
-</Relationships>`);
-  zip.folder("xl").file("workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+</Relationships>`
+  );
+  zip.folder('xl').file(
+    'workbook.xml',
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <sheets>${sheets.map(([name], index) => `<sheet name="${xml(name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join("")}</sheets>
-</workbook>`);
-  zip.folder("xl").folder("_rels").file("workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  <sheets>${sheets
+    .map(
+      ([name], index) =>
+        `<sheet name="${xml(name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`
+    )
+    .join('')}</sheets>
+</workbook>`
+  );
+  zip
+    .folder('xl')
+    .folder('_rels')
+    .file(
+      'workbook.xml.rels',
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  ${sheets.map((_, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`).join("")}
-</Relationships>`);
-  const worksheetFolder = zip.folder("xl").folder("worksheets");
+  ${sheets
+    .map(
+      (_, index) =>
+        `<Relationship Id="rId${
+          index + 1
+        }" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${
+          index + 1
+        }.xml"/>`
+    )
+    .join('')}
+</Relationships>`
+    );
+  const worksheetFolder = zip.folder('xl').folder('worksheets');
   sheets.forEach(([, rows], index) => {
     worksheetFolder.file(`sheet${index + 1}.xml`, sheetXml(rows));
   });
 
-  return zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
 function weeklyMenu(payload = {}) {
   const meals = Array.isArray(payload.meals) ? payload.meals : [];
-  const allowedStatuses = ["planejado", "compras", "preparo", "pronto"];
+  const allowedStatuses = ['planejado', 'compras', 'preparo', 'pronto'];
   const plan = Array.from({ length: 5 }, (_, index) => {
     const found = meals[index] || {};
-    const status = allowedStatuses.includes(found.status) ? found.status : "planejado";
+    const status = allowedStatuses.includes(found.status) ? found.status : 'planejado';
     const ingredients = Array.isArray(found.ingredients)
       ? found.ingredients
-        .map(item => ({
-          name: String(item.name || "").trim(),
-          value: number(item.value)
-        }))
-        .filter(item => item.name || item.value > 0)
+          .map((item) => ({
+            name: String(item.name || '').trim(),
+            value: number(item.value),
+          }))
+          .filter((item) => item.name || item.value > 0)
       : [];
     const ingredientCost = ingredients.reduce((sum, item) => sum + item.value, 0);
     return {
       slot: index + 1,
-      dish: String(found.dish || "").trim(),
+      dish: String(found.dish || '').trim(),
       ingredients,
       cost: ingredientCost || number(found.cost),
       status,
-      notes: String(found.notes || "").trim()
+      notes: String(found.notes || '').trim(),
     };
   });
 
   return {
     totalCost: plan.reduce((sum, item) => sum + item.cost, 0),
-    readyCount: plan.filter(item => item.status === "pronto").length,
-    plan
+    readyCount: plan.filter((item) => item.status === 'pronto').length,
+    plan,
   };
 }
 
 function serveStatic(req, res, pathname) {
-  const requestPath = pathname === "/" ? "/index.html" : pathname;
+  const requestPath = pathname === '/' ? '/index.html' : pathname;
   const filePath = path.normalize(path.join(PUBLIC_DIR, requestPath));
 
   if (!filePath.startsWith(PUBLIC_DIR)) {
-    sendJson(res, 403, { error: "Acesso negado." });
+    sendJson(res, 403, { error: 'Acesso negado.' });
     return;
   }
 
   fs.readFile(filePath, (error, data) => {
     if (error) {
-      fs.readFile(path.join(PUBLIC_DIR, "index.html"), (fallbackError, fallbackData) => {
+      fs.readFile(path.join(PUBLIC_DIR, 'index.html'), (fallbackError, fallbackData) => {
         if (fallbackError) {
-          sendJson(res, 404, { error: "Arquivo não encontrado." });
+          sendJson(res, 404, { error: 'Arquivo não encontrado.' });
           return;
         }
-        res.writeHead(200, {
-          "Content-Type": mimeTypes[".html"],
-          "Cache-Control": "no-cache"
-        });
+        res.writeHead(
+          200,
+          mergeHeaders({
+            'Content-Type': mimeTypes['.html'],
+            'Cache-Control': 'no-cache',
+          })
+        );
         res.end(fallbackData);
       });
       return;
@@ -2100,12 +2469,12 @@ function serveStatic(req, res, pathname) {
 
     const extension = path.extname(filePath);
     const headers = {
-      "Content-Type": mimeTypes[extension] || "application/octet-stream"
+      'Content-Type': mimeTypes[extension] || 'application/octet-stream',
     };
-    if ([".html", ".js", ".css"].includes(extension)) {
-      headers["Cache-Control"] = "no-cache";
+    if (['.html', '.js', '.css'].includes(extension)) {
+      headers['Cache-Control'] = 'no-cache';
     }
-    res.writeHead(200, headers);
+    res.writeHead(200, mergeHeaders(headers));
     res.end(data);
   });
 }
@@ -2116,7 +2485,7 @@ async function handleRequest(req, res) {
   let authenticated = false;
 
   try {
-    if (req.method === "GET" && url.pathname === "/api/health") {
+    if (req.method === 'GET' && url.pathname === '/api/health') {
       let database = false;
       try {
         database = await ensureStateTable();
@@ -2124,8 +2493,8 @@ async function handleRequest(req, res) {
         database = false;
       }
       sendJson(res, 200, {
-        status: "online",
-        database
+        status: 'online',
+        database,
       });
       return;
     }
@@ -2133,277 +2502,327 @@ async function handleRequest(req, res) {
     user = await currentUser(req);
     authenticated = Boolean(user);
 
-    if (req.method === "GET" && url.pathname === "/api/session") {
+    if (req.method === 'GET' && url.pathname === '/api/session') {
       sendJson(res, 200, { authenticated, user });
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/login") {
+    if (req.method === 'POST' && url.pathname === '/api/login') {
       const payload = await collectBody(req);
-      const username = String(payload.username || "").trim().toLowerCase();
+      const username = String(payload.username || '')
+        .trim()
+        .toLowerCase();
       if (loginBlocked(req, username)) {
-        sendJson(res, 429, { error: "Muitas tentativas. Aguarde alguns minutos e tente novamente." });
-        return;
-      }
-      const authUser = await findAuthUser(username, String(payload.password || ""));
-      if (authUser) {
-        clearLoginFailures(req, username);
-        await writeEvent("login", `Usuário ${authUser.username} entrou no sistema.`, authUser);
-        sendJson(res, 200, {
-          ok: true,
-          user: {
-            username: authUser.username,
-            name: authUser.name,
-            role: authUser.role,
-            permissions: normalizedPermissions(authUser.permissions, authUser.role)
-          }
-        }, {
-          "Set-Cookie": sessionCookie(`${authUser.username}.${userSessionToken(authUser)}`, 60 * 60 * 24 * 30)
+        sendJson(res, 429, {
+          error: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.',
         });
         return;
       }
-      registerLoginFailure(req, username);
-      await writeEvent("login_falhou", `Tentativa invalida para ${username || "usuario vazio"}.`, { username: username || "" });
-      sendJson(res, 401, { error: "Login ou senha inválidos." });
-      return;
-    }
-
-    if (req.method === "POST" && url.pathname === "/api/logout") {
-      if (user) {
-        await writeEvent("logout", `Usuário ${user.username} saiu do sistema.`, user);
-      }
-      sendJson(res, 200, { ok: true }, {
-        "Set-Cookie": sessionCookie("", 0)
-      });
-      return;
-    }
-
-    if (req.method === "GET" && url.pathname === "/login") {
-      if (authenticated) {
-        redirect(res, "/");
+      const authUser = await findAuthUser(username, String(payload.password || ''));
+      if (authUser) {
+        clearLoginFailures(req, username);
+        await writeEvent('login', `Usuário ${authUser.username} entrou no sistema.`, authUser);
+        sendJson(
+          res,
+          200,
+          {
+            ok: true,
+            user: {
+              username: authUser.username,
+              name: authUser.name,
+              role: authUser.role,
+              permissions: normalizedPermissions(authUser.permissions, authUser.role),
+            },
+          },
+          {
+            'Set-Cookie': sessionCookie(
+              `${authUser.username}.${userSessionToken(authUser)}`,
+              60 * 60 * 24 * 30
+            ),
+          }
+        );
         return;
       }
-      serveStatic(req, res, "/login.html");
+      registerLoginFailure(req, username);
+      await writeEvent('login_falhou', `Tentativa invalida para ${username || 'usuario vazio'}.`, {
+        username: username || '',
+      });
+      sendJson(res, 401, { error: 'Login ou senha inválidos.' });
       return;
     }
 
-    const publicFiles = ["/styles.css", "/login.js", "/logo-cumbuca.svg", "/manifest.json", "/sw.js"];
+    if (req.method === 'POST' && url.pathname === '/api/logout') {
+      if (user) {
+        await writeEvent('logout', `Usuário ${user.username} saiu do sistema.`, user);
+      }
+      sendJson(
+        res,
+        200,
+        { ok: true },
+        {
+          'Set-Cookie': sessionCookie('', 0),
+        }
+      );
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/login') {
+      if (authenticated) {
+        redirect(res, '/');
+        return;
+      }
+      serveStatic(req, res, '/login.html');
+      return;
+    }
+
+    const publicFiles = [
+      '/styles.css',
+      '/login.js',
+      '/logo-cumbuca.svg',
+      '/manifest.json',
+      '/sw.js',
+    ];
     if (!authenticated) {
-      if (req.method === "GET" && publicFiles.includes(url.pathname)) {
+      if (req.method === 'GET' && publicFiles.includes(url.pathname)) {
         serveStatic(req, res, url.pathname);
         return;
       }
 
-      if (url.pathname.startsWith("/api/")) {
-        sendJson(res, 401, { error: "Faça login para continuar." });
+      if (url.pathname.startsWith('/api/')) {
+        sendJson(res, 401, { error: 'Faça login para continuar.' });
         return;
       }
 
-      if (req.method === "GET") {
-        redirect(res, "/login");
+      if (req.method === 'GET') {
+        redirect(res, '/login');
         return;
       }
     }
 
-    if (req.method === "GET" && url.pathname === "/api/tools") {
+    if (req.method === 'GET' && url.pathname === '/api/tools') {
       sendJson(res, 200, { tools });
       return;
     }
 
-    if (req.method === "GET" && url.pathname === "/api/state") {
+    if (req.method === 'GET' && url.pathname === '/api/state') {
       sendJson(res, 200, await readAppState());
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/state") {
+    if (req.method === 'POST' && url.pathname === '/api/state') {
       const payload = await collectBody(req);
       sendJson(res, 200, await writeAppState(payload.state || payload, user));
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/closings") {
+    if (req.method === 'POST' && url.pathname === '/api/closings') {
       const payload = await collectBody(req);
       const result = await saveClosing(payload, user);
-      sendJson(res, result.saved ? 200 : (result.statusCode || 409), result);
+      sendJson(res, result.saved ? 200 : result.statusCode || 409, result);
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/closings/reopen") {
+    if (req.method === 'POST' && url.pathname === '/api/closings/reopen') {
       const payload = await collectBody(req);
       const result = await reopenClosing(payload, user);
-      sendJson(res, result.saved ? 200 : (result.statusCode || 400), result);
+      sendJson(res, result.saved ? 200 : result.statusCode || 400, result);
       return;
     }
 
-    if (req.method === "GET" && url.pathname === "/api/financial-integrity") {
-      sendJson(res, 200, await financialIntegrity({
-        repair: url.searchParams.get("repair") === "1",
-        user
-      }));
+    if (req.method === 'GET' && url.pathname === '/api/financial-integrity') {
+      sendJson(
+        res,
+        200,
+        await financialIntegrity({
+          repair: url.searchParams.get('repair') === '1',
+          user,
+        })
+      );
       return;
     }
 
-    if (req.method === "GET" && url.pathname === "/api/integrations") {
+    if (req.method === 'GET' && url.pathname === '/api/integrations') {
       sendJson(res, 200, integrationStatus());
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/integrations/test-alert") {
-      if (user?.role !== "admin") {
-        sendJson(res, 403, { error: "Acesso restrito ao administrador." });
+    if (req.method === 'POST' && url.pathname === '/api/integrations/test-alert') {
+      if (user?.role !== 'admin') {
+        sendJson(res, 403, { error: 'Acesso restrito ao administrador.' });
         return;
       }
-      const result = await sendExternalAlert({
-        title: "Teste Cumbuca",
-        message: "Alerta externo configurado e funcionando.",
-        severity: "test"
-      }, user);
+      const result = await sendExternalAlert(
+        {
+          title: 'Teste Cumbuca',
+          message: 'Alerta externo configurado e funcionando.',
+          severity: 'test',
+        },
+        user
+      );
       sendJson(res, result.sent ? 200 : 400, result);
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/integrations/test-backup") {
-      if (!userCan(user, "restoreBackup")) {
-        sendJson(res, 403, { error: "Seu usuário não pode testar backups externos." });
+    if (req.method === 'POST' && url.pathname === '/api/integrations/test-backup') {
+      if (!userCan(user, 'restoreBackup')) {
+        sendJson(res, 403, { error: 'Seu usuário não pode testar backups externos.' });
         return;
       }
       const current = await readAppState();
-      const result = await sendExternalBackup({
-        app: "Cumbuca",
-        version: "1.0.0",
-        exportedAt: new Date().toISOString(),
-        source: "integration-test",
-        data: current.state
-      }, `test-${Date.now()}`, user);
+      const result = await sendExternalBackup(
+        {
+          app: 'Cumbuca',
+          version: '1.0.0',
+          exportedAt: new Date().toISOString(),
+          source: 'integration-test',
+          data: current.state,
+        },
+        `test-${Date.now()}`,
+        user
+      );
       sendJson(res, result.sent ? 200 : 400, result);
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/backup-restore-check") {
-      if (!userCan(user, "restoreBackup")) {
-        sendJson(res, 403, { error: "Seu usuário não pode testar restaurações." });
+    if (req.method === 'POST' && url.pathname === '/api/backup-restore-check') {
+      if (!userCan(user, 'restoreBackup')) {
+        sendJson(res, 403, { error: 'Seu usuário não pode testar restaurações.' });
         return;
       }
       sendJson(res, 200, await backupRestoreCheck(user));
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/reset-state") {
-      if (!userCan(user, "clearData")) {
-        sendJson(res, 403, { error: "Seu usuário não pode limpar dados." });
+    if (req.method === 'POST' && url.pathname === '/api/reset-state') {
+      if (!userCan(user, 'clearData')) {
+        sendJson(res, 403, { error: 'Seu usuário não pode limpar dados.' });
         return;
       }
       const payload = await collectBody(req);
-      if (payload.confirm !== "LIMPAR TODO O BANCO") {
-        sendJson(res, 400, { error: "Confirme com LIMPAR TODO O BANCO para apagar os dados." });
+      if (payload.confirm !== 'LIMPAR TODO O BANCO') {
+        sendJson(res, 400, { error: 'Confirme com LIMPAR TODO O BANCO para apagar os dados.' });
         return;
       }
       sendJson(res, 200, await resetAppState(user));
       return;
     }
 
-    if (req.method === "GET" && url.pathname === "/api/backups") {
+    if (req.method === 'GET' && url.pathname === '/api/backups') {
       sendJson(res, 200, await listBackups());
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/reset-financial-state") {
-      if (!userCan(user, "clearData")) {
-        sendJson(res, 403, { error: "Seu usuário não pode reiniciar o financeiro." });
+    if (req.method === 'POST' && url.pathname === '/api/reset-financial-state') {
+      if (!userCan(user, 'clearData')) {
+        sendJson(res, 403, { error: 'Seu usuário não pode reiniciar o financeiro.' });
         return;
       }
       const payload = await collectBody(req);
-      if (payload.confirm !== "REINICIAR FINANCEIRO") {
-        sendJson(res, 400, { error: "Confirme com REINICIAR FINANCEIRO para apagar as movimentações." });
+      if (payload.confirm !== 'REINICIAR FINANCEIRO') {
+        sendJson(res, 400, {
+          error: 'Confirme com REINICIAR FINANCEIRO para apagar as movimentações.',
+        });
         return;
       }
       sendJson(res, 200, await resetFinancialState(user));
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/manual-backup") {
+    if (req.method === 'POST' && url.pathname === '/api/manual-backup') {
       const payload = await collectBody(req);
       const statePayload = normalizeState(payload.state || payload);
-      const result = await writeAutomaticBackup(statePayload, { source: "manual" });
+      const result = await writeAutomaticBackup(statePayload, { source: 'manual' });
       if (result.database && result.saved) {
-        await writeEvent("backup_manual_supabase", "Backup manual salvo no Supabase.", user);
+        await writeEvent('backup_manual_supabase', 'Backup manual salvo no Supabase.', user);
       }
       sendJson(res, 200, {
         ...result,
-        preview: backupPreview(statePayload)
+        preview: backupPreview(statePayload),
       });
       return;
     }
 
-    if (req.method === "GET" && url.pathname === "/api/database-usage") {
+    if (req.method === 'GET' && url.pathname === '/api/database-usage') {
       sendJson(res, 200, await databaseUsage());
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/backups/delete-old") {
-      if (!userCan(user, "clearData")) {
-        sendJson(res, 403, { error: "Seu usuário não pode apagar backups." });
+    if (req.method === 'POST' && url.pathname === '/api/backups/delete-old') {
+      if (!userCan(user, 'clearData')) {
+        sendJson(res, 403, { error: 'Seu usuário não pode apagar backups.' });
         return;
       }
       const payload = await collectBody(req);
       const result = await deleteOldBackups(payload.keepDays);
       if (result.database) {
-        await writeEvent("backups_antigos_apagados", `${result.deleted || 0} backup(s) apagado(s).`, user);
+        await writeEvent(
+          'backups_antigos_apagados',
+          `${result.deleted || 0} backup(s) apagado(s).`,
+          user
+        );
       }
       sendJson(res, 200, result);
       return;
     }
 
-    if (req.method === "GET" && url.pathname === "/api/backup") {
-      const backupReference = url.searchParams.get("id") || url.searchParams.get("date");
+    if (req.method === 'GET' && url.pathname === '/api/backup') {
+      const backupReference = url.searchParams.get('id') || url.searchParams.get('date');
       if (!backupReference) {
-        sendJson(res, 400, { error: "Informe a data do backup." });
+        sendJson(res, 400, { error: 'Informe a data do backup.' });
         return;
       }
       const result = await readBackup(backupReference);
       if (!result.backup) {
-        sendJson(res, 404, { error: "Backup não encontrado." });
+        sendJson(res, 404, { error: 'Backup não encontrado.' });
         return;
       }
       const body = JSON.stringify(result.backup.payload, null, 2);
-      const filenameReference = String(result.backup.backup_id || result.backup.backup_date || "backup")
-        .replace(/[^a-zA-Z0-9-]+/g, "-");
-      res.writeHead(200, {
-        "Content-Type": "application/json; charset=utf-8",
-        "Content-Disposition": `attachment; filename="cumbuca-backup-${filenameReference}.json"`,
-        "Content-Length": Buffer.byteLength(body)
-      });
+      const filenameReference = String(
+        result.backup.backup_id || result.backup.backup_date || 'backup'
+      ).replace(/[^a-zA-Z0-9-]+/g, '-');
+      res.writeHead(
+        200,
+        mergeHeaders({
+          'Content-Type': 'application/json; charset=utf-8',
+          'Content-Disposition': `attachment; filename="cumbuca-backup-${filenameReference}.json"`,
+          'Content-Length': Buffer.byteLength(body),
+        })
+      );
       res.end(body);
       return;
     }
 
-    if (req.method === "DELETE" && url.pathname === "/api/backup") {
-      if (!userCan(user, "clearData")) {
-        sendJson(res, 403, { error: "Seu usuário não pode excluir backups." });
+    if (req.method === 'DELETE' && url.pathname === '/api/backup') {
+      if (!userCan(user, 'clearData')) {
+        sendJson(res, 403, { error: 'Seu usuário não pode excluir backups.' });
         return;
       }
-      const backupReference = url.searchParams.get("id") || url.searchParams.get("date");
+      const backupReference = url.searchParams.get('id') || url.searchParams.get('date');
       if (!backupReference) {
-        sendJson(res, 400, { error: "Informe a data do backup." });
+        sendJson(res, 400, { error: 'Informe a data do backup.' });
         return;
       }
       const result = await deleteBackup(backupReference);
       if (result.database && result.deleted) {
-        await writeEvent("backup_apagado", `Backup ${backupReference} apagado.`, user);
+        await writeEvent('backup_apagado', `Backup ${backupReference} apagado.`, user);
       }
-      sendJson(res, result.deleted ? 200 : 404, result.deleted ? result : { ...result, error: "Backup não encontrado." });
+      sendJson(
+        res,
+        result.deleted ? 200 : 404,
+        result.deleted ? result : { ...result, error: 'Backup não encontrado.' }
+      );
       return;
     }
 
-    if (req.method === "GET" && url.pathname === "/api/backup-preview") {
-      const backupReference = url.searchParams.get("id") || url.searchParams.get("date");
+    if (req.method === 'GET' && url.pathname === '/api/backup-preview') {
+      const backupReference = url.searchParams.get('id') || url.searchParams.get('date');
       if (!backupReference) {
-        sendJson(res, 400, { error: "Informe a data do backup." });
+        sendJson(res, 400, { error: 'Informe a data do backup.' });
         return;
       }
       const result = await readBackup(backupReference);
       if (!result.backup) {
-        sendJson(res, 404, { error: "Backup não encontrado." });
+        sendJson(res, 404, { error: 'Backup não encontrado.' });
         return;
       }
       sendJson(res, 200, {
@@ -2412,47 +2831,47 @@ async function handleRequest(req, res) {
         backupDate: result.backup.backup_date,
         createdAt: result.backup.created_at,
         updatedAt: result.backup.updated_at,
-        preview: backupPreview(result.backup.payload)
+        preview: backupPreview(result.backup.payload),
       });
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/restore-backup") {
-      if (!userCan(user, "restoreBackup")) {
-        sendJson(res, 403, { error: "Seu usuário não pode restaurar backups." });
+    if (req.method === 'POST' && url.pathname === '/api/restore-backup') {
+      if (!userCan(user, 'restoreBackup')) {
+        sendJson(res, 403, { error: 'Seu usuário não pode restaurar backups.' });
         return;
       }
       const payload = await collectBody(req);
       const backupReference = payload.id || payload.date;
       const result = await restoreBackup(backupReference);
       if (result.database && result.restored) {
-        await writeEvent("backup_restaurado", `Backup ${backupReference} restaurado.`, user);
+        await writeEvent('backup_restaurado', `Backup ${backupReference} restaurado.`, user);
       }
       sendJson(res, 200, result);
       return;
     }
 
-    if (req.method === "GET" && url.pathname === "/api/events") {
-      if (user?.role !== "admin") {
-        sendJson(res, 403, { error: "Acesso restrito ao administrador." });
+    if (req.method === 'GET' && url.pathname === '/api/events') {
+      if (user?.role !== 'admin') {
+        sendJson(res, 403, { error: 'Acesso restrito ao administrador.' });
         return;
       }
-      sendJson(res, 200, await listEvents(url.searchParams.get("limit")));
+      sendJson(res, 200, await listEvents(url.searchParams.get('limit')));
       return;
     }
 
-    if (req.method === "GET" && url.pathname === "/api/users") {
-      if (user?.role !== "admin") {
-        sendJson(res, 403, { error: "Acesso restrito ao administrador." });
+    if (req.method === 'GET' && url.pathname === '/api/users') {
+      if (user?.role !== 'admin') {
+        sendJson(res, 403, { error: 'Acesso restrito ao administrador.' });
         return;
       }
       sendJson(res, 200, await listUsers());
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/users") {
-      if (user?.role !== "admin") {
-        sendJson(res, 403, { error: "Acesso restrito ao administrador." });
+    if (req.method === 'POST' && url.pathname === '/api/users') {
+      if (user?.role !== 'admin') {
+        sendJson(res, 403, { error: 'Acesso restrito ao administrador.' });
         return;
       }
       const payload = await collectBody(req);
@@ -2460,9 +2879,9 @@ async function handleRequest(req, res) {
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/users/active") {
-      if (user?.role !== "admin") {
-        sendJson(res, 403, { error: "Acesso restrito ao administrador." });
+    if (req.method === 'POST' && url.pathname === '/api/users/active') {
+      if (user?.role !== 'admin') {
+        sendJson(res, 403, { error: 'Acesso restrito ao administrador.' });
         return;
       }
       const payload = await collectBody(req);
@@ -2470,80 +2889,93 @@ async function handleRequest(req, res) {
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/change-password") {
+    if (req.method === 'POST' && url.pathname === '/api/change-password') {
       const payload = await collectBody(req);
       const result = await changeOwnPassword(user, payload);
-      const headers = result.saved && result.session
-        ? { "Set-Cookie": sessionCookie(result.session, 60 * 60 * 24 * 30) }
-        : {};
+      const headers =
+        result.saved && result.session
+          ? { 'Set-Cookie': sessionCookie(result.session, 60 * 60 * 24 * 30) }
+          : {};
       sendJson(res, result.saved ? 200 : 400, result, headers);
       return;
     }
 
-    if (req.method === "GET" && url.pathname === "/api/persistence-check") {
+    if (req.method === 'GET' && url.pathname === '/api/persistence-check') {
       sendJson(res, 200, await verifyPersistence());
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/report-pdf") {
+    if (req.method === 'POST' && url.pathname === '/api/report-pdf') {
       const payload = await collectBody(req);
       const pdf = await buildReportPdf(payload);
-      res.writeHead(200, {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${payload.filename || "cumbuca-relatorio.pdf"}"`,
-        "Content-Length": pdf.length
-      });
+      res.writeHead(
+        200,
+        mergeHeaders({
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `attachment; filename="${
+            payload.filename || 'cumbuca-relatorio.pdf'
+          }"`,
+          'Content-Length': pdf.length,
+        })
+      );
       res.end(pdf);
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/report-xlsx") {
+    if (req.method === 'POST' && url.pathname === '/api/report-xlsx') {
       const payload = await collectBody(req);
       const xlsx = await buildReportXlsx(payload);
-      res.writeHead(200, {
-        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename="${payload.filename || "cumbuca-relatorio.xlsx"}"`,
-        "Content-Length": xlsx.length
-      });
+      res.writeHead(
+        200,
+        mergeHeaders({
+          'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'Content-Disposition': `attachment; filename="${
+            payload.filename || 'cumbuca-relatorio.xlsx'
+          }"`,
+          'Content-Length': xlsx.length,
+        })
+      );
       res.end(xlsx);
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/fluxo-de-caixa") {
+    if (req.method === 'POST' && url.pathname === '/api/fluxo-de-caixa') {
       const payload = await collectBody(req);
       sendJson(res, 200, calculateCashFlow(payload.entries));
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/menu-semanal") {
+    if (req.method === 'POST' && url.pathname === '/api/menu-semanal') {
       const payload = await collectBody(req);
       sendJson(res, 200, weeklyMenu(payload));
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/precificacao") {
+    if (req.method === 'POST' && url.pathname === '/api/precificacao') {
       const payload = await collectBody(req);
       sendJson(res, 200, calculatePricing(payload));
       return;
     }
 
-    if (req.method === "GET") {
+    if (req.method === 'GET') {
       serveStatic(req, res, url.pathname);
       return;
     }
 
-    sendJson(res, 405, { error: "Método não permitido." });
+    sendJson(res, 405, { error: 'Método não permitido.' });
   } catch (error) {
     console.error(`[${new Date().toISOString()}] ${req.method} ${req.url}`, error);
     try {
       await writeEvent(
-        "erro_api",
-        `${req.method} ${String(req.url || "").slice(0, 160)}: ${String(error.message || error).slice(0, 300)}`
+        'erro_api',
+        `${req.method} ${String(req.url || '').slice(0, 160)}: ${String(
+          error.message || error
+        ).slice(0, 300)}`
       );
     } catch (eventError) {
-      console.error("Falha ao registrar erro da API.", eventError);
+      console.error('Falha ao registrar erro da API.', eventError);
     }
-    sendJson(res, error.statusCode || 400, { error: error.message || "Requisição inválida." });
+    sendJson(res, error.statusCode || 400, { error: error.message || 'Requisição inválida.' });
   }
 }
 
@@ -2570,7 +3002,7 @@ handleRequest._test = {
   stateWriteViolation,
   userCan,
   validateBackupPayload,
-  weekRangeFromDate
+  weekRangeFromDate,
 };
 
 module.exports = handleRequest;
