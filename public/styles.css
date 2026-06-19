@@ -4003,6 +4003,136 @@ td select {
   background: #f9fafb;
 }
 
+html.dark-mode .panel,
+html.dark-mode .card,
+html.dark-mode .dashboard-panel,
+html.dark-mode .dashboard-metric,
+html.dark-mode .report-metric,
+html.dark-mode .metric,
+html.dark-mode .order-card,
+html.dark-mode .alert-card,
+html.dark-mode .partners-dashboard > section,
+html.dark-mode .planning-card,
+html.dark-mode .week-range-card,
+html.dark-mode .client-panel,
+html.dark-mode .order-tab-panel,
+html.dark-mode .order-summary,
+html.dark-mode .order-dish-summary,
+html.dark-mode .order-overview-panel,
+html.dark-mode .account-check-card,
+html.dark-mode .cash-command-panel,
+html.dark-mode .cash-ledger-panel,
+html.dark-mode .withdrawal-panel,
+html.dark-mode .supplier-panel,
+html.dark-mode .report-panel,
+html.dark-mode .view-tabs-panel,
+html.dark-mode .backup-manual-panel,
+html.dark-mode .db-usage-card,
+html.dark-mode .integrity-metric,
+html.dark-mode .pending-summary,
+html.dark-mode .permission-summary,
+html.dark-mode .system-check-panel {
+  border-color: rgba(245, 243, 240, 0.09);
+  background:
+    linear-gradient(180deg, rgba(30, 28, 24, 0.96), rgba(24, 22, 19, 0.94));
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+}
+
+html.dark-mode .card:hover,
+html.dark-mode .planning-card:hover,
+html.dark-mode .pending-summary:hover,
+html.dark-mode .pending-summary:focus-visible {
+  border-color: rgba(52, 211, 153, 0.24);
+  background:
+    linear-gradient(180deg, rgba(35, 33, 28, 0.98), rgba(24, 22, 19, 0.96));
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.36);
+}
+
+html.dark-mode .card-icon,
+html.dark-mode .mini-metrics span,
+html.dark-mode .cash-hero-metrics span,
+html.dark-mode .compact-summary .metric,
+html.dark-mode .comparison-summary .metric,
+html.dark-mode .summary > *,
+html.dark-mode .planning-summary > *,
+html.dark-mode .db-usage-metrics .metric,
+html.dark-mode .cleanup-preview .metric {
+  border-color: rgba(245, 243, 240, 0.08);
+  background: rgba(245, 243, 240, 0.055);
+  box-shadow: none;
+}
+
+html.dark-mode input,
+html.dark-mode select,
+html.dark-mode textarea,
+html.dark-mode td input,
+html.dark-mode td select,
+html.dark-mode .editable-metric input {
+  border-color: rgba(245, 243, 240, 0.12);
+  background: rgba(10, 10, 9, 0.55);
+  color: #f5f3f0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+html.dark-mode input::placeholder,
+html.dark-mode textarea::placeholder {
+  color: rgba(245, 243, 240, 0.42);
+}
+
+html.dark-mode input:focus,
+html.dark-mode select:focus,
+html.dark-mode textarea:focus {
+  border-color: rgba(52, 211, 153, 0.42);
+  box-shadow: 0 0 0 3px rgba(8, 127, 91, 0.2);
+}
+
+html.dark-mode .table-wrap,
+html.dark-mode .cash-ledger-table,
+html.dark-mode .report-table {
+  border-color: rgba(245, 243, 240, 0.09);
+  background: rgba(20, 18, 15, 0.9);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.24);
+}
+
+html.dark-mode table {
+  background: transparent;
+}
+
+html.dark-mode th {
+  background: rgba(245, 243, 240, 0.06);
+  color: #b9b0a7;
+}
+
+html.dark-mode td {
+  border-bottom-color: rgba(245, 243, 240, 0.08);
+}
+
+html.dark-mode tbody tr:hover {
+  background: rgba(245, 243, 240, 0.045);
+}
+
+html.dark-mode .pill {
+  background: rgba(8, 127, 91, 0.18);
+  color: #a7f3d0;
+}
+
+html.dark-mode .muted {
+  border-color: rgba(245, 243, 240, 0.12);
+  background: rgba(245, 243, 240, 0.04);
+  color: #b9b0a7;
+}
+
+html.dark-mode .modal-backdrop {
+  background: rgba(5, 5, 4, 0.72);
+}
+
+html.dark-mode .modal {
+  border-color: rgba(245, 243, 240, 0.1);
+  background:
+    linear-gradient(180deg, rgba(30, 28, 24, 0.98), rgba(20, 18, 15, 0.98));
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.56);
+}
+
 /* Leve polimento visual sem alterar fluxos ou dados. */
 .app-frame {
   gap: 22px;
