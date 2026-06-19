@@ -15,6 +15,18 @@
     <link rel="preload" href="/app.js?v=20260618-09" as="script">
     <link rel="preload" href="/logo-cumbuca.svg" as="image">
     <link rel="stylesheet" href="/styles.css?v=20260618-09">
+    <script>
+      (function () {
+        const theme = localStorage.getItem('cumbuca-theme');
+        const isDark =
+          theme === 'dark' ||
+          (theme !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (isDark) {
+          document.documentElement.classList.add('dark-mode');
+          document.documentElement.setAttribute('data-theme-override', theme === 'dark' ? 'dark' : '');
+        }
+      })();
+    </script>
   </head>
   <body>
     <header class="app-header">
@@ -31,6 +43,7 @@
         <div class="header-actions">
           <span class="current-user" id="current-user"></span>
           <time class="today-date" id="today-date"></time>
+          <button class="secondary" type="button" id="theme-toggle-button" title="Alternar tema">🌙</button>
           <a class="secondary table-action account-button" href="/minha-conta" data-route="minha-conta">Conta</a>
           <button class="secondary backup-button" type="button" id="backup-button">Backup</button>
           <button class="secondary logout-button" type="button" id="logout-button">Sair</button>

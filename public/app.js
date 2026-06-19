@@ -1,13 +1,14 @@
-const app = document.querySelector("#app");
-const title = document.querySelector("#page-title");
-const todayDate = document.querySelector("#today-date");
-const serverStatus = document.querySelector("#server-status");
-const databaseStatus = document.querySelector("#database-status");
-const saveStatus = document.querySelector("#save-status");
-const backupButton = document.querySelector("#backup-button");
-const logoutButton = document.querySelector("#logout-button");
-const currentUserBadge = document.querySelector("#current-user");
-const navLinks = [...document.querySelectorAll("[data-route]")];
+const app = document.querySelector('#app');
+const title = document.querySelector('#page-title');
+const todayDate = document.querySelector('#today-date');
+const serverStatus = document.querySelector('#server-status');
+const databaseStatus = document.querySelector('#database-status');
+const saveStatus = document.querySelector('#save-status');
+const backupButton = document.querySelector('#backup-button');
+const logoutButton = document.querySelector('#logout-button');
+const themeToggleButton = document.querySelector('#theme-toggle-button');
+const currentUserBadge = document.querySelector('#current-user');
+const navLinks = [...document.querySelectorAll('[data-route]')];
 let systemStatus = {
   server: false,
   database: false,
@@ -161,6 +162,29 @@ function showToast(text, mode = "success") {
   }, 2600);
 }
 
+function toggleTheme() {
+  const html = document.documentElement;
+  const isDark = html.classList.contains('dark-mode');
+  const newTheme = isDark ? 'light' : 'dark';
+  if (newTheme === 'dark') {
+    html.classList.add('dark-mode');
+    html.setAttribute('data-theme-override', 'dark');
+  } else {
+    html.classList.remove('dark-mode');
+    html.setAttribute('data-theme-override', 'light');
+  }
+  localStorage.setItem('cumbuca-theme', newTheme);
+  updateThemeButtonText();
+}
+
+function updateThemeButtonText() {
+  if (themeToggleButton) {
+    const isDark = document.documentElement.classList.contains('dark-mode');
+    themeToggleButton.textContent = isDark ? '☀️' : '🌙';
+    themeToggleButton.title = isDark ? 'Ativar modo claro' : 'Ativar modo escuro';
+  }
+}
+
 function clonePayload(payload) {
   return JSON.parse(JSON.stringify(payload));
 }
@@ -244,6 +268,11 @@ if (logoutButton) {
     await fetch("/api/logout", { method: "POST" });
     location.href = "/login";
   });
+}
+
+if (themeToggleButton) {
+  themeToggleButton.addEventListener("click", toggleTheme);
+  updateThemeButtonText();
 }
 
 const LOW_MONTHLY_QUANTITY = 5;
