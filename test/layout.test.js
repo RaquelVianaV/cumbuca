@@ -20,6 +20,8 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /Orçamento mensal por categoria/);
   assert.match(app, /Operação e financeiro/);
   assert.match(app, /cashEntryDraft/);
+  assert.match(app, /normalizedCashEntryDraft/);
+  assert.match(app, /localStorage\.setItem\("cashEntryDraft"/);
   assert.match(app, /data-cash-entry-date="today"/);
   assert.match(app, /data-cash-entry-date="yesterday"/);
   assert.match(css, /\.budget-progress/);

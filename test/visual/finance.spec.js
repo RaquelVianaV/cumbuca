@@ -163,6 +163,16 @@ test('cash entry defaults to today and keeps the last used date and category', a
   await expect(page.locator('#cash-category')).toHaveValue('ifood');
   await expect(page.getByLabel('Descrição', { exact: true })).toHaveValue('');
   await expect(page.getByLabel('Valor', { exact: true })).toHaveValue('');
+  await expect
+    .poll(() =>
+      page.evaluate(() => JSON.parse(localStorage.getItem('cashEntryDraft') || '{}').date)
+    )
+    .toBe(dates.yesterday);
+
+  await page.reload();
+  await expect(page.locator('#cash-entry-date')).toHaveValue(dates.yesterday);
+  await expect(page.locator('#cash-type')).toHaveValue('income');
+  await expect(page.locator('#cash-category')).toHaveValue('ifood');
   const screenshotPath = testInfo.outputPath('cash-entry-date-shortcuts.png');
   await page.screenshot({ path: screenshotPath, fullPage: true });
   await testInfo.attach('cash-entry-date-shortcuts.png', {

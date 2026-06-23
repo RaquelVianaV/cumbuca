@@ -66,6 +66,7 @@ const localStateKeys = [
   "financialPlanning",
   "appConfig",
   "reportPeriod",
+  "cashEntryDraft",
   "lastManualBackupAt"
 ];
 
@@ -452,6 +453,16 @@ function localValue(key, fallback) {
   }
 }
 
+function normalizedCashEntryDraft(saved = localValue("cashEntryDraft", null)) {
+  const type = saved?.type === "expense" ? "expense" : "income";
+  const fallbackCategory = type === "expense" ? "outros" : "venda";
+  return {
+    date: /^\d{4}-\d{2}-\d{2}$/.test(saved?.date || "") ? saved.date : "",
+    type,
+    category: typeof saved?.category === "string" && saved.category ? saved.category : fallbackCategory
+  };
+}
+
 function seededExpenseReasons() {
   const saved = localValue("expenseReasons", null);
   if (Array.isArray(saved) && saved.length) {
@@ -540,7 +551,7 @@ const state = {
   editChannelReceiptId: null,
   editCashCategory: null,
   cashPanelTab: "entry",
-  cashEntryDraft: { date: "", type: "income", category: "venda" },
+  cashEntryDraft: normalizedCashEntryDraft(),
   channelFilter: localValue("channelFilter", { period: "month" }),
   editStoreSaleId: null,
   editExpenseReasonIndex: null,
@@ -4525,11 +4536,13 @@ async function renderCash() {
 
     if (await persistState()) {
       if (!editing) {
-        state.cashEntryDraft = {
+        const savedCashEntryDraft = {
           date: values.date || today,
           type: values.type || "income",
           category: values.category || (values.type === "expense" ? "outros" : "venda")
         };
+        state.cashEntryDraft = savedCashEntryDraft;
+        localStorage.setItem("cashEntryDraft", JSON.stringify(savedCashEntryDraft));
       }
       if (automaticSavingsCoverage > 0.009) {
         showToast(`Saída salva. Cofrinho cobriu ${money(automaticSavingsCoverage)}.`, "success");
