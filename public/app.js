@@ -1500,6 +1500,7 @@ function getCashFilter() {
     year: today.slice(0, 4),
     type: "all",
     category: "all",
+    quick: "",
     search: "",
     ...(state.cashFilter || {})
   };
@@ -1528,7 +1529,7 @@ function getCashFilter() {
 
 function filterCashEntries(entries) {
   const currentFilter = getCashFilter();
-  const { period, date, month, year, search, type, category } = currentFilter;
+  const { period, date, month, year, search, type, category, quick } = currentFilter;
   const query = String(search || "").trim().toLowerCase();
   const searchedEntries = query
     ? entries.filter(entry => [
@@ -1555,11 +1556,29 @@ function filterCashEntries(entries) {
     })
     : typedEntries;
 
+  const quickEntries = quick
+    ? categorizedEntries.filter(entry => {
+      if (quick === "pending") {
+        return isPendingBill(entry);
+      }
+      if (quick === "savings") {
+        return normalizedCategory(entry.category) === "cofrinho"
+          || isCashSavingsCoverageEntry(entry)
+          || entry.automaticSavingsCoverageReversal
+          || String(entry.description || "").toLowerCase().includes("cofrinho");
+      }
+      if (quick === "withdrawals") {
+        return isWithdrawalEntry(entry);
+      }
+      return true;
+    })
+    : categorizedEntries;
+
   if (!period || period === "all") {
-    return categorizedEntries;
+    return quickEntries;
   }
 
-  return categorizedEntries.filter(entry => {
+  return quickEntries.filter(entry => {
     if (!entry.date) {
       return false;
     }
@@ -2319,6 +2338,27 @@ function setCashSavingsCoverage(entry = {}, amount = 0) {
     ...baseRows
   ]);
   return coverageAmount;
+}
+
+function savingsCoverageSourceEntry(historyEntry = {}) {
+  const sourceId = String(historyEntry.id || "").replace(/^savings-coverage-/, "");
+  if (!sourceId || sourceId === String(historyEntry.id || "")) {
+    return null;
+  }
+  return state.cash.find(entry => String(entry.id || "") === sourceId) || null;
+}
+
+function savingsHistoryDetailHtml(entry = {}) {
+  const source = savingsCoverageSourceEntry(entry);
+  if (!source) {
+    return `<small>${formatIsoDateBr(entry.date)} - saldo ${money(entry.balance)}${entry.description ? ` - ${escapeHtml(entry.description)}` : ""}</small>`;
+  }
+  return `
+    <small>${formatIsoDateBr(entry.date)} - saldo ${money(entry.balance)} - Cobriu ${money(entry.amount)} da saída "${escapeHtml(source.description || "lançamento")}"</small>
+    <span class="linked-action-row">
+      <button class="secondary table-action" type="button" data-focus-cash-entry="${escapeHtml(source.id)}">Ver lançamento</button>
+    </span>
+  `;
 }
 
 function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
@@ -3730,6 +3770,7 @@ async function renderCash() {
     : null;
   const selectedFilterType = currentCashFilter.type || "all";
   const selectedFilterCategory = currentCashFilter.category || "all";
+  const selectedQuickFilter = currentCashFilter.quick || "";
   const selectedChannelMonth = currentCashFilter.month || today.slice(0, 7);
   const selectedPeriodCashEntries = cashEntriesForSelectedPeriod();
   const totalCash = cashTotals(selectedPeriodCashEntries);
@@ -3989,7 +4030,7 @@ async function renderCash() {
               <span>
                 <b>${entry.type === "withdrawal" ? "-" : entry.type === "deposit" ? "+" : ""}${money(entry.amount)}</b>
                 ${entry.type === "withdrawal" ? "Retirada" : entry.type === "deposit" ? "Entrada" : "Saldo informado"}
-                <small>${formatIsoDateBr(entry.date)} - saldo ${money(entry.balance)}${entry.description ? ` - ${escapeHtml(entry.description)}` : ""}</small>
+                ${savingsHistoryDetailHtml(entry)}
                 ${canUser("editFinancial") ? `
                   <span class="today-order-actions">
                     <button class="secondary table-action" type="button" data-edit-savings-entry="${escapeHtml(entry.id)}">Editar</button>
@@ -4155,11 +4196,13 @@ async function renderCash() {
           <button class="secondary" type="button" id="clear-cash-filter">Limpar filtros</button>
         </form>
         <div class="quick-filter-bar">
-          <button class="secondary" type="button" data-cash-quick="today">Hoje</button>
-          <button class="secondary" type="button" data-cash-quick="week">Esta semana</button>
-          <button class="secondary" type="button" data-cash-quick="month">Este mês</button>
-          <button class="secondary" type="button" data-cash-quick="last-month">Mês passado</button>
-          <button class="secondary" type="button" data-cash-quick="adjustments">Ver ajustes</button>
+          <button class="secondary ${currentCashFilter.period === "day" && selectedDate === today && !selectedQuickFilter ? "active" : ""}" type="button" data-cash-quick="today">Hoje</button>
+          <button class="secondary ${currentCashFilter.period === "day" && selectedDate === yesterdayDate && !selectedQuickFilter ? "active" : ""}" type="button" data-cash-quick="yesterday">Ontem</button>
+          <button class="secondary ${currentCashFilter.period === "week" && !selectedQuickFilter ? "active" : ""}" type="button" data-cash-quick="week">Esta semana</button>
+          <button class="secondary ${currentCashFilter.period === "month" && selectedMonth === today.slice(0, 7) && !selectedQuickFilter ? "active" : ""}" type="button" data-cash-quick="month">Este mês</button>
+          <button class="secondary ${selectedQuickFilter === "pending" ? "active" : ""}" type="button" data-cash-quick="pending">Pendentes</button>
+          <button class="secondary ${selectedQuickFilter === "savings" ? "active" : ""}" type="button" data-cash-quick="savings">Cofrinho</button>
+          <button class="secondary ${selectedQuickFilter === "withdrawals" ? "active" : ""}" type="button" data-cash-quick="withdrawals">Retiradas</button>
         </div>
         <div class="summary">
           <div class="metric"><span>Entradas operacionais</span><strong>${money(operationalTotals.income)}</strong></div>
@@ -4506,6 +4549,20 @@ async function renderCash() {
       if (automaticSavingsCoverage > availableSavings + 0.009) {
         showToast(`O saldo da conta não cobre esta saída e faltam ${money(automaticSavingsCoverage - availableSavings)} no cofrinho.`, "error");
         return;
+      }
+      if (automaticSavingsCoverage > 0.009) {
+        const accountAfterCoverage = baseBalance + automaticSavingsCoverage - amount;
+        const savingsAfterCoverage = availableSavings - automaticSavingsCoverage;
+        const confirmedCoverage = confirm(
+          `Saldo insuficiente na conta para esta saída.\n\n`
+          + `O sistema vai usar ${money(automaticSavingsCoverage)} do cofrinho.\n`
+          + `Conta depois: ${money(accountAfterCoverage)}.\n`
+          + `Cofrinho depois: ${money(savingsAfterCoverage)}.\n\n`
+          + "Salvar mesmo assim?"
+        );
+        if (!confirmedCoverage) {
+          return;
+        }
       }
     }
 
@@ -4919,6 +4976,30 @@ async function renderCash() {
       });
     });
 
+    document.querySelectorAll("[data-focus-cash-entry]").forEach(button => {
+      button.addEventListener("click", event => {
+        const entryId = event.currentTarget.dataset.focusCashEntry;
+        const original = state.cash.find(entry => String(entry.id || "") === String(entryId || ""));
+        if (!original) {
+          showToast("Lançamento original não encontrado no extrato.", "warning");
+          return;
+        }
+        state.cashPanelTab = "ledger";
+        state.cashFilter = {
+          period: "day",
+          date: original.date || today,
+          month: String(original.date || today).slice(0, 7),
+          year: String(original.date || today).slice(0, 4),
+          type: "all",
+          category: "all",
+          quick: "",
+          search: String(original.description || "").trim()
+        };
+        persistState();
+        renderCash();
+      });
+    });
+
     document.querySelectorAll("[data-delete-savings-entry]").forEach(button => {
       button.addEventListener("click", async event => {
         const savingsEntryId = event.currentTarget.dataset.deleteSavingsEntry;
@@ -5265,7 +5346,7 @@ async function renderCash() {
     });
 
     document.querySelector("#clear-cash-filter")?.addEventListener("click", () => {
-      state.cashFilter = { period: "month", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", search: "" };
+      state.cashFilter = { period: "month", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", quick: "", search: "" };
       persistState();
       renderCash();
     });
@@ -5273,20 +5354,27 @@ async function renderCash() {
     document.querySelectorAll("[data-cash-quick]").forEach(button => {
       button.addEventListener("click", event => {
         const quick = event.currentTarget.dataset.cashQuick;
+        const baseFilter = { type: "all", category: "all", quick: "", search: "" };
         if (quick === "today") {
-          state.cashFilter = { ...state.cashFilter, period: "day", date: today, month: selectedMonth, year: selectedYear, manualAll: false };
+          state.cashFilter = { ...state.cashFilter, ...baseFilter, period: "day", date: today, month: today.slice(0, 7), year: today.slice(0, 4), manualAll: false };
+        }
+        if (quick === "yesterday") {
+          state.cashFilter = { ...state.cashFilter, ...baseFilter, period: "day", date: yesterdayDate, month: yesterdayDate.slice(0, 7), year: yesterdayDate.slice(0, 4), manualAll: false };
         }
         if (quick === "week") {
-          state.cashFilter = { ...state.cashFilter, period: "week", date: today, month: selectedMonth, year: selectedYear, manualAll: false };
+          state.cashFilter = { ...state.cashFilter, ...baseFilter, period: "week", date: today, month: today.slice(0, 7), year: today.slice(0, 4), manualAll: false };
         }
         if (quick === "month") {
-          state.cashFilter = { ...state.cashFilter, period: "month", date: today, month: today.slice(0, 7), year: selectedYear, manualAll: false };
+          state.cashFilter = { ...state.cashFilter, ...baseFilter, period: "month", date: today, month: today.slice(0, 7), year: today.slice(0, 4), manualAll: false };
         }
-        if (quick === "last-month") {
-          state.cashFilter = { ...state.cashFilter, period: "month", date: today, month: lastMonthKey(), year: selectedYear, manualAll: false };
+        if (quick === "pending") {
+          state.cashFilter = { ...state.cashFilter, ...baseFilter, period: "all", date: today, month: today.slice(0, 7), year: today.slice(0, 4), quick: "pending", manualAll: true };
         }
-        if (quick === "adjustments") {
-          state.cashFilter = { ...state.cashFilter, period: "all", date: today, month: selectedMonth, year: selectedYear, type: "all", category: "ajuste-conta", search: "", manualAll: true };
+        if (quick === "savings") {
+          state.cashFilter = { ...state.cashFilter, ...baseFilter, period: "all", date: today, month: today.slice(0, 7), year: today.slice(0, 4), quick: "savings", manualAll: true };
+        }
+        if (quick === "withdrawals") {
+          state.cashFilter = { ...state.cashFilter, ...baseFilter, period: "all", date: today, month: today.slice(0, 7), year: today.slice(0, 4), quick: "withdrawals", manualAll: true };
         }
         persistState();
         renderCash();

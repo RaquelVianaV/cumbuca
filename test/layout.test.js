@@ -22,10 +22,17 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /cashEntryDraft/);
   assert.match(app, /normalizedCashEntryDraft/);
   assert.match(app, /localStorage\.setItem\("cashEntryDraft"/);
+  assert.match(app, /Saldo insuficiente na conta para esta sa/);
+  assert.match(app, /savingsHistoryDetailHtml/);
+  assert.match(app, /data-focus-cash-entry/);
   assert.match(app, /data-cash-entry-date="today"/);
   assert.match(app, /data-cash-entry-date="yesterday"/);
+  assert.match(app, /data-cash-quick="pending"/);
+  assert.match(app, /data-cash-quick="savings"/);
+  assert.match(app, /data-cash-quick="withdrawals"/);
   assert.match(css, /\.budget-progress/);
   assert.match(css, /\.cash-date-shortcuts/);
+  assert.match(css, /\.linked-action-row/);
   assert.match(app, /reportViewTab/);
   assert.match(app, /data-maintenance-pane="integrity"/);
   assert.match(app, /permission-fieldset/);

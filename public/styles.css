@@ -1506,6 +1506,17 @@ h2 {
   background: transparent;
 }
 
+.recent-list .linked-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-start;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
 .today-order-actions .table-action {
   min-height: 30px;
   padding-inline: 10px;
@@ -1951,6 +1962,12 @@ textarea {
   min-height: 34px;
   padding-inline: 12px;
   font-size: 0.82rem;
+}
+
+.quick-filter-bar button.active {
+  background: var(--earth);
+  color: #fff;
+  border-color: var(--earth);
 }
 
 .category-summary {
