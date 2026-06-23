@@ -573,6 +573,7 @@ const state = {
     cycleNote: "",
     accounts: [],
     reconciliationHistory: [],
+    dailyClosings: {},
     monthlyBudgets: {}
   }),
   appConfig: localValue("appConfig", defaultAppConfig),
@@ -690,6 +691,7 @@ function applyPayloadToState(saved = {}) {
     cycleNote: "",
     accounts: [],
     reconciliationHistory: [],
+    dailyClosings: {},
     monthlyBudgets: {},
     ...(saved.financialPlanning || {})
   };
@@ -1410,6 +1412,25 @@ function isWeekClosed(dateKey) {
   return Boolean(closing && closing.locked !== false);
 }
 
+function dailyClosings() {
+  if (!state.financialPlanning || typeof state.financialPlanning !== "object") {
+    state.financialPlanning = {};
+  }
+  if (!state.financialPlanning.dailyClosings || typeof state.financialPlanning.dailyClosings !== "object") {
+    state.financialPlanning.dailyClosings = {};
+  }
+  return state.financialPlanning.dailyClosings;
+}
+
+function dayClosingForDate(dateKey) {
+  return dailyClosings()[String(dateKey || "").slice(0, 10)] || null;
+}
+
+function isDayClosed(dateKey) {
+  const closing = dayClosingForDate(dateKey);
+  return Boolean(closing && closing.locked !== false);
+}
+
 function blockClosedPeriod(dateKey, action = "alterar") {
   const key = monthKeyFromDate(dateKey);
   if (isMonthClosed(dateKey)) {
@@ -1419,6 +1440,10 @@ function blockClosedPeriod(dateKey, action = "alterar") {
   if (isWeekClosed(dateKey)) {
     const range = weekRangeForDate(dateKey);
     showToast(`Semana de ${formatIsoDateBr(range.start)} a ${formatIsoDateBr(range.end)} fechada. Destrave antes de ${action}.`, "warning");
+    return true;
+  }
+  if (isDayClosed(dateKey)) {
+    showToast(`Dia ${formatIsoDateBr(dateKey)} fechado. Reabra o fechamento do dia antes de ${action}.`, "warning");
     return true;
   }
   return false;
@@ -2194,6 +2219,149 @@ function accountBalanceUntilDate(dateKey, excludeIds = []) {
 
 function reconciliationCalculatedBalance(dateKey, reconciliation = null) {
   return accountBalanceUntilDate(dateKey, reconciliation?.adjustmentId ? [reconciliation.adjustmentId] : []);
+}
+
+function dailyClosingPendingItems(dateKey) {
+  const date = String(dateKey || isoDate(new Date())).slice(0, 10);
+  const cashBills = state.cash
+    .filter(isPendingBill)
+    .map(entry => ({
+      id: entry.id,
+      description: entry.description || "Conta do caixa",
+      amount: Number(entry.amount || 0),
+      dueDate: paymentReminderDate(entry),
+      source: "cash"
+    }))
+    .filter(entry => entry.dueDate && entry.dueDate <= date);
+  const plannedAccounts = financialAccounts()
+    .filter(account => accountOpenAmount(account) >= 0.01)
+    .map(account => ({
+      id: account.id,
+      description: account.description || "Conta planejada",
+      amount: accountOpenAmount(account),
+      dueDate: account.dueDate || "",
+      source: "account"
+    }))
+    .filter(entry => entry.dueDate && entry.dueDate <= date);
+
+  return [...cashBills, ...plannedAccounts]
+    .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
+}
+
+function dailyClosingMetrics(dateKey, realBalanceValue = null) {
+  const date = String(dateKey || isoDate(new Date())).slice(0, 10);
+  const entries = accountingCashEntries(state.cash)
+    .filter(entry => cashAccountingDate(entry) === date);
+  const totals = cashTotals(entries);
+  const calculatedBalance = accountBalanceUntilDate(date);
+  const realBalance = realBalanceValue === null || realBalanceValue === undefined
+    ? calculatedBalance
+    : Number(realBalanceValue || 0);
+  const pendingItems = dailyClosingPendingItems(date);
+  const savingsCoverage = entries
+    .filter(entry => isCashSavingsCoverageEntry(entry) || entry.automaticSavingsCoverageReversal)
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+
+  return {
+    date,
+    entries,
+    income: totals.income,
+    expenses: totals.expenses,
+    periodBalance: totals.balance,
+    calculatedBalance,
+    realBalance,
+    difference: realBalance - calculatedBalance,
+    savingsCoverage,
+    pendingItems,
+    pendingCount: pendingItems.length,
+    pendingTotal: pendingItems.reduce((sum, item) => sum + Number(item.amount || 0), 0)
+  };
+}
+
+function dailyClosingPayload(dateKey, realBalanceValue, notes = "") {
+  const metrics = dailyClosingMetrics(dateKey, realBalanceValue);
+  return {
+    locked: true,
+    date: metrics.date,
+    closedAt: new Date().toISOString(),
+    closedBy: state.currentUser?.name || state.currentUser?.username || "Usuário",
+    realBalance: Number(metrics.realBalance || 0).toFixed(2),
+    calculatedBalance: Number(metrics.calculatedBalance || 0).toFixed(2),
+    difference: Number(metrics.difference || 0).toFixed(2),
+    income: Number(metrics.income || 0).toFixed(2),
+    expenses: Number(metrics.expenses || 0).toFixed(2),
+    periodBalance: Number(metrics.periodBalance || 0).toFixed(2),
+    savingsCoverage: Number(metrics.savingsCoverage || 0).toFixed(2),
+    pendingCount: metrics.pendingCount,
+    pendingTotal: Number(metrics.pendingTotal || 0).toFixed(2),
+    cashEntries: metrics.entries.length,
+    notes: String(notes || "").trim()
+  };
+}
+
+function dailyClosingPanelHtml(metrics, closing = null) {
+  const locked = Boolean(closing && closing.locked !== false);
+  const differenceClass = metrics.difference < 0 ? "negative" : "positive";
+  const closeButtonLabel = closing && !locked ? "Fechar novamente" : "Fechar dia";
+
+  return `
+    <div class="cash-tab-section daily-closing-panel">
+      <div class="section-heading">
+        <div>
+          <h2>Fechamento do dia</h2>
+          <p class="muted-inline">Confira entradas, saídas, saldo real, cofrinho e pendências antes de encerrar o dia.</p>
+        </div>
+      </div>
+      <form id="daily-closing-form" class="form-grid">
+        <label>Data do fechamento
+          <input name="date" type="date" value="${metrics.date}" required>
+        </label>
+        <label>Saldo real da conta
+          <input name="realBalance" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(metrics.realBalance)}" required ${locked ? "readonly" : ""}>
+        </label>
+        <label>Observação
+          <input name="notes" placeholder="Ex.: conferido no banco, caixa ok" value="${escapeHtml(closing?.notes || "")}" ${locked ? "readonly" : ""}>
+        </label>
+        <div class="actions">
+          ${!locked ? `<button type="submit" ${canUser("manageClosings") ? "" : "disabled"}>${closeButtonLabel}</button>` : ""}
+          ${locked && canUser("manageClosings") ? `<button class="secondary" type="button" id="reopen-day-closing">Reabrir dia</button>` : ""}
+          ${Math.abs(metrics.difference) >= 0.01 ? `<button class="secondary" type="button" id="open-reconciliation-from-closing">Ajustar na conferência</button>` : ""}
+        </div>
+      </form>
+      <div class="summary compact-summary">
+        <div class="metric"><span>Entrou hoje</span><strong>${money(metrics.income)}</strong></div>
+        <div class="metric"><span>Saiu hoje</span><strong>${money(metrics.expenses)}</strong></div>
+        <div class="metric"><span>Saldo calculado</span><strong class="${metrics.calculatedBalance < 0 ? "negative" : "positive"}">${money(metrics.calculatedBalance)}</strong></div>
+        <div class="metric"><span>Saldo real informado</span><strong id="day-closing-real">${money(metrics.realBalance)}</strong></div>
+        <div class="metric"><span>Diferença</span><strong id="day-closing-difference" class="${differenceClass}">${money(metrics.difference)}</strong></div>
+        <div class="metric"><span>Cofrinho usado</span><strong>${money(metrics.savingsCoverage)}</strong></div>
+        <div class="metric"><span>Pendências</span><strong>${metrics.pendingCount}</strong><small>${money(metrics.pendingTotal)}</small></div>
+        <div class="metric"><span>Lançamentos</span><strong>${metrics.entries.length}</strong></div>
+      </div>
+      ${metrics.pendingItems.length ? `
+        <h3>Pendências até o dia</h3>
+        <div class="recent-list compact">
+          ${metrics.pendingItems.slice(0, 8).map(item => `
+            <span>
+              <b>${escapeHtml(item.description)}</b>
+              <small>${formatIsoDateBr(item.dueDate)} - ${money(item.amount)}</small>
+            </span>
+          `).join("")}
+        </div>
+      ` : `<p class="muted">Nenhuma pendência vencida ou do dia.</p>`}
+      ${closing ? `
+        <h3>Registro do fechamento</h3>
+        <div class="closing-record">
+          <span><b>Fechado em</b>${new Date(closing.closedAt).toLocaleString("pt-BR")}</span>
+          <span><b>Responsável</b>${escapeHtml(closing.closedBy || "Sistema")}</span>
+          <span><b>Status</b>${locked ? "Fechado" : "Reaberto"}</span>
+          <span><b>Saldo real</b>${money(closing.realBalance)}</span>
+          <span><b>Diferença</b>${money(closing.difference)}</span>
+          ${closing.reopenReason ? `<span><b>Motivo da reabertura</b>${escapeHtml(closing.reopenReason)}</span>` : ""}
+        </div>
+      ` : ""}
+    </div>
+  `;
 }
 
 function weekRangeForDate(dateKey = isoDate(new Date())) {
@@ -3764,6 +3932,8 @@ async function renderCash() {
   const selectedDate = currentCashFilter.date || today;
   const selectedMonth = currentCashFilter.month || today.slice(0, 7);
   const selectedYear = currentCashFilter.year || today.slice(0, 4);
+  const dailyClosingRecord = dayClosingForDate(selectedDate);
+  const dailyClosingData = dailyClosingMetrics(selectedDate, dailyClosingRecord?.realBalance ?? null);
   const reconciliationHistory = state.financialPlanning?.reconciliationHistory || [];
   const editingReconciliation = state.editReconciliationId
     ? reconciliationHistory.find(item => String(item.id) === String(state.editReconciliationId))
@@ -3823,6 +3993,7 @@ async function renderCash() {
     ["entry", editing ? "Editar" : "Lançamento"],
     ["ledger", "Extrato"],
     ["reconciliation", "Conferência"],
+    ["day-closing", "Fechamento"],
     ["channels", "Canais"],
     ["savings", "Cofrinho"],
     ["withdrawals", "Retiradas"],
@@ -3970,6 +4141,7 @@ async function renderCash() {
           ` : ""}
         </div>
         ` : ""}
+        ${activeCashPanel === "day-closing" ? dailyClosingPanelHtml(dailyClosingData, dailyClosingRecord) : ""}
         ${activeCashPanel === "channels" ? channelReceiptsPanel(editingChannelReceipt, selectedChannelMonth) : ""}
         ${activeCashPanel === "savings" ? `
         <div class="cash-tab-section savings-panel">
@@ -4497,6 +4669,113 @@ async function renderCash() {
         showToast(previousReconciliation ? "Conciliação atualizada." : "Ajuste de conferência lançado.", "success");
         renderCash();
       }
+    });
+  }
+
+  const dailyClosingForm = document.querySelector("#daily-closing-form");
+  if (dailyClosingForm) {
+    const updateDailyClosingPreview = () => {
+      const date = dailyClosingForm.elements.date.value || today;
+      const realBalance = parseMoneyInput(dailyClosingForm.elements.realBalance.value);
+      const metrics = dailyClosingMetrics(date, realBalance);
+      const realElement = document.querySelector("#day-closing-real");
+      const differenceElement = document.querySelector("#day-closing-difference");
+      if (realElement) {
+        realElement.textContent = money(metrics.realBalance);
+      }
+      if (differenceElement) {
+        differenceElement.textContent = money(metrics.difference);
+        differenceElement.className = metrics.difference < 0 ? "negative" : "positive";
+      }
+    };
+    dailyClosingForm.addEventListener("input", updateDailyClosingPreview);
+
+    dailyClosingForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      const values = readForm(event.currentTarget);
+      const date = String(values.date || today).slice(0, 10);
+      const realBalance = parseMoneyInput(values.realBalance);
+      if (!canUser("manageClosings")) {
+        showToast("Seu usuário não pode fechar períodos.", "error");
+        return;
+      }
+      if (!date) {
+        showToast("Informe a data do fechamento.", "error");
+        return;
+      }
+      if (blockClosedPeriod(date, "fechar o dia")) {
+        return;
+      }
+      if (!confirm(`Fechar o dia ${formatIsoDateBr(date)} com saldo real ${money(realBalance)}?`)) {
+        return;
+      }
+      state.financialPlanning = {
+        ...(state.financialPlanning || {}),
+        dailyClosings: {
+          ...dailyClosings(),
+          [date]: dailyClosingPayload(date, realBalance, values.notes)
+        }
+      };
+      recordAudit("Dia fechado", `${formatIsoDateBr(date)} - saldo real ${money(realBalance)}`);
+      if (await persistState()) {
+        showToast("Dia fechado.", "success");
+        renderCash();
+      }
+    });
+
+    on("#reopen-day-closing", "click", async () => {
+      const date = String(dailyClosingForm.elements.date.value || today).slice(0, 10);
+      const closing = dayClosingForDate(date);
+      if (!canUser("manageClosings")) {
+        showToast("Seu usuário não pode reabrir períodos.", "error");
+        return;
+      }
+      if (!closing) {
+        showToast("Fechamento do dia não encontrado.", "warning");
+        return;
+      }
+      const reason = prompt(`Informe o motivo para reabrir o dia ${formatIsoDateBr(date)}.`);
+      if (!reason || reason.trim().length < 5) {
+        showToast("Informe o motivo da reabertura.", "warning");
+        return;
+      }
+      state.financialPlanning = {
+        ...(state.financialPlanning || {}),
+        dailyClosings: {
+          ...dailyClosings(),
+          [date]: {
+            ...closing,
+            locked: false,
+            reopenedAt: new Date().toISOString(),
+            reopenedBy: state.currentUser?.name || state.currentUser?.username || "Usuário",
+            reopenedByUsername: state.currentUser?.username || "",
+            reopenReason: reason.trim()
+          }
+        }
+      };
+      recordAudit("Dia reaberto", `${formatIsoDateBr(date)} - ${reason.trim()}`);
+      if (await persistState()) {
+        showToast("Dia reaberto. Alterações estão liberadas.", "success");
+        renderCash();
+      }
+    });
+
+    on("#open-reconciliation-from-closing", "click", () => {
+      const date = String(dailyClosingForm.elements.date.value || today).slice(0, 10);
+      state.cashFilter = {
+        ...state.cashFilter,
+        period: "day",
+        date,
+        month: date.slice(0, 7),
+        year: date.slice(0, 4),
+        type: "all",
+        category: "all",
+        search: "",
+        manualAll: false
+      };
+      state.cashPanelTab = "reconciliation";
+      state.editReconciliationId = null;
+      renderCash();
     });
   }
 

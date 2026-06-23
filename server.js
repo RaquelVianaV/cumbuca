@@ -95,6 +95,7 @@ const defaultState = {
     cycleNote: '',
     accounts: [],
     reconciliationHistory: [],
+    dailyClosings: {},
     monthlyBudgets: {},
   },
   appConfig: {
@@ -186,8 +187,12 @@ function lockedClosingForDate(state, dateKey) {
   const range = weekRangeFromDate(date);
   const weekKey = range ? weeklyClosingKey(range.start, range.end) : '';
   const weekClosing = weekKey ? state.weeklyClosings?.[weekKey] : null;
-  return weekClosing && weekClosing.locked !== false
-    ? { type: 'week', key: weekKey, closing: weekClosing }
+  if (weekClosing && weekClosing.locked !== false) {
+    return { type: 'week', key: weekKey, closing: weekClosing };
+  }
+  const dayClosing = state.financialPlanning?.dailyClosings?.[date];
+  return dayClosing && dayClosing.locked !== false
+    ? { type: 'day', key: date, closing: dayClosing }
     : null;
 }
 
@@ -243,7 +248,12 @@ function stateWriteViolation(
     for (const date of dates) {
       const locked = lockedClosingForDate(currentState, date);
       if (locked) {
-        const period = locked.type === 'month' ? locked.key : locked.key.replace('_', ' a ');
+        const period =
+          locked.type === 'month'
+            ? locked.key
+            : locked.type === 'week'
+            ? locked.key.replace('_', ' a ')
+            : locked.key;
         return {
           statusCode: 409,
           message: `O período ${period} está fechado. Reabra o período antes de alterar valores.`,

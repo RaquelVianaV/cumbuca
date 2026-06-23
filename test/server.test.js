@@ -99,6 +99,19 @@ test('closed months block financial changes at the API policy layer', () => {
   assert.match(violation.message, /fechado/i);
 });
 
+test('closed days block financial changes at the API policy layer', () => {
+  const current = normalizeState({
+    cashEntries: [{ id: 'entry-1', date: '2026-06-10', type: 'income', amount: 100 }],
+    financialPlanning: { dailyClosings: { '2026-06-10': { locked: true } } },
+  });
+  const violation = stateWriteViolation(current, {
+    cashEntries: [{ id: 'entry-1', date: '2026-06-10', type: 'income', amount: 120 }],
+  });
+
+  assert.equal(violation.statusCode, 409);
+  assert.match(violation.message, /2026-06-10/);
+});
+
 test('admin reopens a period before financial values can change', () => {
   const current = normalizeState({
     cashEntries: [{ id: 'entry-1', date: '2026-06-10', type: 'income', amount: 100 }],
