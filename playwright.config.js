@@ -1,4 +1,5 @@
 const { defineConfig } = require('@playwright/test');
+const testPort = process.env.PLAYWRIGHT_PORT || '3014';
 
 module.exports = defineConfig({
   testDir: './test/visual',
@@ -7,16 +8,16 @@ module.exports = defineConfig({
   workers: 1,
   reporter: [['line']],
   use: {
-    baseURL: 'http://127.0.0.1:3014',
+    baseURL: `http://127.0.0.1:${testPort}`,
     trace: 'retain-on-failure',
   },
   webServer: {
     command: 'node server.js',
-    url: 'http://127.0.0.1:3014/api/health',
-    reuseExistingServer: false,
+    url: `http://127.0.0.1:${testPort}/api/health`,
+    reuseExistingServer: !process.env.CI,
     timeout: 30000,
     env: {
-      PORT: '3014',
+      PORT: testPort,
       DATABASE_URL: '',
       CUMBUCA_USER: 'cumbuca',
       CUMBUCA_PASSWORD: 'cumbuca2026',

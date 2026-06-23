@@ -19,7 +19,11 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /financialAccountNotifications/);
   assert.match(app, /Orçamento mensal por categoria/);
   assert.match(app, /Operação e financeiro/);
+  assert.match(app, /cashEntryDraft/);
+  assert.match(app, /data-cash-entry-date="today"/);
+  assert.match(app, /data-cash-entry-date="yesterday"/);
   assert.match(css, /\.budget-progress/);
+  assert.match(css, /\.cash-date-shortcuts/);
   assert.match(app, /reportViewTab/);
   assert.match(app, /data-maintenance-pane="integrity"/);
   assert.match(app, /permission-fieldset/);

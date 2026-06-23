@@ -125,6 +125,52 @@ test('reconciliation exposes authorized adjustment preview', async ({ page }, te
   });
 });
 
+test('cash entry defaults to today and keeps the last used date and category', async ({
+  page,
+}, testInfo) => {
+  const database = await mockOnlineDatabase(page);
+  await page.goto('/fluxo-de-caixa');
+  const dates = await page.evaluate(() => {
+    const format = (date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+    const todayDate = new Date();
+    const yesterdayDate = new Date();
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    return { today: format(todayDate), yesterday: format(yesterdayDate) };
+  });
+
+  const dateField = page.locator('#cash-entry-date');
+  await expect(dateField).toHaveValue(dates.today);
+  await expect(page.getByRole('button', { name: 'Hoje', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  );
+
+  await page.getByRole('button', { name: 'Ontem', exact: true }).click();
+  await expect(dateField).toHaveValue(dates.yesterday);
+  await page.getByLabel('Descrição', { exact: true }).fill('Entrada rápida teste');
+  await page.locator('#cash-category').selectOption('ifood');
+  await page.getByLabel('Valor', { exact: true }).fill('25,00');
+  await page.getByRole('button', { name: 'Adicionar', exact: true }).click();
+
+  await expect.poll(() => database.state.cashEntries).toHaveLength(1);
+  await expect(page.locator('#cash-entry-date')).toHaveValue(dates.yesterday);
+  await expect(page.locator('#cash-type')).toHaveValue('income');
+  await expect(page.locator('#cash-category')).toHaveValue('ifood');
+  await expect(page.getByLabel('Descrição', { exact: true })).toHaveValue('');
+  await expect(page.getByLabel('Valor', { exact: true })).toHaveValue('');
+  const screenshotPath = testInfo.outputPath('cash-entry-date-shortcuts.png');
+  await page.screenshot({ path: screenshotPath, fullPage: true });
+  await testInfo.attach('cash-entry-date-shortcuts.png', {
+    path: screenshotPath,
+    contentType: 'image/png',
+  });
+});
+
 test('controlled finance workflow covers installments, reversal, alerts and reconciliation', async ({
   page,
 }) => {

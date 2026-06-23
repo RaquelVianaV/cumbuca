@@ -540,6 +540,7 @@ const state = {
   editChannelReceiptId: null,
   editCashCategory: null,
   cashPanelTab: "entry",
+  cashEntryDraft: { date: "", type: "income", category: "venda" },
   channelFilter: localValue("channelFilter", { period: "month" }),
   editStoreSaleId: null,
   editExpenseReasonIndex: null,
@@ -3679,6 +3680,11 @@ async function renderCash() {
   const requestedEditCashId = cashParams.get("edit");
   ensureCashEntryIds();
   const today = isoDate(new Date());
+  const yesterdayDate = (() => {
+    const date = new Date();
+    date.setDate(date.getDate() - 1);
+    return isoDate(date);
+  })();
   if (state.cashFilter?.period === "all" && !state.cashFilter.manualAll) {
     state.cashFilter = { period: "month", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", search: "" };
   }
@@ -3689,6 +3695,11 @@ async function renderCash() {
   const editing = state.editCashId !== null
     ? state.cash.find(entry => String(entry.id) === String(state.editCashId))
     : null;
+  const cashEntryDate = editing?.date || state.cashEntryDraft.date || today;
+  const cashEntryType = editing?.type || state.cashEntryDraft.type || "income";
+  const cashEntryCategory = editing?.category
+    || state.cashEntryDraft.category
+    || (cashEntryType === "expense" ? "outros" : "venda");
   const editingChannelReceipt = state.editChannelReceiptId !== null
     ? state.channelReceipts.find(entry => String(entry.id) === String(state.editChannelReceiptId))
     : null;
@@ -3814,18 +3825,26 @@ async function renderCash() {
           <label>Descrição
             <input name="description" placeholder="Venda, iFood, supermercado, entregador" value="${editing?.description || ""}" required>
           </label>
-          <label>Data
-            <input name="date" type="date" value="${editing?.date || ""}" required>
-          </label>
+          <div class="cash-date-control">
+            <label>Data
+              <input id="cash-entry-date" name="date" type="date" value="${cashEntryDate}" required>
+            </label>
+            ${editing ? "" : `
+              <div class="cash-date-shortcuts" aria-label="Atalhos de data">
+                <button class="secondary ${cashEntryDate === today ? "active" : ""}" type="button" data-cash-entry-date="today" aria-pressed="${cashEntryDate === today}">Hoje</button>
+                <button class="secondary ${cashEntryDate === yesterdayDate ? "active" : ""}" type="button" data-cash-entry-date="yesterday" aria-pressed="${cashEntryDate === yesterdayDate}">Ontem</button>
+              </div>
+            `}
+          </div>
           <label>Tipo
             <select name="type" id="cash-type">
-              <option value="income" ${editing?.type === "income" ? "selected" : ""}>Entrada</option>
-              <option value="expense" ${editing?.type === "expense" ? "selected" : ""}>Saída</option>
+              <option value="income" ${cashEntryType === "income" ? "selected" : ""}>Entrada</option>
+              <option value="expense" ${cashEntryType === "expense" ? "selected" : ""}>Saída</option>
             </select>
           </label>
           <label>Origem / categoria
             <select name="category" id="cash-category">
-              ${cashCategoryOptions(editing?.type || "income", editing?.category || (editing?.type === "expense" ? "outros" : "venda"))}
+              ${cashCategoryOptions(cashEntryType, cashEntryCategory)}
             </select>
           </label>
           <label id="cash-due-date-field">Vencimento
@@ -4505,6 +4524,13 @@ async function renderCash() {
     }
 
     if (await persistState()) {
+      if (!editing) {
+        state.cashEntryDraft = {
+          date: values.date || today,
+          type: values.type || "income",
+          category: values.category || (values.type === "expense" ? "outros" : "venda")
+        };
+      }
       if (automaticSavingsCoverage > 0.009) {
         showToast(`Saída salva. Cofrinho cobriu ${money(automaticSavingsCoverage)}.`, "success");
       }
@@ -4523,6 +4549,7 @@ async function renderCash() {
 
   const cashTypeField = document.querySelector("#cash-type");
   const cashCategoryField = document.querySelector("#cash-category");
+  const cashEntryDateField = document.querySelector("#cash-entry-date");
   const cashDueDateField = document.querySelector("#cash-due-date-field");
   const cashPaidField = document.querySelector("#cash-paid-field");
   if (cashTypeField && cashCategoryField && cashDueDateField && cashPaidField) {
@@ -4539,10 +4566,41 @@ async function renderCash() {
     cashTypeField.addEventListener("change", event => {
       const type = event.currentTarget.value;
       cashCategoryField.innerHTML = cashCategoryOptions(type, type === "expense" ? "outros" : "venda");
+      if (!editing) {
+        state.cashEntryDraft.type = type;
+        state.cashEntryDraft.category = cashCategoryField.value;
+      }
       updateCashBillFieldsVisibility();
     });
-    cashCategoryField.addEventListener("change", updateCashBillFieldsVisibility);
+    cashCategoryField.addEventListener("change", () => {
+      if (!editing) {
+        state.cashEntryDraft.category = cashCategoryField.value;
+      }
+      updateCashBillFieldsVisibility();
+    });
     updateCashBillFieldsVisibility();
+  }
+
+  if (!editing && cashEntryDateField) {
+    const updateCashEntryDate = date => {
+      cashEntryDateField.value = date;
+      state.cashEntryDraft.date = date;
+      document.querySelectorAll("[data-cash-entry-date]").forEach(button => {
+        const buttonDate = button.dataset.cashEntryDate === "yesterday" ? yesterdayDate : today;
+        const active = buttonDate === date;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-pressed", String(active));
+      });
+    };
+    cashEntryDateField.addEventListener("change", event => {
+      updateCashEntryDate(event.currentTarget.value || today);
+    });
+    document.querySelectorAll("[data-cash-entry-date]").forEach(button => {
+      button.addEventListener("click", event => {
+        const date = event.currentTarget.dataset.cashEntryDate === "yesterday" ? yesterdayDate : today;
+        updateCashEntryDate(date);
+      });
+    });
   }
 
   const channelReceiptForm = document.querySelector("#channel-receipt-form");
