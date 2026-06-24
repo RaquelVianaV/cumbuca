@@ -2529,6 +2529,146 @@ function savingsHistoryDetailHtml(entry = {}) {
   `;
 }
 
+function savingsMovementKind(entry = {}) {
+  const description = String(entry.description || "");
+  const search = description.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const source = savingsCoverageSourceEntry(entry);
+  if (source) {
+    return {
+      title: "Cobertura automática",
+      detail: `Cobriu saída: ${source.description || "lançamento"}`,
+      tone: "out",
+      sign: "-",
+      group: "coverage"
+    };
+  }
+  if (search.includes("emprestimo do cofrinho")) {
+    return {
+      title: "Empréstimo para retirada",
+      detail: description || "Cofrinho usado para completar retirada",
+      tone: "out",
+      sign: "-",
+      group: "loan"
+    };
+  }
+  if (search.includes("devolucao")) {
+    return {
+      title: "Devolução ao cofrinho",
+      detail: description,
+      tone: "in",
+      sign: "+",
+      group: "adjustment"
+    };
+  }
+  if (search.includes("ajuste")) {
+    return {
+      title: "Ajuste do cofrinho",
+      detail: description,
+      tone: entry.type === "withdrawal" ? "out" : "in",
+      sign: entry.type === "withdrawal" ? "-" : "+",
+      group: "adjustment"
+    };
+  }
+  if (entry.type === "set") {
+    return {
+      title: "Saldo informado",
+      detail: description || "Conferência manual do saldo",
+      tone: "set",
+      sign: "",
+      group: "set"
+    };
+  }
+  if (entry.type === "withdrawal") {
+    return {
+      title: "Retirada do cofrinho",
+      detail: description || "Saída registrada no cofrinho",
+      tone: "out",
+      sign: "-",
+      group: "withdrawal"
+    };
+  }
+  if (search.includes("retirada - cofrinho")) {
+    return {
+      title: "Entrada da retirada",
+      detail: "Parte da retirada destinada ao cofrinho",
+      tone: "in",
+      sign: "+",
+      group: "deposit"
+    };
+  }
+  return {
+    title: "Entrada no cofrinho",
+    detail: description || "Entrada registrada no cofrinho",
+    tone: "in",
+    sign: "+",
+    group: "deposit"
+  };
+}
+
+function savingsTracePanelHtml(rows = [], { current = 0, expected = 0, debt = 0 } = {}) {
+  const totals = rows.reduce((summary, entry) => {
+    const kind = savingsMovementKind(entry);
+    const amount = Number(entry.amount || 0);
+    if (kind.group === "coverage") {
+      summary.coverage += amount;
+    } else if (kind.group === "loan") {
+      summary.loans += amount;
+    } else if (kind.group === "adjustment" || kind.group === "set") {
+      summary.adjustments += amount;
+    } else if (entry.type === "withdrawal") {
+      summary.withdrawals += amount;
+    } else {
+      summary.deposits += amount;
+    }
+    return summary;
+  }, { deposits: 0, withdrawals: 0, coverage: 0, loans: 0, adjustments: 0 });
+  const timeline = rows.slice(0, 10);
+  return `
+    <section class="savings-trace-panel">
+      <div class="section-heading">
+        <div>
+          <h3>Extrato inteligente do cofrinho</h3>
+          <p class="muted-inline">Mostra de onde veio cada movimento e quanto ficou no saldo depois.</p>
+        </div>
+      </div>
+      <div class="savings-trace-grid">
+        <div class="metric"><span>Saldo atual</span><strong>${money(current)}</strong></div>
+        <div class="metric"><span>Deveria ter</span><strong>${money(expected)}</strong></div>
+        <div class="metric"><span>Devemos ao cofrinho</span><strong class="${debt > 0 ? "negative" : "positive"}">${money(debt)}</strong></div>
+        <div class="metric"><span>Entradas normais</span><strong class="positive">${money(totals.deposits)}</strong></div>
+        <div class="metric"><span>Cobriu despesas</span><strong class="${totals.coverage > 0 ? "negative" : ""}">${money(totals.coverage)}</strong></div>
+        <div class="metric"><span>Empréstimo em retiradas</span><strong class="${totals.loans > 0 ? "negative" : ""}">${money(totals.loans)}</strong></div>
+        <div class="metric"><span>Outras retiradas</span><strong class="${totals.withdrawals > 0 ? "negative" : ""}">${money(totals.withdrawals)}</strong></div>
+        <div class="metric"><span>Ajustes e devoluções</span><strong>${money(totals.adjustments)}</strong></div>
+      </div>
+      ${timeline.length ? `
+        <div class="savings-timeline">
+          ${timeline.map(entry => {
+            const kind = savingsMovementKind(entry);
+            const source = savingsCoverageSourceEntry(entry);
+            return `
+              <div class="savings-timeline-row ${kind.tone}">
+                <div class="savings-flow-mark">${kind.sign || "="}</div>
+                <div class="savings-flow-copy">
+                  <strong>${escapeHtml(kind.title)}</strong>
+                  <small>${formatIsoDateBr(entry.date)} - ${escapeHtml(kind.detail || "Movimento do cofrinho")}</small>
+                  ${source ? `
+                    <button class="secondary table-action" type="button" data-focus-cash-entry="${escapeHtml(source.id)}">Ver lançamento</button>
+                  ` : ""}
+                </div>
+                <div class="savings-flow-value">
+                  <b class="${kind.tone === "out" ? "negative" : kind.tone === "in" ? "positive" : ""}">${kind.sign}${money(entry.amount)}</b>
+                  <small>Saldo ${money(entry.balance)}</small>
+                </div>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      ` : `<p class="muted">Nenhum movimento no cofrinho ainda.</p>`}
+    </section>
+  `;
+}
+
 function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
   const groups = new Map();
   entries.filter(isWithdrawalEntry).forEach(entry => {
@@ -4195,6 +4335,11 @@ async function renderCash() {
           <button type="submit">Salvar cofrinho</button>
           `}
         </form>
+        ${savingsTracePanelHtml(savingsRows, {
+          current: savingsCurrent,
+          expected: savingsExpected,
+          debt: savingsDebt
+        })}
         <h3>Histórico do cofrinho</h3>
         ${savingsRows.length ? `
           <div class="recent-list">

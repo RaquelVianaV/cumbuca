@@ -1758,6 +1758,113 @@ h2 {
   white-space: nowrap;
 }
 
+.savings-trace-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(8, 127, 91, 0.14);
+  border-radius: 8px;
+  background: #f8fcf8;
+}
+
+.savings-trace-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.savings-trace-grid .metric {
+  min-height: 76px;
+  padding: 10px;
+  background: #ffffff;
+}
+
+.savings-timeline {
+  display: grid;
+  gap: 8px;
+}
+
+.savings-timeline-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) minmax(118px, auto);
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid rgba(87, 50, 32, 0.08);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.savings-timeline-row.out {
+  border-left: 4px solid var(--red);
+}
+
+.savings-timeline-row.in {
+  border-left: 4px solid var(--green);
+}
+
+.savings-timeline-row.set {
+  border-left: 4px solid var(--yellow);
+}
+
+.savings-flow-mark {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #eef7ef;
+  color: var(--green-dark);
+  font-weight: 900;
+}
+
+.savings-timeline-row.out .savings-flow-mark {
+  background: #fff1f2;
+  color: var(--red);
+}
+
+.savings-timeline-row.set .savings-flow-mark {
+  background: #fff8e1;
+  color: var(--earth);
+}
+
+.savings-flow-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.savings-flow-copy strong {
+  color: var(--earth);
+  font-size: 0.9rem;
+}
+
+.savings-flow-copy small,
+.savings-flow-value small {
+  color: var(--muted);
+  font-weight: 760;
+}
+
+.savings-flow-copy .table-action {
+  justify-self: start;
+  min-height: 30px;
+  padding-inline: 10px;
+  font-size: 0.78rem;
+}
+
+.savings-flow-value {
+  display: grid;
+  gap: 2px;
+  justify-items: end;
+  text-align: right;
+}
+
+.savings-flow-value b {
+  color: var(--earth);
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+}
+
 .partners-dashboard {
   display: grid;
   gap: 18px;
@@ -5324,6 +5431,7 @@ a.secondary.table-action,
 
   .finance-dashboard-grid,
   .cash-hero-metrics,
+  .savings-trace-grid,
   .report-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
@@ -5331,6 +5439,7 @@ a.secondary.table-action,
 
   .finance-dashboard-grid .metric,
   .cash-hero-metrics span,
+  .savings-trace-grid .metric,
   .report-grid .metric {
     min-height: 86px;
     padding: 10px;
@@ -5338,11 +5447,27 @@ a.secondary.table-action,
 
   .finance-dashboard-grid .metric strong,
   .cash-hero-metrics b,
+  .savings-trace-grid .metric strong,
   .report-grid .metric strong {
     font-size: clamp(0.96rem, 4.7vw, 1.18rem);
     line-height: 1.08;
     white-space: normal;
     overflow-wrap: anywhere;
+  }
+
+  .savings-trace-panel {
+    padding: 12px;
+  }
+
+  .savings-timeline-row {
+    grid-template-columns: 30px minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .savings-flow-value {
+    grid-column: 2;
+    justify-items: start;
+    text-align: left;
   }
 
   .finance-dashboard-lane,
