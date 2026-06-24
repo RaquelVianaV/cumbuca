@@ -2299,6 +2299,96 @@ function dailyClosingPayload(dateKey, realBalanceValue, notes = "") {
   };
 }
 
+function dailyClosingChecklist(metrics, closing = null) {
+  const locked = Boolean(closing && closing.locked !== false);
+  const backupAt = localStorage.getItem("lastManualBackupAt") || "";
+  const backupAgeHours = backupAt
+    ? Math.max(0, (Date.now() - new Date(backupAt).getTime()) / 3600000)
+    : null;
+  const backupOk = backupAgeHours !== null && backupAgeHours <= 26;
+  const differenceOk = Math.abs(metrics.difference || 0) < 0.01;
+  const savingsDebt = savingsDebtAmount();
+  return [
+    {
+      id: "real-balance",
+      label: "Saldo real conferido",
+      status: differenceOk ? "ok" : "warning",
+      detail: differenceOk
+        ? "Saldo real informado bate com o saldo calculado."
+        : `Diferença de ${money(metrics.difference)} para ajustar ou justificar.`,
+      actionLabel: differenceOk ? "" : "Ajustar na conferência",
+      action: "reconciliation"
+    },
+    {
+      id: "savings",
+      label: "Cofrinho conferido",
+      status: savingsDebt <= 0.009 ? "ok" : "warning",
+      detail: savingsDebt <= 0.009
+        ? `Cofrinho em dia. Usado hoje: ${money(metrics.savingsCoverage)}.`
+        : `Devemos ${money(savingsDebt)} ao cofrinho. Confira antes de fechar.`,
+      actionLabel: savingsDebt <= 0.009 ? "" : "Ver cofrinho",
+      action: "savings"
+    },
+    {
+      id: "pending",
+      label: "Contas e pendências",
+      status: metrics.pendingCount ? "warning" : "ok",
+      detail: metrics.pendingCount
+        ? `${metrics.pendingCount} pendência(s) até o dia, total ${money(metrics.pendingTotal)}.`
+        : "Nenhuma conta vencida ou do dia ficou aberta.",
+      actionLabel: metrics.pendingCount ? "Ver contas" : "",
+      action: "accounts"
+    },
+    {
+      id: "backup",
+      label: "Backup recente",
+      status: backupOk ? "ok" : "warning",
+      detail: backupOk
+        ? `Último backup há ${Math.round(backupAgeHours)} hora(s).`
+        : "Baixe ou salve um backup antes de encerrar o dia.",
+      actionLabel: backupOk ? "" : "Ir para backup",
+      action: "backup"
+    },
+    {
+      id: "closing",
+      label: "Dia bloqueado para edição",
+      status: locked ? "ok" : "warning",
+      detail: locked ? "Dia fechado e protegido contra alterações." : "Feche o dia para bloquear mudanças nessa data.",
+      actionLabel: "",
+      action: ""
+    }
+  ];
+}
+
+function dailyClosingChecklistHtml(metrics, closing = null) {
+  const items = dailyClosingChecklist(metrics, closing);
+  const readyCount = items.filter(item => item.status === "ok").length;
+  const ready = readyCount === items.length;
+  return `
+    <section class="daily-closing-guide ${ready ? "ready" : "attention"}">
+      <div class="daily-closing-guide-head">
+        <div>
+          <span>Checklist do fechamento</span>
+          <h3>${ready ? "Dia pronto" : `${items.length - readyCount} ponto(s) para conferir`}</h3>
+        </div>
+        <strong>${readyCount}/${items.length}</strong>
+      </div>
+      <div class="closing-check-list">
+        ${items.map(item => `
+          <article class="closing-check ${item.status}">
+            <span>${item.status === "ok" ? "OK" : "!"}</span>
+            <div>
+              <b>${escapeHtml(item.label)}</b>
+              <small>${escapeHtml(item.detail)}</small>
+            </div>
+            ${item.actionLabel ? `<button class="secondary table-action" type="button" data-daily-closing-action="${escapeHtml(item.action)}">${escapeHtml(item.actionLabel)}</button>` : ""}
+          </article>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
 function dailyClosingPanelHtml(metrics, closing = null) {
   const locked = Boolean(closing && closing.locked !== false);
   const differenceClass = metrics.difference < 0 ? "negative" : "positive";
@@ -2312,6 +2402,7 @@ function dailyClosingPanelHtml(metrics, closing = null) {
           <p class="muted-inline">Confira entradas, saídas, saldo real, cofrinho e pendências antes de encerrar o dia.</p>
         </div>
       </div>
+      ${dailyClosingChecklistHtml(metrics, closing)}
       <form id="daily-closing-form" class="form-grid">
         <label>Data do fechamento
           <input name="date" type="date" value="${metrics.date}" required>
@@ -4921,6 +5012,45 @@ async function renderCash() {
       state.cashPanelTab = "reconciliation";
       state.editReconciliationId = null;
       renderCash();
+    });
+
+    document.querySelectorAll("[data-daily-closing-action]").forEach(button => {
+      button.addEventListener("click", event => {
+        const action = event.currentTarget.dataset.dailyClosingAction;
+        const date = String(dailyClosingForm.elements.date.value || today).slice(0, 10);
+        if (action === "reconciliation") {
+          state.cashFilter = {
+            ...state.cashFilter,
+            period: "day",
+            date,
+            month: date.slice(0, 7),
+            year: date.slice(0, 4),
+            type: "all",
+            category: "all",
+            search: "",
+            manualAll: false
+          };
+          state.cashPanelTab = "reconciliation";
+          state.editReconciliationId = null;
+          renderCash();
+          return;
+        }
+        if (action === "savings") {
+          state.cashPanelTab = "savings";
+          renderCash();
+          return;
+        }
+        if (action === "accounts") {
+          state.financeViewTab = "accounts";
+          history.pushState(null, "", "/financeiro?view=accounts");
+          renderFinance();
+          return;
+        }
+        if (action === "backup") {
+          history.pushState(null, "", "/backups?tab=backup");
+          renderBackups();
+        }
+      });
     });
   }
 

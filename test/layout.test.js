@@ -24,6 +24,8 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /localStorage\.setItem\("cashEntryDraft"/);
   assert.match(app, /Saldo insuficiente na conta para esta sa/);
   assert.match(app, /savingsHistoryDetailHtml/);
+  assert.match(app, /dailyClosingChecklistHtml/);
+  assert.match(app, /data-daily-closing-action/);
   assert.match(app, /data-focus-cash-entry/);
   assert.match(app, /data-cash-entry-date="today"/);
   assert.match(app, /data-cash-entry-date="yesterday"/);
@@ -32,6 +34,8 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /data-cash-quick="withdrawals"/);
   assert.match(css, /\.budget-progress/);
   assert.match(css, /\.cash-date-shortcuts/);
+  assert.match(css, /\.daily-closing-guide/);
+  assert.match(css, /\.closing-check/);
   assert.match(css, /\.linked-action-row/);
   assert.match(app, /reportViewTab/);
   assert.match(app, /data-maintenance-pane="integrity"/);

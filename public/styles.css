@@ -2128,6 +2128,111 @@ textarea {
   font-size: 0.9rem;
 }
 
+.daily-closing-guide {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(8, 127, 91, 0.14);
+  border-radius: 8px;
+  background: #f8fcf8;
+}
+
+.daily-closing-guide.attention {
+  border-color: rgba(242, 183, 5, 0.35);
+  background: #fffdf3;
+}
+
+.daily-closing-guide-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.daily-closing-guide-head span {
+  color: var(--green-dark);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.daily-closing-guide-head h3 {
+  margin: 2px 0 0;
+  color: var(--earth);
+}
+
+.daily-closing-guide-head strong {
+  display: grid;
+  place-items: center;
+  min-width: 52px;
+  min-height: 40px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--green-dark);
+  font-size: 1rem;
+}
+
+.closing-check-list {
+  display: grid;
+  gap: 8px;
+}
+
+.closing-check {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid rgba(87, 50, 32, 0.08);
+  border-left: 4px solid var(--green);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.closing-check.warning {
+  border-left-color: var(--yellow);
+}
+
+.closing-check > span {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #eef7ef;
+  color: var(--green-dark);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.closing-check.warning > span {
+  background: #fff8e1;
+  color: var(--earth);
+}
+
+.closing-check div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.closing-check b {
+  color: var(--earth);
+  font-size: 0.9rem;
+}
+
+.closing-check small {
+  color: var(--muted);
+  font-weight: 760;
+}
+
+.closing-check .table-action {
+  min-height: 30px;
+  padding-inline: 10px;
+  font-size: 0.78rem;
+}
+
 .closing-record {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -4894,9 +4999,19 @@ a.secondary.table-action,
   .channel-payment-grid,
   .withdrawal-fields,
   .withdrawal-preview,
+  .closing-check,
   .closing-record,
   .reason-list span {
     grid-template-columns: 1fr;
+  }
+
+  .closing-check {
+    align-items: start;
+  }
+
+  .closing-check > span,
+  .closing-check .table-action {
+    justify-self: start;
   }
 
   .integrity-status {
