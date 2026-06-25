@@ -10012,10 +10012,64 @@ function financialAccountNotifications(days = 7) {
     });
 }
 
+function financialAccountFilterState() {
+  const defaults = { search: "", kind: "all", status: "all" };
+  state.financialAccountFilter = {
+    ...defaults,
+    ...(state.financialAccountFilter || {})
+  };
+  return state.financialAccountFilter;
+}
+
+function normalizeAccountSearch(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function accountMatchesFinancialFilter(account, filter = financialAccountFilterState()) {
+  const status = accountStatus(account);
+  const open = accountOpenAmount(account);
+  if (filter.kind !== "all" && account.kind !== filter.kind) {
+    return false;
+  }
+  if (filter.status === "open" && open < 0.01) {
+    return false;
+  }
+  if (["pending", "overdue", "paid"].includes(filter.status) && status !== filter.status) {
+    return false;
+  }
+  const query = normalizeAccountSearch(filter.search);
+  if (!query) {
+    return true;
+  }
+  return [
+    account.description,
+    account.category,
+    account.notes,
+    account.dueDate,
+    account.kind === "receivable" ? "receber recebimento cliente" : "pagar pagamento fornecedor"
+  ].some(value => normalizeAccountSearch(value).includes(query));
+}
+
 function accountsManagementPanel() {
   const editingId = state.editFinancialAccountId;
   const editing = financialAccounts().find(account => String(account.id) === String(editingId));
-  const accounts = [...financialAccounts()].sort((a, b) => String(a.dueDate || "").localeCompare(String(b.dueDate || "")));
+  const filter = financialAccountFilterState();
+  const statusOrder = { overdue: 0, pending: 1, paid: 2 };
+  const allAccounts = [...financialAccounts()].sort((a, b) => {
+    const editingWeight = (String(b.id) === String(editingId) ? 1 : 0) - (String(a.id) === String(editingId) ? 1 : 0);
+    if (editingWeight) {
+      return editingWeight;
+    }
+    const statusWeight = (statusOrder[accountStatus(a)] ?? 9) - (statusOrder[accountStatus(b)] ?? 9);
+    if (statusWeight) {
+      return statusWeight;
+    }
+    return String(a.dueDate || "").localeCompare(String(b.dueDate || ""));
+  });
+  const accounts = allAccounts.filter(account => String(account.id) === String(editingId) || accountMatchesFinancialFilter(account, filter));
   const summary = accountsSummary();
   return `
     <section class="panel report-section accounts-panel">
@@ -10030,6 +10084,32 @@ function accountsManagementPanel() {
         <div class="metric"><span>A receber</span><strong>${money(summary.receivable)}</strong></div>
         <div class="metric"><span>Em atraso</span><strong class="${summary.overdue ? "negative" : "positive"}">${summary.overdue}</strong><small>${money(summary.overdueAmount)}</small></div>
       </div>
+      <form id="financial-account-filter-form" class="account-toolbar">
+        <label>Buscar conta
+          <input name="search" value="${escapeHtml(filter.search || "")}" placeholder="Fornecedor, cliente, categoria ou vencimento">
+        </label>
+        <label>Tipo
+          <select name="kind">
+            <option value="all" ${filter.kind === "all" ? "selected" : ""}>Todas</option>
+            <option value="payable" ${filter.kind === "payable" ? "selected" : ""}>A pagar</option>
+            <option value="receivable" ${filter.kind === "receivable" ? "selected" : ""}>A receber</option>
+          </select>
+        </label>
+        <label>Status
+          <select name="status">
+            <option value="all" ${filter.status === "all" ? "selected" : ""}>Todos</option>
+            <option value="open" ${filter.status === "open" ? "selected" : ""}>Em aberto</option>
+            <option value="overdue" ${filter.status === "overdue" ? "selected" : ""}>Atrasadas</option>
+            <option value="pending" ${filter.status === "pending" ? "selected" : ""}>Pendentes</option>
+            <option value="paid" ${filter.status === "paid" ? "selected" : ""}>Quitadas</option>
+          </select>
+        </label>
+        <div class="account-toolbar-actions">
+          <button class="secondary" type="submit">Filtrar</button>
+          <button class="secondary" type="button" id="clear-financial-account-filter">Limpar</button>
+          <button type="button" id="new-financial-account">Nova conta</button>
+        </div>
+      </form>
       <form id="financial-account-form" class="form-grid">
         <input name="id" type="hidden" value="${escapeHtml(editing?.id || "")}">
         <label>Tipo
@@ -10069,6 +10149,10 @@ function accountsManagementPanel() {
         </div>
       </form>
       ${accounts.length ? `
+        <div class="account-list-heading">
+          <strong>${accounts.length} de ${allAccounts.length} conta(s)</strong>
+          <small>${editing ? "A conta em edição fica fixa no topo." : "Use busca e filtros para achar contas antigas rapidamente."}</small>
+        </div>
         <div class="account-list">
           ${accounts.map(account => {
             const open = accountOpenAmount(account);
@@ -10494,6 +10578,35 @@ function financialPlanningPanel() {
 }
 
 function bindFinancialAccounts() {
+  const filterForm = document.querySelector("#financial-account-filter-form");
+  if (filterForm) {
+    filterForm.addEventListener("submit", event => {
+      event.preventDefault();
+      const values = readForm(filterForm);
+      state.financialAccountFilter = {
+        search: String(values.search || "").trim(),
+        kind: ["payable", "receivable"].includes(values.kind) ? values.kind : "all",
+        status: ["open", "overdue", "pending", "paid"].includes(values.status) ? values.status : "all"
+      };
+      renderFinance();
+    });
+    filterForm.querySelectorAll("select").forEach(select => {
+      select.addEventListener("change", () => {
+        filterForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      });
+    });
+  }
+
+  on("#clear-financial-account-filter", "click", () => {
+    state.financialAccountFilter = { search: "", kind: "all", status: "all" };
+    renderFinance();
+  });
+
+  on("#new-financial-account", "click", () => {
+    state.editFinancialAccountId = null;
+    renderFinance();
+  });
+
   const form = document.querySelector("#financial-account-form");
   if (form) {
     form.addEventListener("submit", async event => {

@@ -2717,6 +2717,46 @@ textarea {
   gap: 10px;
 }
 
+.account-toolbar {
+  display: grid;
+  grid-template-columns: minmax(240px, 1.3fr) minmax(150px, 0.7fr) minmax(150px, 0.7fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid #dde3e8;
+  border-radius: 6px;
+  background: #f8faf9;
+}
+
+.account-toolbar label {
+  min-width: 0;
+}
+
+.account-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.account-toolbar-actions button {
+  min-height: 40px;
+}
+
+.account-list-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  justify-content: space-between;
+  align-items: center;
+  color: #526272;
+  font-size: 12px;
+}
+
+.account-list-heading strong {
+  color: #18212b;
+}
+
 .account-list {
   display: grid;
   gap: 10px;
@@ -5100,6 +5140,15 @@ a.secondary.table-action,
     grid-template-columns: minmax(220px, 1fr) minmax(260px, 1fr);
   }
 
+  .account-toolbar {
+    grid-template-columns: minmax(220px, 1fr) minmax(150px, 0.6fr) minmax(150px, 0.6fr);
+  }
+
+  .account-toolbar-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+
   .account-settlement-form {
     grid-column: 1 / -1;
   }
@@ -5135,6 +5184,7 @@ a.secondary.table-action,
   .account-row,
   .account-settlement-form,
   .account-values,
+  .account-toolbar,
   .pending-grid,
   .budget-form,
   .budget-row {
@@ -5167,6 +5217,14 @@ a.secondary.table-action,
 
   .account-settlement-form {
     grid-column: auto;
+  }
+
+  .account-toolbar-actions {
+    grid-column: auto;
+  }
+
+  .account-toolbar-actions button {
+    flex: 1 1 130px;
   }
 
   .account-values {
