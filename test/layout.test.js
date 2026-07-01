@@ -41,8 +41,12 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /data-maintenance-pane="integrity"/);
   assert.match(app, /permission-fieldset/);
   assert.match(app, /integration-status/);
+  assert.match(app, /function normalizedCleanupYear/);
+  assert.match(app, /numberYear < 2000/);
+  assert.match(app, /cleanupYearField && cleanupPreviewBox/);
   assert.match(css, /\.account-row/);
   assert.match(css, /\.pending-grid/);
+  assert.match(css, /\.maintenance-grid \.period-picker button/);
 });
 
 test('mobile tables receive column labels', () => {

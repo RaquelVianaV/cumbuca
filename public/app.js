@@ -963,12 +963,54 @@ async function downloadBackup() {
   }
 }
 
-function yearFromMenuKey(key) {
-  return String(key || "").slice(0, 4);
+function emptyCleanupPreview() {
+  return {
+    cash: 0,
+    orders: 0,
+    menus: 0,
+    menuDates: 0,
+    storeSales: 0,
+    channelReceipts: 0,
+    auditLog: 0,
+    monthlyClosings: 0,
+    weeklyClosings: 0
+  };
+}
+
+function normalizedCleanupYear(year, { allowCurrent = false } = {}) {
+  const target = String(year || "").trim();
+  const currentYear = new Date().getFullYear();
+  const numberYear = Number(target);
+
+  if (!/^\d{4}$/.test(target) || numberYear < 2000 || numberYear > currentYear || (!allowCurrent && numberYear === currentYear)) {
+    return "";
+  }
+
+  return target;
+}
+
+function yearFromDateKey(value, options = {}) {
+  const text = String(value || "").trim();
+  if (!/^\d{4}(?:-\d{2}(?:-\d{2})?|T|$)/.test(text)) {
+    return "";
+  }
+  return normalizedCleanupYear(text.slice(0, 4), options);
+}
+
+function yearFromMenuKey(key, options = {}) {
+  const text = String(key || "").trim();
+  if (!/^\d{4}-\d{2}(?:-|$)/.test(text)) {
+    return "";
+  }
+  return normalizedCleanupYear(text.slice(0, 4), options);
 }
 
 function cleanupPreview(year) {
-  const target = String(year || "");
+  const target = normalizedCleanupYear(year);
+  if (!target) {
+    return emptyCleanupPreview();
+  }
+
   return {
     cash: state.cash.filter(entry => String(entry.date || "").startsWith(target)).length,
     orders: state.orders.filter(order => yearFromMenuKey(order.menuKey) === target).length,
@@ -1036,7 +1078,11 @@ function databaseUsageEstimate() {
 }
 
 function yearUsageEstimate(year) {
-  const target = String(year || "");
+  const target = normalizedCleanupYear(year);
+  if (!target) {
+    return 0;
+  }
+
   const scopedPayload = {
     cashEntries: state.cash.filter(entry => String(entry.date || "").startsWith(target)),
     orders: state.orders.filter(order => yearFromMenuKey(order.menuKey) === target),
@@ -1116,39 +1162,43 @@ async function loadRealDatabaseUsage() {
 
 function cleanupYears() {
   const years = new Set();
-  state.cash.forEach(entry => {
-    if (String(entry.date || "").slice(0, 4)) {
-      years.add(String(entry.date || "").slice(0, 4));
+  const addYear = year => {
+    const normalized = normalizedCleanupYear(year);
+    if (normalized) {
+      years.add(normalized);
     }
+  };
+
+  state.cash.forEach(entry => {
+    addYear(yearFromDateKey(entry.date));
   });
   state.orders.forEach(order => {
-    if (yearFromMenuKey(order.menuKey)) {
-      years.add(yearFromMenuKey(order.menuKey));
-    }
+    addYear(yearFromMenuKey(order.menuKey));
   });
   state.storeSales.forEach(entry => {
-    if (String(entry.date || "").slice(0, 4)) {
-      years.add(String(entry.date || "").slice(0, 4));
-    }
+    addYear(yearFromDateKey(entry.date));
   });
   state.channelReceipts.forEach(entry => {
-    if (String(entry.date || "").slice(0, 4)) {
-      years.add(String(entry.date || "").slice(0, 4));
-    }
+    addYear(yearFromDateKey(entry.date));
   });
-  Object.keys(state.menus || {}).forEach(key => years.add(yearFromMenuKey(key)));
-  Object.keys(state.monthlyClosings || {}).forEach(key => years.add(String(key || "").slice(0, 4)));
-  Object.keys(state.weeklyClosings || {}).forEach(key => years.add(String(key || "").slice(0, 4)));
+  (state.auditLog || []).forEach(entry => {
+    addYear(yearFromDateKey(entry.createdAt));
+  });
+  Object.keys(state.menus || {}).forEach(key => addYear(yearFromMenuKey(key)));
+  Object.keys(state.monthlyClosings || {}).forEach(key => addYear(yearFromDateKey(key)));
+  Object.keys(state.weeklyClosings || {}).forEach(key => addYear(yearFromDateKey(key)));
 
-  const currentYear = String(new Date().getFullYear());
   return [...years]
-    .filter(year => /^\d{4}$/.test(year))
-    .filter(year => year !== currentYear)
     .sort((a, b) => b.localeCompare(a));
 }
 
 async function cleanupYear(year) {
-  const target = String(year || "");
+  const target = normalizedCleanupYear(year);
+  if (!target) {
+    showToast("Ano invalido para limpeza.", "warning");
+    return null;
+  }
+
   const preview = cleanupPreview(target);
 
   state.cash = state.cash.filter(entry => !String(entry.date || "").startsWith(target));
@@ -1235,6 +1285,7 @@ async function resetFinancialData(confirmationText = "") {
 }
 
 function cleanupPreviewHtml(year, preview) {
+  const target = normalizedCleanupYear(year) || String(year || "").trim();
   const total = Object.values(preview).reduce((sum, value) => sum + value, 0);
   return `
     <div class="summary">
@@ -1248,7 +1299,7 @@ function cleanupPreviewHtml(year, preview) {
       <div class="metric"><span>Fechamentos mensais</span><strong>${preview.monthlyClosings}</strong></div>
       <div class="metric"><span>Fechamentos semanais</span><strong>${preview.weeklyClosings}</strong></div>
     </div>
-    <p class="muted">${total ? `A limpeza de ${year} removerá ${total} grupo(s)/registro(s) antigos.` : `Não há dados de ${year} para apagar.`}</p>
+    <p class="muted">${total ? `A limpeza de ${target} removerá ${total} grupo(s)/registro(s) antigos.` : `Não há dados de ${target} para apagar.`}</p>
   `;
 }
 
@@ -11720,8 +11771,8 @@ async function renderBackups() {
       </div>
       <div class="maintenance-steps">
         <button type="button" id="hero-backup-download">Baixar backup</button>
-        <button class="secondary" type="button" data-maintenance-scroll="cleanup-year-form">Limpar ano</button>
         ${canUser("clearData") ? `
+          <button class="secondary" type="button" data-maintenance-scroll="cleanup-year-form">Limpar ano</button>
           <button class="danger" type="button" data-maintenance-scroll="reset-all-panel">Reiniciar financeiro</button>
           <button class="danger" type="button" data-maintenance-scroll="reset-database-zone">Limpar todo o banco</button>
         ` : ""}
@@ -11922,11 +11973,13 @@ async function renderBackups() {
 
   const cleanupYearField = document.querySelector("#cleanup-year");
   const cleanupPreviewBox = document.querySelector("#cleanup-preview");
-  cleanupYearField.addEventListener("change", event => {
-    const year = event.currentTarget.value;
-    cleanupPreviewBox.innerHTML = cleanupPreviewHtml(year, cleanupPreview(year));
-    document.querySelector("#db-usage-status").innerHTML = databaseUsageHtml(year);
-  });
+  if (cleanupYearField && cleanupPreviewBox) {
+    cleanupYearField.addEventListener("change", event => {
+      const year = event.currentTarget.value;
+      cleanupPreviewBox.innerHTML = cleanupPreviewHtml(year, cleanupPreview(year));
+      document.querySelector("#db-usage-status").innerHTML = databaseUsageHtml(year);
+    });
+  }
 
   on("#cleanup-backup-first", "click", downloadBackup);
   const resetFinancialConfirmation = document.querySelector("#reset-financial-confirmation");
@@ -11999,7 +12052,12 @@ async function renderBackups() {
   });
   on("#cleanup-year-form", "submit", async event => {
     event.preventDefault();
-    const year = cleanupYearField.value;
+    const year = normalizedCleanupYear(cleanupYearField?.value);
+    if (!year) {
+      showToast("Selecione um ano valido para limpar.", "warning");
+      return;
+    }
+
     const currentPreview = cleanupPreview(year);
     const total = Object.values(currentPreview).reduce((sum, value) => sum + value, 0);
     if (!total) {

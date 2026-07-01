@@ -3382,7 +3382,17 @@ textarea {
 }
 
 .maintenance-grid .period-picker {
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: minmax(220px, 1fr) minmax(150px, auto) minmax(130px, auto);
+  align-items: end;
+}
+
+.maintenance-grid .period-picker label {
+  min-width: 0;
+}
+
+.maintenance-grid .period-picker button {
+  min-height: 40px;
+  white-space: normal;
 }
 
 .maintenance-grid .backup-list-state,
