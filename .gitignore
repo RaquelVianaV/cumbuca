@@ -12,3 +12,4 @@ playwright-report/
 test-results/
 
 .env*.local
+tmp-reset-token.txt
