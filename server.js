@@ -22,6 +22,7 @@ const DATABASE_URL =
 const ALERT_WEBHOOK_URL = process.env.CUMBUCA_ALERT_WEBHOOK_URL || '';
 const EXTERNAL_BACKUP_URL = process.env.CUMBUCA_EXTERNAL_BACKUP_URL || '';
 const INTEGRATION_TOKEN = process.env.CUMBUCA_INTEGRATION_TOKEN || '';
+const RESET_TOKEN = process.env.CUMBUCA_RESET_TOKEN || '';
 const loginAttempts = new Map();
 const permissionKeys = ['editFinancial', 'manageClosings', 'restoreBackup', 'clearData'];
 const stateKeys = [
@@ -460,6 +461,20 @@ function verifyPassword(password, storedHash) {
   const candidate = crypto.pbkdf2Sync(String(password || ''), salt, 120000, 32, 'sha256');
   const expected = Buffer.from(hash, 'hex');
   return expected.length === candidate.length && crypto.timingSafeEqual(expected, candidate);
+}
+
+function secureTokenMatches(expectedValue, candidateValue) {
+  const expected = Buffer.from(String(expectedValue || ''));
+  const candidate = Buffer.from(String(candidateValue || ''));
+  return (
+    expected.length > 0 &&
+    expected.length === candidate.length &&
+    crypto.timingSafeEqual(expected, candidate)
+  );
+}
+
+function maintenanceResetTokenAuthorized(req) {
+  return secureTokenMatches(RESET_TOKEN, req.headers['x-cumbuca-reset-token']);
 }
 
 async function ensureUserTable() {
@@ -2506,6 +2521,37 @@ async function handleRequest(req, res) {
         status: 'online',
         database,
       });
+      return;
+    }
+
+    if (url.pathname === '/api/maintenance/reset-state') {
+      if (!RESET_TOKEN) {
+        sendJson(res, 404, { error: 'Endpoint indisponivel.' });
+        return;
+      }
+      if (req.method !== 'POST') {
+        sendJson(res, 405, { error: 'MÃ©todo nÃ£o permitido.' });
+        return;
+      }
+      if (!maintenanceResetTokenAuthorized(req)) {
+        sendJson(res, 403, { error: 'Token de manutenÃ§Ã£o invÃ¡lido.' });
+        return;
+      }
+      const payload = await collectBody(req);
+      if (payload.confirm !== 'LIMPAR TODO O BANCO') {
+        sendJson(res, 400, { error: 'Confirme com LIMPAR TODO O BANCO para apagar os dados.' });
+        return;
+      }
+      sendJson(
+        res,
+        200,
+        await resetAppState({
+          username: 'maintenance-token',
+          name: 'Maintenance Token',
+          role: 'admin',
+          permissions: normalizedPermissions({ clearData: true }, 'admin'),
+        })
+      );
       return;
     }
 

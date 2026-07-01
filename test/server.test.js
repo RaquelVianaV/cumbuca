@@ -237,6 +237,26 @@ test('financial reset endpoints require authentication', async (t) => {
   }
 });
 
+test('maintenance token reset endpoint stays unavailable without token env', async (t) => {
+  const server = http.createServer(handleRequest);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const { port } = server.address();
+
+  const response = await fetch(`http://127.0.0.1:${port}/api/maintenance/reset-state`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-cumbuca-reset-token': 'invalid',
+    },
+    body: JSON.stringify({ confirm: 'LIMPAR TODO O BANCO' }),
+  });
+  const payload = await response.json();
+
+  assert.equal(response.status, 404);
+  assert.match(payload.error, /indisponivel/i);
+});
+
 test('authenticated HTTP flow serves session, finance calculation and reports', async (t) => {
   const server = http.createServer(handleRequest);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
