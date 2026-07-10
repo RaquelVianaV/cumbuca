@@ -492,6 +492,15 @@ function cashAccountOptionsHtml(selected = "pf", type = "income", includeAll = f
   `;
 }
 
+function reconciliationCashAccount(value) {
+  return value === "all" ? "all" : normalizedCashAccount(value, "all");
+}
+
+function reconciliationAccountLabel(value) {
+  const normalized = reconciliationCashAccount(value);
+  return normalized === "all" ? "Unificado PF + PJ" : cashAccountLabel(normalized, "expense");
+}
+
 function seededExpenseReasons() {
   const saved = localValue("expenseReasons", null);
   if (Array.isArray(saved) && saved.length) {
@@ -2290,12 +2299,14 @@ function withdrawalSplitFromRaquel(raquelAmount) {
   return { total, savings, remaining: base, vanessa, raquel };
 }
 
-function accountBalanceUntilDate(dateKey, excludeIds = []) {
+function accountBalanceUntilDate(dateKey, excludeIds = [], cashAccount = "all") {
   const date = String(dateKey || isoDate(new Date())).slice(0, 10);
   const cycleStart = String(state.financialPlanning?.cycleStartDate || "");
   const ignoredIds = new Set((excludeIds || []).map(id => String(id)));
+  const selectedAccount = reconciliationCashAccount(cashAccount);
   const entries = accountingCashEntries(state.cash)
     .filter(entry => !ignoredIds.has(String(entry.id || "")))
+    .filter(entry => selectedAccount === "all" || normalizedCashAccount(entry.cashAccount, "") === selectedAccount)
     .filter(entry => {
       const entryDate = cashAccountingDate(entry);
       return entryDate <= date && (!cycleStart || entryDate >= cycleStart);
@@ -2303,8 +2314,12 @@ function accountBalanceUntilDate(dateKey, excludeIds = []) {
   return cashTotals(entries).balance;
 }
 
-function reconciliationCalculatedBalance(dateKey, reconciliation = null) {
-  return accountBalanceUntilDate(dateKey, reconciliation?.adjustmentId ? [reconciliation.adjustmentId] : []);
+function reconciliationCalculatedBalance(dateKey, reconciliation = null, cashAccount = reconciliation?.cashAccount || "all") {
+  return accountBalanceUntilDate(
+    dateKey,
+    reconciliation?.adjustmentId ? [reconciliation.adjustmentId] : [],
+    reconciliationCashAccount(cashAccount)
+  );
 }
 
 function dailyClosingPendingItems(dateKey) {
@@ -4309,6 +4324,7 @@ async function renderCash() {
   const editingReconciliation = state.editReconciliationId
     ? reconciliationHistory.find(item => String(item.id) === String(state.editReconciliationId))
     : null;
+  const reconciliationAccount = reconciliationCashAccount(editingReconciliation?.cashAccount || currentCashFilter.cashAccount || "all");
   const selectedFilterType = currentCashFilter.type || "all";
   const selectedFilterCategory = currentCashFilter.category || "all";
   const selectedFilterAccount = currentCashFilter.cashAccount || "all";
@@ -4318,7 +4334,7 @@ async function renderCash() {
   const totalCash = cashTotals(selectedPeriodCashEntries);
   const selectedAdjustmentTotals = accountAdjustmentTotals(selectedPeriodCashEntries);
   const reconciliationDate = editingReconciliation?.date || selectedDate;
-  const dailyAccountBalance = reconciliationCalculatedBalance(reconciliationDate, editingReconciliation);
+  const dailyAccountBalance = reconciliationCalculatedBalance(reconciliationDate, editingReconciliation, reconciliationAccount);
   const reconciliationRealBalance = editingReconciliation
     ? Number(editingReconciliation.realBalance || 0)
     : dailyAccountBalance;
@@ -4478,6 +4494,11 @@ async function renderCash() {
             <label>Data da conferência
               <input name="date" type="date" value="${reconciliationDate}" required>
             </label>
+            <label>Conta conferida
+              <select name="cashAccount" id="daily-reconciliation-account">
+                ${cashAccountOptionsHtml(reconciliationAccount, "expense", true)}
+              </select>
+            </label>
             <label>Saldo real da conta
               <input name="realBalance" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(reconciliationRealBalance)}" required>
             </label>
@@ -4493,6 +4514,7 @@ async function renderCash() {
             </div>
           </form>
           <div class="summary">
+            <div class="metric"><span>Conta conferida</span><strong id="reconciliation-account-label">${reconciliationAccountLabel(reconciliationAccount)}</strong></div>
             <div class="metric"><span>Saldo calculado até o dia</span><strong id="reconciliation-calculated" class="${dailyAccountBalance < 0 ? "negative" : "positive"}">${money(dailyAccountBalance)}</strong></div>
             <div class="metric"><span>Saldo real informado</span><strong id="reconciliation-real">${money(reconciliationRealBalance)}</strong></div>
             <div class="metric"><span>Diferença a ajustar</span><strong id="reconciliation-difference" class="${reconciliationDifference < 0 ? "negative" : "positive"}">${money(reconciliationDifference)}</strong></div>
@@ -4504,7 +4526,7 @@ async function renderCash() {
               ${(state.financialPlanning.reconciliationHistory || []).slice(0, 8).map(item => `
                 <span>
                   <b>${formatIsoDateBr(item.date)} · ${money(item.realBalance)}</b>
-                  Ajuste ${money(item.difference)}
+                  ${reconciliationAccountLabel(item.cashAccount || "all")} - Ajuste ${money(item.difference)}
                   <small>${escapeHtml(item.authorizedBy || "Sistema")} · ${escapeHtml(item.reason || "Conta conferida")}</small>
                   ${canUser("editFinancial") ? `
                     <div class="table-actions">
@@ -4853,14 +4875,19 @@ async function renderCash() {
     const updateReconciliationPreview = () => {
       const date = dailyReconciliationForm.elements.date.value || today;
       const realBalance = parseMoneyInput(dailyReconciliationForm.elements.realBalance.value);
+      const cashAccount = reconciliationCashAccount(dailyReconciliationForm.elements.cashAccount?.value || "all");
       const reconciliationId = dailyReconciliationForm.elements.reconciliationId?.value || "";
       const currentReconciliation = (state.financialPlanning?.reconciliationHistory || [])
         .find(item => String(item.id) === String(reconciliationId));
-      const calculatedBalance = reconciliationCalculatedBalance(date, currentReconciliation);
+      const calculatedBalance = reconciliationCalculatedBalance(date, currentReconciliation, cashAccount);
       const difference = realBalance - calculatedBalance;
+      const accountElement = document.querySelector("#reconciliation-account-label");
       const calculatedElement = document.querySelector("#reconciliation-calculated");
       const realElement = document.querySelector("#reconciliation-real");
       const differenceElement = document.querySelector("#reconciliation-difference");
+      if (accountElement) {
+        accountElement.textContent = reconciliationAccountLabel(cashAccount);
+      }
       calculatedElement.textContent = money(calculatedBalance);
       calculatedElement.className = calculatedBalance < 0 ? "negative" : "positive";
       realElement.textContent = money(realBalance);
@@ -4936,10 +4963,14 @@ async function renderCash() {
       const reconciliationId = values.reconciliationId || "";
       const history = state.financialPlanning?.reconciliationHistory || [];
       const date = values.date || today;
+      const cashAccount = reconciliationCashAccount(values.cashAccount || "all");
       const previousReconciliation = history.find(item => String(item.id) === String(reconciliationId))
-        || (!reconciliationId ? history.find(item => String(item.date) === String(date)) : null);
+        || (!reconciliationId ? history.find(item =>
+          String(item.date) === String(date)
+          && reconciliationCashAccount(item.cashAccount || "all") === cashAccount
+        ) : null);
       const realBalance = parseMoneyInput(values.realBalance);
-      const calculatedBalance = reconciliationCalculatedBalance(date, previousReconciliation);
+      const calculatedBalance = reconciliationCalculatedBalance(date, previousReconciliation, cashAccount);
       const difference = realBalance - calculatedBalance;
       const reason = String(values.reason || "Conta conferida").trim();
       const authorizedBy = state.currentUser?.name || state.currentUser?.username || "Sistema";
@@ -4967,6 +4998,7 @@ async function renderCash() {
           calculatedBalance: calculatedBalance.toFixed(2),
           realBalance: realBalance.toFixed(2),
           difference: "0.00",
+          cashAccount,
           reason,
           authorizedBy,
           username: state.currentUser?.username || previousReconciliation?.username || "",
@@ -4981,7 +5013,9 @@ async function renderCash() {
             : [nextReconciliation, ...history].slice(0, 250)
         };
         state.editReconciliationId = null;
-        recordAudit(previousReconciliation ? "Conciliação editada" : "Conciliação da conta", `${formatIsoDateBr(date)} - sem diferença - autorizado por ${authorizedBy}`);
+        recordAudit(previousReconciliation ? "Conciliação editada" : "Conciliação da conta", `${formatIsoDateBr(date)} - ${reconciliationAccountLabel(cashAccount)} - sem diferença - autorizado por ${authorizedBy}`, {
+          cashAccount
+        });
         if (await persistState()) {
           showToast(previousReconciliation ? "Conciliação atualizada." : "Conciliação registrada sem diferença.", "success");
           renderCash();
@@ -5000,10 +5034,11 @@ async function renderCash() {
       const adjustmentId = previousReconciliation?.adjustmentId || `account-check-${Date.now()}`;
       const adjustmentEntry = {
         id: adjustmentId,
-        description: `Ajuste de conferência - ${reason}`,
+        description: `Ajuste de conferência ${reconciliationAccountLabel(cashAccount)} - ${reason}`,
         date,
         type: adjustmentType,
         category: "ajuste-conta",
+        ...(cashAccount === "all" ? {} : { cashAccount }),
         amount: adjustmentAmount.toFixed(2),
         reconciliation: true,
         authorizedBy,
@@ -5023,6 +5058,7 @@ async function renderCash() {
         calculatedBalance: calculatedBalance.toFixed(2),
         realBalance: realBalance.toFixed(2),
         difference: difference.toFixed(2),
+        cashAccount,
         reason,
         authorizedBy,
         username: state.currentUser?.username || previousReconciliation?.username || "",
@@ -5045,15 +5081,16 @@ async function renderCash() {
         year: date.slice(0, 4),
         type: "all",
         category: "ajuste-conta",
-        cashAccount: "all",
+        cashAccount,
         search: "",
         manualAll: false
       };
-      recordAudit(previousReconciliation ? "Conciliação editada" : "Conciliação da conta", `${formatIsoDateBr(date)} - saldo real ${money(realBalance)} - ajuste ${money(difference)} - autorizado por ${authorizedBy}`, {
+      recordAudit(previousReconciliation ? "Conciliação editada" : "Conciliação da conta", `${formatIsoDateBr(date)} - ${reconciliationAccountLabel(cashAccount)} - saldo real ${money(realBalance)} - ajuste ${money(difference)} - autorizado por ${authorizedBy}`, {
         entityId: adjustmentId,
         calculatedBalance: calculatedBalance.toFixed(2),
         realBalance: realBalance.toFixed(2),
-        difference: difference.toFixed(2)
+        difference: difference.toFixed(2),
+        cashAccount
       });
       if (await persistState()) {
         showToast(previousReconciliation ? "Conciliação atualizada." : "Ajuste de conferência lançado.", "success");

@@ -104,6 +104,11 @@ test('reconciliation exposes authorized adjustment preview', async ({ page }, te
   await expect(
     page.getByRole('heading', { name: 'Conferência diária', exact: true })
   ).toBeVisible();
+  const reconciliationAccount = page.locator('#daily-reconciliation-account');
+  await expect(reconciliationAccount).toBeVisible();
+  await expect(reconciliationAccount).toContainText('Unificado PF + PJ');
+  await reconciliationAccount.selectOption('pj');
+  await expect(page.locator('#reconciliation-account-label')).toContainText('Conta PJ');
   await expect(page.getByLabel('Saldo real da conta', { exact: true })).toBeVisible();
   await expect(page.getByLabel('Responsável', { exact: true })).toBeVisible();
   await expect(
