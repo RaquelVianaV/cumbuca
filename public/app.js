@@ -459,8 +459,37 @@ function normalizedCashEntryDraft(saved = localValue("cashEntryDraft", null)) {
   return {
     date: /^\d{4}-\d{2}-\d{2}$/.test(saved?.date || "") ? saved.date : "",
     type,
-    category: typeof saved?.category === "string" && saved.category ? saved.category : fallbackCategory
+    category: typeof saved?.category === "string" && saved.category ? saved.category : fallbackCategory,
+    cashAccount: normalizedCashAccount(saved?.cashAccount)
   };
+}
+
+const cashAccountOptions = [
+  ["pf", "PF"],
+  ["pj", "PJ"]
+];
+
+function normalizedCashAccount(value, fallback = "pf") {
+  return cashAccountOptions.some(([key]) => key === value) ? value : fallback;
+}
+
+function cashAccountLabel(value, type = "income") {
+  const normalized = normalizedCashAccount(value, "");
+  if (!normalized) {
+    return "Sem conta informada";
+  }
+  const suffix = normalized.toUpperCase();
+  return type === "expense" ? `Conta ${suffix}` : `Entrada ${suffix}`;
+}
+
+function cashAccountOptionsHtml(selected = "pf", type = "income", includeAll = false) {
+  const normalized = includeAll ? String(selected || "all") : normalizedCashAccount(selected);
+  return `
+    ${includeAll ? `<option value="all" ${normalized === "all" ? "selected" : ""}>Unificado PF + PJ</option>` : ""}
+    ${cashAccountOptions.map(([value]) => `
+      <option value="${value}" ${normalized === value ? "selected" : ""}>${cashAccountLabel(value, type)}</option>
+    `).join("")}
+  `;
 }
 
 function seededExpenseReasons() {
@@ -604,7 +633,7 @@ if (localStorage.getItem("cashFilterDefaultMonthVersion") !== "2026-06") {
   const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const day = `${month}-${String(now.getDate()).padStart(2, "0")}`;
   if (!state.cashFilter || state.cashFilter.period === "all") {
-    state.cashFilter = { period: "month", date: day, month, year: String(now.getFullYear()), type: "all", category: "all", search: "" };
+    state.cashFilter = { period: "month", date: day, month, year: String(now.getFullYear()), type: "all", category: "all", cashAccount: "all", search: "" };
   }
   localStorage.setItem("cashFilterDefaultMonthVersion", "2026-06");
 }
@@ -1576,6 +1605,7 @@ function getCashFilter() {
     year: today.slice(0, 4),
     type: "all",
     category: "all",
+    cashAccount: "all",
     quick: "",
     search: "",
     ...(state.cashFilter || {})
@@ -1605,7 +1635,7 @@ function getCashFilter() {
 
 function filterCashEntries(entries) {
   const currentFilter = getCashFilter();
-  const { period, date, month, year, search, type, category, quick } = currentFilter;
+  const { period, date, month, year, search, type, category, cashAccount, quick } = currentFilter;
   const query = String(search || "").trim().toLowerCase();
   const searchedEntries = query
     ? entries.filter(entry => [
@@ -1614,6 +1644,7 @@ function filterCashEntries(entries) {
       categoryName(entry.category),
       cashDisplayCategory(entry),
       cashDisplayCategoryName(entry),
+      cashAccountLabel(entry.cashAccount, entry.type),
       entry.type === "expense" ? "saída" : "entrada"
     ].some(value => String(value || "").toLowerCase().includes(query)))
     : entries;
@@ -1632,8 +1663,12 @@ function filterCashEntries(entries) {
     })
     : typedEntries;
 
+  const accountEntries = cashAccount && cashAccount !== "all"
+    ? categorizedEntries.filter(entry => normalizedCashAccount(entry.cashAccount, "") === cashAccount)
+    : categorizedEntries;
+
   const quickEntries = quick
-    ? categorizedEntries.filter(entry => {
+    ? accountEntries.filter(entry => {
       if (quick === "pending") {
         return isPendingBill(entry);
       }
@@ -1648,7 +1683,7 @@ function filterCashEntries(entries) {
       }
       return true;
     })
-    : categorizedEntries;
+    : accountEntries;
 
   if (!period || period === "all") {
     return quickEntries;
@@ -2440,6 +2475,58 @@ function dailyClosingChecklistHtml(metrics, closing = null) {
   `;
 }
 
+function cashAccountSummary(entries = []) {
+  const totals = entries.reduce((acc, entry) => {
+    const key = normalizedCashAccount(entry.cashAccount, "");
+    if (!key) {
+      acc.unassigned = acc.unassigned || { label: "Sem conta informada", income: 0, expenses: 0 };
+      const target = acc.unassigned;
+      if (entry.type === "expense") {
+        target.expenses += Number(entry.amount || 0);
+      } else {
+        target.income += Number(entry.amount || 0);
+      }
+      return acc;
+    }
+    acc[key] = acc[key] || { label: key.toUpperCase(), income: 0, expenses: 0 };
+    if (entry.type === "expense") {
+      acc[key].expenses += Number(entry.amount || 0);
+    } else {
+      acc[key].income += Number(entry.amount || 0);
+    }
+    return acc;
+  }, {});
+  const combined = ["pf", "pj"].reduce((total, key) => {
+    const row = totals[key] || {};
+    total.income += Number(row.income || 0);
+    total.expenses += Number(row.expenses || 0);
+    return total;
+  }, { label: "Unificado PF + PJ", income: 0, expenses: 0 });
+  const rows = [
+    combined.income > 0 || combined.expenses > 0 ? combined : null,
+    ...["pf", "pj", "unassigned"]
+    .map(key => totals[key])
+    .filter(Boolean)
+    .filter(row => row.income > 0 || row.expenses > 0)
+  ].filter(Boolean);
+
+  if (!rows.length) {
+    return "";
+  }
+
+  return `
+    <div class="cash-account-summary">
+      ${rows.map(row => `
+        <span>
+          <small>${escapeHtml(row.label)}</small>
+          <b>${money(row.income - row.expenses)}</b>
+          <em>Entrou ${money(row.income)} / saiu ${money(row.expenses)}</em>
+        </span>
+      `).join("")}
+    </div>
+  `;
+}
+
 function dailyClosingPanelHtml(metrics, closing = null) {
   const locked = Boolean(closing && closing.locked !== false);
   const differenceClass = metrics.difference < 0 ? "negative" : "positive";
@@ -2632,6 +2719,7 @@ function setCashSavingsCoverage(entry = {}, amount = 0) {
     date: entry.date,
     type: "income",
     category: "ajuste-conta",
+    cashAccount: normalizedCashAccount(entry.cashAccount),
     amount: coverageAmount.toFixed(2),
     automaticSavingsCoverage: true,
     savingsCoverageFor: entry.id
@@ -4187,7 +4275,7 @@ async function renderCash() {
     return isoDate(date);
   })();
   if (state.cashFilter?.period === "all" && !state.cashFilter.manualAll) {
-    state.cashFilter = { period: "month", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", search: "" };
+    state.cashFilter = { period: "month", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", cashAccount: "all", search: "" };
   }
   if (requestedEditCashId && state.cash.some(entry => String(entry.id) === String(requestedEditCashId))) {
     state.editCashId = requestedEditCashId;
@@ -4201,6 +4289,7 @@ async function renderCash() {
   const cashEntryCategory = editing?.category
     || state.cashEntryDraft.category
     || (cashEntryType === "expense" ? "outros" : "venda");
+  const cashEntryAccount = normalizedCashAccount(editing?.cashAccount || state.cashEntryDraft.cashAccount);
   const editingChannelReceipt = state.editChannelReceiptId !== null
     ? state.channelReceipts.find(entry => String(entry.id) === String(state.editChannelReceiptId))
     : null;
@@ -4222,6 +4311,7 @@ async function renderCash() {
     : null;
   const selectedFilterType = currentCashFilter.type || "all";
   const selectedFilterCategory = currentCashFilter.category || "all";
+  const selectedFilterAccount = currentCashFilter.cashAccount || "all";
   const selectedQuickFilter = currentCashFilter.quick || "";
   const selectedChannelMonth = currentCashFilter.month || today.slice(0, 7);
   const selectedPeriodCashEntries = cashEntriesForSelectedPeriod();
@@ -4350,6 +4440,11 @@ async function renderCash() {
           <label>Origem / categoria
             <select name="category" id="cash-category">
               ${cashCategoryOptions(cashEntryType, cashEntryCategory)}
+            </select>
+          </label>
+          <label>Conta
+            <select name="cashAccount" id="cash-account">
+              ${cashAccountOptionsHtml(cashEntryAccount, cashEntryType)}
             </select>
           </label>
           <label id="cash-due-date-field">Vencimento
@@ -4648,6 +4743,11 @@ async function renderCash() {
               ${cashFilterCategoryOptions(selectedFilterCategory, selectedFilterType)}
             </select>
           </label>
+          <label>Conta
+            <select name="cashAccount" id="cash-filter-account">
+              ${cashAccountOptionsHtml(selectedFilterAccount, selectedFilterType === "expense" ? "expense" : "income", true)}
+            </select>
+          </label>
           <label>Buscar
             <input name="search" placeholder="Nome, motivo ou origem" value="${state.cashFilter.search || ""}">
           </label>
@@ -4669,6 +4769,7 @@ async function renderCash() {
           <div class="metric"><span>Ajustes da conta</span><strong class="${selectedAdjustmentTotals.balance < 0 ? "negative" : "positive"}">${money(selectedAdjustmentTotals.balance)}</strong></div>
           <div class="metric"><span>${balanceLabel}</span><strong class="${displayedCashBalance < 0 ? "negative" : "positive"}">${money(displayedCashBalance)}</strong></div>
         </div>
+        ${cashAccountSummary(businessCashEntries(accountedEntries))}
         ${cashCategorySummary(businessCashEntries(accountedEntries))}
         ${cashTable(filteredEntries)}
         </div>
@@ -4735,6 +4836,7 @@ async function renderCash() {
         year: zeroAccountDate.slice(0, 4),
         type: "all",
         category: "all",
+        cashAccount: "all",
         search: "",
         manualAll: false
       };
@@ -4943,6 +5045,7 @@ async function renderCash() {
         year: date.slice(0, 4),
         type: "all",
         category: "ajuste-conta",
+        cashAccount: "all",
         search: "",
         manualAll: false
       };
@@ -5135,6 +5238,7 @@ async function renderCash() {
     const entry = {
       id: entryId,
       ...values,
+      cashAccount: normalizedCashAccount(values.cashAccount),
       amount: amount.toFixed(2)
     };
     const shouldTrackBillPayment = entry.type === "expense" && isBillCategory(entry.category);
@@ -5201,7 +5305,8 @@ async function renderCash() {
         const savedCashEntryDraft = {
           date: values.date || today,
           type: values.type || "income",
-          category: values.category || (values.type === "expense" ? "outros" : "venda")
+          category: values.category || (values.type === "expense" ? "outros" : "venda"),
+          cashAccount: normalizedCashAccount(values.cashAccount)
         };
         state.cashEntryDraft = savedCashEntryDraft;
         localStorage.setItem("cashEntryDraft", JSON.stringify(savedCashEntryDraft));
@@ -5224,6 +5329,7 @@ async function renderCash() {
 
   const cashTypeField = document.querySelector("#cash-type");
   const cashCategoryField = document.querySelector("#cash-category");
+  const cashAccountField = document.querySelector("#cash-account");
   const cashEntryDateField = document.querySelector("#cash-entry-date");
   const cashDueDateField = document.querySelector("#cash-due-date-field");
   const cashPaidField = document.querySelector("#cash-paid-field");
@@ -5241,11 +5347,19 @@ async function renderCash() {
     cashTypeField.addEventListener("change", event => {
       const type = event.currentTarget.value;
       cashCategoryField.innerHTML = cashCategoryOptions(type, type === "expense" ? "outros" : "venda");
+      if (cashAccountField) {
+        cashAccountField.innerHTML = cashAccountOptionsHtml(cashAccountField.value, type);
+      }
       if (!editing) {
         state.cashEntryDraft.type = type;
         state.cashEntryDraft.category = cashCategoryField.value;
       }
       updateCashBillFieldsVisibility();
+    });
+    cashAccountField?.addEventListener("change", () => {
+      if (!editing) {
+        state.cashEntryDraft.cashAccount = normalizedCashAccount(cashAccountField.value);
+      }
     });
     cashCategoryField.addEventListener("change", () => {
       if (!editing) {
@@ -5597,6 +5711,7 @@ async function renderCash() {
           year: String(original.date || today).slice(0, 4),
           type: "all",
           category: "all",
+          cashAccount: "all",
           quick: "",
           search: String(original.description || "").trim()
         };
@@ -5922,8 +6037,9 @@ async function renderCash() {
   const periodField = document.querySelector("#cash-period");
   const filterTypeField = document.querySelector("#cash-filter-type");
   const filterCategoryField = document.querySelector("#cash-filter-category");
+  const filterAccountField = document.querySelector("#cash-filter-account");
 
-  if (filterForm && periodField && filterTypeField && filterCategoryField) {
+  if (filterForm && periodField && filterTypeField && filterCategoryField && filterAccountField) {
     function updateFilterVisibility() {
       const period = periodField.value;
       filterForm.dataset.period = period;
@@ -5932,6 +6048,11 @@ async function renderCash() {
     periodField.addEventListener("change", updateFilterVisibility);
     filterTypeField.addEventListener("change", event => {
       filterCategoryField.innerHTML = cashFilterCategoryOptions("all", event.currentTarget.value);
+      filterAccountField.innerHTML = cashAccountOptionsHtml(
+        filterAccountField.value,
+        event.currentTarget.value === "expense" ? "expense" : "income",
+        true
+      );
     });
     updateFilterVisibility();
 
@@ -5951,7 +6072,7 @@ async function renderCash() {
     });
 
     document.querySelector("#clear-cash-filter")?.addEventListener("click", () => {
-      state.cashFilter = { period: "month", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", quick: "", search: "" };
+      state.cashFilter = { period: "month", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", cashAccount: "all", quick: "", search: "" };
       persistState();
       renderCash();
     });
@@ -5959,7 +6080,7 @@ async function renderCash() {
     document.querySelectorAll("[data-cash-quick]").forEach(button => {
       button.addEventListener("click", event => {
         const quick = event.currentTarget.dataset.cashQuick;
-        const baseFilter = { type: "all", category: "all", quick: "", search: "" };
+        const baseFilter = { type: "all", category: "all", cashAccount: "all", quick: "", search: "" };
         if (quick === "today") {
           state.cashFilter = { ...state.cashFilter, ...baseFilter, period: "day", date: today, month: today.slice(0, 7), year: today.slice(0, 4), manualAll: false };
         }
@@ -6050,6 +6171,7 @@ async function renderCash() {
         date: reversalDate,
         type: original.type === "expense" ? "income" : "expense",
         category: original.category,
+        cashAccount: normalizedCashAccount(original.cashAccount),
         amount: Number(original.amount || 0).toFixed(2),
         reversalOf: original.id
       });
@@ -6060,6 +6182,7 @@ async function renderCash() {
           date: reversalDate,
           type: "expense",
           category: "ajuste-conta",
+          cashAccount: normalizedCashAccount(coverage.cashAccount || original.cashAccount),
           amount: Number(coverage.amount || 0).toFixed(2),
           reversalOf: coverage.id,
           automaticSavingsCoverageReversal: true,
@@ -6176,7 +6299,7 @@ function cashTable(entries) {
   return `
     <div class="table-wrap cash-ledger-table">
       <table>
-        <thead><tr><th>${cashSortHeader("date", "Data")}</th><th>${cashSortHeader("description", "Descrição")}</th><th>${cashSortHeader("type", "Tipo")}</th><th>${cashSortHeader("category", "Categoria")}</th><th>${cashSortHeader("dueDate", "Vencimento")}</th><th>${cashSortHeader("amount", "Valor")}</th><th></th></tr></thead>
+        <thead><tr><th>${cashSortHeader("date", "Data")}</th><th>${cashSortHeader("description", "Descrição")}</th><th>${cashSortHeader("type", "Tipo")}</th><th>${cashSortHeader("category", "Categoria")}</th><th>Conta</th><th>${cashSortHeader("dueDate", "Vencimento")}</th><th>${cashSortHeader("amount", "Valor")}</th><th></th></tr></thead>
         <tbody>
           ${sortedEntries.map(item => {
             const accountAdjustment = isAccountAdjustmentEntry(item);
@@ -6187,6 +6310,7 @@ function cashTable(entries) {
               <td>${item.description}</td>
               <td><span class="cash-type-badge ${item.type === "income" ? "income" : "expense"}">${item.type === "income" ? "Entrada" : "Saída"}</span></td>
               <td><span class="cash-category-badge ${accountAdjustment ? "account-adjustment" : ""}">${cashDisplayCategoryName(item)}</span></td>
+              <td>${cashAccountLabel(item.cashAccount, item.type)}</td>
               <td>
                 ${item.dueDate ? formatIsoDateBr(item.dueDate) : "-"}
                 ${isBillEntry(item) ? `<br><small>${item.paidAt ? `Pago em ${formatIsoDateBr(String(item.paidAt).slice(0, 10))}` : "A pagar"}</small>` : ""}
@@ -8628,6 +8752,7 @@ function reportCsvRows(kind, data) {
       data: entry.date || "",
       descrição: entry.description || "",
       tipo: entry.type === "expense" ? "saída" : "entrada",
+      conta: cashAccountLabel(entry.cashAccount, entry.type),
       categoria: categoryName(entry.category),
       valor: Number(entry.amount || 0)
     }));
@@ -8667,6 +8792,7 @@ function reportCsvRows(kind, data) {
       data: entry.date || "",
       descrição: entry.description || "",
       tipo: entry.type === "expense" ? "saída" : "entrada",
+      conta: cashAccountLabel(entry.cashAccount, entry.type),
       categoria: categoryName(entry.category),
       valor: Number(entry.amount || 0)
     })));
@@ -8806,6 +8932,7 @@ function reportPdfHtml(data) {
     entry.date || "",
     entry.description || "",
     entry.type === "expense" ? "Saída" : "Entrada",
+    cashAccountLabel(entry.cashAccount, entry.type),
     money(entry.amount)
   ]);
   const incomeRows = data.incomeEntries.map(entry => [
@@ -9030,6 +9157,7 @@ async function downloadReportPdf() {
         entry.date || "",
         entry.description || "",
         entry.type === "expense" ? "Saída" : "Entrada",
+        cashAccountLabel(entry.cashAccount, entry.type),
         categoryName(entry.category),
         money(entry.amount)
       ])
@@ -9118,6 +9246,7 @@ async function downloadReportXlsx() {
         entry.date || "",
         entry.description || "",
         entry.type === "expense" ? "Saída" : "Entrada",
+        cashAccountLabel(entry.cashAccount, entry.type),
         categoryName(entry.category),
         Number(entry.amount || 0)
       ])
@@ -9391,6 +9520,7 @@ function reportCashTable(data) {
       <div class="metric report-metric"><span>Saídas</span><strong>${money(data.expenses)}</strong></div>
       <div class="metric report-metric"><span>Saldo</span><strong class="${data.balance < 0 ? "negative" : "positive"}">${money(data.balance)}</strong></div>
     </div>
+    ${cashAccountSummary(businessCashEntries(data.cashEntries))}
   `;
 }
 function reportIncomeCashTable(data) {
@@ -10005,6 +10135,7 @@ function accountSeriesFromValues(values = {}) {
     dueDate: addMonthsClamped(values.dueDate, index),
     amount: scheduledAmount,
     category: String(values.category || "").trim(),
+    cashAccount: normalizedCashAccount(values.cashAccount),
     notes: String(values.notes || "").trim(),
     payments: [],
     createdAt: new Date().toISOString(),
@@ -10098,6 +10229,7 @@ function accountMatchesFinancialFilter(account, filter = financialAccountFilterS
   return [
     account.description,
     account.category,
+    cashAccountLabel(account.cashAccount, account.kind === "receivable" ? "income" : "expense"),
     account.notes,
     account.dueDate,
     account.kind === "receivable" ? "receber recebimento cliente" : "pagar pagamento fornecedor"
@@ -10122,6 +10254,7 @@ function accountsManagementPanel() {
   });
   const accounts = allAccounts.filter(account => String(account.id) === String(editingId) || accountMatchesFinancialFilter(account, filter));
   const summary = accountsSummary();
+  const accountFormCashType = editing?.kind === "receivable" ? "income" : "expense";
   return `
     <section class="panel report-section accounts-panel">
       <div class="section-heading">
@@ -10164,7 +10297,7 @@ function accountsManagementPanel() {
       <form id="financial-account-form" class="form-grid">
         <input name="id" type="hidden" value="${escapeHtml(editing?.id || "")}">
         <label>Tipo
-          <select name="kind">
+          <select name="kind" id="financial-account-kind">
             <option value="payable" ${editing?.kind !== "receivable" ? "selected" : ""}>Conta a pagar</option>
             <option value="receivable" ${editing?.kind === "receivable" ? "selected" : ""}>Conta a receber</option>
           </select>
@@ -10180,6 +10313,11 @@ function accountsManagementPanel() {
         </label>
         <label>Categoria
           <input name="category" value="${escapeHtml(editing?.category || "")}" placeholder="Ex.: fornecedor, venda futura">
+        </label>
+        <label>Conta padrao
+          <select name="cashAccount" id="financial-account-cash-account">
+            ${cashAccountOptionsHtml(normalizedCashAccount(editing?.cashAccount), accountFormCashType)}
+          </select>
         </label>
         <label>Observação
           <input name="notes" value="${escapeHtml(editing?.notes || "")}" placeholder="Parcela, referência ou contato">
@@ -10215,7 +10353,7 @@ function accountsManagementPanel() {
                 <div class="account-main">
                   <span class="status-label">${account.kind === "receivable" ? "A receber" : "A pagar"} · ${status === "paid" ? "Quitada" : status === "overdue" ? "Atrasada" : "Pendente"}</span>
                   <strong>${escapeHtml(account.description || "Conta")}</strong>
-                  <small>Vencimento ${formatIsoDateBr(account.dueDate)}${account.seriesCount > 1 ? ` · ${account.seriesNumber}/${account.seriesCount}` : ""}${account.category ? ` · ${escapeHtml(account.category)}` : ""}</small>
+                  <small>Vencimento ${formatIsoDateBr(account.dueDate)}${account.seriesCount > 1 ? ` · ${account.seriesNumber}/${account.seriesCount}` : ""}${account.category ? ` · ${escapeHtml(account.category)}` : ""} · ${cashAccountLabel(account.cashAccount, account.kind === "receivable" ? "income" : "expense")}</small>
                 </div>
                 <div class="account-values">
                   <span>Total <b>${money(account.amount)}</b></span>
@@ -10225,6 +10363,7 @@ function accountsManagementPanel() {
                 ${open >= 0.01 ? `
                   <form class="account-settlement-form" data-account-settlement="${escapeHtml(account.id)}">
                     <label>Data<input name="date" type="date" value="${isoDate(new Date())}" required></label>
+                    <label>Conta<select name="cashAccount">${cashAccountOptionsHtml(normalizedCashAccount(account.cashAccount), account.kind === "receivable" ? "income" : "expense")}</select></label>
                     <label>${account.kind === "receivable" ? "Valor recebido" : "Valor pago"}<input name="amount" type="text" inputmode="decimal" value="${moneyInputValue(open)}" required></label>
                     <button type="submit">${account.kind === "receivable" ? "Registrar recebimento" : "Registrar pagamento"}</button>
                   </form>
@@ -10682,6 +10821,7 @@ function bindFinancialAccounts() {
         dueDate: values.dueDate,
         amount: amount.toFixed(2),
         category: String(values.category || "").trim(),
+        cashAccount: normalizedCashAccount(values.cashAccount),
         notes: String(values.notes || "").trim(),
         updatedAt: new Date().toISOString()
       } : series[0];
@@ -10708,12 +10848,22 @@ function bindFinancialAccounts() {
 
   const scheduleField = document.querySelector("#financial-account-schedule");
   const scheduleCountField = document.querySelector("#financial-account-count-field");
+  const accountKindField = document.querySelector("#financial-account-kind");
+  const accountCashAccountField = document.querySelector("#financial-account-cash-account");
   if (scheduleField && scheduleCountField) {
     const updateScheduleFields = () => {
       scheduleCountField.hidden = scheduleField.value === "single";
     };
     scheduleField.addEventListener("change", updateScheduleFields);
     updateScheduleFields();
+  }
+  if (accountKindField && accountCashAccountField) {
+    accountKindField.addEventListener("change", () => {
+      accountCashAccountField.innerHTML = cashAccountOptionsHtml(
+        accountCashAccountField.value,
+        accountKindField.value === "receivable" ? "income" : "expense"
+      );
+    });
   }
 
   document.querySelectorAll("[data-edit-financial-account]").forEach(button => {
@@ -10768,6 +10918,7 @@ function bindFinancialAccounts() {
         id: `settlement-${Date.now()}-${Math.random().toString(16).slice(2)}`,
         date: values.date,
         amount: amount.toFixed(2),
+        cashAccount: normalizedCashAccount(values.cashAccount || account.cashAccount),
         user: state.currentUser?.name || state.currentUser?.username || "Sistema",
           createdAt: new Date().toISOString()
       };
@@ -10789,6 +10940,7 @@ function bindFinancialAccounts() {
         date: values.date,
         type: account.kind === "receivable" ? "income" : "expense",
         category: account.category || (account.kind === "receivable" ? "outros" : "reason:outros"),
+        cashAccount: payment.cashAccount,
         amount: amount.toFixed(2),
         financialAccountId: account.id,
         financialAccountSettlementId: payment.id
@@ -10856,6 +11008,7 @@ function bindFinancialAccounts() {
         date: reversalDate,
         type: account.kind === "receivable" ? "expense" : "income",
         category: account.category || (account.kind === "receivable" ? "reason:outros" : "outros"),
+        cashAccount: normalizedCashAccount(payment.cashAccount || account.cashAccount),
         amount: Number(payment.amount || 0).toFixed(2),
         financialAccountId: account.id,
         financialAccountSettlementId: payment.id,
@@ -11044,6 +11197,183 @@ function financeFilterPanel(reportType, weekRange) {
   `;
 }
 
+function financeMonthPendingItems(data, locked) {
+  const withdrawalAmounts = withdrawalBreakdownAmounts(data.financial.withdrawals, data.partnerWithdrawalControl);
+  const daysWithEntries = [...new Set(
+    data.cashEntries
+      .map(entry => cashAccountingDate(entry))
+      .filter(date => String(date || "").startsWith(data.periodKey))
+  )].sort();
+  const openDays = daysWithEntries.filter(date => {
+    const closing = dayClosingForDate(date);
+    return !closing || closing.locked === false;
+  });
+  const items = [];
+
+  if (data.type !== "month") {
+    items.push({
+      level: "warning",
+      title: "Filtro fora do mensal",
+      detail: "O fechamento mensal usa o período de mês.",
+      action: "period-month",
+      actionLabel: "corrigir"
+    });
+  }
+
+  if (data.financial.availableForWithdrawal < -0.009) {
+    items.push({
+      level: "danger",
+      title: "Resultado negativo",
+      detail: `Resultado após retiradas em ${money(data.financial.availableForWithdrawal)}.`,
+      action: "view-cash",
+      actionLabel: "ver lançamento"
+    });
+  }
+
+  if (data.accountBalance < -0.009) {
+    items.push({
+      level: "danger",
+      title: "Saldo da conta negativo",
+      detail: `Saldo acumulado em ${money(data.accountBalance)}.`,
+      action: "view-cash",
+      actionLabel: "corrigir"
+    });
+  }
+
+  if (data.financial.withdrawals.total > data.financial.profitBeforeWithdrawals + 0.009) {
+    items.push({
+      level: "warning",
+      title: "Retiradas acima do lucro",
+      detail: `${money(data.financial.withdrawals.total)} retirado para ${money(data.financial.profitBeforeWithdrawals)} de lucro.`,
+      action: "view-withdrawals",
+      actionLabel: "corrigir"
+    });
+  }
+
+  if (Math.abs(data.accountAdjustmentTotals.balance || 0) >= 0.01) {
+    items.push({
+      level: "warning",
+      title: "Ajustes de conta no mês",
+      detail: `Ajustes somam ${money(data.accountAdjustmentTotals.balance)}.`,
+      action: "view-cash",
+      actionLabel: "ver lançamento"
+    });
+  }
+
+  if (withdrawalAmounts.savings < -0.009) {
+    items.push({
+      level: "warning",
+      title: "Cofrinho para revisar",
+      detail: `Saldo do cofrinho no período ficou em ${money(withdrawalAmounts.savings)}.`,
+      action: "view-withdrawals",
+      actionLabel: "corrigir"
+    });
+  }
+
+  if (!locked && openDays.length) {
+    items.push({
+      level: "warning",
+      title: "Dias sem fechamento",
+      detail: `${openDays.length} dia(s) com lançamento ainda aberto(s).`,
+      action: "view-closing",
+      actionLabel: "ver lançamento"
+    });
+  }
+
+  return items;
+}
+
+function financeMonthCommandPanel(data, reportType, weekRange) {
+  const closing = state.monthlyClosings?.[data.periodKey];
+  const locked = Boolean(closing && closing.locked !== false);
+  const pendingItems = financeMonthPendingItems(data, locked);
+  const statusClass = locked ? "closed" : pendingItems.length ? "pending" : "open";
+  const statusLabel = locked ? "Conferido" : pendingItems.length ? "Com pendências" : "Aberto";
+  const statusDetail = locked
+    ? `Fechado em ${formatDateTimeBr(closing.closedAt)}.`
+    : pendingItems.length
+      ? `${pendingItems.length} item(ns) para revisar antes de fechar.`
+      : "Sem pendências locais para o período selecionado.";
+  const withdrawalAmounts = withdrawalBreakdownAmounts(data.financial.withdrawals, data.partnerWithdrawalControl);
+  const actionItems = pendingItems.length
+    ? pendingItems.slice(0, 4)
+    : [{
+        level: "ok",
+        title: locked ? "Mês já conferido" : "Pronto para fechar",
+        detail: locked ? "O fechamento está travado para edição." : "Revise os números finais e feche o mês.",
+        action: locked ? "view-closing" : "close-month",
+        actionLabel: locked ? "ver lançamento" : "fechar mês"
+      }];
+
+  return `
+    <section class="panel finance-month-command ${statusClass}">
+      <div class="finance-month-command-head">
+        <div>
+          <span>Fechamento do mês</span>
+          <h2>${formatMonthKeyBr(data.periodKey)}</h2>
+          <p>${statusDetail}</p>
+        </div>
+        <strong class="month-status-pill ${statusClass}">${statusLabel}</strong>
+      </div>
+      <form id="report-filter-form" class="finance-month-picker period-picker report-filter" data-period="${reportType}">
+        <label class="finance-month-primary">Mês
+          <select name="month">
+            ${monthOptions(state.reportPeriod.month)}
+          </select>
+        </label>
+        <label class="finance-month-year">Ano
+          <input name="year" type="number" min="2020" max="2100" step="1" value="${state.reportPeriod.year}">
+        </label>
+        <label>Visualizar
+          <select name="type" id="report-period-type">
+            <option value="month" ${reportType === "month" ? "selected" : ""}>Mês</option>
+            <option value="week" ${reportType === "week" ? "selected" : ""}>Semana</option>
+            <option value="day" ${reportType === "day" ? "selected" : ""}>Dia</option>
+          </select>
+        </label>
+        <label class="report-day-field">Dia
+          <input name="date" type="date" value="${reportDate()}">
+        </label>
+        <label class="report-week-field">De
+          <input name="start" type="date" value="${weekRange.start}">
+        </label>
+        <label class="report-week-field">Até
+          <input name="end" type="date" value="${weekRange.end}">
+        </label>
+        <label class="report-week-field">Semana do cardápio
+          <select name="week">
+            ${weekOptions(state.reportPeriod.week)}
+          </select>
+        </label>
+        <label>Saída
+          <select name="expenseCategory">
+            ${reportExpenseCategoryOptions(state.reportPeriod.expenseCategory || "all")}
+          </select>
+        </label>
+        <button type="submit">Atualizar</button>
+      </form>
+      <div class="finance-month-summary">
+        <span><small>Entradas</small><b>${money(data.financial.income)}</b></span>
+        <span><small>Saídas</small><b>${money(data.financial.operationalExpenses)}</b></span>
+        <span><small>Retiradas</small><b>${money(data.financial.withdrawals.total)}</b></span>
+        <span><small>Cofrinho</small><b>${money(withdrawalAmounts.savings)}</b></span>
+        <span><small>Saldo</small><b class="${data.accountBalance < 0 ? "negative" : "positive"}">${money(data.accountBalance)}</b></span>
+      </div>
+      <div class="finance-month-pending-list">
+        ${actionItems.map(item => `
+          <article class="finance-month-pending ${item.level}">
+            <div>
+              <strong>${escapeHtml(item.title)}</strong>
+              <span>${escapeHtml(item.detail)}</span>
+            </div>
+            <button class="secondary table-action" type="button" data-finance-month-action="${escapeHtml(item.action)}">${escapeHtml(item.actionLabel)}</button>
+          </article>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
 function bindReportPeriodForm(renderFn, path) {
   const reportFilterForm = document.querySelector("#report-filter-form");
   const reportTypeField = document.querySelector("#report-period-type");
@@ -11071,6 +11401,44 @@ function bindReportPeriodForm(renderFn, path) {
     const dayQuery = state.reportPeriod.type === "day" ? `&dia=${state.reportPeriod.date}` : "";
     history.replaceState(null, "", `/${path}?ano=${state.reportPeriod.year}&mes=${state.reportPeriod.month}${weeklyQuery}${dayQuery}`);
     renderFn();
+  });
+}
+
+function bindFinanceMonthCommand(renderFn) {
+  document.querySelectorAll("[data-finance-month-action]").forEach(button => {
+    button.addEventListener("click", () => {
+      const action = button.dataset.financeMonthAction;
+      if (action === "close-month") {
+        const closeButton = document.querySelector("#close-month");
+        if (closeButton) {
+          closeButton.click();
+          return;
+        }
+        state.financeViewTab = "closing";
+        renderFn();
+        return;
+      }
+      if (action === "period-month") {
+        state.reportPeriod = {
+          ...state.reportPeriod,
+          type: "month"
+        };
+        localStorage.setItem("reportPeriod", JSON.stringify(state.reportPeriod));
+        history.replaceState(null, "", `/financeiro?ano=${state.reportPeriod.year}&mes=${state.reportPeriod.month}`);
+        renderFn();
+        return;
+      }
+      if (action === "view-cash") {
+        state.financeViewTab = "cash";
+      } else if (action === "view-withdrawals") {
+        state.financeViewTab = "withdrawals";
+      } else if (action === "view-closing") {
+        state.financeViewTab = "closing";
+      } else if (action === "view-accounts") {
+        state.financeViewTab = "accounts";
+      }
+      renderFn();
+    });
   });
 }
 
@@ -11517,7 +11885,7 @@ function renderFinance() {
   const activeTab = tabs.some(([key]) => key === state.financeViewTab) ? state.financeViewTab : "summary";
 
   app.innerHTML = `
-    ${financeFilterPanel(reportType, weekRange)}
+    ${financeMonthCommandPanel(data, reportType, weekRange)}
     ${financeDashboardPanel(data)}
     <section class="panel report-section">
       <div class="section-heading">
@@ -11594,6 +11962,7 @@ function renderFinance() {
   bindReportPeriodForm(renderFinance, "financeiro");
   bindViewTabs("financeViewTab", renderFinance);
   bindMonthlyClosing(data, renderFinance);
+  bindFinanceMonthCommand(renderFinance);
   loadFinancialIntegrity();
   loadPendingDashboard();
   bindFinancialAccounts();
@@ -12215,6 +12584,7 @@ function reportExportPayload(data = reportData()) {
         entry.date || "",
         entry.description || "",
         entry.type === "expense" ? "Saída" : "Entrada",
+        cashAccountLabel(entry.cashAccount, entry.type),
         categoryName(entry.category),
         money(entry.amount)
       ])

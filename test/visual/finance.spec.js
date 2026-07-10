@@ -245,7 +245,11 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
     .first();
   await adjustedAccount.locator('form[data-account-settlement] input[name="amount"]').fill('28,50');
   await adjustedAccount.getByRole('button', { name: 'Registrar pagamento', exact: true }).click();
-  adjustedAccount = page.locator('.account-row').filter({ hasText: 'Assinatura mensal' }).first();
+  adjustedAccount = page
+    .locator('.account-row')
+    .filter({ hasText: 'Assinatura mensal' })
+    .filter({ hasText: 'Baixado R$ 28,50' })
+    .first();
   await expect(adjustedAccount).toContainText('Total R$ 28,50');
   await expect(adjustedAccount).toContainText('Baixado R$ 28,50');
 

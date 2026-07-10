@@ -2328,7 +2328,10 @@ async function buildReportXlsx(payload = {}) {
     ],
     ['Retiradas', [['Destino', 'Valor'], ...(data.withdrawalRows || [])]],
     ['Loja', [['Data', 'Quantidade', 'Observação'], ...(data.storeRows || [])]],
-    ['Caixa', [['Data', 'Descrição', 'Tipo', 'Categoria', 'Valor'], ...(data.cashRows || [])]],
+    [
+      'Caixa',
+      [['Data', 'Descrição', 'Tipo', 'Conta', 'Categoria', 'Valor'], ...(data.cashRows || [])],
+    ],
   ];
 
   function xml(value) {

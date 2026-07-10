@@ -13,6 +13,9 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /financeViewTab/);
   assert.match(app, /Contas a pagar e receber/);
   assert.match(app, /finance-pending-dashboard/);
+  assert.match(app, /financeMonthCommandPanel/);
+  assert.match(app, /finance-month-command/);
+  assert.match(app, /data-finance-month-action/);
   assert.match(app, /reconciliationHistory/);
   assert.match(app, /Parcelar valor total/);
   assert.match(app, /data-reverse-payment/);
@@ -21,6 +24,10 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /Operação e financeiro/);
   assert.match(app, /cashEntryDraft/);
   assert.match(app, /normalizedCashEntryDraft/);
+  assert.match(app, /cashAccountOptionsHtml/);
+  assert.match(app, /cash-account-summary/);
+  assert.match(app, /Unificado PF \+ PJ/);
+  assert.match(app, /financial-account-cash-account/);
   assert.match(app, /localStorage\.setItem\("cashEntryDraft"/);
   assert.match(app, /Saldo insuficiente na conta para esta sa/);
   assert.match(app, /savingsHistoryDetailHtml/);
@@ -34,6 +41,7 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /data-cash-quick="withdrawals"/);
   assert.match(css, /\.budget-progress/);
   assert.match(css, /\.cash-date-shortcuts/);
+  assert.match(css, /\.cash-account-summary/);
   assert.match(css, /\.daily-closing-guide/);
   assert.match(css, /\.closing-check/);
   assert.match(css, /\.linked-action-row/);
@@ -46,6 +54,8 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /cleanupYearField && cleanupPreviewBox/);
   assert.match(css, /\.account-row/);
   assert.match(css, /\.pending-grid/);
+  assert.match(css, /\.finance-month-summary/);
+  assert.match(css, /\.month-status-pill/);
   assert.match(css, /\.maintenance-grid \.period-picker button/);
 });
 

@@ -2465,6 +2465,44 @@ textarea {
   color: #92400e;
 }
 
+.cash-account-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.cash-account-summary span {
+  display: grid;
+  gap: 4px;
+  min-height: 70px;
+  align-content: center;
+  padding: 12px;
+  border: 1px solid #dce5e1;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.cash-account-summary small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.cash-account-summary b {
+  color: var(--earth);
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.cash-account-summary em {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-style: normal;
+  font-weight: 750;
+}
+
 .withdrawal-preview {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2518,6 +2556,167 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.finance-month-command {
+  display: grid;
+  gap: 14px;
+  border-color: rgba(8, 127, 91, 0.2);
+  background: #fbfefc;
+}
+
+.finance-month-command.pending {
+  border-color: #ead7aa;
+  background: #fffdf7;
+}
+
+.finance-month-command.closed {
+  border-color: #cfe5d9;
+  background: #f6fbf8;
+}
+
+.finance-month-command-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+}
+
+.finance-month-command-head span {
+  color: var(--green-dark);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.finance-month-command-head h2 {
+  margin: 3px 0 4px;
+  font-size: clamp(1.55rem, 2.4vw, 2.15rem);
+}
+
+.finance-month-command-head p {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.month-status-pill {
+  min-width: 138px;
+  padding: 10px 12px;
+  border: 1px solid #d9e4df;
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--green-dark);
+  text-align: center;
+  font-size: 0.84rem;
+}
+
+.month-status-pill.pending {
+  border-color: #ead7aa;
+  color: #986b00;
+}
+
+.month-status-pill.closed {
+  border-color: #bfe0cf;
+  background: #effaf4;
+  color: #0f6b4f;
+}
+
+.finance-month-picker {
+  grid-template-columns: minmax(190px, 1.35fr) minmax(110px, 0.7fr) repeat(3, minmax(135px, 1fr)) auto;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid #dce5e1;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.finance-month-picker .finance-month-primary select,
+.finance-month-picker .finance-month-year input {
+  min-height: 46px;
+  font-size: 1rem;
+  font-weight: 850;
+}
+
+.finance-month-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.finance-month-summary span {
+  display: grid;
+  gap: 4px;
+  min-height: 74px;
+  align-content: center;
+  padding: 12px;
+  border: 1px solid #dce5e1;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.finance-month-summary small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.finance-month-summary b {
+  color: var(--earth);
+  font-size: 1.02rem;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.finance-month-pending-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 8px;
+}
+
+.finance-month-pending {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 74px;
+  padding: 11px 12px;
+  border: 1px solid #dce5e1;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.finance-month-pending.warning {
+  border-color: #ead7aa;
+  background: #fffaf0;
+}
+
+.finance-month-pending.danger {
+  border-color: #efc6c2;
+  background: #fffafa;
+}
+
+.finance-month-pending.ok {
+  border-color: #cfe5d9;
+  background: #f7fbf8;
+}
+
+.finance-month-pending strong,
+.finance-month-pending span {
+  display: block;
+}
+
+.finance-month-pending strong {
+  color: var(--earth);
+  font-size: 0.9rem;
+}
+
+.finance-month-pending span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
 }
 
 .store-sale-form {
@@ -5195,6 +5394,10 @@ a.secondary.table-action,
   .account-settlement-form,
   .account-values,
   .account-toolbar,
+  .finance-month-command-head,
+  .finance-month-picker,
+  .finance-month-summary,
+  .finance-month-pending,
   .pending-grid,
   .budget-form,
   .budget-row {
