@@ -8495,6 +8495,86 @@ function reportPdfWithdrawalRows(data) {
   return rows;
 }
 
+function reportAccountPackageEntries(data, cashAccount = "all") {
+  const selected = reconciliationCashAccount(cashAccount);
+  const entries = accountingCashEntries(data.cashEntries || []);
+  if (selected === "all") {
+    return entries.filter(entry => ["pf", "pj"].includes(normalizedCashAccount(entry.cashAccount, "")));
+  }
+  if (selected === "unassigned") {
+    return entries.filter(entry => !normalizedCashAccount(entry.cashAccount, ""));
+  }
+  return entries.filter(entry => normalizedCashAccount(entry.cashAccount, "") === selected);
+}
+
+function reportAccountPackageSummaryRows(data) {
+  return [
+    ["all", "Unificado PF + PJ"],
+    ["pf", "Conta PF"],
+    ["pj", "Conta PJ"],
+    ["unassigned", "Sem conta informada"]
+  ].map(([key, label]) => {
+    const entries = reportAccountPackageEntries(data, key);
+    const businessEntries = entries.filter(entry => !isAccountAdjustmentEntry(entry));
+    const adjustmentEntries = entries.filter(isAccountAdjustmentEntry);
+    const income = businessEntries
+      .filter(entry => entry.type !== "expense")
+      .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+    const expenses = businessEntries
+      .filter(entry => entry.type === "expense")
+      .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+    const adjustments = cashTotals(adjustmentEntries).balance;
+    return [
+      label,
+      money(income),
+      money(expenses),
+      money(adjustments),
+      money(income - expenses + adjustments),
+      entries.length
+    ];
+  }).filter(([, , , , , count]) => count > 0);
+}
+
+function reportAccountPackageSummaryNumericRows(data) {
+  return reportAccountPackageSummaryRows(data).map(([label, income, expenses, adjustments, balance, count]) => [
+    label,
+    parseMoneyInput(income),
+    parseMoneyInput(expenses),
+    parseMoneyInput(adjustments),
+    parseMoneyInput(balance),
+    count
+  ]);
+}
+
+function reportAccountPackageCashRows(data, cashAccount = "all", numeric = false) {
+  return reportAccountPackageEntries(data, cashAccount)
+    .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")))
+    .map(entry => [
+      entry.date || "",
+      entry.description || "",
+      entry.type === "expense" ? "Saída" : "Entrada",
+      cashAccountLabel(entry.cashAccount, entry.type),
+      categoryName(entry.category),
+      numeric ? Number(entry.amount || 0) : money(entry.amount)
+    ]);
+}
+
+function reportAccountReconciliationRows(data, numeric = false) {
+  const bounds = reportPeriodBounds(data);
+  return (state.financialPlanning?.reconciliationHistory || [])
+    .filter(item => String(item.date || "") >= bounds.start && String(item.date || "") <= bounds.end)
+    .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")))
+    .map(item => [
+      item.date || "",
+      reconciliationAccountLabel(item.cashAccount || "all"),
+      numeric ? Number(item.calculatedBalance || 0) : money(item.calculatedBalance),
+      numeric ? Number(item.realBalance || 0) : money(item.realBalance),
+      numeric ? Number(item.difference || 0) : money(item.difference),
+      item.authorizedBy || "Sistema",
+      item.reason || ""
+    ]);
+}
+
 function compactMoneyList(rows, emptyText) {
   if (!rows.length) {
     return `<p class="muted">${emptyText}</p>`;
@@ -9131,16 +9211,19 @@ function oldPrintReportPdfWithPopup() {
   printWindow.print();
 }
 
-async function downloadReportPdf() {
+async function downloadReportPdf(options = {}) {
   const data = reportData();
+  const accountantPackage = Boolean(options.accountantPackage);
   const withdrawalAmounts = withdrawalBreakdownAmounts(data.financial.withdrawals, data.partnerWithdrawalControl);
   const periodLabel = data.type === "week" ? reportWeekRangeLabel() : formatMonthKeyBr(data.periodKey);
-  const filename = data.type === "week"
-    ? `cumbuca-relatorio-${data.weekKey}.pdf`
-    : `cumbuca-relatorio-${data.periodKey}.pdf`;
+  const filename = accountantPackage
+    ? `cumbuca-pacote-contador-${data.periodKey}.pdf`
+    : data.type === "week"
+      ? `cumbuca-relatorio-${data.weekKey}.pdf`
+      : `cumbuca-relatorio-${data.periodKey}.pdf`;
   const payload = {
     filename,
-    periodLabel,
+    periodLabel: accountantPackage ? `${periodLabel} - Pacote contador por conta` : periodLabel,
     data: {
       periodKey: data.periodKey,
       balance: data.balance,
@@ -9170,6 +9253,8 @@ async function downloadReportPdf() {
       incomeChannelRows: reportPdfIncomeChannelRows(data),
       expenseCategoryRows: reportPdfExpenseCategoryRows(data),
       negativeDifferenceRows: reportPdfNegativeDifferenceRows(data),
+      accountPackageSummaryRows: reportAccountPackageSummaryRows(data),
+      accountPackageReconciliationRows: reportAccountReconciliationRows(data),
       totalSoldQuantity: data.totalSoldQuantity,
       weeklyCashQuantity: data.weeklyCashQuantity,
       storeQuantity: data.storeQuantity,
@@ -9223,16 +9308,19 @@ async function downloadReportPdf() {
   URL.revokeObjectURL(url);
 }
 
-async function downloadReportXlsx() {
+async function downloadReportXlsx(options = {}) {
   const data = reportData();
+  const accountantPackage = Boolean(options.accountantPackage);
   const withdrawalAmounts = withdrawalBreakdownAmounts(data.financial.withdrawals, data.partnerWithdrawalControl);
   const periodLabel = data.type === "week" ? reportWeekRangeLabel() : formatMonthKeyBr(data.periodKey);
-  const filename = data.type === "week"
-    ? `cumbuca-relatorio-${data.weekKey}.xlsx`
-    : `cumbuca-relatorio-${data.periodKey}.xlsx`;
+  const filename = accountantPackage
+    ? `cumbuca-pacote-contador-${data.periodKey}.xlsx`
+    : data.type === "week"
+      ? `cumbuca-relatorio-${data.weekKey}.xlsx`
+      : `cumbuca-relatorio-${data.periodKey}.xlsx`;
   const payload = {
     filename,
-    periodLabel,
+    periodLabel: accountantPackage ? `${periodLabel} - Pacote contador por conta` : periodLabel,
     data: {
       periodKey: data.periodKey,
       balance: data.balance,
@@ -9269,6 +9357,12 @@ async function downloadReportXlsx() {
       dishRows: dishRankingRows(data).map((item, index) => [index + 1, item.name, item.quantity]),
       clientRows: clientReportRows(data).slice(0, 50).map(row => [row.name, row.phone, row.plan, row.orders, row.quantity, Number(row.amount || 0), row.pending]),
       comparisonRows: comparisonReportRows(data).map(row => [row.label, row.current, row.previous, row.delta]),
+      accountPackageSummaryRows: reportAccountPackageSummaryNumericRows(data),
+      accountPackageReconciliationRows: reportAccountReconciliationRows(data, true),
+      accountPackageUnifiedRows: reportAccountPackageCashRows(data, "all", true),
+      accountPackagePfRows: reportAccountPackageCashRows(data, "pf", true),
+      accountPackagePjRows: reportAccountPackageCashRows(data, "pj", true),
+      accountPackageUnassignedRows: reportAccountPackageCashRows(data, "unassigned", true),
       incomeRows: data.incomeEntries.map(entry => [entry.date || "", entry.description || "", Number(entry.amount || 0)]),
       expenseRows: data.topExpenses.map(entry => [entry.date || "", entry.description || "", categoryName(entry.category), Number(entry.amount || 0)]),
       channelRows: data.channelReceipts.map(entry => [
@@ -9312,6 +9406,11 @@ async function downloadReportXlsx() {
   URL.revokeObjectURL(url);
 }
 
+async function downloadAccountantPackage() {
+  await downloadReportPdf({ accountantPackage: true });
+  await downloadReportXlsx({ accountantPackage: true });
+}
+
 function printReportPdf() {
   const data = reportData();
   const frame = document.createElement("iframe");
@@ -9338,6 +9437,11 @@ function printReportPdf() {
 }
 
 function exportReport(kind) {
+  if (kind === "accountant-package") {
+    downloadAccountantPackage();
+    return;
+  }
+
   if (kind === "pdf") {
     downloadReportPdf();
     return;
@@ -12073,6 +12177,7 @@ function renderReports() {
         <button class="secondary" type="button" data-export-report="clients">Clientes CSV</button>
         <button class="secondary" type="button" data-export-report="menu">Cardápio CSV</button>
         <button type="button" data-export-report="json">Relatório JSON</button>
+        <button type="button" data-export-report="accountant-package">Pacote contador</button>
         <button type="button" data-export-report="xlsx">Relatório Excel</button>
         <button type="button" data-export-report="pdf">Relatório PDF</button>
       </div>
@@ -12597,6 +12702,12 @@ function reportExportPayload(data = reportData()) {
       incomeChannelRows: reportPdfIncomeChannelRows(data),
       expenseCategoryRows: reportPdfExpenseCategoryRows(data),
       negativeDifferenceRows: reportPdfNegativeDifferenceRows(data),
+      accountPackageSummaryRows: reportAccountPackageSummaryRows(data),
+      accountPackageReconciliationRows: reportAccountReconciliationRows(data),
+      accountPackageUnifiedRows: reportAccountPackageCashRows(data, "all", true),
+      accountPackagePfRows: reportAccountPackageCashRows(data, "pf", true),
+      accountPackagePjRows: reportAccountPackageCashRows(data, "pj", true),
+      accountPackageUnassignedRows: reportAccountPackageCashRows(data, "unassigned", true),
       totalSoldQuantity: data.totalSoldQuantity,
       weeklyCashQuantity: data.weeklyCashQuantity,
       storeQuantity: data.storeQuantity,

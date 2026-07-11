@@ -2227,6 +2227,26 @@ function buildReportPdf(payload = {}) {
     );
   }
 
+  if ((data.accountPackageSummaryRows || []).length) {
+    addPdfSectionTitle(doc, 'Pacote contador por conta');
+    addPdfTable(
+      doc,
+      ['Conta', 'Entradas', 'Saídas', 'Ajustes', 'Saldo', 'Lançamentos'],
+      data.accountPackageSummaryRows || [],
+      [112, 72, 72, 72, 72, 76]
+    );
+  }
+
+  if ((data.accountPackageReconciliationRows || []).length) {
+    addPdfSectionTitle(doc, 'Conferências por conta');
+    addPdfTable(
+      doc,
+      ['Data', 'Conta', 'Calculado', 'Real', 'Diferença'],
+      (data.accountPackageReconciliationRows || []).map((row) => row.slice(0, 5)),
+      [72, 118, 88, 88, 88]
+    );
+  }
+
   addPdfSectionTitle(doc, 'Saídas por categoria');
   addPdfTable(doc, ['Categoria', 'Total'], data.expenseCategoryRows || [], [300, 120]);
 
@@ -2328,6 +2348,48 @@ async function buildReportXlsx(payload = {}) {
     ],
     ['Retiradas', [['Destino', 'Valor'], ...(data.withdrawalRows || [])]],
     ['Loja', [['Data', 'Quantidade', 'Observação'], ...(data.storeRows || [])]],
+    [
+      'Contas resumo',
+      [
+        ['Conta', 'Entradas', 'Saídas', 'Ajustes', 'Saldo', 'Lançamentos'],
+        ...(data.accountPackageSummaryRows || []),
+      ],
+    ],
+    [
+      'Conferencias conta',
+      [
+        ['Data', 'Conta', 'Saldo calculado', 'Saldo real', 'Diferença', 'Responsável', 'Motivo'],
+        ...(data.accountPackageReconciliationRows || []),
+      ],
+    ],
+    [
+      'Conta unificada',
+      [
+        ['Data', 'Descrição', 'Tipo', 'Conta', 'Categoria', 'Valor'],
+        ...(data.accountPackageUnifiedRows || []),
+      ],
+    ],
+    [
+      'Conta PF',
+      [
+        ['Data', 'Descrição', 'Tipo', 'Conta', 'Categoria', 'Valor'],
+        ...(data.accountPackagePfRows || []),
+      ],
+    ],
+    [
+      'Conta PJ',
+      [
+        ['Data', 'Descrição', 'Tipo', 'Conta', 'Categoria', 'Valor'],
+        ...(data.accountPackagePjRows || []),
+      ],
+    ],
+    [
+      'Sem conta',
+      [
+        ['Data', 'Descrição', 'Tipo', 'Conta', 'Categoria', 'Valor'],
+        ...(data.accountPackageUnassignedRows || []),
+      ],
+    ],
     [
       'Caixa',
       [['Data', 'Descrição', 'Tipo', 'Conta', 'Categoria', 'Valor'], ...(data.cashRows || [])],

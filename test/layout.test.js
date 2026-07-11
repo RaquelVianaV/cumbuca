@@ -29,6 +29,11 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /cash-account-summary/);
   assert.match(app, /Unificado PF \+ PJ/);
   assert.match(app, /daily-reconciliation-account/);
+  assert.match(app, /data-export-report="accountant-package"/);
+  assert.match(app, /downloadAccountantPackage/);
+  assert.match(app, /accountPackageSummaryRows/);
+  assert.match(app, /accountPackagePfRows/);
+  assert.match(app, /accountPackagePjRows/);
   assert.match(app, /financial-account-cash-account/);
   assert.match(app, /localStorage\.setItem\("cashEntryDraft"/);
   assert.match(app, /Saldo insuficiente na conta para esta sa/);
