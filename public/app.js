@@ -888,6 +888,34 @@ function setMaintenanceTab(tab) {
   localStorage.setItem("maintenanceTab", JSON.stringify(state.maintenanceTab));
 }
 
+function updateMaintenanceTabRoute(tab) {
+  const nextTab = canAccessMaintenanceTab(tab) ? tab : "backup";
+  const url = new URL(location.href);
+  url.searchParams.set("tab", nextTab);
+  history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+function maintenanceTabForTarget(targetId) {
+  return {
+    "cleanup-year-form": "database",
+    "real-db-usage": "database",
+    "reset-all-panel": "reset",
+    "reset-database-zone": "reset"
+  }[targetId] || state.maintenanceTab || "backup";
+}
+
+function scrollMaintenanceTarget(targetId) {
+  const targetTab = maintenanceTabForTarget(targetId);
+  if (targetTab && targetTab !== state.maintenanceTab) {
+    setMaintenanceTab(targetTab);
+    updateMaintenanceTabRoute(state.maintenanceTab);
+    renderBackups();
+  }
+  setTimeout(() => {
+    document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, 0);
+}
+
 function bindViewTabs(storageKey, renderFn) {
   document.querySelectorAll(`[data-view-tab-group="${storageKey}"] [data-view-tab]`).forEach(button => {
     button.addEventListener("click", async event => {
@@ -12439,6 +12467,7 @@ async function renderBackups() {
   document.querySelectorAll("[data-maintenance-tab]").forEach(button => {
     button.addEventListener("click", event => {
       setMaintenanceTab(event.currentTarget.dataset.maintenanceTab);
+      updateMaintenanceTabRoute(state.maintenanceTab);
       renderBackups();
     });
   });
@@ -12446,8 +12475,7 @@ async function renderBackups() {
   on("#hero-backup-download", "click", downloadBackup);
   document.querySelectorAll("[data-maintenance-scroll]").forEach(button => {
     button.addEventListener("click", event => {
-      const target = document.querySelector(`#${event.currentTarget.dataset.maintenanceScroll}`);
-      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+      scrollMaintenanceTarget(event.currentTarget.dataset.maintenanceScroll);
     });
   });
   on("#manual-backup-download", "click", downloadBackup);

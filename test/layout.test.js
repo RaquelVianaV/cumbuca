@@ -54,6 +54,9 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(css, /\.linked-action-row/);
   assert.match(app, /reportViewTab/);
   assert.match(app, /data-maintenance-pane="integrity"/);
+  assert.match(app, /updateMaintenanceTabRoute/);
+  assert.match(app, /maintenanceTabForTarget/);
+  assert.match(app, /scrollMaintenanceTarget/);
   assert.match(app, /permission-fieldset/);
   assert.match(app, /integration-status/);
   assert.match(app, /function normalizedCleanupYear/);

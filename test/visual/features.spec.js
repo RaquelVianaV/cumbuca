@@ -221,6 +221,21 @@ test('backup integration displays state management options', async ({ page }) =>
   expect(hasBackupOption || hasRestoreOption).toBe(true);
 });
 
+test('maintenance tab buttons and shortcuts switch visible panes', async ({ page }) => {
+  await page.goto('/backups?tab=backup');
+
+  await page.getByRole('button', { name: 'Banco', exact: true }).click();
+  await expect(page).toHaveURL(/\/backups\?tab=database/);
+  await expect(
+    page.getByRole('heading', { name: 'Manutenção do banco', exact: true })
+  ).toBeVisible();
+
+  await page.goto('/backups?tab=backup');
+  await page.getByRole('button', { name: 'Ver banco', exact: true }).click();
+  await expect(page).toHaveURL(/\/backups\?tab=database/);
+  await expect(page.locator('#real-db-usage')).toBeVisible();
+});
+
 test('responsive layout adapts to viewport size', async ({ page }, testInfo) => {
   await page.goto('/');
 
