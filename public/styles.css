@@ -1012,6 +1012,15 @@ h2 {
   margin-top: 8px;
 }
 
+.report-grid .account-balance-metric {
+  grid-column: span 2;
+  min-height: 178px;
+}
+
+.cash-forecast-metric {
+  min-height: 190px;
+}
+
 .dashboard-section-title {
   display: flex;
   align-items: end;

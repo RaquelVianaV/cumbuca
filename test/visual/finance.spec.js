@@ -186,6 +186,50 @@ test('cash entry defaults to today and keeps the last used date and category', a
   });
 });
 
+test('cash ledger shows the latest entry first by default', async ({ page }, testInfo) => {
+  const database = await mockOnlineDatabase(page);
+  const today = new Date().toISOString().slice(0, 10);
+  database.state = {
+    cashEntries: [
+      {
+        id: 'cash-order-1',
+        date: today,
+        description: 'Primeiro lançamento',
+        type: 'income',
+        category: 'venda',
+        amount: '10.00',
+      },
+      {
+        id: 'cash-order-2',
+        date: today,
+        description: 'Segundo lançamento',
+        type: 'income',
+        category: 'venda',
+        amount: '20.00',
+      },
+      {
+        id: 'cash-order-3',
+        date: today,
+        description: 'Último lançamento',
+        type: 'income',
+        category: 'venda',
+        amount: '30.00',
+      },
+    ],
+  };
+  await page.goto('/fluxo-de-caixa?panel=ledger');
+  await expect(page.getByRole('heading', { name: 'Extrato', exact: true })).toBeVisible();
+  const descriptions = await page
+    .locator('.cash-ledger-table tbody tr td:nth-child(2)')
+    .allTextContents();
+  expect(descriptions).toEqual(['Último lançamento', 'Segundo lançamento', 'Primeiro lançamento']);
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath('cash-ledger-latest-first.png'),
+    fullPage: true,
+  });
+});
+
 test('expense can leave the account negative without using savings', async ({ page }, testInfo) => {
   const database = await mockOnlineDatabase(page);
   const today = new Date().toISOString().slice(0, 10);
@@ -406,6 +450,66 @@ test('home dashboard prioritizes projected balance and actions', async ({ page }
   await expect(page.getByRole('heading', { name: 'Ações principais', exact: true })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await page.screenshot({ path: testInfo.outputPath('home-dashboard.png'), fullPage: true });
+});
+
+test('finance dashboard separates PF, PJ and unified balances', async ({ page }, testInfo) => {
+  const database = await mockOnlineDatabase(page);
+  const today = new Date().toISOString().slice(0, 10);
+  database.state = {
+    cashEntries: [
+      { id: 'finance-pf-income', date: today, type: 'income', cashAccount: 'pf', amount: '100.00' },
+      { id: 'finance-pj-income', date: today, type: 'income', cashAccount: 'pj', amount: '50.00' },
+      {
+        id: 'finance-pj-expense',
+        date: today,
+        type: 'expense',
+        cashAccount: 'pj',
+        amount: '10.00',
+      },
+    ],
+    financialPlanning: {
+      accounts: [
+        {
+          id: 'finance-pf-payable',
+          description: 'Fornecedor PF',
+          dueDate: today,
+          kind: 'payable',
+          cashAccount: 'pf',
+          amount: '20.00',
+          payments: [],
+        },
+        {
+          id: 'finance-pj-receivable',
+          description: 'Cliente PJ',
+          dueDate: today,
+          kind: 'receivable',
+          cashAccount: 'pj',
+          amount: '30.00',
+          payments: [],
+        },
+      ],
+    },
+  };
+  await page.goto('/financeiro?view=accounts');
+  const balanceCard = page.locator('.account-balance-metric');
+  await expect(balanceCard).toContainText('Saldo das contas');
+  await expect(balanceCard).toContainText('Unificado');
+  await expect(balanceCard).toContainText('R$ 140,00');
+  await expect(balanceCard).toContainText('Conta PF R$ 100,00');
+  await expect(balanceCard).toContainText('Conta PJ R$ 40,00');
+  const forecastCards = page.locator('[data-view-pane="accounts"] .cash-forecast-metric');
+  await expect(forecastCards).toHaveCount(3);
+  const projection30 = forecastCards.filter({ hasText: 'Próximos 30 dias' });
+  await expect(projection30).toContainText('Unificado');
+  await expect(projection30).toContainText('Conta PF');
+  await expect(projection30).toContainText('Conta PJ');
+  await expect(projection30).toContainText('A pagar R$ 20,00');
+  await expect(projection30).toContainText('a receber R$ 30,00');
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath('finance-account-breakdown.png'),
+    fullPage: true,
+  });
 });
 
 test('monthly category budget compares limits with operational expenses', async ({
