@@ -186,6 +186,62 @@ test('cash entry defaults to today and keeps the last used date and category', a
   });
 });
 
+test('expense can leave the account negative without using savings', async ({ page }, testInfo) => {
+  const database = await mockOnlineDatabase(page);
+  const today = new Date().toISOString().slice(0, 10);
+  database.state = {
+    cashEntries: [],
+    financialPlanning: {
+      savings: '500.00',
+      savingsExpectedBalance: '500.00',
+      savingsHistory: [
+        {
+          id: 'savings-opening-test',
+          date: today,
+          type: 'set',
+          amount: '500.00',
+          balance: '500.00',
+          description: 'Saldo inicial de teste',
+        },
+      ],
+    },
+  };
+  const dialogMessages = [];
+  page.on('dialog', async (dialog) => {
+    dialogMessages.push(dialog.message());
+    await dialog.dismiss();
+  });
+
+  await page.goto('/fluxo-de-caixa');
+  const cashForm = page.locator('#cash-form');
+  await cashForm.locator('input[name="description"]').fill('Saida acima do saldo');
+  await page.locator('#cash-type').selectOption('expense');
+  await page.locator('#cash-category').selectOption('outros');
+  await cashForm.locator('input[name="amount"]').fill('700,00');
+  await cashForm.getByRole('button', { name: 'Adicionar', exact: true }).click();
+
+  await expect.poll(() => database.state.cashEntries).toHaveLength(1);
+  expect(dialogMessages).toEqual([]);
+  expect(database.state.cashEntries[0]).toMatchObject({
+    type: 'expense',
+    amount: '700.00',
+    description: 'Saida acima do saldo',
+  });
+  expect(database.state.cashEntries.some((entry) => entry.automaticSavingsCoverage)).toBe(false);
+  expect(database.state.financialPlanning.savings).toBe('500.00');
+  expect(database.state.financialPlanning.savingsHistory).toHaveLength(1);
+  const accountBalance = await page.evaluate(() =>
+    window.accountBalanceUntilDate(new Date().toISOString().slice(0, 10))
+  );
+  expect(accountBalance).toBe(-700);
+  const screenshotPath = testInfo.outputPath('negative-cash-with-savings-untouched.png');
+  await page.screenshot({ path: screenshotPath, fullPage: true });
+  await testInfo.attach('negative-cash-with-savings-untouched.png', {
+    path: screenshotPath,
+    contentType: 'image/png',
+  });
+});
+
 test('controlled finance workflow covers installments, reversal, alerts and reconciliation', async ({
   page,
 }) => {

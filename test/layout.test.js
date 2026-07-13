@@ -36,7 +36,8 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /accountPackagePjRows/);
   assert.match(app, /financial-account-cash-account/);
   assert.match(app, /localStorage\.setItem\("cashEntryDraft"/);
-  assert.match(app, /Saldo insuficiente na conta para esta sa/);
+  assert.doesNotMatch(app, /Saldo insuficiente na conta para esta sa/);
+  assert.doesNotMatch(app, /Cofrinho cobriu/);
   assert.match(app, /savingsHistoryDetailHtml/);
   assert.match(app, /dailyClosingChecklistHtml/);
   assert.match(app, /data-daily-closing-action/);

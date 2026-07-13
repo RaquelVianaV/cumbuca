@@ -2697,10 +2697,6 @@ function withdrawalSavingsLoanEntry(group = {}) {
   return accountingCashEntries(state.cash).find(entry => String(entry.id || "") === loanId) || null;
 }
 
-function cashSavingsCoverageId(entryId = "") {
-  return `cash-savings-coverage-${String(entryId || "")}`;
-}
-
 function cashSavingsCoverageHistoryId(entryId = "") {
   return `savings-coverage-${String(entryId || "")}`;
 }
@@ -2720,15 +2716,6 @@ function cashSavingsCoverageEntry(entryId = "") {
   ) || null;
 }
 
-function cashSavingsCoverageEligible(entry = {}) {
-  return entry.type === "expense"
-    && !isPendingBill(entry)
-    && !isWithdrawalEntry(entry)
-    && !isAccountAdjustmentEntry(entry)
-    && !entry.reversalOf
-    && !entry.automaticSavingsCoverage;
-}
-
 function removeCashSavingsCoverage(entryId = "") {
   const id = String(entryId || "");
   const historyId = cashSavingsCoverageHistoryId(id);
@@ -2740,45 +2727,6 @@ function removeCashSavingsCoverage(entryId = "") {
     applySavingsHistory(savingsHistoryRows().filter(entry => String(entry.id || "") !== historyId));
   }
   return previousCoverage;
-}
-
-function setCashSavingsCoverage(entry = {}, amount = 0) {
-  const coverageAmount = Math.max(0, Number(amount || 0));
-  const entryId = String(entry.id || "");
-  const historyId = cashSavingsCoverageHistoryId(entryId);
-  const baseRows = savingsHistoryRows().filter(item => String(item.id || "") !== historyId);
-  state.cash = state.cash.filter(item =>
-    !(isCashSavingsCoverageEntry(item) && String(item.savingsCoverageFor || "") === entryId)
-  );
-
-  if (coverageAmount <= 0.009) {
-    applySavingsHistory(baseRows);
-    return null;
-  }
-
-  state.cash.push({
-    id: cashSavingsCoverageId(entryId),
-    description: `Cobertura do cofrinho - ${entry.description || "saída"}`,
-    date: entry.date,
-    type: "income",
-    category: "ajuste-conta",
-    cashAccount: normalizedCashAccount(entry.cashAccount),
-    amount: coverageAmount.toFixed(2),
-    automaticSavingsCoverage: true,
-    savingsCoverageFor: entry.id
-  });
-  applySavingsHistory([
-    {
-      id: historyId,
-      date: entry.date,
-      type: "withdrawal",
-      amount: coverageAmount.toFixed(2),
-      balance: "0.00",
-      description: `Cobertura automática da saída: ${entry.description || "lançamento"}`
-    },
-    ...baseRows
-  ]);
-  return coverageAmount;
 }
 
 function savingsCoverageSourceEntry(historyEntry = {}) {
@@ -5315,30 +5263,6 @@ async function renderCash() {
     }
 
     const previousCoverage = editing ? cashSavingsCoverageEntry(editing.id) : null;
-    let automaticSavingsCoverage = 0;
-    if (cashSavingsCoverageEligible(entry)) {
-      const baseBalance = accountBalanceUntilDate(entry.date, [entry.id, previousCoverage?.id].filter(Boolean));
-      automaticSavingsCoverage = Math.max(0, amount - baseBalance);
-      const availableSavings = savingsBalance() + Number(previousCoverage?.amount || 0);
-      if (automaticSavingsCoverage > availableSavings + 0.009) {
-        showToast(`O saldo da conta não cobre esta saída e faltam ${money(automaticSavingsCoverage - availableSavings)} no cofrinho.`, "error");
-        return;
-      }
-      if (automaticSavingsCoverage > 0.009) {
-        const accountAfterCoverage = baseBalance + automaticSavingsCoverage - amount;
-        const savingsAfterCoverage = availableSavings - automaticSavingsCoverage;
-        const confirmedCoverage = confirm(
-          `Saldo insuficiente na conta para esta saída.\n\n`
-          + `O sistema vai usar ${money(automaticSavingsCoverage)} do cofrinho.\n`
-          + `Conta depois: ${money(accountAfterCoverage)}.\n`
-          + `Cofrinho depois: ${money(savingsAfterCoverage)}.\n\n`
-          + "Salvar mesmo assim?"
-        );
-        if (!confirmedCoverage) {
-          return;
-        }
-      }
-    }
 
     if (editing) {
       state.cash = state.cash.map(item => String(item.id) === String(editing.id) ? entry : item);
@@ -5352,17 +5276,8 @@ async function renderCash() {
       state.cash.push(entry);
       recordAudit("Caixa criado", `${entry.description || "Lançamento"} - ${money(entry.amount)}`);
     }
-    if (cashSavingsCoverageEligible(entry)) {
-      setCashSavingsCoverage(entry, automaticSavingsCoverage);
-    } else if (editing) {
+    if (previousCoverage) {
       removeCashSavingsCoverage(editing.id);
-    }
-
-    if (automaticSavingsCoverage > 0.009) {
-      recordAudit("Cofrinho usado automaticamente", `${entry.description || "Lançamento"} - cobertura ${money(automaticSavingsCoverage)}`, {
-        entityId: String(entry.id || ""),
-        coverageId: cashSavingsCoverageId(entry.id)
-      });
     }
 
     if (await persistState()) {
@@ -5375,9 +5290,6 @@ async function renderCash() {
         };
         state.cashEntryDraft = savedCashEntryDraft;
         localStorage.setItem("cashEntryDraft", JSON.stringify(savedCashEntryDraft));
-      }
-      if (automaticSavingsCoverage > 0.009) {
-        showToast(`Saída salva. Cofrinho cobriu ${money(automaticSavingsCoverage)}.`, "success");
       }
       renderCash();
     }
