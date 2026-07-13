@@ -3556,23 +3556,51 @@ function homeMetricData() {
     .filter(entry => entry.date === todayKey)
     .reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
   const accountBalance = accountBalanceUntilDate(todayKey);
+  const accountBalances = {
+    unified: accountBalance,
+    pf: accountBalanceUntilDate(todayKey, [], "pf"),
+    pj: accountBalanceUntilDate(todayKey, [], "pj")
+  };
+  accountBalances.unassigned = accountBalances.unified - accountBalances.pf - accountBalances.pj;
   const forecastEnd = addDays(todayKey, 30);
   const accountForecast = financialAccounts()
     .filter(account => accountOpenAmount(account) >= 0.01)
     .filter(account => String(account.dueDate || "") <= forecastEnd)
     .reduce((totals, account) => {
-      totals[account.kind === "receivable" ? "receivable" : "payable"] += accountOpenAmount(account);
+      const kind = account.kind === "receivable" ? "receivable" : "payable";
+      const amount = accountOpenAmount(account);
+      const cashAccount = normalizedCashAccount(account.cashAccount, "");
+      totals.unified[kind] += amount;
+      if (totals[cashAccount]) {
+        totals[cashAccount][kind] += amount;
+      } else {
+        totals.unassigned[kind] += amount;
+      }
       return totals;
-    }, { payable: 0, receivable: 0 });
+    }, {
+      unified: { payable: 0, receivable: 0 },
+      pf: { payable: 0, receivable: 0 },
+      pj: { payable: 0, receivable: 0 },
+      unassigned: { payable: 0, receivable: 0 }
+    });
+  const projectedBalances30 = Object.fromEntries(
+    ["unified", "pf", "pj", "unassigned"].map(cashAccount => [
+      cashAccount,
+      accountBalances[cashAccount] + accountForecast[cashAccount].receivable - accountForecast[cashAccount].payable
+    ])
+  );
   const accountNotifications = financialAccountNotifications(7);
   const budget = budgetSummary(monthKey);
 
   return {
     balance: income - expenses,
     accountBalance,
-    projectedBalance30: accountBalance + accountForecast.receivable - accountForecast.payable,
-    payable30: accountForecast.payable,
-    receivable30: accountForecast.receivable,
+    accountBalances,
+    projectedBalance30: projectedBalances30.unified,
+    projectedBalances30,
+    accountForecast30: accountForecast,
+    payable30: accountForecast.unified.payable,
+    receivable30: accountForecast.unified.receivable,
     accountNotifications,
     budget,
     todayBalance: todayIncome - todayExpenses,
@@ -3779,6 +3807,26 @@ function notificationRows(metrics = homeMetricData(), weeklyOrders = 0) {
   ].filter(Boolean);
 }
 
+function dashboardAccountBreakdown(values = {}) {
+  const rows = [
+    ["Conta PF", Number(values.pf || 0)],
+    ["Conta PJ", Number(values.pj || 0)]
+  ];
+  if (Math.abs(Number(values.unassigned || 0)) >= 0.005) {
+    rows.push(["Sem conta", Number(values.unassigned || 0)]);
+  }
+  return `
+    <div class="dashboard-account-breakdown">
+      ${rows.map(([label, value]) => `
+        <span>
+          <em>${label}</em>
+          <b class="${value < 0 ? "negative" : "positive"}">${money(value)}</b>
+        </span>
+      `).join("")}
+    </div>
+  `;
+}
+
 function home() {
   title.textContent = "Cumbuca";
   setActive("");
@@ -3800,14 +3848,18 @@ function home() {
         <p>O que precisa de decisão agora, sem repetir os relatórios detalhados.</p>
       </div>
       <div class="dashboard-kpis">
-        <div class="metric dashboard-metric is-primary">
-          <span>Saldo da conta</span>
+        <div class="metric dashboard-metric is-primary has-account-breakdown">
+          <span>Saldo das contas</span>
           <strong class="${metrics.accountBalance < 0 ? "negative" : "positive"}">${money(metrics.accountBalance)}</strong>
+          <p class="dashboard-unified-label">Unificado</p>
+          ${dashboardAccountBreakdown(metrics.accountBalances)}
         </div>
-        <div class="metric dashboard-metric">
+        <div class="metric dashboard-metric has-account-breakdown">
           <span>Projeção 30 dias</span>
           <strong class="${metrics.projectedBalance30 < 0 ? "negative" : "positive"}">${money(metrics.projectedBalance30)}</strong>
-          <small><span>A pagar ${money(metrics.payable30)}</span><span>receber ${money(metrics.receivable30)}</span></small>
+          <p class="dashboard-unified-label">Unificado</p>
+          ${dashboardAccountBreakdown(metrics.projectedBalances30)}
+          <small class="dashboard-forecast-detail"><span>A pagar ${money(metrics.payable30)}</span><span>receber ${money(metrics.receivable30)}</span></small>
         </div>
         <div class="metric dashboard-metric">
           <span>Pendências prioritárias</span>

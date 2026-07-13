@@ -351,11 +351,54 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
 });
 
 test('home dashboard prioritizes projected balance and actions', async ({ page }, testInfo) => {
+  const database = await mockOnlineDatabase(page);
+  const today = new Date().toISOString().slice(0, 10);
+  database.state = {
+    cashEntries: [
+      { id: 'home-pf-income', date: today, type: 'income', cashAccount: 'pf', amount: '100.00' },
+      { id: 'home-pj-income', date: today, type: 'income', cashAccount: 'pj', amount: '50.00' },
+      { id: 'home-pj-expense', date: today, type: 'expense', cashAccount: 'pj', amount: '10.00' },
+    ],
+    financialPlanning: {
+      accounts: [
+        {
+          id: 'home-pf-payable',
+          description: 'Fornecedor PF',
+          dueDate: today,
+          kind: 'payable',
+          cashAccount: 'pf',
+          amount: '20.00',
+          payments: [],
+        },
+        {
+          id: 'home-pj-receivable',
+          description: 'Cliente PJ',
+          dueDate: today,
+          kind: 'receivable',
+          cashAccount: 'pj',
+          amount: '30.00',
+          payments: [],
+        },
+      ],
+    },
+  };
   await page.goto('/');
   await expect(
     page.getByRole('heading', { name: 'Operação e financeiro', exact: true })
   ).toBeVisible();
-  await expect(page.getByText('Projeção 30 dias', { exact: true })).toBeVisible();
+  const balanceCard = page.locator('.dashboard-metric.is-primary');
+  await expect(balanceCard).toContainText('Saldo das contas');
+  await expect(balanceCard).toContainText('Unificado');
+  await expect(balanceCard).toContainText('Conta PF R$ 100,00');
+  await expect(balanceCard).toContainText('Conta PJ R$ 40,00');
+  const projectionCard = page
+    .locator('.dashboard-metric.has-account-breakdown')
+    .filter({ hasText: 'Projeção 30 dias' });
+  await expect(projectionCard).toContainText('R$ 150,00');
+  await expect(projectionCard).toContainText('Conta PF R$ 80,00');
+  await expect(projectionCard).toContainText('Conta PJ R$ 70,00');
+  await expect(projectionCard).toContainText('A pagar R$ 20,00');
+  await expect(projectionCard).toContainText('receber R$ 30,00');
   await expect(page.getByRole('heading', { name: 'Prioridades', exact: true })).toBeVisible();
   await expect(
     page.getByRole('heading', { name: 'Próximos vencimentos', exact: true })

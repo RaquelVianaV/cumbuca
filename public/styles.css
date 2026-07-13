@@ -954,6 +954,64 @@ h2 {
   min-height: 104px;
 }
 
+.home-priority-band .dashboard-metric.has-account-breakdown {
+  min-height: 178px;
+}
+
+.dashboard-unified-label {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 0.64rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.dashboard-account-breakdown {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.dashboard-account-breakdown span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 7px 8px;
+  border: 1px solid rgba(87, 50, 32, 0.1);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.dashboard-account-breakdown em {
+  color: var(--muted);
+  font-size: 0.64rem;
+  font-style: normal;
+  font-weight: 850;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.dashboard-account-breakdown b {
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.dashboard-account-breakdown b.positive {
+  color: var(--green-dark);
+}
+
+.dashboard-account-breakdown b.negative {
+  color: var(--red);
+}
+
+.dashboard-forecast-detail {
+  margin-top: 8px;
+}
+
 .dashboard-section-title {
   display: flex;
   align-items: end;
@@ -4642,6 +4700,11 @@ html.dark-mode .pending-summary:focus-visible {
   background:
     linear-gradient(180deg, rgba(35, 33, 28, 0.98), rgba(24, 22, 19, 0.96));
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.36);
+}
+
+html.dark-mode .dashboard-account-breakdown span {
+  border-color: rgba(245, 243, 240, 0.1);
+  background: rgba(245, 243, 240, 0.06);
 }
 
 html.dark-mode .card-icon,

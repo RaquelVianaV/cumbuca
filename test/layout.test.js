@@ -22,6 +22,9 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /financialAccountNotifications/);
   assert.match(app, /Orçamento mensal por categoria/);
   assert.match(app, /Operação e financeiro/);
+  assert.match(app, /Saldo das contas/);
+  assert.match(app, /dashboardAccountBreakdown/);
+  assert.match(app, /projectedBalances30/);
   assert.match(app, /cashEntryDraft/);
   assert.match(app, /normalizedCashEntryDraft/);
   assert.match(app, /cashAccountOptionsHtml/);
@@ -50,6 +53,7 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(css, /\.budget-progress/);
   assert.match(css, /\.cash-date-shortcuts/);
   assert.match(css, /\.cash-account-summary/);
+  assert.match(css, /\.dashboard-account-breakdown/);
   assert.match(css, /\.daily-closing-guide/);
   assert.match(css, /\.closing-check/);
   assert.match(css, /\.linked-action-row/);
