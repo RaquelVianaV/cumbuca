@@ -473,13 +473,13 @@ function normalizedCashAccount(value, fallback = "pf") {
   return cashAccountOptions.some(([key]) => key === value) ? value : fallback;
 }
 
-function cashAccountLabel(value, type = "income") {
+function cashAccountLabel(value) {
   const normalized = normalizedCashAccount(value, "");
   if (!normalized) {
     return "Sem conta informada";
   }
   const suffix = normalized.toUpperCase();
-  return type === "expense" ? `Conta ${suffix}` : `Entrada ${suffix}`;
+  return `Conta ${suffix}`;
 }
 
 function cashAccountOptionsHtml(selected = "pf", type = "income", includeAll = false) {
@@ -1403,6 +1403,40 @@ function postJson(url, data) {
 
 function readForm(form) {
   return Object.fromEntries(new FormData(form).entries());
+}
+
+function lockFormSubmission(form, pendingLabel = "Salvando...") {
+  if (!form || form.dataset.submitting === "true") {
+    return null;
+  }
+  form.dataset.submitting = "true";
+  form.setAttribute("aria-busy", "true");
+  const controls = [...form.querySelectorAll('button[type="submit"], input[type="submit"]')]
+    .map(control => ({
+      control,
+      disabled: control.disabled,
+      label: control.tagName === "INPUT" ? control.value : control.textContent
+    }));
+  controls.forEach(({ control }) => {
+    control.disabled = true;
+    if (control.tagName === "INPUT") {
+      control.value = pendingLabel;
+    } else {
+      control.textContent = pendingLabel;
+    }
+  });
+  return () => {
+    delete form.dataset.submitting;
+    form.removeAttribute("aria-busy");
+    controls.forEach(({ control, disabled, label }) => {
+      control.disabled = disabled;
+      if (control.tagName === "INPUT") {
+        control.value = label;
+      } else {
+        control.textContent = label;
+      }
+    });
+  };
 }
 
 function on(selector, eventName, handler, root = document) {
@@ -2352,6 +2386,68 @@ function accountBalanceBreakdownUntilDate(dateKey, excludeIds = []) {
     pj,
     unassigned: unified - pf - pj
   };
+}
+
+function latestCashEntryForAccount(cashAccount, dateKey) {
+  const selectedAccount = normalizedCashAccount(cashAccount, "");
+  const date = String(dateKey || isoDate(new Date())).slice(0, 10);
+  const cycleStart = String(state.financialPlanning?.cycleStartDate || "");
+  return accountingCashEntries(state.cash)
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => normalizedCashAccount(entry.cashAccount, "") === selectedAccount)
+    .filter(({ entry }) => {
+      const entryDate = cashAccountingDate(entry);
+      return entryDate <= date && (!cycleStart || entryDate >= cycleStart);
+    })
+    .sort((left, right) => (
+      cashAccountingDate(right.entry).localeCompare(cashAccountingDate(left.entry))
+      || right.index - left.index
+    ))[0]?.entry || null;
+}
+
+async function zeroAccountBalanceAtDate(dateKey) {
+  const date = String(dateKey || isoDate(new Date())).slice(0, 10);
+  const balance = Number(accountBalanceUntilDate(date) || 0);
+  if (Math.abs(balance) < 0.01) {
+    showToast("A conta já está zerada.", "success");
+    return false;
+  }
+  if (blockClosedPeriod(date, "zerar conta")) {
+    return false;
+  }
+  const adjustmentType = balance > 0 ? "expense" : "income";
+  const adjustmentAmount = Math.abs(balance);
+  const actionLabel = adjustmentType === "expense" ? "saída" : "entrada";
+  if (!confirm(`Lançar ${actionLabel} de ajuste no valor de ${money(adjustmentAmount)} para zerar a conta?`)) {
+    return false;
+  }
+
+  state.cash.push({
+    id: `account-zero-${Date.now()}`,
+    description: "Ajuste para zerar conta",
+    date,
+    type: adjustmentType,
+    category: "ajuste-conta",
+    amount: adjustmentAmount.toFixed(2)
+  });
+  state.cashFilter = {
+    ...state.cashFilter,
+    period: "month",
+    date,
+    month: date.slice(0, 7),
+    year: date.slice(0, 4),
+    type: "all",
+    category: "all",
+    cashAccount: "all",
+    search: "",
+    manualAll: false
+  };
+  recordAudit("Conta zerada", `${actionLabel} ${money(adjustmentAmount)} em ${formatIsoDateBr(date)}`);
+  if (!await persistState()) {
+    return false;
+  }
+  showToast("Ajuste lançado. Conta zerada.", "success");
+  return true;
 }
 
 function reconciliationCalculatedBalance(dateKey, reconciliation = null, cashAccount = reconciliation?.cashAccount || "all") {
@@ -4202,65 +4298,81 @@ function bindBillPaymentButtons(afterPay = renderCurrentRoute) {
 function bindTodayForms(today) {
   on("#today-income-form", "submit", async event => {
     event.preventDefault();
-    const values = readForm(event.currentTarget);
-    const amount = parseMoneyInput(values.amount);
-    if (!values.date || amount <= 0) {
-      showToast("Informe data e valor maior que zero.", "error");
+    const releaseSubmission = lockFormSubmission(event.currentTarget);
+    if (!releaseSubmission) {
       return;
     }
-    if (blockClosedPeriod(values.date, "lançar entrada rápida")) {
-      return;
-    }
+    try {
+      const values = readForm(event.currentTarget);
+      const amount = parseMoneyInput(values.amount);
+      if (!values.date || amount <= 0) {
+        showToast("Informe data e valor maior que zero.", "error");
+        return;
+      }
+      if (blockClosedPeriod(values.date, "lançar entrada rápida")) {
+        return;
+      }
 
-    state.cash.push({
-      id: Date.now(),
-      date: values.date,
-      type: "income",
-      category: "venda",
-      description: values.description,
-      amount: amount.toFixed(2)
-    });
-    if (await persistState()) {
-      renderToday();
+      state.cash.push({
+        id: Date.now(),
+        date: values.date,
+        type: "income",
+        category: "venda",
+        description: values.description,
+        amount: amount.toFixed(2)
+      });
+      if (await persistState()) {
+        renderToday();
+      }
+    } finally {
+      releaseSubmission();
     }
   });
 
   on("#today-expense-form", "submit", async event => {
     event.preventDefault();
-    const values = readForm(event.currentTarget);
-    const amount = parseMoneyInput(values.amount);
-    if (amount <= 0) {
-      showToast("Informe valor maior que zero.", "error");
+    const releaseSubmission = lockFormSubmission(event.currentTarget);
+    if (!releaseSubmission) {
       return;
     }
-    if (!values.date) {
-      showToast("Informe a data da saída.", "error");
-      return;
-    }
-    if (blockClosedPeriod(values.date, "lançar saída rápida")) {
-      return;
-    }
-    const entry = {
-      id: Date.now(),
-      date: values.date,
-      type: "expense",
-      category: values.category || "outros",
-      description: values.description,
-      amount: amount.toFixed(2)
-    };
-    if (isBillCategory(entry.category)) {
-      entry.dueDate = values.dueDate || values.date;
-      if (values.paid === "yes") {
-        const paidDate = values.paidDate || values.date;
-        if (blockClosedPeriod(paidDate, "pagar boleto")) {
-          return;
-        }
-        entry.paidAt = `${paidDate}T12:00:00.000Z`;
+    try {
+      const values = readForm(event.currentTarget);
+      const amount = parseMoneyInput(values.amount);
+      if (amount <= 0) {
+        showToast("Informe valor maior que zero.", "error");
+        return;
       }
-    }
-    state.cash.push(entry);
-    if (await persistState()) {
-      renderToday();
+      if (!values.date) {
+        showToast("Informe a data da saída.", "error");
+        return;
+      }
+      if (blockClosedPeriod(values.date, "lançar saída rápida")) {
+        return;
+      }
+      const entry = {
+        id: Date.now(),
+        date: values.date,
+        type: "expense",
+        category: values.category || "outros",
+        description: values.description,
+        amount: amount.toFixed(2)
+      };
+      if (isBillCategory(entry.category)) {
+        entry.dueDate = values.dueDate || values.date;
+        if (values.paid === "yes") {
+          const paidDate = values.paidDate || values.date;
+          if (blockClosedPeriod(paidDate, "pagar boleto")) {
+            return;
+          }
+          entry.paidAt = `${paidDate}T12:00:00.000Z`;
+        }
+      }
+      state.cash.push(entry);
+      if (await persistState()) {
+        renderToday();
+      }
+    } finally {
+      releaseSubmission();
     }
   });
 
@@ -4389,10 +4501,11 @@ async function renderCash() {
         ? (selectedMonth === today.slice(0, 7) ? today : selectedMonthEnd)
         : today;
   const displayedCashBalance = accountBalanceUntilDate(accountBalanceDate);
+  const cashAccountBalances = accountBalanceBreakdownUntilDate(accountBalanceDate);
+  const latestPfCashEntry = latestCashEntryForAccount("pf", accountBalanceDate);
+  const latestPjCashEntry = latestCashEntryForAccount("pj", accountBalanceDate);
   const periodBalance = totalCash.balance;
   const balanceLabel = "Saldo acumulado da conta";
-  const zeroAccountDate = accountBalanceDate;
-  const canZeroAccount = Math.abs(displayedCashBalance) >= 0.01;
   const editingWithdrawalLoan = editingWithdrawal ? withdrawalSavingsLoanEntry(editingWithdrawal) : null;
   const availableForWithdrawal = displayedCashBalance
     + Number(editingWithdrawal?.total || 0)
@@ -4438,15 +4551,22 @@ async function renderCash() {
       <div>
         <span>Saldo da conta</span>
         <h2>${money(displayedCashBalance)}</h2>
-        <div class="cash-hero-actions">
-          <button class="secondary" type="button" id="zero-account-balance" ${canZeroAccount ? "" : "disabled"}>Zerar conta</button>
-        </div>
       </div>
       <div class="cash-hero-metrics">
         <span><b>${money(operationalTotals.income)}</b>Entradas operacionais</span>
         <span><b>${money(operationalTotals.expenses)}</b>Saídas operacionais</span>
         <span><b>${money(displayedCashBalance)}</b>${balanceLabel}</span>
         <span><b>${money(periodBalance)}</b>Saldo do filtro<small>Entradas - saídas do filtro atual</small></span>
+        <span class="cash-account-metric" data-cash-account-summary="pf">
+          <b class="${cashAccountBalances.pf < 0 ? "negative" : "positive"}">${money(cashAccountBalances.pf)}</b>
+          Conta PF
+          <small>${latestPfCashEntry ? `Último lançamento em ${formatIsoDateBr(cashAccountingDate(latestPfCashEntry))}` : "Nenhum lançamento registrado"}</small>
+        </span>
+        <span class="cash-account-metric" data-cash-account-summary="pj">
+          <b class="${cashAccountBalances.pj < 0 ? "negative" : "positive"}">${money(cashAccountBalances.pj)}</b>
+          Conta PJ
+          <small>${latestPjCashEntry ? `Último lançamento em ${formatIsoDateBr(cashAccountingDate(latestPjCashEntry))}` : "Nenhum lançamento registrado"}</small>
+        </span>
       </div>
     </section>
     <section class="account-check-card">
@@ -4455,7 +4575,6 @@ async function renderCash() {
         <strong class="${displayedCashBalance < 0 ? "negative" : "positive"}">${money(displayedCashBalance)}</strong>
         <small>${adjustmentLabel}</small>
       </div>
-      <button class="secondary" type="button" id="zero-account-balance-inline" ${canZeroAccount ? "" : "disabled"}>Zerar conta</button>
     </section>
     <div class="cash-layout">
       <section class="panel cash-command-panel">
@@ -4860,51 +4979,6 @@ async function renderCash() {
     });
   });
 
-  document.querySelectorAll("#zero-account-balance, #zero-account-balance-inline").forEach(zeroAccountButton => {
-    zeroAccountButton.addEventListener("click", async () => {
-      const balance = Number(displayedCashBalance || 0);
-      if (Math.abs(balance) < 0.01) {
-        showToast("A conta já está zerada.", "success");
-        return;
-      }
-      if (blockClosedPeriod(zeroAccountDate, "zerar conta")) {
-        return;
-      }
-      const adjustmentType = balance > 0 ? "expense" : "income";
-      const adjustmentAmount = Math.abs(balance);
-      const actionLabel = adjustmentType === "expense" ? "saída" : "entrada";
-      if (!confirm(`Lançar ${actionLabel} de ajuste no valor de ${money(adjustmentAmount)} para zerar a conta?`)) {
-        return;
-      }
-
-      state.cash.push({
-        id: `account-zero-${Date.now()}`,
-        description: "Ajuste para zerar conta",
-        date: zeroAccountDate,
-        type: adjustmentType,
-        category: "ajuste-conta",
-        amount: adjustmentAmount.toFixed(2)
-      });
-      state.cashFilter = {
-        ...state.cashFilter,
-        period: "month",
-        date: zeroAccountDate,
-        month: zeroAccountDate.slice(0, 7),
-        year: zeroAccountDate.slice(0, 4),
-        type: "all",
-        category: "all",
-        cashAccount: "all",
-        search: "",
-        manualAll: false
-      };
-      recordAudit("Conta zerada", `${actionLabel} ${money(adjustmentAmount)} em ${formatIsoDateBr(zeroAccountDate)}`);
-      if (await persistState()) {
-        showToast("Ajuste lançado. Conta zerada.", "success");
-        renderCash();
-      }
-    });
-  });
-
   const dailyReconciliationForm = document.querySelector("#daily-reconciliation-form");
   if (dailyReconciliationForm) {
     const updateReconciliationPreview = () => {
@@ -5283,75 +5357,83 @@ async function renderCash() {
   const cashForm = document.querySelector("#cash-form");
   if (cashForm) {
     cashForm.addEventListener("submit", async event => {
-    event.preventDefault();
-    const values = readForm(event.currentTarget);
-    const amount = parseMoneyInput(values.amount);
-    if (!values.date || amount <= 0) {
-      showToast("Informe data e valor maior que zero.", "error");
-      return;
-    }
-    if (blockClosedPeriod(values.date, editing ? "editar lançamentos" : "lançar no caixa")) {
-      return;
-    }
-    if (editing && editing.date !== values.date && blockClosedPeriod(editing.date, "mover lançamentos")) {
-      return;
-    }
-    const isDuplicate = !editing && state.cash.some(item =>
-      String(item.date || "") === String(values.date || "")
-      && String(item.type || "") === String(values.type || "")
-      && normalizedCategory(item.category) === normalizedCategory(values.category)
-      && String(item.description || "").trim().toLowerCase() === String(values.description || "").trim().toLowerCase()
-      && Number(item.amount || 0) === amount
-    );
-    if (isDuplicate && !confirm("Já existe um lançamento igual. Salvar mesmo assim?")) {
-      return;
-    }
-    const entryId = editing?.id || Date.now();
-    const entry = {
-      id: entryId,
-      ...values,
-      cashAccount: normalizedCashAccount(values.cashAccount),
-      amount: amount.toFixed(2)
-    };
-    const shouldTrackBillPayment = entry.type === "expense" && isBillCategory(entry.category);
-    delete entry.paid;
-    if (shouldTrackBillPayment && values.paid === "yes") {
-      entry.paidAt = editing?.paidAt || `${values.date}T12:00:00.000Z`;
-    } else {
-      delete entry.paidAt;
-    }
-
-    const previousCoverage = editing ? cashSavingsCoverageEntry(editing.id) : null;
-
-    if (editing) {
-      state.cash = state.cash.map(item => String(item.id) === String(editing.id) ? entry : item);
-      state.editCashId = null;
-      recordAudit("Caixa editado", `${entry.description || "Lançamento"} - ${money(entry.amount)}`, {
-        entityId: String(entry.id || ""),
-        before: editing,
-        after: entry
-      });
-    } else {
-      state.cash.push(entry);
-      recordAudit("Caixa criado", `${entry.description || "Lançamento"} - ${money(entry.amount)}`);
-    }
-    if (previousCoverage) {
-      removeCashSavingsCoverage(editing.id);
-    }
-
-    if (await persistState()) {
-      if (!editing) {
-        const savedCashEntryDraft = {
-          date: values.date || today,
-          type: values.type || "income",
-          category: values.category || (values.type === "expense" ? "outros" : "venda"),
-          cashAccount: normalizedCashAccount(values.cashAccount)
-        };
-        state.cashEntryDraft = savedCashEntryDraft;
-        localStorage.setItem("cashEntryDraft", JSON.stringify(savedCashEntryDraft));
+      event.preventDefault();
+      const releaseSubmission = lockFormSubmission(event.currentTarget);
+      if (!releaseSubmission) {
+        return;
       }
-      renderCash();
-    }
+      try {
+        const values = readForm(event.currentTarget);
+        const amount = parseMoneyInput(values.amount);
+        if (!values.date || amount <= 0) {
+          showToast("Informe data e valor maior que zero.", "error");
+          return;
+        }
+        if (blockClosedPeriod(values.date, editing ? "editar lançamentos" : "lançar no caixa")) {
+          return;
+        }
+        if (editing && editing.date !== values.date && blockClosedPeriod(editing.date, "mover lançamentos")) {
+          return;
+        }
+        const isDuplicate = !editing && state.cash.some(item =>
+          String(item.date || "") === String(values.date || "")
+          && String(item.type || "") === String(values.type || "")
+          && normalizedCategory(item.category) === normalizedCategory(values.category)
+          && String(item.description || "").trim().toLowerCase() === String(values.description || "").trim().toLowerCase()
+          && Number(item.amount || 0) === amount
+        );
+        if (isDuplicate && !confirm("Já existe um lançamento igual. Salvar mesmo assim?")) {
+          return;
+        }
+        const entryId = editing?.id || Date.now();
+        const entry = {
+          id: entryId,
+          ...values,
+          cashAccount: normalizedCashAccount(values.cashAccount),
+          amount: amount.toFixed(2)
+        };
+        const shouldTrackBillPayment = entry.type === "expense" && isBillCategory(entry.category);
+        delete entry.paid;
+        if (shouldTrackBillPayment && values.paid === "yes") {
+          entry.paidAt = editing?.paidAt || `${values.date}T12:00:00.000Z`;
+        } else {
+          delete entry.paidAt;
+        }
+
+        const previousCoverage = editing ? cashSavingsCoverageEntry(editing.id) : null;
+
+        if (editing) {
+          state.cash = state.cash.map(item => String(item.id) === String(editing.id) ? entry : item);
+          state.editCashId = null;
+          recordAudit("Caixa editado", `${entry.description || "Lançamento"} - ${money(entry.amount)}`, {
+            entityId: String(entry.id || ""),
+            before: editing,
+            after: entry
+          });
+        } else {
+          state.cash.push(entry);
+          recordAudit("Caixa criado", `${entry.description || "Lançamento"} - ${money(entry.amount)}`);
+        }
+        if (previousCoverage) {
+          removeCashSavingsCoverage(editing.id);
+        }
+
+        if (await persistState()) {
+          if (!editing) {
+            const savedCashEntryDraft = {
+              date: values.date || today,
+              type: values.type || "income",
+              category: values.category || (values.type === "expense" ? "outros" : "venda"),
+              cashAccount: normalizedCashAccount(values.cashAccount)
+            };
+            state.cashEntryDraft = savedCashEntryDraft;
+            localStorage.setItem("cashEntryDraft", JSON.stringify(savedCashEntryDraft));
+          }
+          renderCash();
+        }
+      } finally {
+        releaseSubmission();
+      }
     });
   }
 
@@ -12320,6 +12402,9 @@ async function renderBackups() {
   const backupStatus = lastBackupAt
     ? `${shortDateTime.format(new Date(lastBackupAt))}${backupAgeDays >= 7 ? " - backup antigo" : " - em dia"}`
     : "Nenhum backup manual registrado neste navegador";
+  const maintenanceAccountDate = isoDate(new Date());
+  const maintenanceAccountBalance = accountBalanceUntilDate(maintenanceAccountDate);
+  const canZeroMaintenanceAccount = Math.abs(maintenanceAccountBalance) >= 0.01;
   app.innerHTML = `
     <section class="maintenance-hero">
       <div>
@@ -12456,6 +12541,17 @@ async function renderBackups() {
       ` : ""}
       ${canUser("clearData") ? `
         <section class="panel report-section backup-manual-panel reset-all-panel maintenance-pane" data-maintenance-pane="reset" id="reset-all-panel" ${activeTab === "reset" ? "" : "hidden"}>
+          <section class="database-danger-zone" id="maintenance-zero-account-panel">
+            <h3>Zerar saldo da conta</h3>
+            <p>Cria um lançamento de ajuste no Caixa para deixar o saldo unificado em zero. Os lançamentos anteriores permanecem no histórico.</p>
+            <div class="backup-list-state warning-state">
+              <strong>Saldo unificado em ${formatIsoDateBr(maintenanceAccountDate)}</strong>
+              <span>${money(maintenanceAccountBalance)}</span>
+            </div>
+            <div class="backup-actions">
+              <button class="danger" type="button" id="maintenance-zero-account" ${canZeroMaintenanceAccount ? "" : "disabled"}>Zerar conta</button>
+            </div>
+          </section>
           <h2>Reiniciar financeiro</h2>
           <p class="muted-inline">Use para começar os valores novamente sem perder os cadastros e a configuração da operação.</p>
           <div class="backup-list-state warning-state">
@@ -12540,6 +12636,15 @@ async function renderBackups() {
   }
 
   on("#cleanup-backup-first", "click", downloadBackup);
+  on("#maintenance-zero-account", "click", async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    if (await zeroAccountBalanceAtDate(maintenanceAccountDate)) {
+      renderBackups();
+      return;
+    }
+    button.disabled = !canZeroMaintenanceAccount;
+  });
   const resetFinancialConfirmation = document.querySelector("#reset-financial-confirmation");
   const resetFinancialButton = document.querySelector("#reset-financial-data");
   const resetFinancialStatus = document.querySelector("#reset-financial-status");

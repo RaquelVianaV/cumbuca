@@ -236,6 +236,25 @@ test('maintenance tab buttons and shortcuts switch visible panes', async ({ page
   await expect(page.locator('#real-db-usage')).toBeVisible();
 });
 
+test('zero account action is available only in maintenance cleanup', async ({ page }, testInfo) => {
+  await page.goto('/fluxo-de-caixa');
+  await expect(page.getByRole('button', { name: 'Zerar conta', exact: true })).toHaveCount(0);
+  await page.screenshot({
+    path: testInfo.outputPath('cash-without-zero-account.png'),
+    fullPage: true,
+  });
+
+  await page.goto('/backups?tab=reset');
+  await expect(
+    page.getByRole('heading', { name: 'Zerar saldo da conta', exact: true })
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Zerar conta', exact: true })).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath('maintenance-zero-account.png'),
+    fullPage: true,
+  });
+});
+
 test('responsive layout adapts to viewport size', async ({ page }, testInfo) => {
   await page.goto('/');
 

@@ -16,8 +16,14 @@ async function expectNoHorizontalOverflow(page) {
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1);
 }
 
+function localDateKey(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+    date.getDate()
+  ).padStart(2, '0')}`;
+}
+
 async function mockOnlineDatabase(page) {
-  const holder = { state: {} };
+  const holder = { state: {}, statePostCount: 0, statePostDelayMs: 0 };
   const json = (body) => ({
     status: 200,
     contentType: 'application/json',
@@ -44,6 +50,10 @@ async function mockOnlineDatabase(page) {
   );
   await page.route('**/api/state', async (route) => {
     if (route.request().method() === 'POST') {
+      holder.statePostCount += 1;
+      if (holder.statePostDelayMs) {
+        await new Promise((resolve) => setTimeout(resolve, holder.statePostDelayMs));
+      }
       holder.state = JSON.parse(route.request().postData() || '{}').state || {};
       await route.fulfill(json({ database: true, saved: true }));
       return;
@@ -135,6 +145,9 @@ test('cash entry defaults to today and keeps the last used date and category', a
 }, testInfo) => {
   const database = await mockOnlineDatabase(page);
   await page.goto('/fluxo-de-caixa');
+  await expect(page.locator('#cash-account')).toContainText('Conta PF');
+  await expect(page.locator('#cash-account')).toContainText('Conta PJ');
+  await expect(page.locator('#cash-account')).not.toContainText('Entrada');
   const dates = await page.evaluate(() => {
     const format = (date) => {
       const year = date.getFullYear();
@@ -186,9 +199,50 @@ test('cash entry defaults to today and keeps the last used date and category', a
   });
 });
 
+test('cash form ignores repeated submits while an entry or expense is saving', async ({ page }) => {
+  const database = await mockOnlineDatabase(page);
+  database.statePostDelayMs = 250;
+  const dialogMessages = [];
+  page.on('dialog', async (dialog) => {
+    dialogMessages.push(dialog.message());
+    await dialog.dismiss();
+  });
+
+  await page.goto('/fluxo-de-caixa');
+  const cashForm = page.locator('#cash-form');
+  const submitButton = cashForm.locator('button[type="submit"]');
+  await cashForm.locator('input[name="description"]').fill('Entrada sem duplicar');
+  await cashForm.locator('input[name="amount"]').fill('25,00');
+  await page.evaluate(() => {
+    const form = document.querySelector('#cash-form');
+    form.requestSubmit();
+    form.requestSubmit();
+  });
+  await expect(submitButton).toBeDisabled();
+  await expect(submitButton).toHaveText('Salvando...');
+  await expect.poll(() => database.state.cashEntries?.length).toBe(1);
+  expect(database.statePostCount).toBe(1);
+  await expect(submitButton).toBeEnabled();
+
+  await cashForm.locator('input[name="description"]').fill('Saída sem duplicar');
+  await page.locator('#cash-type').selectOption('expense');
+  await cashForm.locator('input[name="amount"]').fill('10,00');
+  await page.evaluate(() => {
+    const form = document.querySelector('#cash-form');
+    form.requestSubmit();
+    form.requestSubmit();
+  });
+  await expect(submitButton).toBeDisabled();
+  await expect(submitButton).toHaveText('Salvando...');
+  await expect.poll(() => database.state.cashEntries?.length).toBe(2);
+  expect(database.statePostCount).toBe(2);
+  expect(database.state.cashEntries.map((entry) => entry.type)).toEqual(['income', 'expense']);
+  expect(dialogMessages).toEqual([]);
+});
+
 test('cash ledger shows the latest entry first by default', async ({ page }, testInfo) => {
   const database = await mockOnlineDatabase(page);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateKey();
   database.state = {
     cashEntries: [
       {
@@ -197,6 +251,7 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
         description: 'Primeiro lançamento',
         type: 'income',
         category: 'venda',
+        cashAccount: 'pf',
         amount: '10.00',
       },
       {
@@ -205,6 +260,7 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
         description: 'Segundo lançamento',
         type: 'income',
         category: 'venda',
+        cashAccount: 'pj',
         amount: '20.00',
       },
       {
@@ -213,6 +269,7 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
         description: 'Último lançamento',
         type: 'income',
         category: 'venda',
+        cashAccount: 'pf',
         amount: '30.00',
       },
     ],
@@ -223,6 +280,15 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
     .locator('.cash-ledger-table tbody tr td:nth-child(2)')
     .allTextContents();
   expect(descriptions).toEqual(['Último lançamento', 'Segundo lançamento', 'Primeiro lançamento']);
+  const formattedToday = today.split('-').reverse().join('/');
+  const pfAccountSummary = page.locator('[data-cash-account-summary="pf"]');
+  const pjAccountSummary = page.locator('[data-cash-account-summary="pj"]');
+  await expect(pfAccountSummary).toContainText('Conta PF');
+  await expect(pfAccountSummary).toContainText('R$ 40,00');
+  await expect(pfAccountSummary).toContainText(`Último lançamento em ${formattedToday}`);
+  await expect(pjAccountSummary).toContainText('Conta PJ');
+  await expect(pjAccountSummary).toContainText('R$ 20,00');
+  await expect(pjAccountSummary).toContainText(`Último lançamento em ${formattedToday}`);
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
     path: testInfo.outputPath('cash-ledger-latest-first.png'),
@@ -230,9 +296,44 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
   });
 });
 
+test('maintenance zero account creates the balancing adjustment', async ({ page }) => {
+  const database = await mockOnlineDatabase(page);
+  const today = localDateKey();
+  database.state = {
+    cashEntries: [
+      {
+        id: 'maintenance-zero-source',
+        date: today,
+        description: 'Saldo para zerar',
+        type: 'income',
+        category: 'venda',
+        cashAccount: 'pf',
+        amount: '50.00',
+      },
+    ],
+  };
+
+  await page.goto('/fluxo-de-caixa');
+  await expect(page.getByRole('button', { name: 'Zerar conta', exact: true })).toHaveCount(0);
+  await page.goto('/backups?tab=reset');
+  const zeroAccountButton = page.getByRole('button', { name: 'Zerar conta', exact: true });
+  await expect(zeroAccountButton).toBeEnabled();
+  page.once('dialog', (dialog) => dialog.accept());
+  await zeroAccountButton.click();
+
+  await expect.poll(() => database.state.cashEntries?.length).toBe(2);
+  expect(database.state.cashEntries[1]).toMatchObject({
+    date: today,
+    type: 'expense',
+    category: 'ajuste-conta',
+    amount: '50.00',
+  });
+  await expect(zeroAccountButton).toBeDisabled();
+});
+
 test('expense can leave the account negative without using savings', async ({ page }, testInfo) => {
   const database = await mockOnlineDatabase(page);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateKey();
   database.state = {
     cashEntries: [],
     financialPlanning: {
@@ -274,8 +375,9 @@ test('expense can leave the account negative without using savings', async ({ pa
   expect(database.state.cashEntries.some((entry) => entry.automaticSavingsCoverage)).toBe(false);
   expect(database.state.financialPlanning.savings).toBe('500.00');
   expect(database.state.financialPlanning.savingsHistory).toHaveLength(1);
-  const accountBalance = await page.evaluate(() =>
-    window.accountBalanceUntilDate(new Date().toISOString().slice(0, 10))
+  const accountBalance = await page.evaluate(
+    (dateKey) => window.accountBalanceUntilDate(dateKey),
+    today
   );
   expect(accountBalance).toBe(-700);
   const screenshotPath = testInfo.outputPath('negative-cash-with-savings-untouched.png');
@@ -290,7 +392,7 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
   page,
 }) => {
   const database = await mockOnlineDatabase(page);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateKey();
   await page.goto('/financeiro?view=accounts');
   await expect(
     page.getByRole('heading', { name: 'Contas a pagar e receber', exact: true })
@@ -396,7 +498,7 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
 
 test('home dashboard prioritizes projected balance and actions', async ({ page }, testInfo) => {
   const database = await mockOnlineDatabase(page);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateKey();
   database.state = {
     cashEntries: [
       { id: 'home-pf-income', date: today, type: 'income', cashAccount: 'pf', amount: '100.00' },
@@ -454,7 +556,7 @@ test('home dashboard prioritizes projected balance and actions', async ({ page }
 
 test('finance dashboard separates PF, PJ and unified balances', async ({ page }, testInfo) => {
   const database = await mockOnlineDatabase(page);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateKey();
   database.state = {
     cashEntries: [
       { id: 'finance-pf-income', date: today, type: 'income', cashAccount: 'pf', amount: '100.00' },
@@ -516,7 +618,7 @@ test('monthly category budget compares limits with operational expenses', async 
   page,
 }, testInfo) => {
   const database = await mockOnlineDatabase(page);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateKey();
   const month = today.slice(0, 7);
   database.state = {
     cashEntries: [

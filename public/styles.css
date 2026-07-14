@@ -1088,18 +1088,6 @@ h2 {
   font-weight: 760;
 }
 
-.cash-hero-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.cash-hero-actions button {
-  min-height: 36px;
-  padding-inline: 12px;
-}
-
 .cash-hero-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1132,6 +1120,21 @@ h2 {
   font-weight: 760;
   line-height: 1.2;
   text-transform: none;
+}
+
+.cash-hero-metrics span.cash-account-metric {
+  grid-column: span 2;
+  min-height: 92px;
+  border-left: 4px solid var(--green);
+  background: rgba(28, 148, 111, 0.055);
+}
+
+.cash-hero-metrics .cash-account-metric b.positive {
+  color: var(--green-dark);
+}
+
+.cash-hero-metrics .cash-account-metric b.negative {
+  color: var(--red);
 }
 
 .account-check-card {
@@ -5302,6 +5305,10 @@ a.secondary.table-action,
     grid-template-columns: 1fr;
   }
 
+  .cash-hero-metrics span.cash-account-metric {
+    grid-column: auto;
+  }
+
   .dashboard-metric.is-primary {
     grid-column: span 12;
   }
@@ -5913,6 +5920,10 @@ a.secondary.table-action,
     overflow-wrap: anywhere;
   }
 
+  .cash-hero-metrics span.cash-account-metric {
+    grid-column: span 2;
+  }
+
   .savings-trace-panel {
     padding: 12px;
   }
@@ -6047,6 +6058,10 @@ a.secondary.table-action,
   .cash-hero-metrics,
   .report-grid {
     grid-template-columns: 1fr;
+  }
+
+  .cash-hero-metrics span.cash-account-metric {
+    grid-column: auto;
   }
 
   #cash-filter-form .quick-filter-bar,
