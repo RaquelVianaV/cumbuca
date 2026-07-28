@@ -2585,6 +2585,20 @@ textarea {
   gap: 8px;
 }
 
+.withdrawal-value-group {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #f9fafb;
+}
+
+.withdrawal-value-group > strong {
+  color: var(--earth);
+  font-size: 0.9rem;
+}
+
 .withdrawal-preview span {
   min-height: 58px;
   display: grid;
@@ -3740,6 +3754,43 @@ textarea {
   background: #ffffff;
 }
 
+.store-sales-filter {
+  grid-template-columns: 140px minmax(180px, 1fr) minmax(180px, 1fr) auto;
+}
+
+.store-sales-filter-date,
+.store-sales-filter-month {
+  display: none;
+}
+
+.store-sales-filter[data-period="day"] .store-sales-filter-date,
+.store-sales-filter[data-period="week"] .store-sales-filter-date,
+.store-sales-filter[data-period="month"] .store-sales-filter-month {
+  display: grid;
+}
+
+.store-sales-comparison {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.store-sales-results .table-action {
+  min-height: 38px;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.store-sales-results button.secondary.table-action {
+  color: var(--green-dark);
+}
+
+.store-sales-results button.danger.table-action {
+  color: #ffffff;
+}
+
 .week-tabs {
   display: flex;
   align-items: center;
@@ -4689,6 +4740,7 @@ html.dark-mode .account-check-card,
 html.dark-mode .cash-command-panel,
 html.dark-mode .cash-ledger-panel,
 html.dark-mode .withdrawal-panel,
+html.dark-mode .withdrawal-value-group,
 html.dark-mode .supplier-panel,
 html.dark-mode .report-panel,
 html.dark-mode .view-tabs-panel,

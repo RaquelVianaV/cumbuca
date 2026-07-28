@@ -50,6 +50,7 @@ const localStateKeys = [
   "clients",
   "orders",
   "storeSales",
+  "storeSalesFilter",
   "channelReceipts",
   "cashCategories",
   "archivedCashCategories",
@@ -562,6 +563,7 @@ const state = {
   clients: localValue("clients", []),
   orders: localValue("orders", []),
   storeSales: localValue("storeSales", []),
+  storeSalesFilter: localValue("storeSalesFilter", { period: "month" }),
   channelReceipts: localValue("channelReceipts", []),
   cashCategories: seededCashCategories(),
   archivedCashCategories: localValue("archivedCashCategories", { income: [], expense: [] }),
@@ -3011,28 +3013,47 @@ function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
       other: 0,
       total: 0,
       distributionBase: 0,
+      expectedSavings: 0,
+      expectedVanessa: 0,
+      expectedRaquel: 0,
+      hasExpectedSavings: false,
+      hasExpectedVanessa: false,
+      hasExpectedRaquel: false,
       entries: []
     };
     const target = withdrawalTarget(entry);
     group[target] += Number(entry.amount || 0);
     group.total += Number(entry.amount || 0);
     group.distributionBase = Math.max(group.distributionBase, Number(entry.distributionBase || 0));
+    const expectedAmount = Number(entry.expectedAmount);
+    if (Number.isFinite(expectedAmount) && ["savings", "vanessa", "raquel"].includes(target)) {
+      const expectedKey = `expected${target[0].toUpperCase()}${target.slice(1)}`;
+      const expectedFlag = `hasExpected${target[0].toUpperCase()}${target.slice(1)}`;
+      group[expectedKey] += expectedAmount;
+      group[expectedFlag] = true;
+    }
     group.entries.push(entry);
     groups.set(key, group);
   });
   return [...groups.values()].map(group => {
-    const expected = withdrawalSplitFromRaquel(group.raquel);
-    const differenceVanessa = expected.vanessa - group.vanessa;
-    const differenceRaquel = expected.raquel - group.raquel;
+    const legacyExpected = withdrawalSplitFromRaquel(group.raquel);
+    const expectedSavings = group.hasExpectedSavings ? group.expectedSavings : legacyExpected.savings;
+    const expectedVanessa = group.hasExpectedVanessa ? group.expectedVanessa : legacyExpected.vanessa;
+    const expectedRaquel = group.hasExpectedRaquel ? group.expectedRaquel : legacyExpected.raquel;
+    const expectedTotal = expectedSavings + expectedVanessa + expectedRaquel;
+    const pendingVanessa = Math.max(0, expectedVanessa - group.vanessa);
+    const pendingRaquel = Math.max(0, expectedRaquel - group.raquel);
     return {
       ...group,
-      distributionBase: expected.total || group.distributionBase || group.total,
-      expectedVanessa: expected.vanessa,
-      expectedRaquel: expected.raquel,
-      differenceVanessa,
-      differenceRaquel,
-      balanceVanessa: partnerReceivedBalance(group.vanessa, differenceVanessa),
-      balanceRaquel: partnerReceivedBalance(group.raquel, differenceRaquel)
+      distributionBase: expectedTotal || group.distributionBase || group.total,
+      expectedTotal,
+      expectedSavings,
+      expectedVanessa,
+      expectedRaquel,
+      pendingVanessa,
+      pendingRaquel,
+      differenceVanessa: pendingVanessa,
+      differenceRaquel: pendingRaquel
     };
   }).sort((a, b) => String(b.date).localeCompare(String(a.date)));
 }
@@ -3044,22 +3065,12 @@ function withdrawalEntriesForMonth(monthKey = currentMonthKey()) {
   });
 }
 
-function partnerDifferenceLabel(value) {
-  const amount = Number(value || 0);
-  if (Math.abs(amount) < 0.01) {
-    return "Sem diferença";
+function partnerPendingLabel(value) {
+  const amount = Math.max(0, Number(value || 0));
+  if (amount < 0.01) {
+    return "Quitado";
   }
-  return amount > 0
-    ? `Antecipado ${money(amount)}`
-    : `Acima do calculado ${money(Math.abs(amount))}`;
-}
-
-function partnerAnticipatedAmount(value) {
-  return Math.max(0, Number(value || 0));
-}
-
-function partnerReceivedBalance(withdrawn, difference) {
-  return Number(withdrawn || 0) + partnerAnticipatedAmount(difference);
+  return `A receber ${money(amount)}`;
 }
 
 function withdrawalGroupsBetween(start, end) {
@@ -3071,23 +3082,25 @@ function partnerPeriodTotals(groups = []) {
     totals.savings += Number(group.savings || 0);
     totals.vanessa += Number(group.vanessa || 0);
     totals.raquel += Number(group.raquel || 0);
+    totals.expectedSavings += Number(group.expectedSavings || 0);
     totals.expectedVanessa += Number(group.expectedVanessa || 0);
     totals.expectedRaquel += Number(group.expectedRaquel || 0);
-    totals.differenceVanessa += Number(group.differenceVanessa || 0);
-    totals.differenceRaquel += Number(group.differenceRaquel || 0);
-    totals.balanceVanessa += Number(group.balanceVanessa || 0);
-    totals.balanceRaquel += Number(group.balanceRaquel || 0);
+    totals.pendingVanessa += Number(group.pendingVanessa || 0);
+    totals.pendingRaquel += Number(group.pendingRaquel || 0);
+    totals.differenceVanessa = totals.pendingVanessa;
+    totals.differenceRaquel = totals.pendingRaquel;
     return totals;
   }, {
     savings: 0,
     vanessa: 0,
     raquel: 0,
+    expectedSavings: 0,
     expectedVanessa: 0,
     expectedRaquel: 0,
+    pendingVanessa: 0,
+    pendingRaquel: 0,
     differenceVanessa: 0,
-    differenceRaquel: 0,
-    balanceVanessa: 0,
-    balanceRaquel: 0
+    differenceRaquel: 0
   });
 }
 
@@ -3105,6 +3118,7 @@ function partnerDashboard(referenceDate, monthKey) {
     return date >= monthStart && date <= monthEnd;
   });
   const financial = financialSummary(monthEntries);
+  const accumulated = partnerPeriodTotals(withdrawalHistoryGroups(state.cash));
   const today = isoDate(new Date());
   const projectionEnd = today < monthStart ? monthStart : today > monthEnd ? monthEnd : today;
   const elapsedDays = Math.max(1, daysBetweenInclusive(monthStart, projectionEnd));
@@ -3119,6 +3133,7 @@ function partnerDashboard(referenceDate, monthKey) {
     monthEnd,
     week,
     month: monthTotals,
+    accumulated,
     projection: withdrawalSplit(Math.max(0, projectedAvailable))
   };
 }
@@ -3131,17 +3146,17 @@ function withdrawalHistoryHtml(monthKey = currentMonthKey()) {
   return `
     <div class="table-wrap report-table">
       <table>
-        <thead><tr><th>Data</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Ajustes</th><th>Total retirado</th><th></th></tr></thead>
+        <thead><tr><th>Data</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Saldo pendente</th><th>Total retirado</th><th></th></tr></thead>
         <tbody>
           ${groups.map(group => `
             <tr>
               <td>${formatIsoDateBr(group.date)}</td>
-              <td>${money(group.savings)}</td>
-              <td>${money(group.vanessa)}<br><small>Saldo ${money(group.balanceVanessa)}</small></td>
-              <td>${money(group.raquel)}<br><small>Saldo ${money(group.balanceRaquel)}</small></td>
+              <td>${money(group.savings)}<br><small>Deveria ${money(group.expectedSavings)}</small></td>
+              <td>${money(group.vanessa)}<br><small>Deveria ${money(group.expectedVanessa)}</small></td>
+              <td>${money(group.raquel)}<br><small>Deveria ${money(group.expectedRaquel)}</small></td>
               <td>
-                <small>Vanessa: ${partnerDifferenceLabel(group.differenceVanessa)}</small><br>
-                <small>Raquel: ${partnerDifferenceLabel(group.differenceRaquel)}</small>
+                <small>Vanessa: ${partnerPendingLabel(group.pendingVanessa)}</small><br>
+                <small>Raquel: ${partnerPendingLabel(group.pendingRaquel)}</small>
               </td>
               <td><strong>${money(group.total)}</strong></td>
               <td><button class="secondary table-action" type="button" data-edit-withdrawal="${escapeHtml(group.key)}">Editar</button></td>
@@ -3342,27 +3357,29 @@ function financialSummary(cashEntries = []) {
 
 function withdrawalBreakdownAmounts(withdrawals = {}, control = {}) {
   return {
-    vanessa: partnerReceivedBalance(withdrawals.vanessa, control?.differenceVanessa),
+    vanessa: Number(withdrawals.vanessa || 0),
     savings: Number(withdrawals.savings || 0),
-    raquel: partnerReceivedBalance(withdrawals.raquel, control?.differenceRaquel)
+    raquel: Number(withdrawals.raquel || 0),
+    pendingVanessa: Number(control?.pendingVanessa ?? control?.differenceVanessa ?? 0),
+    pendingRaquel: Number(control?.pendingRaquel ?? control?.differenceRaquel ?? 0)
   };
 }
 
 function withdrawalBreakdownMetrics(withdrawals = {}, className = "metric", control = {}) {
   const amounts = withdrawalBreakdownAmounts(withdrawals, control);
   return `
-    <div class="${className}"><span>Vanessa tirou</span><strong>${money(amounts.vanessa)}</strong></div>
+    <div class="${className}"><span>Vanessa recebeu</span><strong>${money(amounts.vanessa)}</strong></div>
     <div class="${className}"><span>Cofrinho</span><strong>${money(amounts.savings)}</strong></div>
-    <div class="${className}"><span>Raquel tirou</span><strong>${money(amounts.raquel)}</strong></div>
+    <div class="${className}"><span>Raquel recebeu</span><strong>${money(amounts.raquel)}</strong></div>
   `;
 }
 
 function withdrawalBreakdownStatement(withdrawals = {}, control = {}) {
   const amounts = withdrawalBreakdownAmounts(withdrawals, control);
   return `
-    <div class="statement-line"><span>(-) Vanessa tirou</span><strong>${money(amounts.vanessa)}</strong></div>
+    <div class="statement-line"><span>(-) Vanessa recebeu</span><strong>${money(amounts.vanessa)}</strong></div>
     <div class="statement-line"><span>(-) Cofrinho</span><strong>${money(amounts.savings)}</strong></div>
-    <div class="statement-line"><span>(-) Raquel tirou</span><strong>${money(amounts.raquel)}</strong></div>
+    <div class="statement-line"><span>(-) Raquel recebeu</span><strong>${money(amounts.raquel)}</strong></div>
   `;
 }
 
@@ -4511,7 +4528,15 @@ async function renderCash() {
     + Number(editingWithdrawal?.total || 0)
     - Number(editingWithdrawalLoan?.amount || 0);
   const previewWithdrawal = withdrawalSplitFromRaquel(0);
-  const withdrawalFormValues = editingWithdrawal || previewWithdrawal;
+  const withdrawalFormValues = editingWithdrawal || {
+    ...previewWithdrawal,
+    expectedTotal: previewWithdrawal.total,
+    expectedSavings: previewWithdrawal.savings,
+    expectedVanessa: previewWithdrawal.vanessa,
+    expectedRaquel: previewWithdrawal.raquel,
+    pendingVanessa: 0,
+    pendingRaquel: 0
+  };
   const previewSavingsLoan = Math.max(0, Number(withdrawalFormValues.total || 0) - availableForWithdrawal);
   const previewAccountAfterWithdrawal = availableForWithdrawal + previewSavingsLoan - Number(withdrawalFormValues.total || 0);
   const savingsPlanning = state.financialPlanning || {};
@@ -4776,26 +4801,33 @@ async function renderCash() {
         ${activeCashPanel === "withdrawals" ? `
         <div class="cash-tab-section withdrawal-panel">
         <h2>${editingWithdrawal ? "Editar retirada" : "Retiradas"}</h2>
-        <p class="muted-inline">Registre retiradas, confira a divisão e acompanhe Vanessa, Raquel e cofrinho no mesmo lugar.</p>
+        <p class="muted-inline">Registre quanto cada pessoa deveria receber e quanto realmente retirou. A diferença fica como saldo pendente da própria pessoa.</p>
         <div class="partners-dashboard">
+          <section>
+            <h3>Saldo pendente acumulado</h3>
+            <div class="summary">
+              <div class="metric"><span>Vanessa</span><strong>${partnerPendingLabel(partnersDashboard.accumulated.pendingVanessa)}</strong></div>
+              <div class="metric"><span>Raquel</span><strong>${partnerPendingLabel(partnersDashboard.accumulated.pendingRaquel)}</strong></div>
+            </div>
+          </section>
           <section>
             <h3>Semana de ${formatIsoDateBr(partnersDashboard.weekStart)} a ${formatIsoDateBr(partnersDashboard.weekEnd)}</h3>
             <div class="summary">
-              <div class="metric"><span>Saldo Vanessa</span><strong>${money(partnersDashboard.week.balanceVanessa)}</strong></div>
-              <div class="metric"><span>Saldo Raquel</span><strong>${money(partnersDashboard.week.balanceRaquel)}</strong></div>
+              <div class="metric"><span>Vanessa recebeu</span><strong>${money(partnersDashboard.week.vanessa)}</strong></div>
+              <div class="metric"><span>Vanessa pendente</span><strong>${partnerPendingLabel(partnersDashboard.week.pendingVanessa)}</strong></div>
+              <div class="metric"><span>Raquel recebeu</span><strong>${money(partnersDashboard.week.raquel)}</strong></div>
+              <div class="metric"><span>Raquel pendente</span><strong>${partnerPendingLabel(partnersDashboard.week.pendingRaquel)}</strong></div>
               <div class="metric"><span>Cofrinho</span><strong>${money(partnersDashboard.week.savings)}</strong></div>
-              <div class="metric"><span>Ajuste Vanessa</span><strong>${partnerDifferenceLabel(partnersDashboard.week.differenceVanessa)}</strong></div>
-              <div class="metric"><span>Ajuste Raquel</span><strong>${partnerDifferenceLabel(partnersDashboard.week.differenceRaquel)}</strong></div>
             </div>
           </section>
           <section>
             <h3>${formatMonthKeyBr(partnersPeriod)}</h3>
             <div class="summary">
-              <div class="metric"><span>Saldo Vanessa</span><strong>${money(partnersDashboard.month.balanceVanessa)}</strong></div>
-              <div class="metric"><span>Saldo Raquel</span><strong>${money(partnersDashboard.month.balanceRaquel)}</strong></div>
+              <div class="metric"><span>Vanessa recebeu</span><strong>${money(partnersDashboard.month.vanessa)}</strong></div>
+              <div class="metric"><span>Vanessa pendente</span><strong>${partnerPendingLabel(partnersDashboard.month.pendingVanessa)}</strong></div>
+              <div class="metric"><span>Raquel recebeu</span><strong>${money(partnersDashboard.month.raquel)}</strong></div>
+              <div class="metric"><span>Raquel pendente</span><strong>${partnerPendingLabel(partnersDashboard.month.pendingRaquel)}</strong></div>
               <div class="metric"><span>Cofrinho no mês</span><strong>${money(partnersDashboard.month.savings)}</strong></div>
-              <div class="metric"><span>Ajuste Vanessa</span><strong>${partnerDifferenceLabel(partnersDashboard.month.differenceVanessa)}</strong></div>
-              <div class="metric"><span>Ajuste Raquel</span><strong>${partnerDifferenceLabel(partnersDashboard.month.differenceRaquel)}</strong></div>
             </div>
           </section>
           <section>
@@ -4813,56 +4845,71 @@ async function renderCash() {
           <label>Data
             <input name="date" type="date" value="${editingWithdrawal?.date || today}" required>
           </label>
-          <label>Valor calculado pela Raquel
-            <input name="amount" type="text" inputmode="decimal" value="${moneyInputValue(editingWithdrawal?.distributionBase ?? previewWithdrawal.total)}" readonly required>
-          </label>
-          <div class="withdrawal-fields">
-            <label>Cofrinho
-              <input name="savings" type="text" inputmode="decimal" value="${moneyInputValue(editingWithdrawal?.savings ?? previewWithdrawal.savings)}">
-            </label>
-            <label>Vanessa
-              <input name="vanessa" type="text" inputmode="decimal" value="${moneyInputValue(editingWithdrawal?.vanessa ?? previewWithdrawal.vanessa)}">
-            </label>
-            <label>Raquel
-              <input name="raquel" type="text" inputmode="decimal" value="${moneyInputValue(editingWithdrawal?.raquel ?? previewWithdrawal.raquel)}">
-            </label>
+          <div class="withdrawal-value-group">
+            <strong>Quanto deveria ter sido retirado</strong>
+            <p class="muted-inline">Informe a parte calculada para cada destino. Ao preencher a parte da Raquel, o sistema sugere automaticamente a divisão padrão.</p>
+            <div class="withdrawal-fields">
+              <label>Cofrinho deveria
+                <input name="expectedSavings" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.expectedSavings)}">
+              </label>
+              <label>Vanessa deveria
+                <input name="expectedVanessa" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.expectedVanessa)}">
+              </label>
+              <label>Raquel deveria
+                <input name="expectedRaquel" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.expectedRaquel)}">
+              </label>
+            </div>
+          </div>
+          <div class="withdrawal-value-group">
+            <strong>Quanto realmente foi retirado</strong>
+            <div class="withdrawal-fields">
+              <label>Cofrinho recebeu
+                <input name="savings" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.savings)}">
+              </label>
+              <label>Vanessa recebeu
+                <input name="vanessa" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.vanessa)}">
+              </label>
+              <label>Raquel recebeu
+                <input name="raquel" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.raquel)}">
+              </label>
+            </div>
           </div>
           <div class="withdrawal-preview" aria-live="polite">
             <span><b>Caixa disponível</b>${money(availableForWithdrawal)}</span>
-            <span><b>Total informado</b>${money(withdrawalFormValues.total)}</span>
+            <span><b>Total devido</b>${money(withdrawalFormValues.expectedTotal)}</span>
+            <span><b>Total retirado</b>${money(withdrawalFormValues.total)}</span>
             <span><b>Empréstimo do cofrinho</b>${money(previewSavingsLoan)}</span>
             <span><b>Saldo da conta depois</b>${money(Math.max(0, previewAccountAfterWithdrawal))}</span>
-            <span><b>Cofrinho</b>${money(withdrawalFormValues.savings)}</span>
-            <span><b>Vanessa / Raquel</b>${money(withdrawalFormValues.vanessa)} / ${money(withdrawalFormValues.raquel)}</span>
-            <span><b>Ajuste Vanessa</b>${partnerDifferenceLabel(withdrawalFormValues.differenceVanessa || 0)}</span>
-            <span><b>Ajuste Raquel</b>${partnerDifferenceLabel(withdrawalFormValues.differenceRaquel || 0)}</span>
+            <span><b>Vanessa</b>${partnerPendingLabel(withdrawalFormValues.pendingVanessa)}</span>
+            <span><b>Raquel</b>${partnerPendingLabel(withdrawalFormValues.pendingRaquel)}</span>
           </div>
           <div class="actions">
-            <button type="submit" ${(availableForWithdrawal > 0 || savingsCurrent > 0 || editingWithdrawal) ? "" : "disabled"}>${editingWithdrawal ? "Salvar retirada" : "Registrar retiradas"}</button>
+            <button type="submit">${editingWithdrawal ? "Salvar retirada" : "Registrar retiradas"}</button>
             ${editingWithdrawal ? `<button class="secondary" type="button" id="cancel-withdrawal-edit">Cancelar</button>` : ""}
           </div>
         </form>
         <h3>Histórico de retiradas do mês</h3>
         ${withdrawalHistoryHtml(selectedMonth)}
         <details class="partners-manual-adjustment">
-          <summary>Ajuste manual do mês</summary>
+          <summary>Registro manual antigo do mês</summary>
+          <p class="muted-inline">Use somente para consultar ou corrigir controles antigos. Nas novas retiradas, o saldo pendente é calculado automaticamente por pessoa.</p>
           <form id="partners-form" class="form-grid single">
             <label>Mês do registro
               <input name="periodKey" type="month" value="${partnersRecord.periodKey}" required>
             </label>
-            <label>Vanessa - ajuste informado
+            <label>Vanessa - valor informado
               <input name="vanessa" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(partnersRecord.vanessa)}">
             </label>
-            <label>Raquel - ajuste informado
+            <label>Raquel - valor informado
               <input name="raquel" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(partnersRecord.raquel)}">
             </label>
-            <label>Diferença anterior
+            <label>Saldo pendente anterior
               <input name="difference" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(partnersRecord.difference)}">
             </label>
             <label>Observação
               <input name="notes" placeholder="Ex.: antecipação de período anterior" value="${escapeHtml(partnersRecord.notes || "")}">
             </label>
-            <button type="submit">Salvar ajuste manual</button>
+            <button type="submit">Salvar registro antigo</button>
           </form>
         </details>
         <h3>Histórico de ajustes manuais</h3>
@@ -4872,11 +4919,11 @@ async function renderCash() {
               <span>
                 <b>${formatMonthKeyBr(entry.periodKey)}</b>
                 Vanessa ${money(entry.vanessa)} / Raquel ${money(entry.raquel)}
-                <small>Diferença / antecipado ${money(entry.difference)}${entry.notes ? ` - ${escapeHtml(entry.notes)}` : ""}</small>
+                <small>Saldo pendente informado ${money(entry.difference)}${entry.notes ? ` - ${escapeHtml(entry.notes)}` : ""}</small>
               </span>
             `).join("")}
           </div>
-        ` : `<p class="muted">Nenhum ajuste manual de retirada ainda.</p>`}
+        ` : `<p class="muted">Nenhum registro manual antigo.</p>`}
         </div>
         ` : ""}
         ${activeCashPanel === "categories" ? cashCategoriesPanel("cash-tab-section supplier-panel") : ""}
@@ -5957,7 +6004,7 @@ async function renderCash() {
       };
 
       upsertPartnersRecord(record);
-      recordAudit("Ajuste manual de retirada atualizado", `${formatMonthKeyBr(periodKey)} - Vanessa ${money(record.vanessa)}, Raquel ${money(record.raquel)}, diferença ${money(record.difference)}`);
+      recordAudit("Registro manual de retirada atualizado", `${formatMonthKeyBr(periodKey)} - Vanessa ${money(record.vanessa)}, Raquel ${money(record.raquel)}, saldo pendente ${money(record.difference)}`);
       persistState();
       renderCash();
     });
@@ -5965,44 +6012,63 @@ async function renderCash() {
 
   const withdrawalForm = document.querySelector("#withdrawal-form");
   if (withdrawalForm) {
+    const withdrawalExpectedValues = () => {
+      const expected = {
+        savings: Math.max(0, parseMoneyInput(withdrawalForm.elements.expectedSavings.value)),
+        vanessa: Math.max(0, parseMoneyInput(withdrawalForm.elements.expectedVanessa.value)),
+        raquel: Math.max(0, parseMoneyInput(withdrawalForm.elements.expectedRaquel.value))
+      };
+      expected.total = expected.savings + expected.vanessa + expected.raquel;
+      return expected;
+    };
+    let lastExpectedValues = withdrawalExpectedValues();
+
     const updateWithdrawalPreview = () => {
+      const expected = withdrawalExpectedValues();
       const split = {
-        distributionBase: parseMoneyInput(withdrawalForm.elements.amount.value),
-        savings: parseMoneyInput(withdrawalForm.elements.savings.value),
-        vanessa: parseMoneyInput(withdrawalForm.elements.vanessa.value),
-        raquel: parseMoneyInput(withdrawalForm.elements.raquel.value)
+        savings: Math.max(0, parseMoneyInput(withdrawalForm.elements.savings.value)),
+        vanessa: Math.max(0, parseMoneyInput(withdrawalForm.elements.vanessa.value)),
+        raquel: Math.max(0, parseMoneyInput(withdrawalForm.elements.raquel.value))
       };
       split.total = split.savings + split.vanessa + split.raquel;
-      const expected = withdrawalSplitFromRaquel(split.raquel);
-      split.distributionBase = expected.total;
-      withdrawalForm.elements.amount.value = moneyInputValue(expected.total);
-      const differenceVanessa = expected.vanessa - split.vanessa;
-      const differenceRaquel = expected.raquel - split.raquel;
+      const pendingVanessa = expected.vanessa - split.vanessa;
+      const pendingRaquel = expected.raquel - split.raquel;
       const savingsLoan = Math.max(0, split.total - availableForWithdrawal);
       const accountAfterWithdrawal = availableForWithdrawal + savingsLoan - split.total;
       const preview = withdrawalForm.querySelector(".withdrawal-preview");
       preview.innerHTML = `
         <span><b>Caixa disponível</b>${money(availableForWithdrawal)}</span>
-        <span><b>Total informado</b>${money(split.total)}</span>
+        <span><b>Total devido</b>${money(expected.total)}</span>
+        <span><b>Total retirado</b>${money(split.total)}</span>
         <span><b>Empréstimo do cofrinho</b>${money(savingsLoan)}</span>
         <span><b>Saldo da conta depois</b>${money(Math.max(0, accountAfterWithdrawal))}</span>
-        <span><b>Divisão calculada</b>${money(split.distributionBase)}</span>
-        <span><b>Cofrinho</b>${money(split.savings)}</span>
-        <span><b>Vanessa / Raquel</b>${money(split.vanessa)} / ${money(split.raquel)}</span>
-        <span><b>Ajuste Vanessa</b>${partnerDifferenceLabel(differenceVanessa)}</span>
-        <span><b>Ajuste Raquel</b>${partnerDifferenceLabel(differenceRaquel)}</span>
+        <span><b>Vanessa</b>${partnerPendingLabel(pendingVanessa)}</span>
+        <span><b>Raquel</b>${partnerPendingLabel(pendingRaquel)}</span>
       `;
     };
 
     withdrawalForm.addEventListener("input", event => {
       const fieldName = event.target.name;
-      if (fieldName === "raquel") {
+      if (fieldName === "expectedRaquel") {
+        const previousExpected = lastExpectedValues;
         const split = withdrawalSplitFromRaquel(event.target.value);
-        withdrawalForm.elements.amount.value = moneyInputValue(split.total);
-        withdrawalForm.elements.savings.value = moneyInputValue(split.savings);
-        withdrawalForm.elements.vanessa.value = moneyInputValue(split.vanessa);
+        const actualSavingsWasSuggested = Math.abs(parseMoneyInput(withdrawalForm.elements.savings.value) - previousExpected.savings) < 0.01;
+        const actualVanessaWasSuggested = Math.abs(parseMoneyInput(withdrawalForm.elements.vanessa.value) - previousExpected.vanessa) < 0.01;
+        const actualRaquelWasSuggested = Math.abs(parseMoneyInput(withdrawalForm.elements.raquel.value) - previousExpected.raquel) < 0.01;
+        withdrawalForm.elements.expectedSavings.value = moneyInputValue(split.savings);
+        withdrawalForm.elements.expectedVanessa.value = moneyInputValue(split.vanessa);
+        if (actualSavingsWasSuggested) {
+          withdrawalForm.elements.savings.value = moneyInputValue(split.savings);
+        }
+        if (actualVanessaWasSuggested) {
+          withdrawalForm.elements.vanessa.value = moneyInputValue(split.vanessa);
+        }
+        if (actualRaquelWasSuggested) {
+          withdrawalForm.elements.raquel.value = moneyInputValue(split.raquel);
+        }
       }
 
+      lastExpectedValues = withdrawalExpectedValues();
       updateWithdrawalPreview();
     });
 
@@ -6015,21 +6081,21 @@ async function renderCash() {
     const previousSavingsLoan = previousWithdrawal ? withdrawalSavingsLoanEntry(previousWithdrawal) : null;
     const previousSavingsLoanAmount = Number(previousSavingsLoan?.amount || 0);
     const available = displayedCashBalance + Number(previousWithdrawal?.total || 0) - previousSavingsLoanAmount;
-    const expected = withdrawalSplitFromRaquel(values.raquel);
+    const expected = {
+      savings: Math.max(0, parseMoneyInput(values.expectedSavings)),
+      vanessa: Math.max(0, parseMoneyInput(values.expectedVanessa)),
+      raquel: Math.max(0, parseMoneyInput(values.expectedRaquel))
+    };
+    expected.total = expected.savings + expected.vanessa + expected.raquel;
     const split = {
       distributionBase: expected.total,
-      total: parseMoneyInput(values.savings) + parseMoneyInput(values.vanessa) + parseMoneyInput(values.raquel),
-      savings: parseMoneyInput(values.savings),
-      vanessa: parseMoneyInput(values.vanessa),
-      raquel: parseMoneyInput(values.raquel)
+      total: Math.max(0, parseMoneyInput(values.savings)) + Math.max(0, parseMoneyInput(values.vanessa)) + Math.max(0, parseMoneyInput(values.raquel)),
+      savings: Math.max(0, parseMoneyInput(values.savings)),
+      vanessa: Math.max(0, parseMoneyInput(values.vanessa)),
+      raquel: Math.max(0, parseMoneyInput(values.raquel))
     };
-    if (split.total <= 0) {
-      showToast("Informe um valor maior que zero.", "error");
-      return;
-    }
-
-    if (split.distributionBase <= 0) {
-      showToast("Informe o valor que a Raquel retirou para calcular a divisão.", "error");
+    if (expected.total <= 0) {
+      showToast("Informe quanto deveria ter sido retirado.", "error");
       return;
     }
 
@@ -6096,7 +6162,7 @@ async function renderCash() {
         distributionBase: split.distributionBase.toFixed(2),
         expectedAmount: expected.raquel.toFixed(2)
       }
-    ].filter(entry => entry && Number(entry.amount || 0) > 0);
+    ].filter(entry => entry && (Number(entry.amount || 0) > 0 || Number(entry.expectedAmount || 0) > 0));
     if (previousWithdrawal) {
       const previousIds = new Set([
         ...previousWithdrawal.entries.map(entry => String(entry.id)),
@@ -6125,7 +6191,7 @@ async function renderCash() {
           : "Devolução ao cofrinho por ajuste de retirada"
       });
     }
-    const auditDetail = `Calculado ${money(split.distributionBase)} - retirado ${money(split.total)} - cofrinho ${money(split.savings)}, Vanessa ${money(split.vanessa)} (${partnerDifferenceLabel(expected.vanessa - split.vanessa)}), Raquel ${money(split.raquel)} (${partnerDifferenceLabel(expected.raquel - split.raquel)})${savingsLoan > 0 ? ` - empréstimo do cofrinho ${money(savingsLoan)}` : ""}`;
+    const auditDetail = `Devido ${money(expected.total)} - retirado ${money(split.total)} - cofrinho devido/recebido ${money(expected.savings)} / ${money(split.savings)}, Vanessa devido/recebido ${money(expected.vanessa)} / ${money(split.vanessa)} (${partnerPendingLabel(expected.vanessa - split.vanessa)}), Raquel devido/recebido ${money(expected.raquel)} / ${money(split.raquel)} (${partnerPendingLabel(expected.raquel - split.raquel)})${savingsLoan > 0 ? ` - empréstimo do cofrinho ${money(savingsLoan)}` : ""}`;
     recordAudit(previousWithdrawal ? "Retirada editada" : "Retirada registrada", auditDetail);
     state.editWithdrawalGroup = null;
     if (await persistState()) {
@@ -8550,20 +8616,14 @@ function reportPdfWithdrawalRows(data) {
   const informedVanessa = Number(partners.vanessa || 0);
   const informedRaquel = Number(partners.raquel || 0);
   const differenceTotal = Number(partners.difference || 0) || automaticDifferenceTotal;
-  const balanceVanessa = partnerReceivedBalance(
-    data.financial.withdrawals.vanessa,
-    data.partnerWithdrawalControl?.differenceVanessa
-  );
-  const balanceRaquel = partnerReceivedBalance(
-    data.financial.withdrawals.raquel,
-    data.partnerWithdrawalControl?.differenceRaquel
-  );
   const rows = [
-    ["Cofrinho", money(data.financial.withdrawals.savings)],
-    ["Saldo Vanessa", money(balanceVanessa)],
-    ["Saldo Raquel", money(balanceRaquel)],
-    ["Ajuste Vanessa", partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceVanessa)],
-    ["Ajuste Raquel", partnerDifferenceLabel(data.partnerWithdrawalControl?.differenceRaquel)]
+    ["Cofrinho recebeu", money(data.financial.withdrawals.savings)],
+    ["Vanessa deveria receber", money(data.partnerWithdrawalControl?.expectedVanessa)],
+    ["Vanessa recebeu", money(data.financial.withdrawals.vanessa)],
+    ["Saldo pendente Vanessa", partnerPendingLabel(data.partnerWithdrawalControl?.pendingVanessa)],
+    ["Raquel deveria receber", money(data.partnerWithdrawalControl?.expectedRaquel)],
+    ["Raquel recebeu", money(data.financial.withdrawals.raquel)],
+    ["Saldo pendente Raquel", partnerPendingLabel(data.partnerWithdrawalControl?.pendingRaquel)]
   ];
 
   if (informedVanessa > 0 || informedRaquel > 0) {
@@ -8572,7 +8632,7 @@ function reportPdfWithdrawalRows(data) {
   }
 
   if (differenceTotal > 0) {
-    rows.push([partners.difference ? "Diferença / antecipado informada" : "Diferença / antecipado", money(differenceTotal)]);
+    rows.push([partners.difference ? "Saldo pendente manual informado" : "Saldo pendente manual", money(differenceTotal)]);
   }
 
   return rows;
@@ -8964,9 +9024,9 @@ function reportCsvRows(kind, data) {
       { seção: "resumo", data: "", descrição: "Entradas no caixa", tipo: "entrada", categoria: "", valor: data.financial.income },
       { seção: "resumo", data: "", descrição: "Saídas operacionais", tipo: "saída", categoria: "operacional", valor: data.financial.operationalExpenses },
       { seção: "resumo", data: "", descrição: "Lucro antes das retiradas", tipo: "saldo", categoria: "", valor: data.financial.profitBeforeWithdrawals },
-      { seção: "resumo", data: "", descrição: "Vanessa tirou", tipo: "saída", categoria: "retirada", valor: withdrawalAmounts.vanessa },
+      { seção: "resumo", data: "", descrição: "Vanessa recebeu", tipo: "saída", categoria: "retirada", valor: withdrawalAmounts.vanessa },
       { seção: "resumo", data: "", descrição: "Cofrinho", tipo: "saída", categoria: "retirada", valor: withdrawalAmounts.savings },
-      { seção: "resumo", data: "", descrição: "Raquel tirou", tipo: "saída", categoria: "retirada", valor: withdrawalAmounts.raquel },
+      { seção: "resumo", data: "", descrição: "Raquel recebeu", tipo: "saída", categoria: "retirada", valor: withdrawalAmounts.raquel },
       { seção: "resumo", data: "", descrição: "Resultado após retiradas", tipo: "saldo", categoria: "", valor: data.financial.availableForWithdrawal },
       { seção: "ajustes da conta", data: "", descrição: "Entradas de ajuste", tipo: "entrada", categoria: "ajuste da conta", valor: data.accountAdjustmentTotals.income },
       { seção: "ajustes da conta", data: "", descrição: "Saídas de ajuste", tipo: "saída", categoria: "ajuste da conta", valor: data.accountAdjustmentTotals.expenses },
@@ -8978,13 +9038,13 @@ function reportCsvRows(kind, data) {
       { seção: "retiradas", data: "", descrição: "Cofrinho", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.savings },
       { seção: "retiradas", data: "", descrição: "Vanessa", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.vanessa },
       { seção: "retiradas", data: "", descrição: "Raquel", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.raquel },
-      { seção: "retiradas", data: "", descrição: "Saldo Vanessa com antecipado", tipo: "controle", categoria: "retirada", valor: partnerReceivedBalance(data.financial.withdrawals.vanessa, data.partnerWithdrawalControl?.differenceVanessa) },
-      { seção: "retiradas", data: "", descrição: "Saldo Raquel com antecipado", tipo: "controle", categoria: "retirada", valor: partnerReceivedBalance(data.financial.withdrawals.raquel, data.partnerWithdrawalControl?.differenceRaquel) },
-      { seção: "retiradas", data: "", descrição: "Ajuste Vanessa", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.differenceVanessa || 0 },
-      { seção: "retiradas", data: "", descrição: "Ajuste Raquel", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.differenceRaquel || 0 },
+      { seção: "retiradas", data: "", descrição: "Vanessa deveria receber", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.expectedVanessa || 0 },
+      { seção: "retiradas", data: "", descrição: "Saldo pendente Vanessa", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.pendingVanessa || 0 },
+      { seção: "retiradas", data: "", descrição: "Raquel deveria receber", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.expectedRaquel || 0 },
+      { seção: "retiradas", data: "", descrição: "Saldo pendente Raquel", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.pendingRaquel || 0 },
       { seção: "retiradas", data: data.partnersRecord?.periodKey || "", descrição: "Vanessa informada", tipo: "controle", categoria: "retirada", valor: data.partnersRecord?.vanessa || 0 },
       { seção: "retiradas", data: data.partnersRecord?.periodKey || "", descrição: "Raquel informada", tipo: "controle", categoria: "retirada", valor: data.partnersRecord?.raquel || 0 },
-      { seção: "retiradas", data: data.partnersRecord?.periodKey || "", descrição: "Diferença / antecipado", tipo: "controle", categoria: "retirada", valor: data.partnersRecord?.difference || 0 }
+      { seção: "retiradas", data: data.partnersRecord?.periodKey || "", descrição: "Saldo pendente manual", tipo: "controle", categoria: "retirada", valor: data.partnersRecord?.difference || 0 }
     ];
 
     return rows.concat(data.cashEntries.map(entry => ({
@@ -9104,9 +9164,9 @@ function reportPdfHtml(data) {
     ["Entradas", money(data.totalIncome)],
     ["Saídas", money(data.expenses)],
     ["Lucro antes retiradas", money(data.financial.profitBeforeWithdrawals)],
-    ["Vanessa tirou", money(withdrawalAmounts.vanessa)],
+    ["Vanessa recebeu", money(withdrawalAmounts.vanessa)],
     ["Cofrinho", money(withdrawalAmounts.savings)],
-    ["Raquel tirou", money(withdrawalAmounts.raquel)],
+    ["Raquel recebeu", money(withdrawalAmounts.raquel)],
     ["Resultado após retiradas", money(data.financial.availableForWithdrawal)],
     ["Ajustes da conta", money(data.accountAdjustmentTotals.balance)],
     ["Saldo da conta", money(data.accountBalance)],
@@ -9423,16 +9483,16 @@ async function downloadReportXlsx(options = {}) {
       withdrawalSavings: withdrawalAmounts.savings,
       withdrawalRaquel: withdrawalAmounts.raquel,
       withdrawalRows: [
-        ["Cofrinho", Number(data.financial.withdrawals.savings || 0)],
-        ["Vanessa", Number(data.financial.withdrawals.vanessa || 0)],
-        ["Raquel", Number(data.financial.withdrawals.raquel || 0)],
-        ["Saldo Vanessa com antecipado", partnerReceivedBalance(data.financial.withdrawals.vanessa, data.partnerWithdrawalControl?.differenceVanessa)],
-        ["Saldo Raquel com antecipado", partnerReceivedBalance(data.financial.withdrawals.raquel, data.partnerWithdrawalControl?.differenceRaquel)],
-        ["Ajuste Vanessa", Number(data.partnerWithdrawalControl?.differenceVanessa || 0)],
-        ["Ajuste Raquel", Number(data.partnerWithdrawalControl?.differenceRaquel || 0)],
+        ["Cofrinho recebeu", Number(data.financial.withdrawals.savings || 0)],
+        ["Vanessa deveria receber", Number(data.partnerWithdrawalControl?.expectedVanessa || 0)],
+        ["Vanessa recebeu", Number(data.financial.withdrawals.vanessa || 0)],
+        ["Saldo pendente Vanessa", Number(data.partnerWithdrawalControl?.pendingVanessa || 0)],
+        ["Raquel deveria receber", Number(data.partnerWithdrawalControl?.expectedRaquel || 0)],
+        ["Raquel recebeu", Number(data.financial.withdrawals.raquel || 0)],
+        ["Saldo pendente Raquel", Number(data.partnerWithdrawalControl?.pendingRaquel || 0)],
         ["Vanessa informada", Number(data.partnersRecord?.vanessa || 0)],
         ["Raquel informada", Number(data.partnersRecord?.raquel || 0)],
-        ["Diferença / antecipado", Number(data.partnersRecord?.difference || 0)]
+        ["Saldo pendente manual", Number(data.partnersRecord?.difference || 0)]
       ],
       totalSoldQuantity: data.totalSoldQuantity,
       weeklyCashQuantity: data.weeklyCashQuantity,
@@ -9700,9 +9760,9 @@ function comparisonReportRows(data) {
     ["Entradas", data.income, previousTotals.income],
     ["Saídas", data.expenses, previousTotals.expenses],
     ["Lucro", data.financial.profitBeforeWithdrawals, previousFinancial.profitBeforeWithdrawals],
-    ["Vanessa tirou", currentWithdrawalAmounts.vanessa, previousWithdrawalAmounts.vanessa],
+    ["Vanessa recebeu", currentWithdrawalAmounts.vanessa, previousWithdrawalAmounts.vanessa],
     ["Cofrinho", currentWithdrawalAmounts.savings, previousWithdrawalAmounts.savings],
-    ["Raquel tirou", currentWithdrawalAmounts.raquel, previousWithdrawalAmounts.raquel],
+    ["Raquel recebeu", currentWithdrawalAmounts.raquel, previousWithdrawalAmounts.raquel],
     ["Pedidos", data.orders.length, previousOrders.length],
     ["Cumbucas", data.totalSoldQuantity, previousOrderQuantity + previousStoreQuantity],
     ["Ticket médio", data.averageTicket, previousAverageTicket]
@@ -9870,7 +9930,7 @@ function storeSalesTable(entries) {
   return `
     <div class="table-wrap report-table">
       <table>
-        <thead><tr><th>Data</th><th>Quantidade</th><th>Observação</th><th></th></tr></thead>
+        <thead><tr><th>Data</th><th>Quantidade</th><th>Observação</th><th>Ações</th></tr></thead>
         <tbody>
           ${entries.map(entry => `
             <tr>
@@ -9899,13 +9959,14 @@ function withdrawalReportTable(data) {
   return `
     <div class="table-wrap report-table">
       <table>
-        <thead><tr><th>Data</th><th>Destino</th><th>Descrição</th><th>Valor</th></tr></thead>
+        <thead><tr><th>Data</th><th>Destino</th><th>Descrição</th><th>Deveria receber</th><th>Recebeu</th></tr></thead>
         <tbody>
           ${data.financial.withdrawalEntries.map(entry => `
             <tr>
               <td>${formatIsoDateBr(entry.date)}</td>
               <td>${withdrawalTarget(entry) === "savings" ? "Cofrinho" : withdrawalTarget(entry) === "vanessa" ? "Vanessa" : withdrawalTarget(entry) === "raquel" ? "Raquel" : "Outras"}</td>
               <td>${entry.description || ""}</td>
+              <td>${money(entry.expectedAmount ?? entry.amount)}</td>
               <td>${money(entry.amount)}</td>
             </tr>
           `).join("")}
@@ -9928,23 +9989,32 @@ function withdrawalPersonRows(data) {
     {
       key: "savings",
       label: "Cofrinho",
-      week: weekTotals.savings,
-      month: monthTotals.savings,
-      difference: 0
+      expectedWeek: weekTotals.expectedSavings,
+      receivedWeek: weekTotals.savings,
+      pendingWeek: 0,
+      expectedMonth: monthTotals.expectedSavings,
+      receivedMonth: monthTotals.savings,
+      pendingMonth: 0
     },
     {
       key: "vanessa",
       label: "Vanessa",
-      week: weekTotals.balanceVanessa,
-      month: monthTotals.balanceVanessa,
-      difference: weekTotals.differenceVanessa
+      expectedWeek: weekTotals.expectedVanessa,
+      receivedWeek: weekTotals.vanessa,
+      pendingWeek: weekTotals.pendingVanessa,
+      expectedMonth: monthTotals.expectedVanessa,
+      receivedMonth: monthTotals.vanessa,
+      pendingMonth: monthTotals.pendingVanessa
     },
     {
       key: "raquel",
       label: "Raquel",
-      week: weekTotals.balanceRaquel,
-      month: monthTotals.balanceRaquel,
-      difference: weekTotals.differenceRaquel
+      expectedWeek: weekTotals.expectedRaquel,
+      receivedWeek: weekTotals.raquel,
+      pendingWeek: weekTotals.pendingRaquel,
+      expectedMonth: monthTotals.expectedRaquel,
+      receivedMonth: monthTotals.raquel,
+      pendingMonth: monthTotals.pendingRaquel
     }
   ];
 }
@@ -9960,14 +10030,17 @@ function withdrawalPersonReportPanel(data) {
       </div>
       <div class="table-wrap report-table">
         <table>
-          <thead><tr><th>Destino</th><th>Saldo da semana</th><th>Saldo do mês</th><th>Ajuste da semana</th></tr></thead>
+          <thead><tr><th>Destino</th><th>Deveria na semana</th><th>Recebeu na semana</th><th>Pendente na semana</th><th>Deveria no mês</th><th>Recebeu no mês</th><th>Pendente no mês</th></tr></thead>
           <tbody>
             ${rows.map(row => `
               <tr>
                 <td><strong>${row.label}</strong></td>
-                <td>${money(row.week)}</td>
-                <td>${money(row.month)}</td>
-                <td>${row.key === "savings" ? "-" : partnerDifferenceLabel(row.difference)}</td>
+                <td>${money(row.expectedWeek)}</td>
+                <td>${money(row.receivedWeek)}</td>
+                <td>${row.key === "savings" ? "-" : partnerPendingLabel(row.pendingWeek)}</td>
+                <td>${money(row.expectedMonth)}</td>
+                <td>${money(row.receivedMonth)}</td>
+                <td>${row.key === "savings" ? "-" : partnerPendingLabel(row.pendingMonth)}</td>
               </tr>
             `).join("")}
           </tbody>
@@ -9977,15 +10050,15 @@ function withdrawalPersonReportPanel(data) {
       ${groups.length ? `
         <div class="table-wrap report-table">
           <table>
-            <thead><tr><th>Data</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Ajustes</th><th>Total</th></tr></thead>
+            <thead><tr><th>Data</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Saldo pendente</th><th>Total retirado</th></tr></thead>
             <tbody>
               ${groups.map(group => `
                 <tr>
                   <td>${formatIsoDateBr(group.date)}</td>
-                  <td>${money(group.savings)}</td>
-                  <td>${money(group.vanessa)}<br><small>Saldo ${money(group.balanceVanessa)}</small></td>
-                  <td>${money(group.raquel)}<br><small>Saldo ${money(group.balanceRaquel)}</small></td>
-                  <td><small>Vanessa: ${partnerDifferenceLabel(group.differenceVanessa)}</small><br><small>Raquel: ${partnerDifferenceLabel(group.differenceRaquel)}</small></td>
+                  <td>${money(group.savings)}<br><small>Deveria ${money(group.expectedSavings)}</small></td>
+                  <td>${money(group.vanessa)}<br><small>Deveria ${money(group.expectedVanessa)}</small></td>
+                  <td>${money(group.raquel)}<br><small>Deveria ${money(group.expectedRaquel)}</small></td>
+                  <td><small>Vanessa: ${partnerPendingLabel(group.pendingVanessa)}</small><br><small>Raquel: ${partnerPendingLabel(group.pendingRaquel)}</small></td>
                   <td><strong>${money(group.total)}</strong></td>
                 </tr>
               `).join("")}
@@ -10000,14 +10073,16 @@ function withdrawalPersonReportPanel(data) {
 function exportWithdrawalReport(data = reportData()) {
   const rows = withdrawalHistoryGroups(data.financial.withdrawalEntries).map(group => ({
     data: group.date,
-    cofrinho: group.savings,
-    vanessa: group.vanessa,
-    raquel: group.raquel,
-    saldo_vanessa: group.balanceVanessa,
-    saldo_raquel: group.balanceRaquel,
-    diferenca_vanessa: group.differenceVanessa,
-    diferenca_raquel: group.differenceRaquel,
-    total: group.total
+    cofrinho_deveria: group.expectedSavings,
+    cofrinho_recebeu: group.savings,
+    vanessa_deveria: group.expectedVanessa,
+    vanessa_recebeu: group.vanessa,
+    saldo_pendente_vanessa: group.pendingVanessa,
+    raquel_deveria: group.expectedRaquel,
+    raquel_recebeu: group.raquel,
+    saldo_pendente_raquel: group.pendingRaquel,
+    total_devido: group.expectedTotal,
+    total_retirado: group.total
   }));
   const suffix = data.type === "day" ? data.date : data.type === "week" ? data.weekKey : data.periodKey;
   downloadTextFile(`cumbuca-retiradas-${suffix}.csv`, toCsv(rows), "text/csv;charset=utf-8");
@@ -10130,6 +10205,74 @@ function monthlyClosingPanel(data) {
   `;
 }
 
+function storeSalesFilterDefaults() {
+  const today = isoDate(new Date());
+  const saved = state.storeSalesFilter || {};
+  const period = ["day", "week", "month"].includes(saved.period) ? saved.period : "month";
+  return {
+    period,
+    date: saved.date || today,
+    month: saved.month || today.slice(0, 7)
+  };
+}
+
+function filteredStoreSales(filter = storeSalesFilterDefaults()) {
+  return [...state.storeSales]
+    .filter(entry => {
+      const date = String(entry.date || "");
+      if (filter.period === "day") {
+        return date === filter.date;
+      }
+      if (filter.period === "week") {
+        const range = weekRangeForDate(filter.date);
+        return date >= range.start && date <= range.end;
+      }
+      return date.startsWith(filter.month);
+    })
+    .sort((a, b) => {
+      const dateOrder = String(b.date || "").localeCompare(String(a.date || ""));
+      return dateOrder || Number(b.id || 0) - Number(a.id || 0);
+    });
+}
+
+function storeSalesFilterTitle(filter = storeSalesFilterDefaults()) {
+  if (filter.period === "day") {
+    return formatIsoDateBr(filter.date);
+  }
+  if (filter.period === "week") {
+    const range = weekRangeForDate(filter.date);
+    return `${formatIsoDateBr(range.start)} a ${formatIsoDateBr(range.end)}`;
+  }
+  return formatMonthKeyBr(filter.month);
+}
+
+function storeSalesMonthComparison(filter = storeSalesFilterDefaults()) {
+  const currentMonth = filter.period === "month"
+    ? filter.month
+    : String(filter.date || isoDate(new Date())).slice(0, 7);
+  const previousMonth = previousMonthKeyFromPeriod(currentMonth);
+  const totalForMonth = month => state.storeSales
+    .filter(entry => String(entry.date || "").startsWith(month))
+    .reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+  const currentTotal = totalForMonth(currentMonth);
+  const previousTotal = totalForMonth(previousMonth);
+  const difference = currentTotal - previousTotal;
+  const percentage = previousTotal > 0 ? (difference / previousTotal) * 100 : 0;
+  const variation = previousTotal > 0
+    ? `${difference >= 0 ? "+" : ""}${percentage.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`
+    : currentTotal > 0
+      ? "Sem base anterior"
+      : "0%";
+  return {
+    currentMonth,
+    previousMonth,
+    currentTotal,
+    previousTotal,
+    difference,
+    variation
+  };
+}
+
 function renderStoreSales() {
   title.textContent = "Loja";
   setActive("loja");
@@ -10137,12 +10280,10 @@ function renderStoreSales() {
   const editing = state.editStoreSaleId !== null
     ? state.storeSales.find(entry => String(entry.id) === String(state.editStoreSaleId))
     : null;
-  const monthKey = currentMonthKey();
-  const monthEntries = state.storeSales.filter(entry => String(entry.date || "").startsWith(monthKey));
-  const todayTotal = state.storeSales
-    .filter(entry => entry.date === today)
-    .reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
-  const monthTotal = monthEntries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+  const filter = storeSalesFilterDefaults();
+  const filteredEntries = filteredStoreSales(filter);
+  const filteredTotal = filteredEntries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+  const comparison = storeSalesMonthComparison(filter);
 
   app.innerHTML = `
     <div class="tool-grid">
@@ -10164,16 +10305,66 @@ function renderStoreSales() {
           </div>
         </form>
       </section>
-      <section class="panel report-section">
+      <section class="panel report-section store-sales-results">
+        <form id="store-sales-filter-form" class="period-picker store-sales-filter" data-period="${filter.period}">
+          <label>Período
+            <select name="period" id="store-sales-filter-period">
+              <option value="day" ${filter.period === "day" ? "selected" : ""}>Dia</option>
+              <option value="week" ${filter.period === "week" ? "selected" : ""}>Semana</option>
+              <option value="month" ${filter.period === "month" ? "selected" : ""}>Mês</option>
+            </select>
+          </label>
+          <label class="store-sales-filter-date">Data / semana
+            <input name="date" type="date" value="${filter.date}">
+          </label>
+          <label class="store-sales-filter-month">Mês
+            <input name="month" type="month" value="${filter.month}">
+          </label>
+          <button type="submit">Aplicar</button>
+        </form>
+        <h2>${storeSalesFilterTitle(filter)}</h2>
         <div class="summary">
-          <div class="metric"><span>Hoje</span><strong>${todayTotal}</strong></div>
-          <div class="metric"><span>Mês atual</span><strong>${monthTotal}</strong></div>
-          <div class="metric"><span>Lançamentos</span><strong>${monthEntries.length}</strong></div>
+          <div class="metric" data-store-sales-filter-total><span>Cumbucas no período</span><strong>${filteredTotal}</strong></div>
+          <div class="metric"><span>Lançamentos</span><strong>${filteredEntries.length}</strong></div>
         </div>
-        ${storeSalesTable(monthEntries)}
+        ${storeSalesTable(filteredEntries)}
+        <div class="store-sales-comparison" data-store-sales-comparison>
+          <h2>Comparação com o mês anterior</h2>
+          <div class="summary">
+            <div class="metric"><span>${formatMonthKeyBr(comparison.currentMonth)}</span><strong>${comparison.currentTotal}</strong></div>
+            <div class="metric"><span>${formatMonthKeyBr(comparison.previousMonth)}</span><strong>${comparison.previousTotal}</strong></div>
+            <div class="metric"><span>Diferença</span><strong class="${comparison.difference < 0 ? "negative" : "positive"}">${comparison.difference >= 0 ? "+" : ""}${comparison.difference}</strong></div>
+            <div class="metric"><span>Variação</span><strong>${comparison.variation}</strong></div>
+          </div>
+        </div>
       </section>
     </div>
   `;
+  enhanceResponsiveTables(app);
+
+  const filterForm = document.querySelector("#store-sales-filter-form");
+  const filterPeriod = document.querySelector("#store-sales-filter-period");
+  if (filterForm && filterPeriod) {
+    const updateFilterVisibility = () => {
+      filterForm.dataset.period = filterPeriod.value;
+    };
+    filterPeriod.addEventListener("change", updateFilterVisibility);
+    updateFilterVisibility();
+    filterForm.addEventListener("submit", event => {
+      event.preventDefault();
+      const values = readForm(event.currentTarget);
+      const selectedDate = values.date || today;
+      state.storeSalesFilter = {
+        period: values.period || "month",
+        date: selectedDate,
+        month: values.period === "month"
+          ? (values.month || today.slice(0, 7))
+          : selectedDate.slice(0, 7)
+      };
+      localStorage.setItem("storeSalesFilter", JSON.stringify(state.storeSalesFilter));
+      renderStoreSales();
+    });
+  }
 
   on("#store-sale-form", "submit", event => {
     event.preventDefault();

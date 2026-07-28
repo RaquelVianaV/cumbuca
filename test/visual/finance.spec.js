@@ -296,6 +296,125 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
   });
 });
 
+test('withdrawals keep expected, received and independent pending balances per person', async ({
+  page,
+}) => {
+  const database = await mockOnlineDatabase(page);
+  const today = localDateKey();
+  database.state = {
+    cashEntries: [
+      {
+        id: 'withdrawal-opening-balance',
+        date: today,
+        description: 'Saldo para retiradas',
+        type: 'income',
+        category: 'venda',
+        cashAccount: 'pj',
+        amount: '5000.00',
+      },
+    ],
+    financialPlanning: {
+      savings: '1000.00',
+      savingsExpectedBalance: '1000.00',
+      savingsHistory: [],
+    },
+  };
+
+  await page.goto('/fluxo-de-caixa?panel=withdrawals');
+  const form = page.locator('#withdrawal-form');
+  await form.locator('input[name="expectedRaquel"]').fill('450,00');
+  await expect(form.locator('input[name="expectedSavings"]')).toHaveValue('150,00');
+  await expect(form.locator('input[name="expectedVanessa"]')).toHaveValue('1.050,00');
+  await expect(form.locator('input[name="vanessa"]')).toHaveValue('1.050,00');
+  await form.locator('input[name="vanessa"]').fill('946,89');
+  await form.getByRole('button', { name: 'Registrar retiradas', exact: true }).click();
+
+  await expect.poll(() => database.state.cashEntries?.length).toBe(4);
+  const firstVanessa = database.state.cashEntries.find(
+    (entry) => entry.description === 'Retirada - Vanessa'
+  );
+  expect(firstVanessa).toMatchObject({
+    amount: '946.89',
+    expectedAmount: '1050.00',
+  });
+  const accumulated = page
+    .locator('.partners-dashboard section')
+    .filter({ hasText: 'Saldo pendente acumulado' });
+  await expect(accumulated).toContainText('Vanessa');
+  await expect(accumulated).toContainText('A receber R$ 103,11');
+  expect(
+    await page.evaluate((dateKey) => window.accountBalanceUntilDate(dateKey), today)
+  ).toBeCloseTo(3453.11, 2);
+
+  await form.locator('input[name="expectedRaquel"]').fill('300,00');
+  await expect(form.locator('input[name="expectedVanessa"]')).toHaveValue('700,00');
+  await form.locator('input[name="vanessa"]').fill('803,11');
+  await form.getByRole('button', { name: 'Registrar retiradas', exact: true }).click();
+
+  await expect.poll(() => database.state.cashEntries?.length).toBe(7);
+  await expect(accumulated).toContainText('Vanessa');
+  await expect(accumulated).toContainText('A receber R$ 103,11');
+});
+
+test('store sales filter by day, week and month with previous month comparison', async ({
+  page,
+}, testInfo) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    storeSales: [
+      { id: 'store-day', date: '2026-07-15', quantity: 10, notes: 'Dia selecionado' },
+      { id: 'store-week', date: '2026-07-13', quantity: 5, notes: 'Mesma semana' },
+      { id: 'store-month', date: '2026-07-01', quantity: 3, notes: 'Mesmo mês' },
+      { id: 'store-previous', date: '2026-06-20', quantity: 7, notes: 'Mês anterior' },
+    ],
+  };
+  await page.evaluate(() => {
+    localStorage.setItem(
+      'storeSalesFilter',
+      JSON.stringify({ period: 'month', date: '2026-07-15', month: '2026-07' })
+    );
+  });
+
+  await page.goto('/loja');
+  const filterForm = page.locator('#store-sales-filter-form');
+  const filteredTotal = page.locator('[data-store-sales-filter-total]');
+  const comparison = page.locator('[data-store-sales-comparison]');
+  const filteredRows = page.locator('.report-section .report-table tbody tr');
+
+  await expect(filteredTotal).toContainText('18');
+  await expect(filteredRows).toHaveCount(3);
+  await expect(page.getByRole('button', { name: 'Editar', exact: true })).toHaveCount(3);
+  await expect(page.getByRole('button', { name: 'Excluir', exact: true })).toHaveCount(3);
+  await expect(comparison).toContainText('julho de 2026');
+  await expect(comparison).toContainText('18');
+  await expect(comparison).toContainText('junho de 2026');
+  await expect(comparison).toContainText('7');
+  await expect(comparison).toContainText('+11');
+
+  await filterForm.locator('select[name="period"]').selectOption('day');
+  await filterForm.locator('input[name="date"]').fill('2026-07-15');
+  await filterForm.getByRole('button', { name: 'Aplicar', exact: true }).click();
+  await expect(filteredTotal).toContainText('10');
+  await expect(filteredRows).toHaveCount(1);
+
+  await filterForm.locator('select[name="period"]').selectOption('week');
+  await filterForm.locator('input[name="date"]').fill('2026-07-15');
+  await filterForm.getByRole('button', { name: 'Aplicar', exact: true }).click();
+  await expect(filteredTotal).toContainText('15');
+  await expect(filteredRows).toHaveCount(2);
+
+  await filterForm.locator('select[name="period"]').selectOption('month');
+  await filterForm.locator('input[name="month"]').fill('2026-07');
+  await filterForm.getByRole('button', { name: 'Aplicar', exact: true }).click();
+  await expect(filteredTotal).toContainText('18');
+  await expect(filteredRows).toHaveCount(3);
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath('store-sales-filters.png'),
+    fullPage: true,
+  });
+});
+
 test('maintenance zero account creates the balancing adjustment', async ({ page }) => {
   const database = await mockOnlineDatabase(page);
   const today = localDateKey();

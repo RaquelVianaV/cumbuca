@@ -2134,9 +2134,9 @@ function buildReportPdf(payload = {}) {
     .font('Helvetica')
     .fontSize(11)
     .text(`Lucro operacional: ${brl(data.profitBeforeWithdrawals)}`, 62, 358)
-    .text(`Vanessa tirou: ${brl(data.withdrawalVanessa)}`, 62, 382)
+    .text(`Vanessa recebeu: ${brl(data.withdrawalVanessa)}`, 62, 382)
     .text(`Cofrinho: ${brl(data.withdrawalSavings)}`, 62, 406)
-    .text(`Raquel tirou: ${brl(data.withdrawalRaquel)}`, 62, 430);
+    .text(`Raquel recebeu: ${brl(data.withdrawalRaquel)}`, 62, 430);
   doc
     .fillColor('#69707d')
     .fontSize(9)
@@ -2164,9 +2164,9 @@ function buildReportPdf(payload = {}) {
     ['Entradas operacionais', brl(data.totalIncome)],
     ['Saídas operacionais', brl(data.operationalExpenses)],
     ['Lucro operacional', brl(data.profitBeforeWithdrawals)],
-    ['Vanessa tirou', brl(data.withdrawalVanessa)],
+    ['Vanessa recebeu', brl(data.withdrawalVanessa)],
     ['Cofrinho', brl(data.withdrawalSavings)],
-    ['Raquel tirou', brl(data.withdrawalRaquel)],
+    ['Raquel recebeu', brl(data.withdrawalRaquel)],
     ['Resultado após retiradas', brl(data.availableForWithdrawal)],
     ['Saldo da conta', brl(data.accountBalance)],
     ['Ajustes da conta', brl(data.accountAdjustmentBalance)],
@@ -2301,9 +2301,9 @@ async function buildReportXlsx(payload = {}) {
     ['Entradas operacionais', data.totalIncome || 0],
     ['Saídas operacionais', data.operationalExpenses || 0],
     ['Lucro operacional', data.profitBeforeWithdrawals || 0],
-    ['Vanessa tirou', data.withdrawalVanessa || 0],
+    ['Vanessa recebeu', data.withdrawalVanessa || 0],
     ['Cofrinho', data.withdrawalSavings || 0],
-    ['Raquel tirou', data.withdrawalRaquel || 0],
+    ['Raquel recebeu', data.withdrawalRaquel || 0],
     ['Resultado após retiradas', data.availableForWithdrawal || 0],
     ['Saldo da conta', data.accountBalance || 0],
     ['Ajustes da conta', data.accountAdjustmentBalance || 0],
