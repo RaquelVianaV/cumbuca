@@ -77,7 +77,11 @@ test('calculatePricing rates monthly costs and calculates suggested and real mar
       averageMonthlyUnits: 1000,
       gas: 100,
       energy: 200,
-      labor: 1000,
+      labor: 9999,
+      staff: [
+        { id: 'staff-1', name: 'Ana', salary: 600 },
+        { id: 'staff-2', name: 'Bia', salary: 400 },
+      ],
       rent: 1000,
       accountant: 100,
       labels: 40,
@@ -110,6 +114,24 @@ test('calculatePricing rates monthly costs and calculates suggested and real mar
   assert.equal(result.realProfit, 12.25);
   assert.equal(result.realMarginPercent, 49);
   assert.equal(result.status, 'Lucrativa');
+});
+
+test('calculatePricing preserves legacy labor until staff is registered', () => {
+  const result = calculatePricing({
+    catalog: [],
+    sharedCosts: {
+      averageMonthlyUnits: 100,
+      labor: 500,
+    },
+    recipe: {
+      ingredients: [],
+      desiredMarginPercent: 0,
+      variableFeePercent: 0,
+    },
+  });
+
+  assert.equal(result.laborCost, 5);
+  assert.equal(result.baseCost, 5);
 });
 
 test('automatic backups share one version per UTC hour', () => {

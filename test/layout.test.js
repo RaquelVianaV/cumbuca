@@ -113,6 +113,11 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /id="pricing-ingredient-form"/);
   assert.match(app, /id="pricing-recipe-form"/);
   assert.match(app, /id="pricing-shared-cost-form"/);
+  assert.match(app, /id="save-pricing-staff"/);
+  assert.match(app, /data-pricing-staff-member/);
+  assert.match(app, /function pricingStaffMembers/);
+  assert.match(app, /function pricingStaffMembersFromForm/);
+  assert.match(app, /Mão de obra cadastrada anteriormente/);
   assert.match(app, /function pricingRecipeMetrics/);
   assert.match(app, /function storeProductPerformanceRows/);
   assert.match(app, /function storeProductPerformancePanel/);
@@ -129,6 +134,8 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(server, /'pricingRecipes'/);
   assert.match(server, /function calculatePricing/);
   assert.match(css, /\.pricing-dashboard-grid/);
+  assert.match(css, /\.pricing-staff-editor/);
+  assert.match(css, /\.pricing-staff-total/);
   assert.match(css, /\.pricing-recipe-layout/);
   assert.match(css, /\.pricing-status\.profitable/);
   assert.match(app, /name="expectedVanessa"/);

@@ -763,18 +763,55 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   await costForm.locator('input[name="gas"]').fill('100');
   await costForm.locator('input[name="energy"]').fill('50');
   await expect(costForm.locator('input[name="water"]')).toHaveCount(0);
-  await costForm.locator('input[name="labor"]').fill('300');
+  await expect(costForm.locator('input[name="labor"]')).toHaveCount(0);
+  await costForm.locator('input[name="staffName"]').fill('Ana');
+  await costForm.locator('input[name="staffSalary"]').fill('300');
+  await costForm.getByRole('button', { name: 'Adicionar funcionário', exact: true }).click();
+  await expect.poll(() => database.state.pricingConfig?.sharedCosts?.staff?.length).toBe(1);
+  expect(database.state.pricingConfig.sharedCosts).toMatchObject({
+    labor: 300,
+    staff: [expect.objectContaining({ name: 'Ana', salary: 300 })],
+  });
+  const anaRow = costForm.locator('[data-pricing-staff-member]').filter({ hasText: 'Ana' });
+  await expect(anaRow).toContainText('R$ 300,00');
+  await anaRow.getByRole('button', { name: 'Editar', exact: true }).click();
+  await costForm.locator('input[name="staffName"]').fill('Ana Silva');
+  await costForm.getByRole('button', { name: 'Salvar funcionário', exact: true }).click();
+  await expect
+    .poll(() => database.state.pricingConfig?.sharedCosts?.staff?.[0]?.name)
+    .toBe('Ana Silva');
+
+  await costForm.locator('input[name="staffName"]').fill('Temporário');
+  await costForm.locator('input[name="staffSalary"]').fill('50');
+  await costForm.getByRole('button', { name: 'Adicionar funcionário', exact: true }).click();
+  await expect.poll(() => database.state.pricingConfig?.sharedCosts?.staff?.length).toBe(2);
+  const temporaryRow = costForm
+    .locator('[data-pricing-staff-member]')
+    .filter({ hasText: 'Temporário' });
+  page.once('dialog', (dialog) => dialog.accept());
+  await temporaryRow.getByRole('button', { name: 'Excluir', exact: true }).click();
+  await expect.poll(() => database.state.pricingConfig?.sharedCosts?.staff?.length).toBe(1);
+  await expect(page.locator('[data-pricing-staff-total]')).toContainText('R$ 300,00');
   await costForm.locator('input[name="rent"]').fill('600');
   await costForm.locator('input[name="accountant"]').fill('150');
   await costForm.locator('input[name="labels"]').fill('100');
   await costForm.locator('input[name="telephony"]').fill('50');
   await expect(page.locator('[data-pricing-shared-preview="total"]')).toContainText('9,00');
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath('pricing-team-costs.png'),
+    fullPage: true,
+  });
+  const statePostCountBeforeCostsSave = database.statePostCount;
   await costForm.getByRole('button', { name: 'Salvar custos rateados', exact: true }).click();
-  await expect.poll(() => database.state.pricingConfig?.sharedCosts?.averageMonthlyUnits).toBe(150);
+  await expect.poll(() => database.statePostCount).toBeGreaterThan(statePostCountBeforeCostsSave);
+  await expect.poll(() => database.state.pricingConfig?.sharedCosts?.accountant).toBe(150);
   expect(database.state.pricingConfig.sharedCosts).toMatchObject({
     accountant: 150,
     labels: 100,
     telephony: 50,
+    labor: 300,
+    staff: [expect.objectContaining({ name: 'Ana Silva', salary: 300 })],
   });
   expect(database.state.pricingConfig.sharedCosts).not.toHaveProperty('water');
 

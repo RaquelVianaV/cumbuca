@@ -2131,7 +2131,9 @@ function calculatePricing(payload = {}) {
     const shared = payload.sharedCosts || {};
     const averageMonthlyUnits = Math.max(0, number(shared.averageMonthlyUnits));
     const productionMonthly = Math.max(0, number(shared.gas)) + Math.max(0, number(shared.energy));
-    const laborMonthly = Math.max(0, number(shared.labor));
+    const laborMonthly = Array.isArray(shared.staff)
+      ? shared.staff.reduce((sum, member) => sum + Math.max(0, number(member?.salary)), 0)
+      : Math.max(0, number(shared.labor));
     const otherMonthly =
       Math.max(0, number(shared.rent)) +
       Math.max(0, number(shared.accountant)) +

@@ -8260,12 +8260,34 @@ function pricingIngredientUnitCost(ingredient) {
   return quantity > 0 ? cost / quantity : 0;
 }
 
+function pricingStaffMembers(config = state.pricingConfig) {
+  const shared = config?.sharedCosts || config || {};
+  if (Array.isArray(shared.staff)) {
+    return shared.staff
+      .map((member, index) => ({
+        id: String(member?.id || `pricing-staff-${index}`),
+        name: String(member?.name || "").trim(),
+        salary: pricingSafeNumber(member?.salary)
+      }))
+      .filter(member => member.name && member.salary > 0);
+  }
+  const legacyLabor = pricingSafeNumber(shared.labor);
+  return legacyLabor > 0
+    ? [{
+        id: "pricing-staff-legacy",
+        name: "Mão de obra cadastrada anteriormente",
+        salary: legacyLabor
+      }]
+    : [];
+}
+
 function pricingSharedCosts(config = state.pricingConfig) {
   const shared = config?.sharedCosts || config || {};
   const averageMonthlyUnits = pricingDecimalNumber(shared.averageMonthlyUnits);
   const gas = pricingSafeNumber(shared.gas);
   const energy = pricingSafeNumber(shared.energy);
-  const labor = pricingSafeNumber(shared.labor);
+  const staff = pricingStaffMembers(shared);
+  const labor = staff.reduce((sum, member) => sum + member.salary, 0);
   const rent = pricingSafeNumber(shared.rent);
   const accountant = pricingSafeNumber(shared.accountant);
   const labels = pricingSafeNumber(shared.labels);
@@ -8280,6 +8302,7 @@ function pricingSharedCosts(config = state.pricingConfig) {
     averageMonthlyUnits,
     gas,
     energy,
+    staff,
     labor,
     rent,
     accountant,
@@ -8794,6 +8817,7 @@ function pricingRecipesPanel(editingRecipe = null) {
 
 function pricingCostsPanel() {
   const shared = pricingSharedCosts();
+  const staff = shared.staff;
   const observedAverage = storeAverageMonthlyUnits();
   return `
     ${pricingFlowHtml()}
@@ -8816,11 +8840,52 @@ function pricingCostsPanel() {
               <input name="energy" type="text" inputmode="decimal" value="${moneyInputValue(shared.energy)}">
             </label>
           </fieldset>
-          <fieldset class="pricing-cost-group">
+          <fieldset class="pricing-cost-group pricing-team-group">
             <legend>Equipe</legend>
-            <label>Mão de obra mensal
-              <input name="labor" type="text" inputmode="decimal" value="${moneyInputValue(shared.labor)}">
-            </label>
+            <p class="muted-inline">Cadastre cada funcionário e o salário mensal. A soma entra automaticamente no custo de mão de obra.</p>
+            <div class="pricing-staff-editor">
+              <input name="staffId" type="hidden" value="">
+              <label>Nome do funcionário
+                <input name="staffName" placeholder="Ex.: Maria" autocomplete="off">
+              </label>
+              <label>Salário mensal
+                <input name="staffSalary" type="text" inputmode="decimal" placeholder="Ex.: 1.800,00" autocomplete="off">
+              </label>
+              <div class="actions">
+                <button type="button" id="save-pricing-staff">Adicionar funcionário</button>
+                <button class="secondary" type="button" id="cancel-pricing-staff-edit" hidden>Cancelar edição</button>
+              </div>
+            </div>
+            ${staff.length ? `
+              <div class="table-wrap report-table pricing-staff-table">
+                <table>
+                  <thead><tr><th>Funcionário</th><th>Salário mensal</th><th>Ações</th></tr></thead>
+                  <tbody>
+                    ${staff.map(member => `
+                      <tr
+                        data-pricing-staff-member
+                        data-staff-id="${escapeHtml(member.id)}"
+                        data-staff-name="${escapeHtml(member.name)}"
+                        data-staff-salary="${member.salary}"
+                      >
+                        <td><strong>${escapeHtml(member.name)}</strong></td>
+                        <td>${money(member.salary)}</td>
+                        <td>
+                          <div class="table-actions">
+                            <button class="secondary table-action" type="button" data-edit-pricing-staff="${escapeHtml(member.id)}">Editar</button>
+                            <button class="danger table-action" type="button" data-delete-pricing-staff="${escapeHtml(member.id)}">Excluir</button>
+                          </div>
+                        </td>
+                      </tr>
+                    `).join("")}
+                  </tbody>
+                </table>
+              </div>
+            ` : `<p class="muted">Nenhum funcionário cadastrado.</p>`}
+            <div class="pricing-staff-total">
+              <span>Total mensal da equipe</span>
+              <strong data-pricing-staff-total>${money(shared.labor)}</strong>
+            </div>
           </fieldset>
           <fieldset class="pricing-cost-group">
             <legend>Demais custos mensais</legend>
@@ -8863,13 +8928,26 @@ function pricingCostsPanel() {
   `;
 }
 
-function pricingSharedCostsFromForm(form) {
+function pricingStaffMembersFromForm(form) {
+  return [...form.querySelectorAll("[data-pricing-staff-member]")].map(row => ({
+    id: row.dataset.staffId,
+    name: row.dataset.staffName,
+    salary: pricingSafeNumber(row.dataset.staffSalary)
+  }));
+}
+
+function pricingSharedCostsFromForm(form, staffOverride = null) {
   const values = readForm(form);
+  const staff = pricingStaffMembers({
+    staff: Array.isArray(staffOverride) ? staffOverride : pricingStaffMembersFromForm(form)
+  });
+  const labor = staff.reduce((sum, member) => sum + member.salary, 0);
   return {
     averageMonthlyUnits: pricingDecimalNumber(values.averageMonthlyUnits),
     gas: pricingSafeNumber(values.gas),
     energy: pricingSafeNumber(values.energy),
-    labor: pricingSafeNumber(values.labor),
+    staff,
+    labor,
     rent: pricingSafeNumber(values.rent),
     accountant: pricingSafeNumber(values.accountant),
     labels: pricingSafeNumber(values.labels),
@@ -9286,9 +9364,118 @@ async function renderPricing() {
 
   const sharedCostForm = document.querySelector("#pricing-shared-cost-form");
   if (sharedCostForm) {
+    const staffIdField = sharedCostForm.elements.staffId;
+    const staffNameField = sharedCostForm.elements.staffName;
+    const staffSalaryField = sharedCostForm.elements.staffSalary;
+    const saveStaffButton = document.querySelector("#save-pricing-staff");
+    const cancelStaffEditButton = document.querySelector("#cancel-pricing-staff-edit");
+    const resetStaffEditor = () => {
+      staffIdField.value = "";
+      staffNameField.value = "";
+      staffSalaryField.value = "";
+      saveStaffButton.textContent = "Adicionar funcionário";
+      cancelStaffEditButton.hidden = true;
+    };
+
     sharedCostForm.addEventListener("input", () => {
       updatePricingSharedCostPreview(sharedCostForm);
     });
+
+    [staffNameField, staffSalaryField].forEach(field => {
+      field.addEventListener("keydown", event => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          saveStaffButton.click();
+        }
+      });
+    });
+
+    saveStaffButton.addEventListener("click", async () => {
+      const editingId = String(staffIdField.value || "");
+      const name = String(staffNameField.value || "").trim();
+      const salary = pricingSafeNumber(staffSalaryField.value);
+      if (!name || salary <= 0) {
+        showToast("Informe o nome do funcionário e um salário maior que zero.", "warning");
+        return;
+      }
+      const currentStaff = pricingStaffMembersFromForm(sharedCostForm);
+      const duplicate = currentStaff.find(member => {
+        return member.name.toLocaleLowerCase("pt-BR") === name.toLocaleLowerCase("pt-BR")
+          && String(member.id) !== editingId;
+      });
+      if (duplicate) {
+        showToast("Já existe um funcionário com esse nome.", "warning");
+        return;
+      }
+      const member = {
+        id: editingId || `pricing-staff-${Date.now()}`,
+        name,
+        salary
+      };
+      const staff = editingId
+        ? currentStaff.map(item => String(item.id) === editingId ? member : item)
+        : [...currentStaff, member];
+      const sharedCosts = pricingSharedCostsFromForm(sharedCostForm, staff);
+      state.pricingConfig = {
+        ...(state.pricingConfig || {}),
+        sharedCosts
+      };
+      recordAudit(
+        editingId ? "Funcionário da precificação editado" : "Funcionário da precificação cadastrado",
+        `${name} - ${money(salary)}`
+      );
+      saveStaffButton.disabled = true;
+      if (await persistState()) {
+        renderPricing();
+      } else {
+        saveStaffButton.disabled = false;
+      }
+    });
+
+    cancelStaffEditButton.addEventListener("click", resetStaffEditor);
+
+    document.querySelectorAll("[data-edit-pricing-staff]").forEach(button => {
+      button.addEventListener("click", event => {
+        const memberId = event.currentTarget.dataset.editPricingStaff;
+        const member = pricingStaffMembersFromForm(sharedCostForm).find(item => {
+          return String(item.id) === String(memberId);
+        });
+        if (!member) {
+          return;
+        }
+        staffIdField.value = member.id;
+        staffNameField.value = member.name;
+        staffSalaryField.value = moneyInputValue(member.salary);
+        saveStaffButton.textContent = "Salvar funcionário";
+        cancelStaffEditButton.hidden = false;
+        staffNameField.focus();
+      });
+    });
+
+    document.querySelectorAll("[data-delete-pricing-staff]").forEach(button => {
+      button.addEventListener("click", async event => {
+        const memberId = event.currentTarget.dataset.deletePricingStaff;
+        const currentStaff = pricingStaffMembersFromForm(sharedCostForm);
+        const member = currentStaff.find(item => String(item.id) === String(memberId));
+        if (!member || !confirm(`Excluir o funcionário "${member.name}" da equipe?`)) {
+          return;
+        }
+        const staff = currentStaff.filter(item => String(item.id) !== String(memberId));
+        const sharedCosts = pricingSharedCostsFromForm(sharedCostForm, staff);
+        state.pricingConfig = {
+          ...(state.pricingConfig || {}),
+          sharedCosts
+        };
+        recordAudit("Funcionário da precificação excluído", `${member.name} - ${money(member.salary)}`);
+        event.currentTarget.disabled = true;
+        if (await persistState()) {
+          renderPricing();
+        } else {
+          event.currentTarget.disabled = false;
+        }
+      });
+    });
+
     sharedCostForm.addEventListener("submit", async event => {
       event.preventDefault();
       const sharedCosts = pricingSharedCostsFromForm(event.currentTarget);
