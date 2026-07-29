@@ -51,6 +51,8 @@ const localStateKeys = [
   "orders",
   "storeSales",
   "storeSalesFilter",
+  "storeProducts",
+  "storeProductQuantities",
   "channelReceipts",
   "cashCategories",
   "archivedCashCategories",
@@ -62,6 +64,7 @@ const localStateKeys = [
   "monthlyClosings",
   "weeklyClosings",
   "pricingIngredients",
+  "pricingRecipes",
   "pricingConfig",
   "cashFilter",
   "financialPlanning",
@@ -564,6 +567,8 @@ const state = {
   orders: localValue("orders", []),
   storeSales: localValue("storeSales", []),
   storeSalesFilter: localValue("storeSalesFilter", { period: "month" }),
+  storeProducts: localValue("storeProducts", []),
+  storeProductQuantities: localValue("storeProductQuantities", []),
   channelReceipts: localValue("channelReceipts", []),
   cashCategories: seededCashCategories(),
   archivedCashCategories: localValue("archivedCashCategories", { income: [], expense: [] }),
@@ -597,7 +602,11 @@ const state = {
   editExpenseReasonIndex: null,
   editUserName: null,
   ingredients: localValue("pricingIngredients", []),
+  pricingRecipes: localValue("pricingRecipes", []),
   pricingConfig: localValue("pricingConfig", {}),
+  pricingViewTab: localValue("pricingViewTab", "dashboard"),
+  editPricingIngredientId: null,
+  editPricingRecipeId: null,
   cashFilter: localValue("cashFilter", { period: "month" }),
   financialPlanning: localValue("financialPlanning", {
     savings: "",
@@ -635,6 +644,9 @@ const state = {
   maintenanceTab: localValue("maintenanceTab", "backup"),
   financeViewTab: localValue("financeViewTab", "summary"),
   reportViewTab: localValue("reportViewTab", "summary"),
+  storeViewTab: localValue("storeViewTab", "sales"),
+  storeProductMonth: localValue("storeProductMonth", isoDate(new Date()).slice(0, 7)),
+  editStoreProductId: null,
   currentUser: null,
   database: false
 };
@@ -659,6 +671,8 @@ function appStatePayload() {
     clients: state.clients,
     orders: state.orders,
     storeSales: state.storeSales,
+    storeProducts: state.storeProducts,
+    storeProductQuantities: state.storeProductQuantities,
     channelReceipts: state.channelReceipts,
     cashCategories: state.cashCategories,
     archivedCashCategories: state.archivedCashCategories,
@@ -668,6 +682,7 @@ function appStatePayload() {
     monthlyClosings: state.monthlyClosings,
     weeklyClosings: state.weeklyClosings,
     pricingIngredients: state.ingredients,
+    pricingRecipes: state.pricingRecipes,
     pricingConfig: state.pricingConfig,
     cashFilter: state.cashFilter,
     financialPlanning: state.financialPlanning,
@@ -704,6 +719,8 @@ function applyPayloadToState(saved = {}) {
   state.clients = saved.clients || [];
   state.orders = saved.orders || [];
   state.storeSales = saved.storeSales || [];
+  state.storeProducts = saved.storeProducts || [];
+  state.storeProductQuantities = saved.storeProductQuantities || [];
   state.channelReceipts = saved.channelReceipts || [];
   state.cashCategories = seededCashCategories(saved.cashCategories);
   state.archivedCashCategories = saved.archivedCashCategories || { income: [], expense: [] };
@@ -715,6 +732,7 @@ function applyPayloadToState(saved = {}) {
   state.monthlyClosings = saved.monthlyClosings || {};
   state.weeklyClosings = saved.weeklyClosings || {};
   state.ingredients = saved.pricingIngredients || [];
+  state.pricingRecipes = saved.pricingRecipes || [];
   state.pricingConfig = saved.pricingConfig || {};
   state.cashFilter = saved.cashFilter || { period: "month" };
   state.financialPlanning = {
@@ -1038,6 +1056,7 @@ function emptyCleanupPreview() {
     menus: 0,
     menuDates: 0,
     storeSales: 0,
+    storeProductQuantities: 0,
     channelReceipts: 0,
     auditLog: 0,
     monthlyClosings: 0,
@@ -1085,6 +1104,7 @@ function cleanupPreview(year) {
     menus: Object.keys(state.menus || {}).filter(key => yearFromMenuKey(key) === target).length,
     menuDates: Object.keys(state.menuDates || {}).filter(key => yearFromMenuKey(key) === target).length,
     storeSales: state.storeSales.filter(entry => String(entry.date || "").startsWith(target)).length,
+    storeProductQuantities: state.storeProductQuantities.filter(entry => String(entry.month || "").startsWith(target)).length,
     channelReceipts: state.channelReceipts.filter(entry => String(entry.date || "").startsWith(target)).length,
     auditLog: (state.auditLog || []).filter(entry => String(entry.createdAt || "").startsWith(target)).length,
     monthlyClosings: Object.keys(state.monthlyClosings || {}).filter(key => String(key || "").startsWith(target)).length,
@@ -1115,12 +1135,15 @@ function databaseUsageEstimate() {
     menus: Object.keys(state.menus || {}).length,
     menuDates: Object.keys(state.menuDates || {}).length,
     storeSales: state.storeSales.length,
+    storeProducts: state.storeProducts.length,
+    storeProductQuantities: state.storeProductQuantities.length,
     monthlyClosings: Object.keys(state.monthlyClosings || {}).length,
     weeklyClosings: Object.keys(state.weeklyClosings || {}).length,
     auditLog: (state.auditLog || []).length,
     clients: state.clients.length,
     channelReceipts: state.channelReceipts.length,
-    pricingIngredients: state.ingredients.length
+    pricingIngredients: state.ingredients.length,
+    pricingRecipes: state.pricingRecipes.length
   };
   const totalRecords = Object.values(records).reduce((sum, value) => sum + value, 0);
   const level = sizeBytes >= 5 * 1024 * 1024 || totalRecords >= 10000
@@ -1157,6 +1180,7 @@ function yearUsageEstimate(year) {
     weeklyMenusByPeriod: Object.fromEntries(Object.entries(state.menus || {}).filter(([key]) => yearFromMenuKey(key) === target)),
     menuDatesByPeriod: Object.fromEntries(Object.entries(state.menuDates || {}).filter(([key]) => yearFromMenuKey(key) === target)),
     storeSales: state.storeSales.filter(entry => String(entry.date || "").startsWith(target)),
+    storeProductQuantities: state.storeProductQuantities.filter(entry => String(entry.month || "").startsWith(target)),
     channelReceipts: state.channelReceipts.filter(entry => String(entry.date || "").startsWith(target)),
     auditLog: (state.auditLog || []).filter(entry => String(entry.createdAt || "").startsWith(target)),
     monthlyClosings: Object.fromEntries(Object.entries(state.monthlyClosings || {}).filter(([key]) => String(key || "").startsWith(target))),
@@ -1246,6 +1270,9 @@ function cleanupYears() {
   state.storeSales.forEach(entry => {
     addYear(yearFromDateKey(entry.date));
   });
+  state.storeProductQuantities.forEach(entry => {
+    addYear(yearFromDateKey(entry.month));
+  });
   state.channelReceipts.forEach(entry => {
     addYear(yearFromDateKey(entry.date));
   });
@@ -1272,6 +1299,7 @@ async function cleanupYear(year) {
   state.cash = state.cash.filter(entry => !String(entry.date || "").startsWith(target));
   state.orders = state.orders.filter(order => yearFromMenuKey(order.menuKey) !== target);
   state.storeSales = state.storeSales.filter(entry => !String(entry.date || "").startsWith(target));
+  state.storeProductQuantities = state.storeProductQuantities.filter(entry => !String(entry.month || "").startsWith(target));
   state.channelReceipts = state.channelReceipts.filter(entry => !String(entry.date || "").startsWith(target));
   state.auditLog = (state.auditLog || []).filter(entry => !String(entry.createdAt || "").startsWith(target));
   state.menus = Object.fromEntries(Object.entries(state.menus || {}).filter(([key]) => yearFromMenuKey(key) !== target));
@@ -1325,7 +1353,7 @@ async function resetFinancialData(confirmationText = "") {
       showToast('Digite "REINICIAR FINANCEIRO" para confirmar.', "warning");
       return false;
     }
-    if (!confirm("Reiniciar somente os dados financeiros? Clientes, pedidos, cardápios, categorias, motivos e configurações serão preservados.")) {
+    if (!confirm("Reiniciar somente os dados financeiros? Clientes, pedidos, cardápios, categorias, produtos da loja, motivos e configurações serão preservados.")) {
       return false;
     }
     await downloadBackup();
@@ -1362,6 +1390,7 @@ function cleanupPreviewHtml(year, preview) {
       <div class="metric"><span>Menus</span><strong>${preview.menus}</strong></div>
       <div class="metric"><span>Datas menu</span><strong>${preview.menuDates}</strong></div>
       <div class="metric"><span>Loja</span><strong>${preview.storeSales}</strong></div>
+      <div class="metric"><span>Produtos da loja</span><strong>${preview.storeProductQuantities}</strong></div>
       <div class="metric"><span>Canais</span><strong>${preview.channelReceipts}</strong></div>
       <div class="metric"><span>Auditoria</span><strong>${preview.auditLog}</strong></div>
       <div class="metric"><span>Fechamentos mensais</span><strong>${preview.monthlyClosings}</strong></div>
@@ -2156,6 +2185,118 @@ function channelReceiptsPanel(editing = null) {
       ${channelReceiptTable(filteredEntries)}
     </div>
   `;
+}
+
+function bindChannelReceipts(renderFn, editingChannelReceipt = null) {
+  const channelReceiptForm = document.querySelector("#channel-receipt-form");
+  if (channelReceiptForm) {
+    channelReceiptForm.addEventListener("submit", event => {
+      event.preventDefault();
+      const values = readForm(event.currentTarget);
+      const receipt = {
+        id: editingChannelReceipt?.id || Date.now(),
+        date: values.date,
+        notes: String(values.notes || "").trim()
+      };
+      if (blockClosedPeriod(receipt.date, editingChannelReceipt ? "editar canais" : "lançar canais")) {
+        return;
+      }
+      if (editingChannelReceipt && editingChannelReceipt.date !== receipt.date && blockClosedPeriod(editingChannelReceipt.date, "mover lançamentos de canais")) {
+        return;
+      }
+      const cardapioTotal = cardapioPaymentDefinitions.reduce((sum, [paymentKey]) => {
+        const field = `cardapioWeb${capitalize(paymentKey)}`;
+        const amount = parseMoneyInput(values[field]);
+        receipt[field] = amount.toFixed(2);
+        return sum + amount;
+      }, 0);
+      receipt.cardapioWebGross = cardapioTotal.toFixed(2);
+      receipt.cardapioWebFee = "0.00";
+      receipt.cardapioWebNet = cardapioTotal.toFixed(2);
+      ["ifood", "food99"].forEach(key => {
+        const amount = parseMoneyInput(values[`${key}Net`]);
+        receipt[`${key}Gross`] = amount.toFixed(2);
+        receipt[`${key}Fee`] = "0.00";
+        receipt[`${key}Net`] = amount.toFixed(2);
+      });
+
+      const total = channelReceiptTotal(receipt);
+      if (total <= 0) {
+        showToast("Informe pelo menos um valor de canal.", "error");
+        return;
+      }
+
+      if (editingChannelReceipt) {
+        state.channelReceipts = state.channelReceipts.map(item => String(item.id) === String(editingChannelReceipt.id) ? receipt : item);
+        state.editChannelReceiptId = null;
+        recordAudit("Canais editados", `${formatIsoDateBr(receipt.date)} - ${money(total)}`);
+      } else {
+        const existing = state.channelReceipts.find(item => item.date === receipt.date);
+        if (existing) {
+          receipt.id = existing.id;
+          state.channelReceipts = state.channelReceipts.map(item => item.date === receipt.date ? receipt : item);
+          recordAudit("Canais atualizados", `${formatIsoDateBr(receipt.date)} - ${money(total)}`);
+        } else {
+          state.channelReceipts.push(receipt);
+          recordAudit("Canais lançados", `${formatIsoDateBr(receipt.date)} - ${money(total)}`);
+        }
+      }
+      persistState();
+      renderFn();
+    });
+  }
+
+  const channelFilterForm = document.querySelector("#channel-filter-form");
+  const channelFilterPeriod = document.querySelector("#channel-filter-period");
+  if (channelFilterForm && channelFilterPeriod) {
+    const updateChannelFilterVisibility = () => {
+      channelFilterForm.dataset.period = channelFilterPeriod.value;
+    };
+    channelFilterPeriod.addEventListener("change", updateChannelFilterVisibility);
+    updateChannelFilterVisibility();
+    channelFilterForm.addEventListener("submit", event => {
+      event.preventDefault();
+      state.channelFilter = readForm(event.currentTarget);
+      localStorage.setItem("channelFilter", JSON.stringify(state.channelFilter));
+      renderFn();
+    });
+  }
+
+  const cancelChannelReceiptEdit = document.querySelector("#cancel-channel-receipt-edit");
+  if (cancelChannelReceiptEdit) {
+    cancelChannelReceiptEdit.addEventListener("click", () => {
+      state.editChannelReceiptId = null;
+      renderFn();
+    });
+  }
+
+  document.querySelectorAll("[data-edit-channel-receipt]").forEach(button => {
+    button.addEventListener("click", event => {
+      state.editChannelReceiptId = event.currentTarget.dataset.editChannelReceipt;
+      state.storeViewTab = "channels";
+      renderFn();
+    });
+  });
+
+  document.querySelectorAll("[data-delete-channel-receipt]").forEach(button => {
+    button.addEventListener("click", event => {
+      const id = event.currentTarget.dataset.deleteChannelReceipt;
+      const removed = state.channelReceipts.find(item => String(item.id) === String(id));
+      if (!removed || !confirm(`Excluir os valores dos canais de ${formatIsoDateBr(removed.date)}?`)) {
+        return;
+      }
+      if (blockClosedPeriod(removed.date, "excluir canais")) {
+        return;
+      }
+      state.channelReceipts = state.channelReceipts.filter(item => String(item.id) !== String(id));
+      if (String(state.editChannelReceiptId) === String(id)) {
+        state.editChannelReceiptId = null;
+      }
+      recordAudit("Canais excluídos", `${formatIsoDateBr(removed.date)} - ${money(channelReceiptTotal(removed))}`);
+      persistState();
+      renderFn();
+    });
+  });
 }
 
 function cashCategoryOptions(type, selected = "") {
@@ -3679,7 +3820,7 @@ function homeMetricData() {
   const monthFinancial = financialSummary(monthCash);
   const storeToday = state.storeSales
     .filter(entry => entry.date === todayKey)
-    .reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+    .reduce((sum, entry) => sum + storeSaleUnitQuantity(entry), 0);
   const accountBalances = accountBalanceBreakdownUntilDate(todayKey);
   const accountBalance = accountBalances.unified;
   const forecastEnd = addDays(todayKey, 30);
@@ -3883,8 +4024,8 @@ function growthMetrics() {
   const previousStore = state.storeSales.filter(entry => String(entry.date || "").startsWith(previousKey));
   const currentRevenue = currentOrders.reduce((sum, order) => sum + Number(order.amount || 0) + Number(order.deliveryFee || 0), 0);
   const previousRevenue = previousOrders.reduce((sum, order) => sum + Number(order.amount || 0) + Number(order.deliveryFee || 0), 0);
-  const currentBowls = currentOrders.reduce((sum, order) => sum + orderQuantity(order), 0) + currentStore.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
-  const previousBowls = previousOrders.reduce((sum, order) => sum + orderQuantity(order), 0) + previousStore.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+  const currentBowls = currentOrders.reduce((sum, order) => sum + orderQuantity(order), 0) + currentStore.reduce((sum, entry) => sum + storeSaleUnitQuantity(entry), 0);
+  const previousBowls = previousOrders.reduce((sum, order) => sum + orderQuantity(order), 0) + previousStore.reduce((sum, entry) => sum + storeSaleUnitQuantity(entry), 0);
   const currentClients = new Set(currentOrders.map(order => order.clientPhone).filter(Boolean)).size;
   const previousClients = new Set(previousOrders.map(order => order.clientPhone).filter(Boolean)).size;
   return {
@@ -4099,7 +4240,7 @@ function todayOperationData() {
     billsDue,
     income: todayBusinessCash.filter(entry => entry.type !== "expense").reduce((sum, entry) => sum + Number(entry.amount || 0), 0),
     expenses: todayBusinessCash.filter(entry => entry.type === "expense").reduce((sum, entry) => sum + Number(entry.amount || 0), 0),
-    storeQuantity: todayStoreSales.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0)
+    storeQuantity: todayStoreSales.reduce((sum, entry) => sum + storeSaleUnitQuantity(entry), 0)
   };
 }
 
@@ -4445,6 +4586,11 @@ async function renderCash() {
   setActive("fluxo-de-caixa");
   const cashParams = new URLSearchParams(location.search);
   const requestedCashPanel = cashParams.get("panel");
+  if (requestedCashPanel === "channels") {
+    state.storeViewTab = "channels";
+    location.replace("/loja?view=channels");
+    return;
+  }
   const requestedEditCashId = cashParams.get("edit");
   ensureCashEntryIds();
   const today = isoDate(new Date());
@@ -4469,9 +4615,6 @@ async function renderCash() {
     || state.cashEntryDraft.category
     || (cashEntryType === "expense" ? "outros" : "venda");
   const cashEntryAccount = normalizedCashAccount(editing?.cashAccount || state.cashEntryDraft.cashAccount);
-  const editingChannelReceipt = state.editChannelReceiptId !== null
-    ? state.channelReceipts.find(entry => String(entry.id) === String(state.editChannelReceiptId))
-    : null;
   const editingWithdrawal = state.editWithdrawalGroup
     ? withdrawalHistoryGroups(state.cash).find(group => group.key === state.editWithdrawalGroup)
     : null;
@@ -4493,7 +4636,6 @@ async function renderCash() {
   const selectedFilterCategory = currentCashFilter.category || "all";
   const selectedFilterAccount = currentCashFilter.cashAccount || "all";
   const selectedQuickFilter = currentCashFilter.quick || "";
-  const selectedChannelMonth = currentCashFilter.month || today.slice(0, 7);
   const selectedPeriodCashEntries = cashEntriesForSelectedPeriod();
   const totalCash = cashTotals(selectedPeriodCashEntries);
   const selectedAdjustmentTotals = accountAdjustmentTotals(selectedPeriodCashEntries);
@@ -4555,7 +4697,6 @@ async function renderCash() {
     ["ledger", "Extrato"],
     ["reconciliation", "Conferência"],
     ["day-closing", "Fechamento"],
-    ["channels", "Canais"],
     ["savings", "Cofrinho"],
     ["withdrawals", "Retiradas"],
     ["categories", "Categorias"]
@@ -4569,7 +4710,7 @@ async function renderCash() {
   if (!cashPanelTabs.some(([tab]) => tab === state.cashPanelTab)) {
     state.cashPanelTab = "entry";
   }
-  const activeCashPanel = editing ? "entry" : (editingChannelReceipt ? "channels" : (state.cashPanelTab || "entry"));
+  const activeCashPanel = editing ? "entry" : (state.cashPanelTab || "entry");
 
   app.innerHTML = `
     <section class="cash-hero">
@@ -4720,7 +4861,6 @@ async function renderCash() {
         </div>
         ` : ""}
         ${activeCashPanel === "day-closing" ? dailyClosingPanelHtml(dailyClosingData, dailyClosingRecord) : ""}
-        ${activeCashPanel === "channels" ? channelReceiptsPanel(editingChannelReceipt, selectedChannelMonth) : ""}
         ${activeCashPanel === "savings" ? `
         <div class="cash-tab-section savings-panel">
         <h2>${editingSavingsEntry ? "Editar registro do cofrinho" : "Cofrinho"}</h2>
@@ -5009,9 +5149,6 @@ async function renderCash() {
       }
       if (state.cashPanelTab !== "withdrawals") {
         state.editWithdrawalGroup = null;
-      }
-      if (state.cashPanelTab !== "channels") {
-        state.editChannelReceiptId = null;
       }
       if (state.cashPanelTab !== "savings") {
         state.editSavingsEntryId = null;
@@ -5556,116 +5693,6 @@ async function renderCash() {
       });
     });
   }
-
-  const channelReceiptForm = document.querySelector("#channel-receipt-form");
-  if (channelReceiptForm) {
-    channelReceiptForm.addEventListener("submit", event => {
-      event.preventDefault();
-      const values = readForm(event.currentTarget);
-      const receipt = {
-        id: editingChannelReceipt?.id || Date.now(),
-        date: values.date,
-        notes: String(values.notes || "").trim()
-      };
-      if (blockClosedPeriod(receipt.date, editingChannelReceipt ? "editar canais" : "lançar canais")) {
-        return;
-      }
-      if (editingChannelReceipt && editingChannelReceipt.date !== receipt.date && blockClosedPeriod(editingChannelReceipt.date, "mover lançamentos de canais")) {
-        return;
-      }
-      const cardapioTotal = cardapioPaymentDefinitions.reduce((sum, [paymentKey]) => {
-        const field = `cardapioWeb${capitalize(paymentKey)}`;
-        const amount = parseMoneyInput(values[field]);
-        receipt[field] = amount.toFixed(2);
-        return sum + amount;
-      }, 0);
-      receipt.cardapioWebGross = cardapioTotal.toFixed(2);
-      receipt.cardapioWebFee = "0.00";
-      receipt.cardapioWebNet = cardapioTotal.toFixed(2);
-      ["ifood", "food99"].forEach(key => {
-        const amount = parseMoneyInput(values[`${key}Net`]);
-        receipt[`${key}Gross`] = amount.toFixed(2);
-        receipt[`${key}Fee`] = "0.00";
-        receipt[`${key}Net`] = amount.toFixed(2);
-      });
-
-      const total = channelReceiptTotal(receipt);
-      if (total <= 0) {
-        showToast("Informe pelo menos um valor de canal.", "error");
-        return;
-      }
-
-      if (editingChannelReceipt) {
-        state.channelReceipts = state.channelReceipts.map(item => String(item.id) === String(editingChannelReceipt.id) ? receipt : item);
-        state.editChannelReceiptId = null;
-        recordAudit("Canais editados", `${formatIsoDateBr(receipt.date)} - ${money(total)}`);
-      } else {
-        const existing = state.channelReceipts.find(item => item.date === receipt.date);
-        if (existing) {
-          receipt.id = existing.id;
-          state.channelReceipts = state.channelReceipts.map(item => item.date === receipt.date ? receipt : item);
-          recordAudit("Canais atualizados", `${formatIsoDateBr(receipt.date)} - ${money(total)}`);
-        } else {
-          state.channelReceipts.push(receipt);
-          recordAudit("Canais lançados", `${formatIsoDateBr(receipt.date)} - ${money(total)}`);
-        }
-      }
-      persistState();
-      renderCash();
-    });
-  }
-
-  const channelFilterForm = document.querySelector("#channel-filter-form");
-  const channelFilterPeriod = document.querySelector("#channel-filter-period");
-  if (channelFilterForm && channelFilterPeriod) {
-    const updateChannelFilterVisibility = () => {
-      channelFilterForm.dataset.period = channelFilterPeriod.value;
-    };
-    channelFilterPeriod.addEventListener("change", updateChannelFilterVisibility);
-    updateChannelFilterVisibility();
-    channelFilterForm.addEventListener("submit", event => {
-      event.preventDefault();
-      state.channelFilter = readForm(event.currentTarget);
-      localStorage.setItem("channelFilter", JSON.stringify(state.channelFilter));
-      renderCash();
-    });
-  }
-
-  const cancelChannelReceiptEdit = document.querySelector("#cancel-channel-receipt-edit");
-  if (cancelChannelReceiptEdit) {
-    cancelChannelReceiptEdit.addEventListener("click", () => {
-      state.editChannelReceiptId = null;
-      renderCash();
-    });
-  }
-
-  document.querySelectorAll("[data-edit-channel-receipt]").forEach(button => {
-    button.addEventListener("click", event => {
-      state.editChannelReceiptId = event.currentTarget.dataset.editChannelReceipt;
-      state.cashPanelTab = "channels";
-      renderCash();
-    });
-  });
-
-  document.querySelectorAll("[data-delete-channel-receipt]").forEach(button => {
-    button.addEventListener("click", event => {
-      const id = event.currentTarget.dataset.deleteChannelReceipt;
-      const removed = state.channelReceipts.find(item => String(item.id) === String(id));
-      if (!removed || !confirm(`Excluir os valores dos canais de ${formatIsoDateBr(removed.date)}?`)) {
-        return;
-      }
-      if (blockClosedPeriod(removed.date, "excluir canais")) {
-        return;
-      }
-      state.channelReceipts = state.channelReceipts.filter(item => String(item.id) !== String(id));
-      if (String(state.editChannelReceiptId) === String(id)) {
-        state.editChannelReceiptId = null;
-      }
-      recordAudit("Canais excluídos", `${formatIsoDateBr(removed.date)} - ${money(channelReceiptTotal(removed))}`);
-      persistState();
-      renderCash();
-    });
-  });
 
   const cashCategoryAdminForm = document.querySelector("#cash-category-admin-form");
   if (cashCategoryAdminForm) {
@@ -8153,7 +8180,751 @@ function orderPanel(plan, currentKey) {
   `;
 }
 
-async function renderPricing() {
+function pricingSafeNumber(value) {
+  return Math.max(0, Number(parseMoneyInput(value) || 0));
+}
+
+function pricingDecimalNumber(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? Math.max(0, value) : 0;
+  }
+  const parsed = Number(String(value || "").trim().replace(",", "."));
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+}
+
+function pricingPercent(value) {
+  if (value === null || value === undefined || value === "") {
+    return "—";
+  }
+  const amount = Number(value);
+  return Number.isFinite(amount)
+    ? `${amount.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`
+    : "—";
+}
+
+function pricingUnitCostMoney(value) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4
+  }).format(Number(value || 0));
+}
+
+function pricingIngredientId(ingredient, index = 0) {
+  return String(ingredient?.id || `pricing-ingredient-${slugifyCategory(ingredient?.name || "item")}-${index}`);
+}
+
+function normalizedPricingIngredients() {
+  return (state.ingredients || []).map((ingredient, index) => {
+    const legacyQuantity = pricingDecimalNumber(ingredient.quantity);
+    const legacyUnitCost = pricingSafeNumber(ingredient.unitCost);
+    const purchaseQuantity = pricingDecimalNumber(ingredient.purchaseQuantity) || legacyQuantity;
+    const purchaseCost = pricingSafeNumber(ingredient.purchaseCost)
+      || (legacyQuantity * legacyUnitCost);
+    return {
+      ...ingredient,
+      id: pricingIngredientId(ingredient, index),
+      name: String(ingredient.name || "").trim(),
+      unit: ["g", "ml", "unit"].includes(ingredient.unit) ? ingredient.unit : "g",
+      purchaseQuantity,
+      purchaseCost
+    };
+  });
+}
+
+function pricingIngredientUnitLabel(unit, plural = false) {
+  if (unit === "ml") {
+    return "ml";
+  }
+  if (unit === "unit") {
+    return plural ? "unidades" : "unidade";
+  }
+  return "g";
+}
+
+function pricingIngredientUnitCost(ingredient) {
+  const quantity = pricingDecimalNumber(ingredient?.purchaseQuantity)
+    || pricingDecimalNumber(ingredient?.quantity);
+  const cost = pricingSafeNumber(ingredient?.purchaseCost)
+    || (pricingSafeNumber(ingredient?.quantity) * pricingSafeNumber(ingredient?.unitCost));
+  return quantity > 0 ? cost / quantity : 0;
+}
+
+function pricingSharedCosts(config = state.pricingConfig) {
+  const shared = config?.sharedCosts || config || {};
+  const averageMonthlyUnits = pricingDecimalNumber(shared.averageMonthlyUnits);
+  const gas = pricingSafeNumber(shared.gas);
+  const energy = pricingSafeNumber(shared.energy);
+  const water = pricingSafeNumber(shared.water);
+  const labor = pricingSafeNumber(shared.labor);
+  const rent = pricingSafeNumber(shared.rent);
+  const marketing = pricingSafeNumber(shared.marketing);
+  const extraordinary = pricingSafeNumber(shared.extraordinary);
+  const productionMonthly = gas + energy + water;
+  const otherMonthly = rent + marketing + extraordinary;
+  const monthlyTotal = productionMonthly + labor + otherMonthly;
+  const divisor = averageMonthlyUnits > 0 ? averageMonthlyUnits : 0;
+  return {
+    averageMonthlyUnits,
+    gas,
+    energy,
+    water,
+    labor,
+    rent,
+    marketing,
+    extraordinary,
+    productionMonthly,
+    otherMonthly,
+    monthlyTotal,
+    productionPerUnit: divisor ? productionMonthly / divisor : 0,
+    laborPerUnit: divisor ? labor / divisor : 0,
+    otherPerUnit: divisor ? otherMonthly / divisor : 0,
+    totalPerUnit: divisor ? monthlyTotal / divisor : 0
+  };
+}
+
+function storeAverageMonthlyUnits() {
+  const monthly = new Map();
+  (state.storeProductQuantities || []).forEach(entry => {
+    const month = normalizedStoreProductMonth(entry.month);
+    if (!month) {
+      return;
+    }
+    monthly.set(month, (monthly.get(month) || 0) + pricingDecimalNumber(entry.quantity));
+  });
+  const totals = [...monthly.values()].filter(total => total > 0);
+  if (!totals.length) {
+    return 0;
+  }
+  return Math.round(totals.reduce((sum, total) => sum + total, 0) / totals.length);
+}
+
+function pricingRecipeMetrics(recipe, config = state.pricingConfig) {
+  const ingredientMap = new Map(
+    normalizedPricingIngredients().map(ingredient => [String(ingredient.id), ingredient])
+  );
+  const ingredientCost = (recipe?.ingredients || []).reduce((sum, item) => {
+    const ingredient = ingredientMap.get(String(item.ingredientId));
+    return sum + pricingDecimalNumber(item.quantity) * pricingIngredientUnitCost(ingredient);
+  }, 0);
+  const packagingCost = pricingSafeNumber(recipe?.packagingCost);
+  const fixedFee = pricingSafeNumber(recipe?.fixedFee);
+  const variableFeePercent = pricingDecimalNumber(recipe?.variableFeePercent);
+  const desiredMarginPercent = pricingDecimalNumber(recipe?.desiredMarginPercent);
+  const practicedPrice = pricingSafeNumber(recipe?.practicedPrice);
+  const shared = pricingSharedCosts(config);
+  const baseCost = ingredientCost
+    + packagingCost
+    + shared.productionPerUnit
+    + shared.laborPerUnit
+    + shared.otherPerUnit
+    + fixedFee;
+  const divisor = 1 - ((variableFeePercent + desiredMarginPercent) / 100);
+  const suggestedPrice = divisor > 0 ? baseCost / divisor : 0;
+  const suggestedVariableFee = suggestedPrice * (variableFeePercent / 100);
+  const totalCost = baseCost + suggestedVariableFee;
+  const suggestedProfit = suggestedPrice - totalCost;
+  const realVariableFee = practicedPrice * (variableFeePercent / 100);
+  const realTotalCost = baseCost + realVariableFee;
+  const realProfit = practicedPrice - realTotalCost;
+  const realMarginPercent = practicedPrice > 0 ? (realProfit / practicedPrice) * 100 : null;
+  const markup = practicedPrice > 0 && realTotalCost > 0
+    ? practicedPrice / realTotalCost
+    : totalCost > 0
+      ? suggestedPrice / totalCost
+      : 0;
+  const status = practicedPrice <= 0 || realMarginPercent === null
+    ? "Atenção"
+    : realProfit < 0
+      ? "Prejuízo"
+      : realMarginPercent + 0.0001 >= desiredMarginPercent
+        ? "Lucrativa"
+        : "Atenção";
+  return {
+    ingredientCost,
+    packagingCost,
+    productionCost: shared.productionPerUnit,
+    laborCost: shared.laborPerUnit,
+    otherCost: shared.otherPerUnit,
+    fixedFee,
+    variableFeePercent,
+    desiredMarginPercent,
+    practicedPrice,
+    baseCost,
+    suggestedVariableFee,
+    totalCost,
+    suggestedPrice,
+    suggestedProfit,
+    realVariableFee,
+    realTotalCost,
+    realProfit,
+    realMarginPercent,
+    markup,
+    status
+  };
+}
+
+function pricingStatusPill(status) {
+  const className = status === "Lucrativa"
+    ? "profitable"
+    : status === "Prejuízo"
+      ? "loss"
+      : "attention";
+  return `<span class="pricing-status ${className}">${status}</span>`;
+}
+
+function pricingRecipeById(recipeId) {
+  return (state.pricingRecipes || []).find(recipe => String(recipe.id) === String(recipeId));
+}
+
+function pricingProjectionRecipe() {
+  const configured = pricingRecipeById(state.pricingConfig?.projectionRecipeId);
+  return configured || (state.pricingRecipes || [])[0] || null;
+}
+
+function pricingFlowHtml() {
+  return `
+    <section class="pricing-flow" aria-label="Etapas da precificação">
+      <span><b>1</b><small>Ingredientes</small><strong>Custo por g, ml ou unidade</strong></span>
+      <span><b>2</b><small>Receita</small><strong>Quantidade usada em cada cumbuca</strong></span>
+      <span><b>3</b><small>Precificação</small><strong>Custos, margem e preço sugerido</strong></span>
+    </section>
+  `;
+}
+
+function pricingDashboardPanel() {
+  const rows = (state.pricingRecipes || []).map(recipe => ({
+    recipe,
+    metrics: pricingRecipeMetrics(recipe)
+  }));
+  const realRows = rows.filter(row => row.metrics.practicedPrice > 0);
+  const averageCost = rows.length
+    ? rows.reduce((sum, row) => sum + row.metrics.totalCost, 0) / rows.length
+    : 0;
+  const averageMargin = realRows.length
+    ? realRows.reduce((sum, row) => sum + row.metrics.realMarginPercent, 0) / realRows.length
+    : null;
+  const averagePackaging = rows.length
+    ? rows.reduce((sum, row) => sum + row.metrics.packagingCost, 0) / rows.length
+    : 0;
+  const profitRows = realRows.length ? realRows : rows;
+  const mostProfitable = profitRows.reduce((best, row) => {
+    const profit = row.metrics.practicedPrice > 0
+      ? row.metrics.realProfit
+      : row.metrics.suggestedProfit;
+    const bestProfit = best
+      ? (best.metrics.practicedPrice > 0 ? best.metrics.realProfit : best.metrics.suggestedProfit)
+      : -Infinity;
+    return profit > bestProfit ? row : best;
+  }, null);
+  const lowestMargin = realRows.reduce((lowest, row) => {
+    return !lowest || row.metrics.realMarginPercent < lowest.metrics.realMarginPercent ? row : lowest;
+  }, null);
+  const shared = pricingSharedCosts();
+  const projectionRecipe = pricingProjectionRecipe();
+  const projection = projectionRecipe ? pricingRecipeMetrics(projectionRecipe) : null;
+  const projectedProfit = projection
+    ? (projection.practicedPrice > 0 ? projection.realProfit : projection.suggestedProfit)
+    : 0;
+  const projectionPriceKind = projection?.practicedPrice > 0 ? "preço praticado" : "preço sugerido";
+  const taxForBreakdown = projection
+    ? projection.fixedFee + (projection.practicedPrice > 0
+      ? projection.realVariableFee
+      : projection.suggestedVariableFee)
+    : 0;
+  const totalForBreakdown = projection
+    ? (projection.practicedPrice > 0 ? projection.realTotalCost : projection.totalCost)
+    : 0;
+
+  return `
+    ${pricingFlowHtml()}
+    ${shared.averageMonthlyUnits > 0 ? "" : `
+      <div class="pricing-warning">
+        <strong>Configure a média mensal de cumbucas</strong>
+        <span>Sem essa quantidade, produção, mão de obra, aluguel, marketing e custos extraordinários ainda não entram no custo unitário.</span>
+        <button class="secondary" type="button" data-pricing-open-view="costs">Configurar custos rateados</button>
+      </div>
+    `}
+    <section class="pricing-dashboard-grid">
+      <article class="panel pricing-kpi">
+        <span>Custo médio por cumbuca</span>
+        <strong>${money(averageCost)}</strong>
+        <small>${rows.length} receita(s) cadastrada(s)</small>
+      </article>
+      <article class="panel pricing-kpi">
+        <span>Margem média real</span>
+        <strong>${pricingPercent(averageMargin)}</strong>
+        <small>${realRows.length ? `${realRows.length} preço(s) praticado(s)` : "Informe os preços praticados"}</small>
+      </article>
+      <article class="panel pricing-kpi">
+        <span>Cumbuca mais lucrativa</span>
+        <strong>${escapeHtml(mostProfitable?.recipe?.name || "—")}</strong>
+        <small>${mostProfitable ? money(mostProfitable.metrics.practicedPrice > 0 ? mostProfitable.metrics.realProfit : mostProfitable.metrics.suggestedProfit) : "Cadastre uma receita"}</small>
+      </article>
+      <article class="panel pricing-kpi">
+        <span>Menor margem real</span>
+        <strong>${escapeHtml(lowestMargin?.recipe?.name || "—")}</strong>
+        <small>${lowestMargin ? pricingPercent(lowestMargin.metrics.realMarginPercent) : "Informe os preços praticados"}</small>
+      </article>
+      <article class="panel pricing-kpi">
+        <span>Embalagem por refeição</span>
+        <strong>${money(averagePackaging)}</strong>
+        <small>Média das receitas</small>
+      </article>
+      <article class="panel pricing-kpi">
+        <span>Custos rateados por unidade</span>
+        <strong>${money(shared.totalPerUnit)}</strong>
+        <small>${shared.averageMonthlyUnits ? `${shared.averageMonthlyUnits} cumbucas/mês` : "Média mensal pendente"}</small>
+      </article>
+    </section>
+
+    <section class="panel report-section">
+      <div class="section-heading">
+        <div>
+          <h2>Painel de precificação</h2>
+          <p class="muted-inline">O custo total inclui ingredientes, embalagem, produção, mão de obra, demais custos rateados e taxas.</p>
+        </div>
+        <button type="button" data-pricing-open-view="recipes">Cadastrar receita</button>
+      </div>
+      ${rows.length ? `
+        <div class="table-wrap report-table pricing-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Cumbuca</th>
+                <th>Categoria</th>
+                <th>Peso</th>
+                <th>Custo total</th>
+                <th>Margem desejada</th>
+                <th>Preço sugerido</th>
+                <th>Preço praticado</th>
+                <th>Lucro real</th>
+                <th>Margem real</th>
+                <th>Markup</th>
+                <th>Status</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map(({ recipe, metrics }) => `
+                <tr>
+                  <td><strong>${escapeHtml(recipe.name || "")}</strong></td>
+                  <td>${escapeHtml(recipe.category || "Sem categoria")}</td>
+                  <td>${pricingDecimalNumber(recipe.weightGrams) || "—"}${pricingDecimalNumber(recipe.weightGrams) ? " g" : ""}</td>
+                  <td>${money(metrics.practicedPrice > 0 ? metrics.realTotalCost : metrics.totalCost)}</td>
+                  <td>${pricingPercent(metrics.desiredMarginPercent)}</td>
+                  <td><strong>${money(metrics.suggestedPrice)}</strong></td>
+                  <td>${metrics.practicedPrice > 0 ? money(metrics.practicedPrice) : "—"}</td>
+                  <td class="${metrics.practicedPrice > 0 && metrics.realProfit < 0 ? "negative" : "positive"}">${metrics.practicedPrice > 0 ? money(metrics.realProfit) : "—"}</td>
+                  <td>${pricingPercent(metrics.realMarginPercent)}</td>
+                  <td>${metrics.markup ? `${metrics.markup.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}x` : "—"}</td>
+                  <td>${pricingStatusPill(metrics.status)}</td>
+                  <td>
+                    <div class="table-actions">
+                      <button class="secondary table-action" type="button" data-edit-pricing-recipe="${escapeHtml(recipe.id)}">Editar</button>
+                      <button class="danger table-action" type="button" data-delete-pricing-recipe="${escapeHtml(recipe.id)}">Excluir</button>
+                    </div>
+                  </td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      ` : `<p class="muted">Cadastre ingredientes e depois crie a primeira receita para visualizar custos, preços e margens.</p>`}
+    </section>
+
+    ${projectionRecipe && projection ? `
+      <div class="pricing-detail-grid">
+        <section class="panel report-section">
+          <div class="section-heading">
+            <div>
+              <h2>Composição do custo</h2>
+              <p class="muted-inline">${escapeHtml(projectionRecipe.name)} · cálculo pelo ${projectionPriceKind}</p>
+            </div>
+            <label class="pricing-projection-select">Cumbuca
+              <select id="pricing-projection-recipe">
+                ${(state.pricingRecipes || []).map(recipe => `
+                  <option value="${escapeHtml(recipe.id)}" ${String(recipe.id) === String(projectionRecipe.id) ? "selected" : ""}>${escapeHtml(recipe.name)}</option>
+                `).join("")}
+              </select>
+            </label>
+          </div>
+          <div class="pricing-cost-breakdown">
+            <span><small>Ingredientes</small><strong>${money(projection.ingredientCost)}</strong></span>
+            <span><small>Embalagem</small><strong>${money(projection.packagingCost)}</strong></span>
+            <span><small>Produção</small><strong>${money(projection.productionCost)}</strong></span>
+            <span><small>Mão de obra</small><strong>${money(projection.laborCost)}</strong></span>
+            <span><small>Aluguel, marketing e extras</small><strong>${money(projection.otherCost)}</strong></span>
+            <span><small>Taxas</small><strong>${money(taxForBreakdown)}</strong></span>
+            <span class="total"><small>Custo total</small><strong>${money(totalForBreakdown)}</strong></span>
+          </div>
+        </section>
+        <section class="panel report-section">
+          <h2>Lucro estimado por lote</h2>
+          <p class="muted-inline">${escapeHtml(projectionRecipe.name)} · ${projectionPriceKind}</p>
+          <div class="pricing-lot-grid">
+            ${[10, 20, 50, 100].map(quantity => `
+              <span><small>${quantity} unidades</small><strong class="${projectedProfit < 0 ? "negative" : "positive"}">${money(projectedProfit * quantity)}</strong></span>
+            `).join("")}
+          </div>
+        </section>
+      </div>
+    ` : ""}
+  `;
+}
+
+function pricingIngredientsPanel(editingIngredient = null) {
+  const ingredients = normalizedPricingIngredients();
+  return `
+    ${pricingFlowHtml()}
+    <div class="pricing-editor-grid">
+      <section class="panel">
+        <h2>${editingIngredient ? "Editar ingrediente" : "Cadastrar ingrediente"}</h2>
+        <p class="muted-inline">Informe quanto vem na compra e quanto ela custa. O sistema calcula automaticamente o custo por g, ml ou unidade.</p>
+        <form id="pricing-ingredient-form" class="form-grid single">
+          <input name="ingredientId" type="hidden" value="${escapeHtml(editingIngredient?.id || "")}">
+          <label>Ingrediente
+            <input name="name" placeholder="Ex.: Peito de frango" value="${escapeHtml(editingIngredient?.name || "")}" required>
+          </label>
+          <label>Unidade de controle
+            <select name="unit">
+              <option value="g" ${editingIngredient?.unit === "g" || !editingIngredient ? "selected" : ""}>Grama (g)</option>
+              <option value="ml" ${editingIngredient?.unit === "ml" ? "selected" : ""}>Mililitro (ml)</option>
+              <option value="unit" ${editingIngredient?.unit === "unit" ? "selected" : ""}>Unidade</option>
+            </select>
+          </label>
+          <label>Quantidade comprada
+            <input name="purchaseQuantity" type="number" min="0.001" step="0.001" placeholder="Ex.: 1000" value="${editingIngredient?.purchaseQuantity || ""}" required>
+          </label>
+          <label>Custo da compra
+            <input name="purchaseCost" type="text" inputmode="decimal" placeholder="Ex.: 24,90" value="${moneyInputValue(editingIngredient?.purchaseCost)}" required>
+          </label>
+          <div class="pricing-live-cost">
+            <span>Custo calculado por unidade</span>
+            <strong data-pricing-ingredient-unit-cost>${pricingUnitCostMoney(pricingIngredientUnitCost(editingIngredient))}</strong>
+          </div>
+          <div class="actions">
+            <button type="submit">${editingIngredient ? "Salvar ingrediente" : "Cadastrar ingrediente"}</button>
+            ${editingIngredient ? `<button class="secondary" type="button" id="cancel-pricing-ingredient-edit">Cancelar</button>` : ""}
+          </div>
+        </form>
+      </section>
+      <section class="panel report-section">
+        <div class="section-heading">
+          <div>
+            <h2>Catálogo de ingredientes</h2>
+            <p class="muted-inline">${ingredients.length} ingrediente(s)</p>
+          </div>
+        </div>
+        ${ingredients.length ? `
+          <div class="table-wrap report-table">
+            <table>
+              <thead><tr><th>Ingrediente</th><th>Compra</th><th>Custo da compra</th><th>Custo por g/ml/un.</th><th>Ações</th></tr></thead>
+              <tbody>
+                ${ingredients.map(ingredient => `
+                  <tr>
+                    <td><strong>${escapeHtml(ingredient.name)}</strong></td>
+                    <td>${ingredient.purchaseQuantity.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} ${pricingIngredientUnitLabel(ingredient.unit, true)}</td>
+                    <td>${money(ingredient.purchaseCost)}</td>
+                    <td><strong>${pricingUnitCostMoney(pricingIngredientUnitCost(ingredient))} / ${pricingIngredientUnitLabel(ingredient.unit)}</strong></td>
+                    <td>
+                      <div class="table-actions">
+                        <button class="secondary table-action" type="button" data-edit-pricing-ingredient="${escapeHtml(ingredient.id)}">Editar</button>
+                        <button class="danger table-action" type="button" data-delete-pricing-ingredient="${escapeHtml(ingredient.id)}">Excluir</button>
+                      </div>
+                    </td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+        ` : `<p class="muted">Cadastre o primeiro ingrediente para começar a montar receitas.</p>`}
+      </section>
+    </div>
+  `;
+}
+
+function pricingRecipesPanel(editingRecipe = null) {
+  const ingredients = normalizedPricingIngredients();
+  const shared = pricingSharedCosts();
+  const editingItems = new Map(
+    (editingRecipe?.ingredients || []).map(item => [String(item.ingredientId), pricingDecimalNumber(item.quantity)])
+  );
+  const preview = pricingRecipeMetrics(editingRecipe || {});
+  return `
+    ${pricingFlowHtml()}
+    <div class="pricing-recipe-layout">
+      <section class="panel">
+        <h2>${editingRecipe ? "Editar receita" : "Cadastrar receita"}</h2>
+        <form id="pricing-recipe-form" class="form-grid">
+          <input name="recipeId" type="hidden" value="${escapeHtml(editingRecipe?.id || "")}">
+          <label>Nome da cumbuca
+            <input name="name" placeholder="Ex.: Frango Fit" value="${escapeHtml(editingRecipe?.name || "")}" required>
+          </label>
+          <label>Categoria
+            <input name="category" placeholder="Ex.: Frango" value="${escapeHtml(editingRecipe?.category || "")}" required>
+          </label>
+          <label>Peso final (g)
+            <input name="weightGrams" type="number" min="1" step="1" placeholder="Ex.: 500" value="${pricingDecimalNumber(editingRecipe?.weightGrams) || ""}" required>
+          </label>
+          <label>Custo da embalagem
+            <input name="packagingCost" type="text" inputmode="decimal" placeholder="Cumbuca, tampa, talheres..." value="${moneyInputValue(editingRecipe?.packagingCost)}">
+          </label>
+          <label>Taxa fixa por unidade
+            <input name="fixedFee" type="text" inputmode="decimal" placeholder="Ex.: 0,50" value="${moneyInputValue(editingRecipe?.fixedFee)}">
+          </label>
+          <label>Taxa variável (%)
+            <input name="variableFeePercent" type="number" min="0" max="99" step="0.01" placeholder="iFood, cartão, Pix" value="${pricingDecimalNumber(editingRecipe?.variableFeePercent) || ""}">
+          </label>
+          <label>Margem desejada (%)
+            <input name="desiredMarginPercent" type="number" min="0" max="99" step="0.01" placeholder="Ex.: 40" value="${pricingDecimalNumber(editingRecipe?.desiredMarginPercent) || ""}" required>
+          </label>
+          <label>Preço praticado
+            <input name="practicedPrice" type="text" inputmode="decimal" placeholder="Valor realmente vendido" value="${moneyInputValue(editingRecipe?.practicedPrice)}">
+          </label>
+          <fieldset class="pricing-ingredient-picker">
+            <legend>Ingredientes da receita</legend>
+            ${ingredients.length ? `
+              <div class="pricing-recipe-ingredient-list">
+                ${ingredients.map(ingredient => `
+                  <label class="pricing-recipe-ingredient">
+                    <span>
+                      <b>${escapeHtml(ingredient.name)}</b>
+                      <small>${pricingUnitCostMoney(pricingIngredientUnitCost(ingredient))} por ${pricingIngredientUnitLabel(ingredient.unit)}</small>
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.001"
+                      placeholder="0 ${pricingIngredientUnitLabel(ingredient.unit)}"
+                      value="${editingItems.get(String(ingredient.id)) || ""}"
+                      data-pricing-recipe-ingredient="${escapeHtml(ingredient.id)}"
+                      aria-label="Quantidade de ${escapeHtml(ingredient.name)}"
+                    >
+                  </label>
+                `).join("")}
+              </div>
+            ` : `
+              <p class="muted">Cadastre ingredientes antes de criar uma receita.</p>
+              <button class="secondary" type="button" data-pricing-open-view="ingredients">Cadastrar ingredientes</button>
+            `}
+          </fieldset>
+          <div class="actions">
+            <button type="submit" ${ingredients.length ? "" : "disabled"}>${editingRecipe ? "Salvar receita" : "Cadastrar receita"}</button>
+            ${editingRecipe ? `<button class="secondary" type="button" id="cancel-pricing-recipe-edit">Cancelar</button>` : ""}
+          </div>
+        </form>
+      </section>
+      <aside class="panel pricing-recipe-preview" aria-live="polite">
+        <h2>Prévia automática</h2>
+        <div class="pricing-cost-breakdown compact">
+          <span><small>Ingredientes</small><strong data-pricing-preview="ingredients">${money(preview.ingredientCost)}</strong></span>
+          <span><small>Embalagem</small><strong data-pricing-preview="packaging">${money(preview.packagingCost)}</strong></span>
+          <span><small>Produção rateada</small><strong data-pricing-preview="production">${money(shared.productionPerUnit)}</strong></span>
+          <span><small>Mão de obra rateada</small><strong data-pricing-preview="labor">${money(shared.laborPerUnit)}</strong></span>
+          <span><small>Demais custos rateados</small><strong data-pricing-preview="other">${money(shared.otherPerUnit)}</strong></span>
+          <span><small>Taxas estimadas</small><strong data-pricing-preview="fees">${money(preview.fixedFee + (preview.practicedPrice > 0 ? preview.realVariableFee : preview.suggestedVariableFee))}</strong></span>
+          <span class="total"><small>Custo total</small><strong data-pricing-preview="total">${money(preview.practicedPrice > 0 ? preview.realTotalCost : preview.totalCost)}</strong></span>
+        </div>
+        <div class="pricing-preview-result">
+          <span><small>Preço sugerido</small><strong data-pricing-preview="suggested">${money(preview.suggestedPrice)}</strong></span>
+          <span><small>Lucro por unidade</small><strong data-pricing-preview="profit">${money(preview.practicedPrice > 0 ? preview.realProfit : preview.suggestedProfit)}</strong></span>
+          <span><small>Margem real</small><strong data-pricing-preview="margin">${pricingPercent(preview.realMarginPercent)}</strong></span>
+          <span><small>Status</small><strong data-pricing-preview="status">${pricingStatusPill(preview.status)}</strong></span>
+        </div>
+        <p class="pricing-formula">Preço sugerido = custo base ÷ (1 − margem desejada − taxa variável).</p>
+      </aside>
+    </div>
+    <section class="panel report-section">
+      <div class="section-heading">
+        <div>
+          <h2>Receitas cadastradas</h2>
+          <p class="muted-inline">${(state.pricingRecipes || []).length} receita(s)</p>
+        </div>
+      </div>
+      ${(state.pricingRecipes || []).length ? `
+        <div class="table-wrap report-table">
+          <table>
+            <thead><tr><th>Cumbuca</th><th>Categoria</th><th>Peso</th><th>Ingredientes</th><th>Preço sugerido</th><th>Status</th><th>Ações</th></tr></thead>
+            <tbody>
+              ${(state.pricingRecipes || []).map(recipe => {
+                const metrics = pricingRecipeMetrics(recipe);
+                return `
+                  <tr>
+                    <td><strong>${escapeHtml(recipe.name)}</strong></td>
+                    <td>${escapeHtml(recipe.category || "Sem categoria")}</td>
+                    <td>${pricingDecimalNumber(recipe.weightGrams)} g</td>
+                    <td>${(recipe.ingredients || []).length}</td>
+                    <td>${money(metrics.suggestedPrice)}</td>
+                    <td>${pricingStatusPill(metrics.status)}</td>
+                    <td>
+                      <div class="table-actions">
+                        <button class="secondary table-action" type="button" data-edit-pricing-recipe="${escapeHtml(recipe.id)}">Editar</button>
+                        <button class="danger table-action" type="button" data-delete-pricing-recipe="${escapeHtml(recipe.id)}">Excluir</button>
+                      </div>
+                    </td>
+                  </tr>
+                `;
+              }).join("")}
+            </tbody>
+          </table>
+        </div>
+      ` : `<p class="muted">Nenhuma receita cadastrada ainda.</p>`}
+    </section>
+  `;
+}
+
+function pricingCostsPanel() {
+  const shared = pricingSharedCosts();
+  const observedAverage = storeAverageMonthlyUnits();
+  return `
+    ${pricingFlowHtml()}
+    <div class="pricing-cost-settings-grid">
+      <section class="panel">
+        <h2>Custos mensais rateados</h2>
+        <p class="muted-inline">Esses valores são divididos pela média mensal de cumbucas e entram automaticamente no custo de todas as receitas.</p>
+        <form id="pricing-shared-cost-form" class="form-grid">
+          <label class="pricing-average-field">Média de cumbucas vendidas por mês
+            <input name="averageMonthlyUnits" type="number" min="1" step="1" value="${shared.averageMonthlyUnits || ""}" required>
+            <small>${observedAverage ? `Média observada nos lançamentos de Loja: ${observedAverage} unidades/mês.` : "Você também pode lançar quantidades em Loja > Produtos."}</small>
+          </label>
+          ${observedAverage ? `<div class="actions pricing-use-store-average"><button class="secondary" type="button" id="use-store-average">Usar média da Loja (${observedAverage})</button></div>` : ""}
+          <fieldset class="pricing-cost-group">
+            <legend>Produção mensal</legend>
+            <label>Gás
+              <input name="gas" type="text" inputmode="decimal" value="${moneyInputValue(shared.gas)}">
+            </label>
+            <label>Energia
+              <input name="energy" type="text" inputmode="decimal" value="${moneyInputValue(shared.energy)}">
+            </label>
+            <label>Água
+              <input name="water" type="text" inputmode="decimal" value="${moneyInputValue(shared.water)}">
+            </label>
+          </fieldset>
+          <fieldset class="pricing-cost-group">
+            <legend>Equipe</legend>
+            <label>Mão de obra mensal
+              <input name="labor" type="text" inputmode="decimal" value="${moneyInputValue(shared.labor)}">
+            </label>
+          </fieldset>
+          <fieldset class="pricing-cost-group">
+            <legend>Demais custos mensais</legend>
+            <label>Aluguel
+              <input name="rent" type="text" inputmode="decimal" value="${moneyInputValue(shared.rent)}">
+            </label>
+            <label>Marketing
+              <input name="marketing" type="text" inputmode="decimal" value="${moneyInputValue(shared.marketing)}">
+            </label>
+            <label>Custos extraordinários
+              <input name="extraordinary" type="text" inputmode="decimal" value="${moneyInputValue(shared.extraordinary)}">
+            </label>
+          </fieldset>
+          <div class="actions">
+            <button type="submit">Salvar custos rateados</button>
+          </div>
+        </form>
+      </section>
+      <aside class="panel pricing-shared-preview" aria-live="polite">
+        <h2>Rateio automático</h2>
+        <div class="pricing-rate-summary">
+          <span><small>Custo mensal informado</small><strong data-pricing-shared-preview="monthly">${money(shared.monthlyTotal)}</strong></span>
+          <span><small>Produção por cumbuca</small><strong data-pricing-shared-preview="production">${money(shared.productionPerUnit)}</strong></span>
+          <span><small>Mão de obra por cumbuca</small><strong data-pricing-shared-preview="labor">${money(shared.laborPerUnit)}</strong></span>
+          <span><small>Aluguel, marketing e extras</small><strong data-pricing-shared-preview="other">${money(shared.otherPerUnit)}</strong></span>
+          <span class="total"><small>Total rateado por cumbuca</small><strong data-pricing-shared-preview="total">${money(shared.totalPerUnit)}</strong></span>
+        </div>
+        <p class="pricing-formula">Rateio por unidade = custo mensal ÷ média mensal de cumbucas.</p>
+      </aside>
+    </div>
+  `;
+}
+
+function pricingSharedCostsFromForm(form) {
+  const values = readForm(form);
+  return {
+    averageMonthlyUnits: pricingDecimalNumber(values.averageMonthlyUnits),
+    gas: pricingSafeNumber(values.gas),
+    energy: pricingSafeNumber(values.energy),
+    water: pricingSafeNumber(values.water),
+    labor: pricingSafeNumber(values.labor),
+    rent: pricingSafeNumber(values.rent),
+    marketing: pricingSafeNumber(values.marketing),
+    extraordinary: pricingSafeNumber(values.extraordinary),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function pricingRecipeDraftFromForm(form) {
+  const values = readForm(form);
+  return {
+    id: values.recipeId || "",
+    name: String(values.name || "").trim(),
+    category: String(values.category || "").trim(),
+    weightGrams: pricingDecimalNumber(values.weightGrams),
+    packagingCost: pricingSafeNumber(values.packagingCost),
+    fixedFee: pricingSafeNumber(values.fixedFee),
+    variableFeePercent: pricingDecimalNumber(values.variableFeePercent),
+    desiredMarginPercent: pricingDecimalNumber(values.desiredMarginPercent),
+    practicedPrice: pricingSafeNumber(values.practicedPrice),
+    ingredients: [...form.querySelectorAll("[data-pricing-recipe-ingredient]")]
+      .map(field => ({
+        ingredientId: field.dataset.pricingRecipeIngredient,
+        quantity: pricingDecimalNumber(field.value)
+      }))
+      .filter(item => item.quantity > 0)
+  };
+}
+
+function updatePricingRecipePreview(form) {
+  const metrics = pricingRecipeMetrics(pricingRecipeDraftFromForm(form));
+  const totalCost = metrics.practicedPrice > 0 ? metrics.realTotalCost : metrics.totalCost;
+  const variableFee = metrics.practicedPrice > 0
+    ? metrics.realVariableFee
+    : metrics.suggestedVariableFee;
+  const profit = metrics.practicedPrice > 0 ? metrics.realProfit : metrics.suggestedProfit;
+  const values = {
+    ingredients: money(metrics.ingredientCost),
+    packaging: money(metrics.packagingCost),
+    production: money(metrics.productionCost),
+    labor: money(metrics.laborCost),
+    other: money(metrics.otherCost),
+    fees: money(metrics.fixedFee + variableFee),
+    total: money(totalCost),
+    suggested: money(metrics.suggestedPrice),
+    profit: money(profit),
+    margin: pricingPercent(metrics.realMarginPercent)
+  };
+  Object.entries(values).forEach(([key, value]) => {
+    const target = document.querySelector(`[data-pricing-preview="${key}"]`);
+    if (target) {
+      target.textContent = value;
+    }
+  });
+  const status = document.querySelector('[data-pricing-preview="status"]');
+  if (status) {
+    status.innerHTML = pricingStatusPill(metrics.status);
+  }
+}
+
+function updatePricingSharedCostPreview(form) {
+  const shared = pricingSharedCosts(pricingSharedCostsFromForm(form));
+  const values = {
+    monthly: money(shared.monthlyTotal),
+    production: money(shared.productionPerUnit),
+    labor: money(shared.laborPerUnit),
+    other: money(shared.otherPerUnit),
+    total: money(shared.totalPerUnit)
+  };
+  Object.entries(values).forEach(([key, value]) => {
+    const target = document.querySelector(`[data-pricing-shared-preview="${key}"]`);
+    if (target) {
+      target.textContent = value;
+    }
+  });
+}
+
+async function renderPricingLegacy() {
   title.textContent = "Precificação";
   setActive("precificacao");
   const savedConfig = state.pricingConfig;
@@ -8248,6 +9019,293 @@ async function renderPricing() {
     persistState();
     renderPricing();
   });
+}
+
+async function renderPricing() {
+  title.textContent = "Precificação";
+  setActive("precificacao");
+  const pricingTabs = [
+    ["dashboard", "Visão geral"],
+    ["ingredients", "Ingredientes"],
+    ["recipes", "Receitas"],
+    ["costs", "Custos rateados"]
+  ];
+  const requestedView = new URLSearchParams(location.search).get("view");
+  if (pricingTabs.some(([key]) => key === requestedView)) {
+    state.pricingViewTab = requestedView;
+  }
+  if (!pricingTabs.some(([key]) => key === state.pricingViewTab)) {
+    state.pricingViewTab = "dashboard";
+  }
+  const activeView = state.pricingViewTab;
+  const editingIngredient = normalizedPricingIngredients().find(ingredient => {
+    return String(ingredient.id) === String(state.editPricingIngredientId);
+  }) || null;
+  const editingRecipe = pricingRecipeById(state.editPricingRecipeId) || null;
+
+  app.innerHTML = `
+    ${viewTabsHtml("pricingViewTab", activeView, pricingTabs)}
+    ${viewPaneHtml("dashboard", activeView, pricingDashboardPanel())}
+    ${viewPaneHtml("ingredients", activeView, pricingIngredientsPanel(editingIngredient))}
+    ${viewPaneHtml("recipes", activeView, pricingRecipesPanel(editingRecipe))}
+    ${viewPaneHtml("costs", activeView, pricingCostsPanel())}
+  `;
+  enhanceResponsiveTables(app);
+
+  const openPricingView = view => {
+    state.pricingViewTab = view;
+    localStorage.setItem("pricingViewTab", JSON.stringify(view));
+    history.replaceState(null, "", `/precificacao?view=${view}`);
+    renderPricing();
+  };
+
+  document.querySelectorAll('[data-view-tab-group="pricingViewTab"] [data-view-tab]').forEach(button => {
+    button.addEventListener("click", event => {
+      openPricingView(event.currentTarget.dataset.viewTab);
+    });
+  });
+
+  document.querySelectorAll("[data-pricing-open-view]").forEach(button => {
+    button.addEventListener("click", event => {
+      openPricingView(event.currentTarget.dataset.pricingOpenView);
+    });
+  });
+
+  const ingredientForm = document.querySelector("#pricing-ingredient-form");
+  if (ingredientForm) {
+    const updateUnitCost = () => {
+      const values = readForm(ingredientForm);
+      const unitCost = pricingDecimalNumber(values.purchaseQuantity) > 0
+        ? pricingSafeNumber(values.purchaseCost) / pricingDecimalNumber(values.purchaseQuantity)
+        : 0;
+      const target = document.querySelector("[data-pricing-ingredient-unit-cost]");
+      if (target) {
+        target.textContent = pricingUnitCostMoney(unitCost);
+      }
+    };
+    ingredientForm.addEventListener("input", updateUnitCost);
+    ingredientForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      const values = readForm(event.currentTarget);
+      const name = String(values.name || "").trim();
+      const purchaseQuantity = pricingDecimalNumber(values.purchaseQuantity);
+      const purchaseCost = pricingSafeNumber(values.purchaseCost);
+      const editingId = values.ingredientId || "";
+      if (!name || purchaseQuantity <= 0 || purchaseCost <= 0) {
+        showToast("Informe ingrediente, quantidade comprada e custo maior que zero.", "warning");
+        return;
+      }
+      const duplicate = normalizedPricingIngredients().find(ingredient => {
+        return ingredient.name.toLocaleLowerCase("pt-BR") === name.toLocaleLowerCase("pt-BR")
+          && String(ingredient.id) !== String(editingId);
+      });
+      if (duplicate) {
+        showToast("Já existe um ingrediente com esse nome.", "warning");
+        return;
+      }
+      const ingredient = {
+        id: editingId || `pricing-ingredient-${Date.now()}`,
+        name,
+        unit: ["g", "ml", "unit"].includes(values.unit) ? values.unit : "g",
+        purchaseQuantity,
+        purchaseCost,
+        updatedAt: new Date().toISOString()
+      };
+      if (editingId) {
+        state.ingredients = normalizedPricingIngredients().map(item => {
+          return String(item.id) === String(editingId) ? ingredient : item;
+        });
+        recordAudit("Ingrediente de precificação editado", name);
+      } else {
+        state.ingredients = [...normalizedPricingIngredients(), ingredient];
+        recordAudit("Ingrediente de precificação cadastrado", name);
+      }
+      if (await persistState()) {
+        state.editPricingIngredientId = null;
+        renderPricing();
+      }
+    });
+  }
+
+  on("#cancel-pricing-ingredient-edit", "click", () => {
+    state.editPricingIngredientId = null;
+    renderPricing();
+  });
+
+  document.querySelectorAll("[data-edit-pricing-ingredient]").forEach(button => {
+    button.addEventListener("click", event => {
+      state.editPricingIngredientId = event.currentTarget.dataset.editPricingIngredient;
+      openPricingView("ingredients");
+    });
+  });
+
+  document.querySelectorAll("[data-delete-pricing-ingredient]").forEach(button => {
+    button.addEventListener("click", async event => {
+      const ingredientId = event.currentTarget.dataset.deletePricingIngredient;
+      const ingredient = normalizedPricingIngredients().find(item => {
+        return String(item.id) === String(ingredientId);
+      });
+      if (!ingredient) {
+        return;
+      }
+      const usedBy = (state.pricingRecipes || []).filter(recipe => {
+        return (recipe.ingredients || []).some(item => {
+          return String(item.ingredientId) === String(ingredientId);
+        });
+      });
+      if (usedBy.length) {
+        showToast(`Ingrediente usado em ${usedBy.length} receita(s). Remova-o das receitas antes de excluir.`, "warning");
+        return;
+      }
+      if (!confirm(`Excluir o ingrediente "${ingredient.name}"?`)) {
+        return;
+      }
+      state.ingredients = normalizedPricingIngredients().filter(item => {
+        return String(item.id) !== String(ingredientId);
+      });
+      recordAudit("Ingrediente de precificação excluído", ingredient.name);
+      if (await persistState()) {
+        state.editPricingIngredientId = null;
+        renderPricing();
+      }
+    });
+  });
+
+  const recipeForm = document.querySelector("#pricing-recipe-form");
+  if (recipeForm) {
+    recipeForm.addEventListener("input", () => updatePricingRecipePreview(recipeForm));
+    recipeForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      const recipe = pricingRecipeDraftFromForm(event.currentTarget);
+      if (!recipe.name || !recipe.category || recipe.weightGrams <= 0) {
+        showToast("Informe nome, categoria e peso final da cumbuca.", "warning");
+        return;
+      }
+      if (!recipe.ingredients.length) {
+        showToast("Informe ao menos um ingrediente usado na receita.", "warning");
+        return;
+      }
+      if (recipe.desiredMarginPercent + recipe.variableFeePercent >= 100) {
+        showToast("A soma da margem desejada com a taxa variável deve ser menor que 100%.", "warning");
+        return;
+      }
+      const duplicate = (state.pricingRecipes || []).find(item => {
+        return String(item.name || "").toLocaleLowerCase("pt-BR")
+            === recipe.name.toLocaleLowerCase("pt-BR")
+          && String(item.id) !== String(recipe.id);
+      });
+      if (duplicate) {
+        showToast("Já existe uma receita com esse nome.", "warning");
+        return;
+      }
+      const savedRecipe = {
+        ...recipe,
+        id: recipe.id || `pricing-recipe-${Date.now()}`,
+        updatedAt: new Date().toISOString()
+      };
+      if (recipe.id) {
+        state.pricingRecipes = (state.pricingRecipes || []).map(item => {
+          return String(item.id) === String(recipe.id) ? savedRecipe : item;
+        });
+        recordAudit("Receita de precificação editada", recipe.name);
+      } else {
+        state.pricingRecipes = [...(state.pricingRecipes || []), savedRecipe];
+        recordAudit("Receita de precificação cadastrada", recipe.name);
+      }
+      state.pricingConfig = {
+        ...(state.pricingConfig || {}),
+        projectionRecipeId: state.pricingConfig?.projectionRecipeId || savedRecipe.id
+      };
+      if (await persistState()) {
+        state.editPricingRecipeId = null;
+        openPricingView("dashboard");
+      }
+    });
+  }
+
+  on("#cancel-pricing-recipe-edit", "click", () => {
+    state.editPricingRecipeId = null;
+    renderPricing();
+  });
+
+  document.querySelectorAll("[data-edit-pricing-recipe]").forEach(button => {
+    button.addEventListener("click", event => {
+      state.editPricingRecipeId = event.currentTarget.dataset.editPricingRecipe;
+      openPricingView("recipes");
+    });
+  });
+
+  document.querySelectorAll("[data-delete-pricing-recipe]").forEach(button => {
+    button.addEventListener("click", async event => {
+      const recipeId = event.currentTarget.dataset.deletePricingRecipe;
+      const recipe = pricingRecipeById(recipeId);
+      if (!recipe || !confirm(`Excluir a receita "${recipe.name}"?`)) {
+        return;
+      }
+      state.pricingRecipes = (state.pricingRecipes || []).filter(item => {
+        return String(item.id) !== String(recipeId);
+      });
+      if (String(state.pricingConfig?.projectionRecipeId) === String(recipeId)) {
+        state.pricingConfig = {
+          ...(state.pricingConfig || {}),
+          projectionRecipeId: state.pricingRecipes[0]?.id || ""
+        };
+      }
+      recordAudit("Receita de precificação excluída", recipe.name);
+      if (await persistState()) {
+        state.editPricingRecipeId = null;
+        renderPricing();
+      }
+    });
+  });
+
+  const sharedCostForm = document.querySelector("#pricing-shared-cost-form");
+  if (sharedCostForm) {
+    sharedCostForm.addEventListener("input", () => {
+      updatePricingSharedCostPreview(sharedCostForm);
+    });
+    sharedCostForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      const sharedCosts = pricingSharedCostsFromForm(event.currentTarget);
+      if (sharedCosts.averageMonthlyUnits <= 0) {
+        showToast("Informe uma média mensal maior que zero.", "warning");
+        return;
+      }
+      state.pricingConfig = {
+        ...(state.pricingConfig || {}),
+        sharedCosts
+      };
+      recordAudit(
+        "Custos rateados de precificação atualizados",
+        `${sharedCosts.averageMonthlyUnits} cumbucas/mês`
+      );
+      if (await persistState()) {
+        renderPricing();
+      }
+    });
+  }
+
+  on("#use-store-average", "click", () => {
+    if (!sharedCostForm) {
+      return;
+    }
+    const averageField = sharedCostForm.elements.averageMonthlyUnits;
+    averageField.value = storeAverageMonthlyUnits();
+    updatePricingSharedCostPreview(sharedCostForm);
+  });
+
+  const projectionSelect = document.querySelector("#pricing-projection-recipe");
+  if (projectionSelect) {
+    projectionSelect.addEventListener("change", async event => {
+      state.pricingConfig = {
+        ...(state.pricingConfig || {}),
+        projectionRecipeId: event.currentTarget.value
+      };
+      if (await persistState()) {
+        renderPricing();
+      }
+    });
+  }
 }
 
 function recipePricing(item, config = {}) {
@@ -8441,7 +9499,7 @@ function reportData() {
   const orderRevenue = orders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
   const deliveryRevenue = orders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0);
   const totalQuantity = orders.reduce((sum, order) => sum + orderQuantity(order), 0);
-  const storeQuantity = storeSales.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+  const storeQuantity = storeSales.reduce((sum, entry) => sum + storeSaleUnitQuantity(entry), 0);
   const weeklyCashQuantity = totalQuantity;
   const totalIncome = income;
   const paidOrders = orders.filter(order => {
@@ -9200,11 +10258,7 @@ function reportPdfHtml(data) {
     entry.description || "",
     money(entry.amount)
   ]);
-  const storeRows = data.storeSales.map(entry => [
-    entry.date || "",
-    Number(entry.quantity || 0),
-    entry.notes || ""
-  ]);
+  const storeRows = data.storeSales.map(storeSaleReportRow);
   const expenseRows = data.topExpenses.map(entry => [
     entry.date || "",
     entry.description || "",
@@ -9333,7 +10387,7 @@ function reportPdfHtml(data) {
         <h2>Principais saídas (despesas)</h2>
         ${pdfRows(["Data", "Descrição", "Valor"], expenseRows)}
         <h2>Cumbucas vendidas na loja</h2>
-        ${pdfRows(["Data", "Quantidade", "Observação"], storeRows)}
+        ${pdfRows(["Data", "Tipo", "Quantidade", "Unid. por combo", "Total de unidades", "Observação"], storeRows)}
       </body>
     </html>`;
 }
@@ -9417,7 +10471,7 @@ async function downloadReportPdf(options = {}) {
         money(channelReceiptAmount(entry, "food99", "net")),
         money(channelReceiptTotal(entry))
       ]),
-      storeRows: data.storeSales.map(entry => [entry.date || "", Number(entry.quantity || 0), entry.notes || ""]),
+      storeRows: data.storeSales.map(storeSaleReportRow),
       cashRows: data.cashEntries.map(entry => [
         entry.date || "",
         entry.description || "",
@@ -9515,7 +10569,7 @@ async function downloadReportXlsx(options = {}) {
         channelReceiptAmount(entry, "food99", "net"),
         channelReceiptTotal(entry)
       ]),
-      storeRows: data.storeSales.map(entry => [entry.date || "", Number(entry.quantity || 0), entry.notes || ""]),
+      storeRows: data.storeSales.map(storeSaleReportRow),
       cashRows: data.cashEntries.map(entry => [
         entry.date || "",
         entry.description || "",
@@ -9753,7 +10807,7 @@ function comparisonReportRows(data) {
   const previousWithdrawalControl = partnerPeriodTotals(withdrawalHistoryGroups(previousCash));
   const previousWithdrawalAmounts = withdrawalBreakdownAmounts(previousFinancial.withdrawals, previousWithdrawalControl);
   const previousOrderQuantity = previousOrders.reduce((sum, order) => sum + orderQuantity(order), 0);
-  const previousStoreQuantity = previousStore.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+  const previousStoreQuantity = previousStore.reduce((sum, entry) => sum + storeSaleUnitQuantity(entry), 0);
   const previousOrderRevenue = previousOrders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
   const previousAverageTicket = previousOrders.length ? previousOrderRevenue / previousOrders.length : 0;
   return [
@@ -9922,6 +10976,49 @@ function reportTypeDefaultDate(data) {
   return `${data.periodKey}-01`;
 }
 
+function normalizedStoreSaleType(entry = {}) {
+  return entry?.saleType === "combo" ? "combo" : "unit";
+}
+
+function storeSaleUnitsPerCombo(entry = {}) {
+  if (normalizedStoreSaleType(entry) !== "combo") {
+    return 1;
+  }
+  return Math.max(1, Number(entry?.unitsPerCombo || 1));
+}
+
+function storeSaleUnitQuantity(entry = {}) {
+  const quantity = Math.max(0, Number(entry?.quantity || 0));
+  return normalizedStoreSaleType(entry) === "combo"
+    ? quantity * storeSaleUnitsPerCombo(entry)
+    : quantity;
+}
+
+function storeSaleTypeLabel(entry = {}) {
+  return normalizedStoreSaleType(entry) === "combo" ? "Combo" : "Unidade";
+}
+
+function storeSaleReportRow(entry = {}) {
+  const combo = normalizedStoreSaleType(entry) === "combo";
+  return [
+    entry.date || "",
+    storeSaleTypeLabel(entry),
+    Number(entry.quantity || 0),
+    combo ? storeSaleUnitsPerCombo(entry) : "-",
+    storeSaleUnitQuantity(entry),
+    entry?.notes || ""
+  ];
+}
+
+function storeSaleAuditDetail(entry = {}) {
+  const quantity = Number(entry?.quantity || 0);
+  const totalUnits = storeSaleUnitQuantity(entry);
+  if (normalizedStoreSaleType(entry) === "combo") {
+    return `${quantity} combo(s) de ${storeSaleUnitsPerCombo(entry)} unidade(s), total ${totalUnits}, em ${entry?.date || ""}`;
+  }
+  return `${totalUnits} unidade(s) em ${entry?.date || ""}`;
+}
+
 function storeSalesTable(entries) {
   if (!entries.length) {
     return `<p class="muted">Nenhuma cumbuca da loja lançada neste período.</p>`;
@@ -9930,13 +11027,16 @@ function storeSalesTable(entries) {
   return `
     <div class="table-wrap report-table">
       <table>
-        <thead><tr><th>Data</th><th>Quantidade</th><th>Observação</th><th>Ações</th></tr></thead>
+        <thead><tr><th>Data</th><th>Tipo</th><th>Quantidade</th><th>Unid. por combo</th><th>Total de unidades</th><th>Observação</th><th>Ações</th></tr></thead>
         <tbody>
           ${entries.map(entry => `
             <tr>
               <td>${formatIsoDateBr(entry.date)}</td>
+              <td>${storeSaleTypeLabel(entry)}</td>
               <td>${Number(entry.quantity || 0)}</td>
-              <td>${entry.notes || ""}</td>
+              <td>${normalizedStoreSaleType(entry) === "combo" ? storeSaleUnitsPerCombo(entry) : "-"}</td>
+              <td><strong>${storeSaleUnitQuantity(entry)}</strong></td>
+              <td>${escapeHtml(entry.notes || "")}</td>
               <td>
                 <div class="table-actions">
                   <button class="secondary table-action" type="button" data-edit-store-sale="${entry.id}">Editar</button>
@@ -10253,7 +11353,7 @@ function storeSalesMonthComparison(filter = storeSalesFilterDefaults()) {
   const previousMonth = previousMonthKeyFromPeriod(currentMonth);
   const totalForMonth = month => state.storeSales
     .filter(entry => String(entry.date || "").startsWith(month))
-    .reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+    .reduce((sum, entry) => sum + storeSaleUnitQuantity(entry), 0);
   const currentTotal = totalForMonth(currentMonth);
   const previousTotal = totalForMonth(previousMonth);
   const difference = currentTotal - previousTotal;
@@ -10273,19 +11373,220 @@ function storeSalesMonthComparison(filter = storeSalesFilterDefaults()) {
   };
 }
 
+function normalizedStoreProductMonth(value) {
+  const month = String(value || "").trim();
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    return "";
+  }
+  const monthNumber = Number(month.slice(5, 7));
+  return monthNumber >= 1 && monthNumber <= 12 ? month : "";
+}
+
+function sortedStoreProducts() {
+  return [...(state.storeProducts || [])].sort((a, b) => {
+    return String(a.name || "").localeCompare(String(b.name || ""), "pt-BR");
+  });
+}
+
+function storeProductQuantityForMonth(productId, month) {
+  const entry = (state.storeProductQuantities || []).find(item => {
+    return String(item.productId) === String(productId) && item.month === month;
+  });
+  return Number(entry?.quantity || 0);
+}
+
+function storeProductMonthTotal(month) {
+  return (state.storeProductQuantities || [])
+    .filter(entry => entry.month === month)
+    .reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+}
+
+function storeProductMonthlyHistory() {
+  const grouped = new Map();
+  (state.storeProductQuantities || []).forEach(entry => {
+    const month = normalizedStoreProductMonth(entry.month);
+    if (!month) {
+      return;
+    }
+    const current = grouped.get(month) || { month, quantity: 0, products: 0 };
+    current.quantity += Number(entry.quantity || 0);
+    if (Number(entry.quantity || 0) > 0) {
+      current.products += 1;
+    }
+    grouped.set(month, current);
+  });
+  return [...grouped.values()].sort((a, b) => b.month.localeCompare(a.month)).slice(0, 12);
+}
+
+function storeProductsPanel(month, editingProduct = null) {
+  const selectedMonth = normalizedStoreProductMonth(month) || isoDate(new Date()).slice(0, 7);
+  const products = sortedStoreProducts();
+  const monthTotal = storeProductMonthTotal(selectedMonth);
+  const productsWithQuantity = products.filter(product => {
+    return storeProductQuantityForMonth(product.id, selectedMonth) > 0;
+  }).length;
+  const previousMonth = previousMonthKeyFromPeriod(selectedMonth);
+  const previousTotal = storeProductMonthTotal(previousMonth);
+  const history = storeProductMonthlyHistory();
+
+  return `
+    <div class="tool-grid store-products-layout">
+      <section class="panel store-product-catalog">
+        <h2>${editingProduct ? "Editar produto" : "Cadastrar produto"}</h2>
+        <form id="store-product-form" class="form-grid single">
+          <input name="productId" type="hidden" value="${escapeHtml(editingProduct?.id || "")}">
+          <label>Nome do produto
+            <input name="name" placeholder="Ex.: Cumbuca 500 ml" value="${escapeHtml(editingProduct?.name || "")}" required>
+          </label>
+          <div class="actions">
+            <button type="submit">${editingProduct ? "Salvar produto" : "Cadastrar produto"}</button>
+            ${editingProduct ? `<button class="secondary" type="button" id="cancel-store-product-edit">Cancelar</button>` : ""}
+          </div>
+        </form>
+        <div class="section-heading store-product-heading">
+          <div>
+            <h3>Produtos cadastrados</h3>
+            <p class="muted-inline">${products.length} produto(s)</p>
+          </div>
+        </div>
+        ${products.length ? `
+          <div class="table-wrap report-table store-product-table">
+            <table>
+              <thead><tr><th>Produto</th><th>${formatMonthKeyBr(selectedMonth)}</th><th>Ações</th></tr></thead>
+              <tbody>
+                ${products.map(product => `
+                  <tr>
+                    <td><strong>${escapeHtml(product.name || "")}</strong></td>
+                    <td>${storeProductQuantityForMonth(product.id, selectedMonth)}</td>
+                    <td>
+                      <div class="table-actions">
+                        <button class="secondary table-action" type="button" data-edit-store-product="${escapeHtml(product.id)}">Editar</button>
+                        <button class="danger table-action" type="button" data-delete-store-product="${escapeHtml(product.id)}">Excluir</button>
+                      </div>
+                    </td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+        ` : `<p class="muted">Cadastre o primeiro produto para lançar quantidades mensais.</p>`}
+      </section>
+
+      <section class="panel report-section store-product-monthly">
+        <div class="section-heading">
+          <div>
+            <h2>Quantidades por produto</h2>
+            <p class="muted-inline">Controle detalhado do mês. Estes valores não alteram os totais da aba Vendas.</p>
+          </div>
+        </div>
+        <form id="store-product-month-form" class="period-picker store-product-month-picker">
+          <label>Mês
+            <input name="month" type="month" value="${selectedMonth}" required>
+          </label>
+          <button type="submit">Abrir mês</button>
+        </form>
+        <div class="summary">
+          <div class="metric" data-store-product-month-total><span>Unidades no mês</span><strong>${monthTotal}</strong></div>
+          <div class="metric"><span>Produtos com quantidade</span><strong>${productsWithQuantity}</strong></div>
+          <div class="metric"><span>${formatMonthKeyBr(previousMonth)}</span><strong>${previousTotal}</strong></div>
+        </div>
+        ${products.length ? `
+          <form id="store-product-quantities-form" class="store-product-quantities-form">
+            <input name="month" type="hidden" value="${selectedMonth}">
+            <div class="store-product-quantity-list">
+              ${products.map(product => `
+                <label class="store-product-quantity-row">
+                  <span>
+                    <b>${escapeHtml(product.name || "")}</b>
+                    <small>Quantidade em ${formatMonthKeyBr(selectedMonth)}</small>
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    inputmode="numeric"
+                    value="${storeProductQuantityForMonth(product.id, selectedMonth) || ""}"
+                    placeholder="0"
+                    data-store-product-quantity="${escapeHtml(product.id)}"
+                    aria-label="Quantidade de ${escapeHtml(product.name || "")}"
+                  >
+                </label>
+              `).join("")}
+            </div>
+            <div class="actions">
+              <button type="submit">Salvar quantidades do mês</button>
+            </div>
+          </form>
+        ` : ""}
+      </section>
+    </div>
+    <section class="panel report-section store-product-history">
+      <div class="section-heading">
+        <div>
+          <h2>Histórico mensal</h2>
+          <p class="muted-inline">Últimos 12 meses com quantidades lançadas por produto.</p>
+        </div>
+      </div>
+      ${history.length ? `
+        <div class="table-wrap report-table">
+          <table>
+            <thead><tr><th>Mês</th><th>Produtos</th><th>Total de unidades</th></tr></thead>
+            <tbody>
+              ${history.map(row => `
+                <tr>
+                  <td>${formatMonthKeyBr(row.month)}</td>
+                  <td>${row.products}</td>
+                  <td><strong>${row.quantity}</strong></td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      ` : `<p class="muted">Nenhuma quantidade mensal lançada ainda.</p>`}
+    </section>
+  `;
+}
+
 function renderStoreSales() {
   title.textContent = "Loja";
   setActive("loja");
   const today = isoDate(new Date());
+  const storeTabs = [
+    ["sales", "Vendas"],
+    ["products", "Produtos"],
+    ["channels", "Canais"]
+  ];
+  const requestedStoreView = new URLSearchParams(location.search).get("view");
+  const requestedStoreProductMonth = normalizedStoreProductMonth(new URLSearchParams(location.search).get("month"));
+  if (storeTabs.some(([tab]) => tab === requestedStoreView)) {
+    state.storeViewTab = requestedStoreView;
+  }
+  if (requestedStoreProductMonth) {
+    state.storeProductMonth = requestedStoreProductMonth;
+  }
+  if (!storeTabs.some(([tab]) => tab === state.storeViewTab)) {
+    state.storeViewTab = "sales";
+  }
+  const activeStoreView = state.storeViewTab;
   const editing = state.editStoreSaleId !== null
     ? state.storeSales.find(entry => String(entry.id) === String(state.editStoreSaleId))
     : null;
+  const editingSaleType = normalizedStoreSaleType(editing);
+  const editingUnitsPerCombo = storeSaleUnitsPerCombo(editing);
+  const editingChannelReceipt = state.editChannelReceiptId !== null
+    ? state.channelReceipts.find(entry => String(entry.id) === String(state.editChannelReceiptId))
+    : null;
+  const editingStoreProduct = state.editStoreProductId !== null
+    ? state.storeProducts.find(product => String(product.id) === String(state.editStoreProductId))
+    : null;
   const filter = storeSalesFilterDefaults();
   const filteredEntries = filteredStoreSales(filter);
-  const filteredTotal = filteredEntries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+  const filteredTotal = filteredEntries.reduce((sum, entry) => sum + storeSaleUnitQuantity(entry), 0);
   const comparison = storeSalesMonthComparison(filter);
 
   app.innerHTML = `
+    ${viewTabsHtml("storeViewTab", activeStoreView, storeTabs)}
+    ${viewPaneHtml("sales", activeStoreView, `
     <div class="tool-grid">
       <section class="panel">
         <h2>${editing ? "Editar venda da loja" : "Lançar venda da loja"}</h2>
@@ -10293,9 +11594,31 @@ function renderStoreSales() {
           <label>Data
             <input name="date" type="date" value="${editing?.date || today}" required>
           </label>
-          <label>Quantidade de cumbucas
+          <fieldset class="store-sale-type">
+            <legend>Tipo da venda</legend>
+            <div class="store-sale-type-options">
+              <label>
+                <input name="saleType" type="radio" value="unit" ${editingSaleType === "unit" ? "checked" : ""}>
+                <span><b>Unidade</b><small>Venda avulsa</small></span>
+              </label>
+              <label>
+                <input name="saleType" type="radio" value="combo" ${editingSaleType === "combo" ? "checked" : ""}>
+                <span><b>Combo</b><small>Mais de uma unidade</small></span>
+              </label>
+            </div>
+          </fieldset>
+          <label>
+            <span data-store-sale-quantity-label>${editingSaleType === "combo" ? "Quantidade de combos" : "Quantidade de unidades"}</span>
             <input name="quantity" type="number" min="0" step="1" placeholder="0" value="${editing?.quantity || ""}" required>
           </label>
+          <label id="store-combo-units-field" ${editingSaleType === "combo" ? "" : "hidden"}>
+            Unidades em cada combo
+            <input name="unitsPerCombo" type="number" min="1" step="1" placeholder="Ex.: 5" value="${editingSaleType === "combo" ? editingUnitsPerCombo : ""}">
+          </label>
+          <div class="store-sale-total" data-store-sale-total ${editingSaleType === "combo" ? "" : "hidden"} aria-live="polite">
+            <span>Total deste lançamento</span>
+            <strong data-store-sale-total-value>${editing ? storeSaleUnitQuantity(editing) : 0} unidades</strong>
+          </div>
           <label>Observação
             <input name="notes" placeholder="Opcional" value="${editing?.notes || ""}">
           </label>
@@ -10339,8 +11662,208 @@ function renderStoreSales() {
         </div>
       </section>
     </div>
+    `)}
+    ${viewPaneHtml("products", activeStoreView, storeProductsPanel(state.storeProductMonth, editingStoreProduct))}
+    ${viewPaneHtml("channels", activeStoreView, `
+      <section class="panel store-channels-panel">
+        ${channelReceiptsPanel(editingChannelReceipt)}
+      </section>
+    `)}
   `;
   enhanceResponsiveTables(app);
+
+  document.querySelectorAll('[data-view-tab-group="storeViewTab"] [data-view-tab]').forEach(button => {
+    button.addEventListener("click", event => {
+      const tab = event.currentTarget.dataset.viewTab;
+      state.storeViewTab = tab;
+      localStorage.setItem("storeViewTab", JSON.stringify(tab));
+      history.replaceState(null, "", `/loja?view=${tab}`);
+      renderStoreSales();
+    });
+  });
+
+  const storeSaleForm = document.querySelector("#store-sale-form");
+  const storeSaleQuantity = storeSaleForm?.querySelector('input[name="quantity"]');
+  const storeComboUnits = storeSaleForm?.querySelector('input[name="unitsPerCombo"]');
+  const storeComboUnitsField = document.querySelector("#store-combo-units-field");
+  const storeSaleQuantityLabel = document.querySelector("[data-store-sale-quantity-label]");
+  const storeSaleTotal = document.querySelector("[data-store-sale-total]");
+  const storeSaleTotalValue = document.querySelector("[data-store-sale-total-value]");
+  if (storeSaleForm && storeSaleQuantity && storeComboUnits && storeComboUnitsField && storeSaleQuantityLabel && storeSaleTotal && storeSaleTotalValue) {
+    const updateStoreSaleType = () => {
+      const saleType = storeSaleForm.querySelector('input[name="saleType"]:checked')?.value || "unit";
+      const combo = saleType === "combo";
+      storeComboUnitsField.hidden = !combo;
+      storeComboUnits.required = combo;
+      storeSaleQuantityLabel.textContent = combo ? "Quantidade de combos" : "Quantidade de unidades";
+      storeSaleTotal.hidden = !combo;
+      if (combo) {
+        const total = Number(storeSaleQuantity.value || 0) * Number(storeComboUnits.value || 0);
+        storeSaleTotalValue.textContent = `${total} unidade(s)`;
+      }
+    };
+    storeSaleForm.querySelectorAll('input[name="saleType"]').forEach(field => {
+      field.addEventListener("change", updateStoreSaleType);
+    });
+    storeSaleQuantity.addEventListener("input", updateStoreSaleType);
+    storeComboUnits.addEventListener("input", updateStoreSaleType);
+    updateStoreSaleType();
+  }
+
+  const storeProductForm = document.querySelector("#store-product-form");
+  if (storeProductForm) {
+    storeProductForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      const values = readForm(event.currentTarget);
+      const name = String(values.name || "").trim();
+      if (!name) {
+        showToast("Informe o nome do produto.", "error");
+        return;
+      }
+      const duplicate = state.storeProducts.find(product => {
+        return String(product.name || "").trim().toLocaleLowerCase("pt-BR") === name.toLocaleLowerCase("pt-BR")
+          && String(product.id) !== String(editingStoreProduct?.id || "");
+      });
+      if (duplicate) {
+        showToast("Já existe um produto com esse nome.", "warning");
+        return;
+      }
+      const product = {
+        id: editingStoreProduct?.id || `store-product-${Date.now()}`,
+        name,
+        createdAt: editingStoreProduct?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      if (editingStoreProduct) {
+        state.storeProducts = state.storeProducts.map(item => {
+          return String(item.id) === String(editingStoreProduct.id) ? product : item;
+        });
+        recordAudit("Produto da loja editado", name);
+      } else {
+        state.storeProducts.push(product);
+        recordAudit("Produto da loja cadastrado", name);
+      }
+      if (await persistState()) {
+        state.editStoreProductId = null;
+        renderStoreSales();
+      }
+    });
+  }
+
+  const cancelStoreProductEdit = document.querySelector("#cancel-store-product-edit");
+  if (cancelStoreProductEdit) {
+    cancelStoreProductEdit.addEventListener("click", () => {
+      state.editStoreProductId = null;
+      renderStoreSales();
+    });
+  }
+
+  document.querySelectorAll("[data-edit-store-product]").forEach(button => {
+    button.addEventListener("click", event => {
+      state.editStoreProductId = event.currentTarget.dataset.editStoreProduct;
+      state.storeViewTab = "products";
+      renderStoreSales();
+    });
+  });
+
+  document.querySelectorAll("[data-delete-store-product]").forEach(button => {
+    button.addEventListener("click", async event => {
+      const productId = event.currentTarget.dataset.deleteStoreProduct;
+      const product = state.storeProducts.find(item => String(item.id) === String(productId));
+      if (!product) {
+        return;
+      }
+      const quantities = state.storeProductQuantities.filter(entry => {
+        return String(entry.productId) === String(productId);
+      });
+      const lockedQuantity = quantities.find(entry => isMonthClosed(`${entry.month}-01`));
+      if (lockedQuantity) {
+        showToast(`O mês ${formatMonthKeyBr(lockedQuantity.month)} está fechado. Reabra antes de excluir o produto.`, "warning");
+        return;
+      }
+      const detail = quantities.length
+        ? ` e ${quantities.length} lançamento(s) mensal(is)`
+        : "";
+      if (!confirm(`Excluir o produto ${product.name}${detail}?`)) {
+        return;
+      }
+      state.storeProducts = state.storeProducts.filter(item => String(item.id) !== String(productId));
+      state.storeProductQuantities = state.storeProductQuantities.filter(entry => {
+        return String(entry.productId) !== String(productId);
+      });
+      if (String(state.editStoreProductId) === String(productId)) {
+        state.editStoreProductId = null;
+      }
+      recordAudit("Produto da loja excluído", `${product.name}${detail}`);
+      if (await persistState()) {
+        renderStoreSales();
+      }
+    });
+  });
+
+  const storeProductMonthForm = document.querySelector("#store-product-month-form");
+  if (storeProductMonthForm) {
+    storeProductMonthForm.addEventListener("submit", event => {
+      event.preventDefault();
+      const month = normalizedStoreProductMonth(readForm(event.currentTarget).month);
+      if (!month) {
+        showToast("Informe um mês válido.", "error");
+        return;
+      }
+      state.storeProductMonth = month;
+      localStorage.setItem("storeProductMonth", JSON.stringify(month));
+      history.replaceState(null, "", `/loja?view=products&month=${month}`);
+      renderStoreSales();
+    });
+  }
+
+  const storeProductQuantitiesForm = document.querySelector("#store-product-quantities-form");
+  if (storeProductQuantitiesForm) {
+    storeProductQuantitiesForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      const month = normalizedStoreProductMonth(readForm(event.currentTarget).month);
+      if (!month) {
+        showToast("Informe um mês válido.", "error");
+        return;
+      }
+      if (isMonthClosed(`${month}-01`)) {
+        showToast(`O mês ${formatMonthKeyBr(month)} está fechado. Reabra antes de alterar quantidades.`, "warning");
+        return;
+      }
+      const fields = [...event.currentTarget.querySelectorAll("[data-store-product-quantity]")];
+      const values = fields.map(field => ({
+        productId: field.dataset.storeProductQuantity,
+        quantity: Number(field.value || 0)
+      }));
+      if (values.some(item => !Number.isInteger(item.quantity) || item.quantity < 0)) {
+        showToast("Use somente quantidades inteiras iguais ou maiores que zero.", "error");
+        return;
+      }
+      const currentEntries = state.storeProductQuantities.filter(entry => entry.month === month);
+      const nextEntries = values
+        .filter(item => item.quantity > 0)
+        .map(item => {
+          const existing = currentEntries.find(entry => {
+            return String(entry.productId) === String(item.productId);
+          });
+          return {
+            id: existing?.id || `store-product-quantity-${month}-${item.productId}`,
+            productId: item.productId,
+            month,
+            quantity: item.quantity,
+            updatedAt: new Date().toISOString()
+          };
+        });
+      state.storeProductQuantities = [
+        ...state.storeProductQuantities.filter(entry => entry.month !== month),
+        ...nextEntries
+      ];
+      recordAudit("Quantidades mensais da loja salvas", `${formatMonthKeyBr(month)} - ${nextEntries.length} produto(s) - ${nextEntries.reduce((sum, entry) => sum + entry.quantity, 0)} unidade(s)`);
+      if (await persistState()) {
+        renderStoreSales();
+      }
+    });
+  }
 
   const filterForm = document.querySelector("#store-sales-filter-form");
   const filterPeriod = document.querySelector("#store-sales-filter-period");
@@ -10369,9 +11892,15 @@ function renderStoreSales() {
   on("#store-sale-form", "submit", event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
+    const saleType = values.saleType === "combo" ? "combo" : "unit";
     const quantity = Number(values.quantity || 0);
-    if (!values.date || quantity <= 0) {
-      showToast("Informe data e quantidade maior que zero.", "error");
+    const unitsPerCombo = saleType === "combo" ? Number(values.unitsPerCombo || 0) : 1;
+    if (!values.date || !Number.isInteger(quantity) || quantity <= 0) {
+      showToast("Informe data e uma quantidade inteira maior que zero.", "error");
+      return;
+    }
+    if (saleType === "combo" && (!Number.isInteger(unitsPerCombo) || unitsPerCombo <= 0)) {
+      showToast("Informe quantas unidades inteiras existem em cada combo.", "error");
       return;
     }
     if (blockClosedPeriod(values.date, editing ? "editar venda da loja" : "lançar venda da loja")) {
@@ -10383,16 +11912,18 @@ function renderStoreSales() {
     const entry = {
       id: editing?.id || Date.now(),
       date: values.date,
+      saleType,
       quantity,
+      unitsPerCombo,
       notes: values.notes || ""
     };
     if (editing) {
       state.storeSales = state.storeSales.map(item => String(item.id) === String(editing.id) ? entry : item);
       state.editStoreSaleId = null;
-      recordAudit("Loja editada", `${values.quantity || 0} cumbuca(s) em ${values.date}`);
+      recordAudit("Loja editada", storeSaleAuditDetail(entry));
     } else {
       state.storeSales.push(entry);
-      recordAudit("Loja lançada", `${values.quantity || 0} cumbuca(s) em ${values.date}`);
+      recordAudit("Loja lançada", storeSaleAuditDetail(entry));
     }
     persistState();
     renderStoreSales();
@@ -10409,6 +11940,7 @@ function renderStoreSales() {
   document.querySelectorAll("[data-edit-store-sale]").forEach(button => {
     button.addEventListener("click", event => {
       state.editStoreSaleId = event.currentTarget.dataset.editStoreSale;
+      state.storeViewTab = "sales";
       renderStoreSales();
     });
   });
@@ -10427,11 +11959,13 @@ function renderStoreSales() {
       if (String(state.editStoreSaleId) === String(id)) {
         state.editStoreSaleId = null;
       }
-      recordAudit("Loja excluída", `${removed?.quantity || 0} cumbuca(s) em ${removed?.date || ""}`);
+      recordAudit("Loja excluída", storeSaleAuditDetail(removed));
       persistState();
       renderStoreSales();
     });
   });
+
+  bindChannelReceipts(renderStoreSales, editingChannelReceipt);
 }
 
 function oldReportTitleSuffix(data) {
@@ -12747,7 +14281,7 @@ async function renderBackups() {
           <p class="muted-inline">Use para começar os valores novamente sem perder os cadastros e a configuração da operação.</p>
           <div class="backup-list-state warning-state">
             <strong>Apaga somente movimentações</strong>
-            <span>Caixa, vendas da loja, recebimentos por canais e fechamentos ficam vazios. Clientes, pedidos, cardápios, categorias, motivos, precificação, planejamento e configurações permanecem.</span>
+            <span>Caixa, vendas da loja, quantidades mensais dos produtos, recebimentos por canais e fechamentos ficam vazios. Clientes, pedidos, cardápios, categorias, produtos da loja, motivos, precificação, planejamento e configurações permanecem.</span>
           </div>
           <div class="reset-confirmation">
             <label>Confirmação
@@ -13070,7 +14604,7 @@ function reportExportPayload(data = reportData()) {
         money(channelReceiptAmount(entry, "food99", "net")),
         money(channelReceiptTotal(entry))
       ]),
-      storeRows: data.storeSales.map(entry => [entry.date || "", Number(entry.quantity || 0), entry.notes || ""]),
+      storeRows: data.storeSales.map(storeSaleReportRow),
       cashRows: data.cashEntries.map(entry => [
         entry.date || "",
         entry.description || "",
@@ -13560,8 +15094,11 @@ function showBackupPreviewModal(result, restoreReference = "", restoreDate = "")
         <span><b>${preview.orders || 0}</b><small>Pedidos</small></span>
         <span><b>${preview.cashEntries || 0}</b><small>Caixa</small></span>
         <span><b>${preview.storeSales || 0}</b><small>Loja</small></span>
+        <span><b>${preview.storeProducts || 0}</b><small>Produtos loja</small></span>
+        <span><b>${preview.storeProductQuantities || 0}</b><small>Quantidades mensais</small></span>
         <span><b>${preview.menuItems || 0}</b><small>Menu</small></span>
-        <span><b>${preview.ingredients || 0}</b><small>Ingredientes</small></span>
+        <span><b>${preview.pricingIngredients || preview.ingredients || 0}</b><small>Ingredientes</small></span>
+        <span><b>${preview.pricingRecipes || 0}</b><small>Receitas</small></span>
       </div>
       <p class="muted">Atualizado: ${result.updatedAt ? new Date(result.updatedAt).toLocaleString("pt-BR") : new Date().toLocaleString("pt-BR")}</p>
       <div class="modal-actions">
@@ -13624,6 +15161,10 @@ function backupPreviewText(result) {
     `Clientes: ${preview.clients || 0}`,
     `Menus: ${preview.menus || 0}`,
     `Loja: ${preview.storeSales || 0}`,
+    `Produtos loja: ${preview.storeProducts || 0}`,
+    `Quantidades mensais: ${preview.storeProductQuantities || 0}`,
+    `Ingredientes: ${preview.pricingIngredients || preview.ingredients || 0}`,
+    `Receitas: ${preview.pricingRecipes || 0}`,
     `Canais: ${preview.channelReceipts || 0}`,
     `Auditoria: ${preview.auditLog || 0}`,
     `Fechamentos mensais: ${preview.monthlyClosings || 0}`,

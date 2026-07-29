@@ -415,6 +415,209 @@ test('store sales filter by day, week and month with previous month comparison',
   });
 });
 
+test('channels tab lives in store and old cash link redirects', async ({ page }) => {
+  await page.goto('/fluxo-de-caixa');
+  await expect(page.locator('[data-cash-panel="channels"]')).toHaveCount(0);
+
+  await page.goto('/loja?view=channels');
+  const channelsTab = page.getByRole('button', { name: 'Canais', exact: true });
+  await expect(channelsTab).toBeVisible();
+  await expect(channelsTab).toHaveClass(/active/);
+  await expect(
+    page.getByRole('heading', { name: 'Entradas por canal', exact: true })
+  ).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+
+  await page.getByRole('button', { name: 'Vendas', exact: true }).click();
+  await expect(page).toHaveURL(/\/loja\?view=sales$/);
+  await expect(page.locator('#store-sale-form')).toBeVisible();
+
+  await page.goto('/fluxo-de-caixa?panel=channels');
+  await expect(page).toHaveURL(/\/loja\?view=channels$/);
+  await expect(
+    page.getByRole('heading', { name: 'Entradas por canal', exact: true })
+  ).toBeVisible();
+});
+
+test('store sale supports unit and combo quantities', async ({ page }, testInfo) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = { storeSales: [] };
+
+  await page.goto('/loja?view=sales');
+  const form = page.locator('#store-sale-form');
+  const unitOption = form.locator('input[name="saleType"][value="unit"]');
+  const comboOption = form.locator('input[name="saleType"][value="combo"]');
+  const quantity = form.locator('input[name="quantity"]');
+  const unitsPerCombo = form.locator('input[name="unitsPerCombo"]');
+  const comboField = page.locator('#store-combo-units-field');
+  const totalPreview = page.locator('[data-store-sale-total]');
+
+  await expect(unitOption).toBeChecked();
+  await expect(comboField).toBeHidden();
+  await comboOption.check();
+  await expect(comboField).toBeVisible();
+  await expect(page.locator('[data-store-sale-quantity-label]')).toHaveText('Quantidade de combos');
+
+  await quantity.fill('3');
+  await unitsPerCombo.fill('4');
+  await expect(totalPreview).toContainText('12 unidade(s)');
+  await form.getByRole('button', { name: 'Adicionar', exact: true }).click();
+
+  await expect.poll(() => database.state.storeSales?.length).toBe(1);
+  expect(database.state.storeSales[0]).toMatchObject({
+    saleType: 'combo',
+    quantity: 3,
+    unitsPerCombo: 4,
+  });
+  await expect(page.locator('[data-store-sales-filter-total]')).toContainText('12');
+  const row = page.locator('.store-sales-results tbody tr');
+  await expect(row).toHaveCount(1);
+  await expect(row).toContainText('Combo');
+  await expect(row).toContainText('12');
+
+  await row.getByRole('button', { name: 'Editar', exact: true }).click();
+  await expect(comboOption).toBeChecked();
+  await expect(quantity).toHaveValue('3');
+  await expect(unitsPerCombo).toHaveValue('4');
+
+  await unitOption.check();
+  await expect(comboField).toBeHidden();
+  await expect(totalPreview).toBeHidden();
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath('store-sale-unit-combo.png'),
+    fullPage: true,
+  });
+});
+
+test('store products receive individual monthly quantities', async ({ page }, testInfo) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    storeProducts: [],
+    storeProductQuantities: [],
+  };
+
+  await page.goto('/loja?view=products&month=2026-07');
+  const productsTab = page.getByRole('button', { name: 'Produtos', exact: true });
+  await expect(productsTab).toBeVisible();
+  await expect(productsTab).toHaveClass(/active/);
+
+  const productForm = page.locator('#store-product-form');
+  await productForm.locator('input[name="name"]').fill('Cumbuca 500 ml');
+  await productForm.getByRole('button', { name: 'Cadastrar produto', exact: true }).click();
+  await expect.poll(() => database.state.storeProducts?.length).toBe(1);
+  expect(database.state.storeProducts[0].name).toBe('Cumbuca 500 ml');
+
+  const quantitiesForm = page.locator('#store-product-quantities-form');
+  const quantity = quantitiesForm.getByLabel('Quantidade de Cumbuca 500 ml', { exact: true });
+  await quantity.fill('24');
+  await quantitiesForm.locator('button[type="submit"]').click();
+  await expect.poll(() => database.state.storeProductQuantities?.length).toBe(1);
+  expect(database.state.storeProductQuantities[0]).toMatchObject({
+    productId: database.state.storeProducts[0].id,
+    month: '2026-07',
+    quantity: 24,
+  });
+  await expect(page.locator('[data-store-product-month-total]')).toContainText('24');
+  await expect(page.locator('.store-product-history')).toContainText('julho de 2026');
+  await expect(page.locator('.store-product-history')).toContainText('24');
+
+  const monthForm = page.locator('#store-product-month-form');
+  await monthForm.locator('input[name="month"]').fill('2026-06');
+  await monthForm.locator('button[type="submit"]').click();
+  await expect(page).toHaveURL(/view=products&month=2026-06/);
+  await expect(
+    page
+      .locator('#store-product-quantities-form')
+      .getByLabel('Quantidade de Cumbuca 500 ml', { exact: true })
+  ).toHaveValue('');
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath('store-products-monthly.png'),
+    fullPage: true,
+  });
+});
+
+test('pricing rates monthly costs and calculates recipe profitability', async ({
+  page,
+}, testInfo) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    pricingIngredients: [],
+    pricingRecipes: [],
+    pricingConfig: {},
+    storeProductQuantities: [
+      { id: 'q-1', productId: 'product-1', month: '2026-06', quantity: 100 },
+      { id: 'q-2', productId: 'product-1', month: '2026-07', quantity: 200 },
+    ],
+  };
+
+  await page.goto('/precificacao?view=costs');
+  const costForm = page.locator('#pricing-shared-cost-form');
+  await expect(costForm).toBeVisible();
+  await costForm.getByRole('button', { name: 'Usar média da Loja (150)', exact: true }).click();
+  await expect(costForm.locator('input[name="averageMonthlyUnits"]')).toHaveValue('150');
+  await costForm.locator('input[name="gas"]').fill('100');
+  await costForm.locator('input[name="energy"]').fill('50');
+  await costForm.locator('input[name="labor"]').fill('300');
+  await costForm.locator('input[name="rent"]').fill('600');
+  await costForm.locator('input[name="marketing"]').fill('150');
+  await costForm.locator('input[name="extraordinary"]').fill('150');
+  await expect(page.locator('[data-pricing-shared-preview="total"]')).toContainText('9,00');
+  await costForm.getByRole('button', { name: 'Salvar custos rateados', exact: true }).click();
+  await expect.poll(() => database.state.pricingConfig?.sharedCosts?.averageMonthlyUnits).toBe(150);
+
+  await page.getByRole('button', { name: 'Ingredientes', exact: true }).click();
+  let ingredientForm = page.locator('#pricing-ingredient-form');
+  await ingredientForm.locator('input[name="name"]').fill('Peito de frango');
+  await ingredientForm.locator('input[name="purchaseQuantity"]').fill('1000');
+  await ingredientForm.locator('input[name="purchaseCost"]').fill('20');
+  await expect(page.locator('[data-pricing-ingredient-unit-cost]')).toContainText('0,02');
+  await ingredientForm.getByRole('button', { name: 'Cadastrar ingrediente', exact: true }).click();
+  await expect.poll(() => database.state.pricingIngredients?.length).toBe(1);
+
+  ingredientForm = page.locator('#pricing-ingredient-form');
+  await ingredientForm.locator('input[name="name"]').fill('Arroz');
+  await ingredientForm.locator('input[name="purchaseQuantity"]').fill('5000');
+  await ingredientForm.locator('input[name="purchaseCost"]').fill('25');
+  await ingredientForm.getByRole('button', { name: 'Cadastrar ingrediente', exact: true }).click();
+  await expect.poll(() => database.state.pricingIngredients?.length).toBe(2);
+
+  await page.getByRole('button', { name: 'Receitas', exact: true }).click();
+  const recipeForm = page.locator('#pricing-recipe-form');
+  await recipeForm.locator('input[name="name"]').fill('Frango Fit');
+  await recipeForm.locator('input[name="category"]').fill('Frango');
+  await recipeForm.locator('input[name="weightGrams"]').fill('500');
+  await recipeForm.locator('input[name="packagingCost"]').fill('2');
+  await recipeForm.locator('input[name="fixedFee"]').fill('0,50');
+  await recipeForm.locator('input[name="variableFeePercent"]').fill('10');
+  await recipeForm.locator('input[name="desiredMarginPercent"]').fill('40');
+  await recipeForm.locator('input[name="practicedPrice"]').fill('30');
+  await recipeForm.getByLabel('Quantidade de Peito de frango', { exact: true }).fill('200');
+  await recipeForm.getByLabel('Quantidade de Arroz', { exact: true }).fill('150');
+  await expect(page.locator('[data-pricing-preview="suggested"]')).toContainText('32,50');
+  await expect(page.locator('[data-pricing-preview="profit"]')).toContainText('10,75');
+  await recipeForm.getByRole('button', { name: 'Cadastrar receita', exact: true }).click();
+  await expect.poll(() => database.state.pricingRecipes?.length).toBe(1);
+
+  await expect(page).toHaveURL(/precificacao\?view=dashboard/);
+  const recipeRow = page.locator('.pricing-table tbody tr');
+  await expect(recipeRow).toHaveCount(1);
+  await expect(recipeRow).toContainText('Frango Fit');
+  await expect(recipeRow).toContainText('R$ 32,50');
+  await expect(recipeRow).toContainText('R$ 10,75');
+  await expect(recipeRow).toContainText('35,8%');
+  await expect(recipeRow).toContainText('Atenção');
+  await expect(page.getByRole('heading', { name: 'Lucro estimado por lote' })).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath('pricing-recipe-dashboard.png'),
+    fullPage: true,
+  });
+});
+
 test('maintenance zero account creates the balancing adjustment', async ({ page }) => {
   const database = await mockOnlineDatabase(page);
   const today = localDateKey();

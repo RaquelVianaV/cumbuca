@@ -8,6 +8,7 @@ const {
   backupVersionId,
   bulkFinancialClearRequested,
   calculateCashFlow,
+  calculatePricing,
   financialPayloadChanged,
   financialIntegritySummary,
   integrationStatus,
@@ -56,11 +57,57 @@ test('normalizeState fills missing keys without replacing supplied values', () =
 
   assert.equal(state.cashEntries, cashEntries);
   assert.deepEqual(state.clients, []);
+  assert.deepEqual(state.storeProducts, []);
+  assert.deepEqual(state.storeProductQuantities, []);
+  assert.deepEqual(state.pricingRecipes, []);
   assert.deepEqual(state.weeklyClosings, {});
   assert.deepEqual(state.financialPlanning.accounts, []);
   assert.deepEqual(state.financialPlanning.reconciliationHistory, []);
   assert.deepEqual(state.financialPlanning.monthlyBudgets, {});
   assert.equal(state.appConfig.storeName, 'Cumbuca');
+});
+
+test('calculatePricing rates monthly costs and calculates suggested and real margins', () => {
+  const result = calculatePricing({
+    catalog: [
+      { id: 'chicken', purchaseQuantity: 1000, purchaseCost: 20 },
+      { id: 'rice', purchaseQuantity: 5000, purchaseCost: 25 },
+    ],
+    sharedCosts: {
+      averageMonthlyUnits: 1000,
+      gas: 100,
+      energy: 200,
+      water: 100,
+      labor: 1000,
+      rent: 1000,
+      marketing: 500,
+      extraordinary: 100,
+    },
+    recipe: {
+      ingredients: [
+        { ingredientId: 'chicken', quantity: 200 },
+        { ingredientId: 'rice', quantity: 150 },
+      ],
+      packagingCost: 2,
+      fixedFee: 0.5,
+      variableFeePercent: 10,
+      desiredMarginPercent: 40,
+      practicedPrice: 25,
+    },
+  });
+
+  assert.equal(result.ingredientCost, 4.75);
+  assert.equal(result.productionCost, 0.4);
+  assert.equal(result.laborCost, 1);
+  assert.equal(result.otherCost, 1.6);
+  assert.equal(result.baseCost, 10.25);
+  assert.equal(result.suggestedPrice, 20.5);
+  assert.equal(result.totalCost, 12.3);
+  assert.equal(result.profit, 8.2);
+  assert.equal(result.realTotalCost, 12.75);
+  assert.equal(result.realProfit, 12.25);
+  assert.equal(result.realMarginPercent, 49);
+  assert.equal(result.status, 'Lucrativa');
 });
 
 test('automatic backups share one version per UTC hour', () => {
@@ -112,6 +159,23 @@ test('closed days block financial changes at the API policy layer', () => {
   assert.match(violation.message, /2026-06-10/);
 });
 
+test('closed months block monthly store product quantities', () => {
+  const current = normalizeState({
+    storeProductQuantities: [
+      { id: 'quantity-1', productId: 'product-1', month: '2026-06', quantity: 10 },
+    ],
+    monthlyClosings: { '2026-06': { locked: true } },
+  });
+  const violation = stateWriteViolation(current, {
+    storeProductQuantities: [
+      { id: 'quantity-1', productId: 'product-1', month: '2026-06', quantity: 12 },
+    ],
+  });
+
+  assert.equal(violation.statusCode, 409);
+  assert.match(violation.message, /2026-06/);
+});
+
 test('admin reopens a period before financial values can change', () => {
   const current = normalizeState({
     cashEntries: [{ id: 'entry-1', date: '2026-06-10', type: 'income', amount: 100 }],
@@ -149,6 +213,12 @@ test('financial payload detection ignores unrelated configuration changes', () =
   assert.equal(
     financialPayloadChanged(current, {
       cashEntries: [{ id: 'entry-1', date: '2026-06-12', type: 'income', amount: 10 }],
+    }),
+    true
+  );
+  assert.equal(
+    financialPayloadChanged(current, {
+      storeProducts: [{ id: 'product-1', name: 'Cumbuca 500 ml' }],
     }),
     true
   );

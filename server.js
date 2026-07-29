@@ -34,6 +34,8 @@ const stateKeys = [
   'clients',
   'orders',
   'storeSales',
+  'storeProducts',
+  'storeProductQuantities',
   'channelReceipts',
   'cashCategories',
   'archivedCashCategories',
@@ -44,6 +46,7 @@ const stateKeys = [
   'monthlyClosings',
   'weeklyClosings',
   'pricingIngredients',
+  'pricingRecipes',
   'pricingConfig',
   'cashFilter',
   'financialPlanning',
@@ -53,6 +56,7 @@ const stateKeys = [
 const financialResetKeys = [
   'cashEntries',
   'storeSales',
+  'storeProductQuantities',
   'channelReceipts',
   'monthlyClosings',
   'weeklyClosings',
@@ -70,6 +74,8 @@ const defaultState = {
   clients: [],
   orders: [],
   storeSales: [],
+  storeProducts: [],
+  storeProductQuantities: [],
   channelReceipts: [],
   cashCategories: null,
   archivedCashCategories: { income: [], expense: [] },
@@ -80,6 +86,7 @@ const defaultState = {
   monthlyClosings: {},
   weeklyClosings: {},
   pricingIngredients: [],
+  pricingRecipes: [],
   pricingConfig: {},
   cashFilter: { period: 'all' },
   financialPlanning: {
@@ -210,7 +217,13 @@ function changedRecordDates(previous = [], next = []) {
     const newRecord = after.get(key);
     if (!jsonEqual(oldRecord, newRecord)) {
       [oldRecord, newRecord].filter(Boolean).forEach((record) => {
-        const date = String(record.date || record.paidAt || record.createdAt || '').slice(0, 10);
+        const date = String(
+          record.date ||
+            (record.month ? `${record.month}-01` : '') ||
+            record.paidAt ||
+            record.createdAt ||
+            ''
+        ).slice(0, 10);
         if (date) {
           dates.add(date);
         }
@@ -218,6 +231,25 @@ function changedRecordDates(previous = [], next = []) {
     }
   });
   return [...dates];
+}
+
+function changedRecordMonths(previous = [], next = []) {
+  const before = new Map(previous.map((record, index) => [recordIdentity(record, index), record]));
+  const after = new Map(next.map((record, index) => [recordIdentity(record, index), record]));
+  const months = new Set();
+  new Set([...before.keys(), ...after.keys()]).forEach((key) => {
+    const oldRecord = before.get(key);
+    const newRecord = after.get(key);
+    if (!jsonEqual(oldRecord, newRecord)) {
+      [oldRecord, newRecord].filter(Boolean).forEach((record) => {
+        const month = String(record.month || '').slice(0, 7);
+        if (/^\d{4}-\d{2}$/.test(month)) {
+          months.add(month);
+        }
+      });
+    }
+  });
+  return [...months];
 }
 
 function stateWriteViolation(
@@ -241,8 +273,27 @@ function stateWriteViolation(
   if (bypassLocks) {
     return null;
   }
-  for (const key of ['cashEntries', 'storeSales', 'channelReceipts', 'orders']) {
+  for (const key of [
+    'cashEntries',
+    'storeSales',
+    'storeProductQuantities',
+    'channelReceipts',
+    'orders',
+  ]) {
     if (!Object.prototype.hasOwnProperty.call(payload, key)) {
+      continue;
+    }
+    if (key === 'storeProductQuantities') {
+      const months = changedRecordMonths(currentState[key] || [], payload[key] || []);
+      for (const month of months) {
+        const closing = currentState.monthlyClosings?.[month];
+        if (closing && closing.locked !== false) {
+          return {
+            statusCode: 409,
+            message: `O período ${month} está fechado. Reabra o período antes de alterar valores.`,
+          };
+        }
+      }
       continue;
     }
     const dates = changedRecordDates(currentState[key] || [], payload[key] || []);
@@ -266,7 +317,15 @@ function stateWriteViolation(
 }
 
 function financialPayloadChanged(currentState, payload = {}) {
-  return ['cashEntries', 'storeSales', 'channelReceipts', 'orders', 'financialPlanning'].some(
+  return [
+    'cashEntries',
+    'storeSales',
+    'storeProducts',
+    'storeProductQuantities',
+    'channelReceipts',
+    'orders',
+    'financialPlanning',
+  ].some(
     (key) =>
       Object.prototype.hasOwnProperty.call(payload, key) &&
       !jsonEqual(payload[key], currentState[key])
@@ -274,7 +333,7 @@ function financialPayloadChanged(currentState, payload = {}) {
 }
 
 function bulkFinancialClearRequested(currentState, payload = {}) {
-  const keys = ['cashEntries', 'storeSales', 'channelReceipts', 'orders'];
+  const keys = ['cashEntries', 'storeSales', 'storeProductQuantities', 'channelReceipts', 'orders'];
   let populatedCollectionsCleared = 0;
   let recordsBefore = 0;
   let recordsAfter = 0;
@@ -1299,6 +1358,12 @@ function backupPreview(payload = {}) {
         ? Object.keys(data.menuDatesByPeriod).length
         : 0,
     storeSales: Array.isArray(data.storeSales) ? data.storeSales.length : 0,
+    storeProducts: Array.isArray(data.storeProducts) ? data.storeProducts.length : 0,
+    storeProductQuantities: Array.isArray(data.storeProductQuantities)
+      ? data.storeProductQuantities.length
+      : 0,
+    pricingIngredients: Array.isArray(data.pricingIngredients) ? data.pricingIngredients.length : 0,
+    pricingRecipes: Array.isArray(data.pricingRecipes) ? data.pricingRecipes.length : 0,
     channelReceipts: Array.isArray(data.channelReceipts) ? data.channelReceipts.length : 0,
     auditLog: Array.isArray(data.auditLog) ? data.auditLog.length : 0,
     monthlyClosings:
@@ -2030,6 +2095,106 @@ function calculateCashFlow(entries = []) {
 }
 
 function calculatePricing(payload = {}) {
+  if (payload.recipe || payload.sharedCosts || payload.catalog) {
+    const recipe = payload.recipe || payload;
+    const ingredients = Array.isArray(payload.catalog)
+      ? payload.catalog
+      : Array.isArray(payload.ingredients)
+      ? payload.ingredients
+      : [];
+    const ingredientMap = new Map(
+      ingredients.map((ingredient, index) => [
+        String(ingredient.id || `ingredient-${index}`),
+        ingredient,
+      ])
+    );
+    const ingredientCost = (Array.isArray(recipe.ingredients) ? recipe.ingredients : []).reduce(
+      (sum, item) => {
+        const ingredient = ingredientMap.get(String(item.ingredientId));
+        if (!ingredient) {
+          return sum;
+        }
+        const purchaseQuantity = Math.max(
+          0,
+          number(ingredient.purchaseQuantity) || number(ingredient.quantity)
+        );
+        const purchaseCost = Math.max(
+          0,
+          number(ingredient.purchaseCost) ||
+            number(ingredient.quantity) * number(ingredient.unitCost)
+        );
+        const unitCost = purchaseQuantity > 0 ? purchaseCost / purchaseQuantity : 0;
+        return sum + Math.max(0, number(item.quantity)) * unitCost;
+      },
+      0
+    );
+    const shared = payload.sharedCosts || {};
+    const averageMonthlyUnits = Math.max(0, number(shared.averageMonthlyUnits));
+    const productionMonthly =
+      Math.max(0, number(shared.gas)) +
+      Math.max(0, number(shared.energy)) +
+      Math.max(0, number(shared.water));
+    const laborMonthly = Math.max(0, number(shared.labor));
+    const otherMonthly =
+      Math.max(0, number(shared.rent)) +
+      Math.max(0, number(shared.marketing)) +
+      Math.max(0, number(shared.extraordinary));
+    const productionCost = averageMonthlyUnits ? productionMonthly / averageMonthlyUnits : 0;
+    const laborCost = averageMonthlyUnits ? laborMonthly / averageMonthlyUnits : 0;
+    const otherCost = averageMonthlyUnits ? otherMonthly / averageMonthlyUnits : 0;
+    const packagingCost = Math.max(0, number(recipe.packagingCost));
+    const fixedFee = Math.max(0, number(recipe.fixedFee));
+    const variableFeePercent = Math.max(0, number(recipe.variableFeePercent));
+    const desiredMarginPercent = Math.max(0, number(recipe.desiredMarginPercent));
+    const practicedPrice = Math.max(0, number(recipe.practicedPrice));
+    const baseCost =
+      ingredientCost + packagingCost + productionCost + laborCost + otherCost + fixedFee;
+    const divisor = 1 - (variableFeePercent + desiredMarginPercent) / 100;
+    const suggestedPrice = divisor > 0 ? baseCost / divisor : 0;
+    const suggestedVariableFee = suggestedPrice * (variableFeePercent / 100);
+    const totalCost = baseCost + suggestedVariableFee;
+    const profit = suggestedPrice - totalCost;
+    const realVariableFee = practicedPrice * (variableFeePercent / 100);
+    const realTotalCost = baseCost + realVariableFee;
+    const realProfit = practicedPrice - realTotalCost;
+    const realMarginPercent = practicedPrice > 0 ? (realProfit / practicedPrice) * 100 : null;
+    const markup =
+      practicedPrice > 0 && realTotalCost > 0
+        ? practicedPrice / realTotalCost
+        : totalCost > 0
+        ? suggestedPrice / totalCost
+        : 0;
+    const status =
+      practicedPrice <= 0 || realMarginPercent === null
+        ? 'Atenção'
+        : realProfit < 0
+        ? 'Prejuízo'
+        : realMarginPercent + 0.0001 >= desiredMarginPercent
+        ? 'Lucrativa'
+        : 'Atenção';
+
+    return {
+      ingredientCost,
+      packagingCost,
+      productionCost,
+      laborCost,
+      otherCost,
+      fixedFee,
+      variableFeePercent,
+      desiredMarginPercent,
+      baseCost,
+      totalCost,
+      suggestedPrice,
+      profit,
+      practicedPrice,
+      realTotalCost,
+      realProfit,
+      realMarginPercent,
+      markup,
+      status,
+    };
+  }
+
   const ingredients = Array.isArray(payload.ingredients) ? payload.ingredients : [];
   const ingredientCost = ingredients.reduce((sum, item) => {
     return sum + number(item.quantity) * number(item.unitCost);
@@ -2265,7 +2430,12 @@ function buildReportPdf(payload = {}) {
   addPdfTable(doc, ['Destino', 'Valor'], data.withdrawalRows || [], [250, 140]);
 
   addPdfSectionTitle(doc, 'Cumbucas vendidas na loja');
-  addPdfTable(doc, ['Data', 'Quantidade', 'Observação'], data.storeRows || [], [82, 90, 340]);
+  addPdfTable(
+    doc,
+    ['Data', 'Tipo', 'Qtd.', 'Unid./combo', 'Total unid.', 'Observação'],
+    data.storeRows || [],
+    [58, 56, 48, 68, 68, 214]
+  );
 
   const footerY = 760;
   doc.moveTo(42, footerY).lineTo(245, footerY).stroke('#d1d5db');
@@ -2347,7 +2517,13 @@ async function buildReportXlsx(payload = {}) {
       ],
     ],
     ['Retiradas', [['Destino', 'Valor'], ...(data.withdrawalRows || [])]],
-    ['Loja', [['Data', 'Quantidade', 'Observação'], ...(data.storeRows || [])]],
+    [
+      'Loja',
+      [
+        ['Data', 'Tipo', 'Quantidade', 'Unidades por combo', 'Total de unidades', 'Observação'],
+        ...(data.storeRows || []),
+      ],
+    ],
     [
       'Contas resumo',
       [
@@ -3112,6 +3288,7 @@ handleRequest._test = {
   backupVersionId,
   bulkFinancialClearRequested,
   calculateCashFlow,
+  calculatePricing,
   changedRecordDates,
   financialPayloadChanged,
   financialIntegritySummary,
