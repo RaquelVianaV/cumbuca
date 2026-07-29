@@ -641,30 +641,40 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   await costForm.locator('input[name="labor"]').fill('300');
   await costForm.locator('input[name="rent"]').fill('600');
   await costForm.locator('input[name="accountant"]').fill('150');
-  await costForm.locator('input[name="marketing"]').fill('150');
+  await costForm.locator('input[name="labels"]').fill('100');
+  await costForm.locator('input[name="telephony"]').fill('50');
   await expect(page.locator('[data-pricing-shared-preview="total"]')).toContainText('9,00');
   await costForm.getByRole('button', { name: 'Salvar custos rateados', exact: true }).click();
   await expect.poll(() => database.state.pricingConfig?.sharedCosts?.averageMonthlyUnits).toBe(150);
   expect(database.state.pricingConfig.sharedCosts).toMatchObject({
     accountant: 150,
+    labels: 100,
+    telephony: 50,
   });
   expect(database.state.pricingConfig.sharedCosts).not.toHaveProperty('water');
 
   await page.getByRole('button', { name: 'Ingredientes', exact: true }).click();
   let ingredientForm = page.locator('#pricing-ingredient-form');
+  const unitSelect = ingredientForm.locator('select[name="unit"]');
+  await expect(unitSelect.locator('option')).toHaveCount(3);
+  await expect(unitSelect.locator('option')).toHaveText(['Quilograma (kg)', 'Unidade', 'Caixa']);
   await ingredientForm.locator('input[name="name"]').fill('Peito de frango');
-  await ingredientForm.locator('input[name="purchaseQuantity"]').fill('1000');
+  await unitSelect.selectOption('kg');
+  await ingredientForm.locator('input[name="purchaseQuantity"]').fill('1');
   await ingredientForm.locator('input[name="purchaseCost"]').fill('20');
-  await expect(page.locator('[data-pricing-ingredient-unit-cost]')).toContainText('0,02');
+  await expect(page.locator('[data-pricing-ingredient-unit-cost]')).toContainText('20,00');
   await ingredientForm.getByRole('button', { name: 'Cadastrar ingrediente', exact: true }).click();
   await expect.poll(() => database.state.pricingIngredients?.length).toBe(1);
+  expect(database.state.pricingIngredients[0]).toMatchObject({ unit: 'kg' });
 
   ingredientForm = page.locator('#pricing-ingredient-form');
   await ingredientForm.locator('input[name="name"]').fill('Arroz');
-  await ingredientForm.locator('input[name="purchaseQuantity"]').fill('5000');
+  await ingredientForm.locator('select[name="unit"]').selectOption('box');
+  await ingredientForm.locator('input[name="purchaseQuantity"]').fill('1');
   await ingredientForm.locator('input[name="purchaseCost"]').fill('25');
   await ingredientForm.getByRole('button', { name: 'Cadastrar ingrediente', exact: true }).click();
   await expect.poll(() => database.state.pricingIngredients?.length).toBe(2);
+  expect(database.state.pricingIngredients[1]).toMatchObject({ unit: 'box' });
 
   await page.getByRole('button', { name: 'Receitas', exact: true }).click();
   const recipeForm = page.locator('#pricing-recipe-form');
@@ -676,8 +686,8 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   await recipeForm.locator('input[name="variableFeePercent"]').fill('10');
   await recipeForm.locator('input[name="desiredMarginPercent"]').fill('40');
   await recipeForm.locator('input[name="practicedPrice"]').fill('30');
-  await recipeForm.getByLabel('Quantidade de Peito de frango', { exact: true }).fill('200');
-  await recipeForm.getByLabel('Quantidade de Arroz', { exact: true }).fill('150');
+  await recipeForm.getByLabel('Quantidade de Peito de frango', { exact: true }).fill('0.2');
+  await recipeForm.getByLabel('Quantidade de Arroz', { exact: true }).fill('0.03');
   await expect(page.locator('[data-pricing-preview="suggested"]')).toContainText('32,50');
   await expect(page.locator('[data-pricing-preview="profit"]')).toContainText('10,75');
   await recipeForm.getByRole('button', { name: 'Cadastrar receita', exact: true }).click();

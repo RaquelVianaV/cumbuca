@@ -8222,11 +8222,14 @@ function normalizedPricingIngredients() {
     const purchaseQuantity = pricingDecimalNumber(ingredient.purchaseQuantity) || legacyQuantity;
     const purchaseCost = pricingSafeNumber(ingredient.purchaseCost)
       || (legacyQuantity * legacyUnitCost);
+    const unit = ["kg", "unit", "box", "g", "ml"].includes(ingredient.unit)
+      ? ingredient.unit
+      : "g";
     return {
       ...ingredient,
       id: pricingIngredientId(ingredient, index),
       name: String(ingredient.name || "").trim(),
-      unit: ["g", "ml", "unit"].includes(ingredient.unit) ? ingredient.unit : "g",
+      unit,
       purchaseQuantity,
       purchaseCost
     };
@@ -8234,6 +8237,12 @@ function normalizedPricingIngredients() {
 }
 
 function pricingIngredientUnitLabel(unit, plural = false) {
+  if (unit === "kg") {
+    return "kg";
+  }
+  if (unit === "box") {
+    return plural ? "caixas" : "caixa";
+  }
   if (unit === "ml") {
     return "ml";
   }
@@ -8259,10 +8268,12 @@ function pricingSharedCosts(config = state.pricingConfig) {
   const labor = pricingSafeNumber(shared.labor);
   const rent = pricingSafeNumber(shared.rent);
   const accountant = pricingSafeNumber(shared.accountant);
+  const labels = pricingSafeNumber(shared.labels);
+  const telephony = pricingSafeNumber(shared.telephony);
   const marketing = pricingSafeNumber(shared.marketing);
   const extraordinary = pricingSafeNumber(shared.extraordinary);
   const productionMonthly = gas + energy;
-  const otherMonthly = rent + accountant + marketing + extraordinary;
+  const otherMonthly = rent + accountant + labels + telephony + marketing + extraordinary;
   const monthlyTotal = productionMonthly + labor + otherMonthly;
   const divisor = averageMonthlyUnits > 0 ? averageMonthlyUnits : 0;
   return {
@@ -8272,6 +8283,8 @@ function pricingSharedCosts(config = state.pricingConfig) {
     labor,
     rent,
     accountant,
+    labels,
+    telephony,
     marketing,
     extraordinary,
     productionMonthly,
@@ -8555,7 +8568,7 @@ function pricingDashboardPanel() {
             <span><small>Embalagem</small><strong>${money(projection.packagingCost)}</strong></span>
             <span><small>Produção</small><strong>${money(projection.productionCost)}</strong></span>
             <span><small>Mão de obra</small><strong>${money(projection.laborCost)}</strong></span>
-            <span><small>Aluguel, contador, marketing e extras</small><strong>${money(projection.otherCost)}</strong></span>
+            <span><small>Demais custos mensais</small><strong>${money(projection.otherCost)}</strong></span>
             <span><small>Taxas</small><strong>${money(taxForBreakdown)}</strong></span>
             <span class="total"><small>Custo total</small><strong>${money(totalForBreakdown)}</strong></span>
           </div>
@@ -8576,12 +8589,15 @@ function pricingDashboardPanel() {
 
 function pricingIngredientsPanel(editingIngredient = null) {
   const ingredients = normalizedPricingIngredients();
+  const legacyUnit = ["g", "ml"].includes(editingIngredient?.unit)
+    ? editingIngredient.unit
+    : "";
   return `
     ${pricingFlowHtml()}
     <div class="pricing-editor-grid">
       <section class="panel">
         <h2>${editingIngredient ? "Editar ingrediente" : "Cadastrar ingrediente"}</h2>
-        <p class="muted-inline">Informe quanto vem na compra e quanto ela custa. O sistema calcula automaticamente o custo por g, ml ou unidade.</p>
+        <p class="muted-inline">Informe quanto vem na compra e quanto ela custa. O sistema calcula automaticamente o custo por kg, unidade ou caixa.</p>
         <form id="pricing-ingredient-form" class="form-grid single">
           <input name="ingredientId" type="hidden" value="${escapeHtml(editingIngredient?.id || "")}">
           <label>Ingrediente
@@ -8589,9 +8605,10 @@ function pricingIngredientsPanel(editingIngredient = null) {
           </label>
           <label>Unidade de controle
             <select name="unit">
-              <option value="g" ${editingIngredient?.unit === "g" || !editingIngredient ? "selected" : ""}>Grama (g)</option>
-              <option value="ml" ${editingIngredient?.unit === "ml" ? "selected" : ""}>Mililitro (ml)</option>
+              ${legacyUnit ? `<option value="${legacyUnit}" selected>${legacyUnit === "g" ? "Grama (g)" : "Mililitro (ml)"} — cadastro anterior</option>` : ""}
+              <option value="kg" ${editingIngredient?.unit === "kg" || !editingIngredient ? "selected" : ""}>Quilograma (kg)</option>
               <option value="unit" ${editingIngredient?.unit === "unit" ? "selected" : ""}>Unidade</option>
+              <option value="box" ${editingIngredient?.unit === "box" ? "selected" : ""}>Caixa</option>
             </select>
           </label>
           <label>Quantidade comprada
@@ -8601,7 +8618,7 @@ function pricingIngredientsPanel(editingIngredient = null) {
             <input name="purchaseCost" type="text" inputmode="decimal" placeholder="Ex.: 24,90" value="${moneyInputValue(editingIngredient?.purchaseCost)}" required>
           </label>
           <div class="pricing-live-cost">
-            <span>Custo calculado por unidade</span>
+            <span>Custo calculado por unidade de controle</span>
             <strong data-pricing-ingredient-unit-cost>${pricingUnitCostMoney(pricingIngredientUnitCost(editingIngredient))}</strong>
           </div>
           <div class="actions">
@@ -8620,7 +8637,7 @@ function pricingIngredientsPanel(editingIngredient = null) {
         ${ingredients.length ? `
           <div class="table-wrap report-table">
             <table>
-              <thead><tr><th>Ingrediente</th><th>Compra</th><th>Custo da compra</th><th>Custo por g/ml/un.</th><th>Ações</th></tr></thead>
+              <thead><tr><th>Ingrediente</th><th>Compra</th><th>Custo da compra</th><th>Custo por unidade de controle</th><th>Ações</th></tr></thead>
               <tbody>
                 ${ingredients.map(ingredient => `
                   <tr>
@@ -8813,6 +8830,12 @@ function pricingCostsPanel() {
             <label>Contador
               <input name="accountant" type="text" inputmode="decimal" value="${moneyInputValue(shared.accountant)}">
             </label>
+            <label>Etiquetas
+              <input name="labels" type="text" inputmode="decimal" value="${moneyInputValue(shared.labels)}">
+            </label>
+            <label>Telefonia
+              <input name="telephony" type="text" inputmode="decimal" value="${moneyInputValue(shared.telephony)}">
+            </label>
             <label>Marketing
               <input name="marketing" type="text" inputmode="decimal" value="${moneyInputValue(shared.marketing)}">
             </label>
@@ -8831,7 +8854,7 @@ function pricingCostsPanel() {
           <span><small>Custo mensal informado</small><strong data-pricing-shared-preview="monthly">${money(shared.monthlyTotal)}</strong></span>
           <span><small>Produção por cumbuca</small><strong data-pricing-shared-preview="production">${money(shared.productionPerUnit)}</strong></span>
           <span><small>Mão de obra por cumbuca</small><strong data-pricing-shared-preview="labor">${money(shared.laborPerUnit)}</strong></span>
-          <span><small>Aluguel, contador, marketing e extras</small><strong data-pricing-shared-preview="other">${money(shared.otherPerUnit)}</strong></span>
+          <span><small>Demais custos mensais</small><strong data-pricing-shared-preview="other">${money(shared.otherPerUnit)}</strong></span>
           <span class="total"><small>Total rateado por cumbuca</small><strong data-pricing-shared-preview="total">${money(shared.totalPerUnit)}</strong></span>
         </div>
         <p class="pricing-formula">Rateio por unidade = custo mensal ÷ média mensal de cumbucas.</p>
@@ -8849,6 +8872,8 @@ function pricingSharedCostsFromForm(form) {
     labor: pricingSafeNumber(values.labor),
     rent: pricingSafeNumber(values.rent),
     accountant: pricingSafeNumber(values.accountant),
+    labels: pricingSafeNumber(values.labels),
+    telephony: pricingSafeNumber(values.telephony),
     marketing: pricingSafeNumber(values.marketing),
     extraordinary: pricingSafeNumber(values.extraordinary),
     updatedAt: new Date().toISOString()
@@ -9106,7 +9131,7 @@ async function renderPricing() {
       const ingredient = {
         id: editingId || `pricing-ingredient-${Date.now()}`,
         name,
-        unit: ["g", "ml", "unit"].includes(values.unit) ? values.unit : "g",
+        unit: ["kg", "unit", "box", "g", "ml"].includes(values.unit) ? values.unit : "kg",
         purchaseQuantity,
         purchaseCost,
         updatedAt: new Date().toISOString()

@@ -2135,6 +2135,8 @@ function calculatePricing(payload = {}) {
     const otherMonthly =
       Math.max(0, number(shared.rent)) +
       Math.max(0, number(shared.accountant)) +
+      Math.max(0, number(shared.labels)) +
+      Math.max(0, number(shared.telephony)) +
       Math.max(0, number(shared.marketing)) +
       Math.max(0, number(shared.extraordinary));
     const productionCost = averageMonthlyUnits ? productionMonthly / averageMonthlyUnits : 0;

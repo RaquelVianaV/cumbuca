@@ -70,8 +70,8 @@ test('normalizeState fills missing keys without replacing supplied values', () =
 test('calculatePricing rates monthly costs and calculates suggested and real margins', () => {
   const result = calculatePricing({
     catalog: [
-      { id: 'chicken', purchaseQuantity: 1000, purchaseCost: 20 },
-      { id: 'rice', purchaseQuantity: 5000, purchaseCost: 25 },
+      { id: 'chicken', unit: 'kg', purchaseQuantity: 1, purchaseCost: 20 },
+      { id: 'rice', unit: 'box', purchaseQuantity: 1, purchaseCost: 25 },
     ],
     sharedCosts: {
       averageMonthlyUnits: 1000,
@@ -80,13 +80,15 @@ test('calculatePricing rates monthly costs and calculates suggested and real mar
       labor: 1000,
       rent: 1000,
       accountant: 100,
-      marketing: 500,
+      labels: 40,
+      telephony: 60,
+      marketing: 400,
       extraordinary: 100,
     },
     recipe: {
       ingredients: [
-        { ingredientId: 'chicken', quantity: 200 },
-        { ingredientId: 'rice', quantity: 150 },
+        { ingredientId: 'chicken', quantity: 0.2 },
+        { ingredientId: 'rice', quantity: 0.03 },
       ],
       packagingCost: 2,
       fixedFee: 0.5,

@@ -73,6 +73,10 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /name="saleType"/);
   assert.match(app, /name="unitsPerCombo"/);
   assert.match(app, /data-store-sale-total/);
+  assert.match(app, /name="labels"/);
+  assert.match(app, /name="telephony"/);
+  assert.match(app, /value="kg"/);
+  assert.match(app, /value="box"/);
   assert.match(app, /function storeSaleUnitQuantity/);
   assert.match(app, /data\.storeSales\.map\(storeSaleReportRow\)/);
   assert.match(css, /\.store-sale-type-options/);
