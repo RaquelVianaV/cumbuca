@@ -10412,7 +10412,7 @@ function reportPdfHtml(data) {
         <h2>Principais saídas (despesas)</h2>
         ${pdfRows(["Data", "Descrição", "Valor"], expenseRows)}
         <h2>Cumbucas vendidas na loja</h2>
-        ${pdfRows(["Data", "Tipo", "Quantidade", "Unid. por combo", "Total de unidades", "Observação"], storeRows)}
+        ${pdfRows(["Data", "Produto", "Tipo", "Quantidade", "Unid. por combo", "Total de unidades", "Observação"], storeRows)}
       </body>
     </html>`;
 }
@@ -10769,6 +10769,187 @@ function dishRankingPanel(data) {
   `;
 }
 
+function storeProductPerformanceRows(data) {
+  const rows = new Map();
+  sortedStoreProducts().forEach(product => {
+    rows.set(String(product.id), {
+      key: String(product.id),
+      product,
+      name: product.name || "Produto sem nome",
+      recipe: storeProductRecipe(product),
+      launches: 0,
+      combos: 0,
+      units: 0
+    });
+  });
+
+  (data.storeSales || []).forEach(entry => {
+    const product = storeProductById(entry.productId);
+    const key = product
+      ? String(product.id)
+      : entry.productId
+        ? `removed:${entry.productId}`
+        : "unassigned";
+    if (!rows.has(key)) {
+      rows.set(key, {
+        key,
+        product: null,
+        name: storeSaleProductName(entry),
+        recipe: null,
+        launches: 0,
+        combos: 0,
+        units: 0
+      });
+    }
+    const row = rows.get(key);
+    row.launches += 1;
+    row.units += storeSaleUnitQuantity(entry);
+    if (normalizedStoreSaleType(entry) === "combo") {
+      row.combos += Number(entry.quantity || 0);
+    }
+  });
+
+  return [...rows.values()].map(row => {
+    const metrics = row.recipe ? pricingRecipeMetrics(row.recipe) : null;
+    const practiced = Boolean(metrics?.practicedPrice > 0);
+    const referencePrice = metrics
+      ? practiced
+        ? metrics.practicedPrice
+        : metrics.suggestedPrice
+      : 0;
+    const unitProfit = metrics
+      ? practiced
+        ? metrics.realProfit
+        : metrics.suggestedProfit
+      : 0;
+    const estimatedRevenue = row.units * referencePrice;
+    const estimatedProfit = row.units * unitProfit;
+    const estimatedMargin = estimatedRevenue > 0
+      ? (estimatedProfit / estimatedRevenue) * 100
+      : null;
+    return {
+      ...row,
+      metrics,
+      practiced,
+      referencePrice,
+      unitProfit,
+      estimatedRevenue,
+      estimatedProfit,
+      estimatedMargin
+    };
+  }).sort((a, b) => {
+    return b.units - a.units
+      || b.estimatedProfit - a.estimatedProfit
+      || a.name.localeCompare(b.name, "pt-BR");
+  });
+}
+
+function storeProductPerformancePanel(data) {
+  const rows = storeProductPerformanceRows(data);
+  const productRows = rows.filter(row => row.product);
+  const soldProductRows = productRows.filter(row => row.units > 0);
+  const linkedSoldRows = soldProductRows.filter(row => row.recipe);
+  const mostSold = soldProductRows[0] || null;
+  const mostProfitable = [...linkedSoldRows].sort((a, b) => {
+    return b.estimatedProfit - a.estimatedProfit;
+  })[0] || null;
+  const totalUnits = (data.storeSales || []).reduce((sum, entry) => {
+    return sum + storeSaleUnitQuantity(entry);
+  }, 0);
+  const linkedUnits = rows.filter(row => row.recipe).reduce((sum, row) => sum + row.units, 0);
+  const estimatedRevenue = rows.reduce((sum, row) => sum + row.estimatedRevenue, 0);
+  const estimatedProfit = rows.reduce((sum, row) => sum + row.estimatedProfit, 0);
+  const lowMarginRows = linkedSoldRows.filter(row => {
+    return row.estimatedMargin !== null
+      && row.estimatedMargin + 0.0001 < Number(row.metrics?.desiredMarginPercent || 0);
+  });
+  const noOutputRows = productRows.filter(row => row.units === 0);
+
+  return `
+    <section class="panel report-section store-product-performance" data-store-product-performance>
+      <div class="section-heading">
+        <div>
+          <h2>Vendas e lucro por produto ${reportTitleSuffix(data)}</h2>
+          <p class="muted-inline">As quantidades vêm de Loja &gt; Vendas. Receita e lucro são estimativas calculadas com os valores atuais da receita vinculada.</p>
+        </div>
+      </div>
+      <div class="summary">
+        <div class="metric report-metric" data-product-performance-units><span>Unidades vendidas</span><strong>${totalUnits}</strong></div>
+        <div class="metric report-metric"><span>Produtos com saída</span><strong>${soldProductRows.length}</strong></div>
+        <div class="metric report-metric"><span>Receita estimada</span><strong>${money(estimatedRevenue)}</strong></div>
+        <div class="metric report-metric" data-product-performance-profit><span>Lucro estimado</span><strong class="${estimatedProfit < 0 ? "negative" : "positive"}">${money(estimatedProfit)}</strong></div>
+        <div class="metric report-metric"><span>Mais vendido</span><strong>${mostSold ? escapeHtml(mostSold.name) : "—"}</strong><small>${mostSold ? `${mostSold.units} unidade(s)` : "Sem vendas"}</small></div>
+        <div class="metric report-metric"><span>Maior lucro estimado</span><strong>${mostProfitable ? escapeHtml(mostProfitable.name) : "—"}</strong><small>${mostProfitable ? money(mostProfitable.estimatedProfit) : "Vincule uma receita"}</small></div>
+      </div>
+      ${totalUnits > linkedUnits ? `
+        <p class="form-hint warning-text">
+          ${totalUnits - linkedUnits} unidade(s) ainda não entram no cálculo de lucro porque estão sem produto ou sem receita vinculada.
+        </p>
+      ` : ""}
+      ${rows.length ? `
+        <div class="table-wrap report-table">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Produto</th>
+                <th>Receita</th>
+                <th>Quantidade</th>
+                <th>Lançamentos</th>
+                <th>Preço ref.</th>
+                <th>Lucro/un.</th>
+                <th>Lucro estimado</th>
+                <th>Margem</th>
+                <th>Situação</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map((row, index) => `
+                <tr data-product-performance-row="${escapeHtml(row.key)}">
+                  <td>${index + 1}</td>
+                  <td><strong>${escapeHtml(row.name)}</strong></td>
+                  <td>${row.recipe ? escapeHtml(row.recipe.name || "Receita sem nome") : "Sem vínculo"}</td>
+                  <td><strong>${row.units}</strong>${row.combos ? `<br><small>${row.combos} combo(s)</small>` : ""}</td>
+                  <td>${row.launches}</td>
+                  <td>${row.recipe ? money(row.referencePrice) : "—"}${row.recipe ? `<br><small>${row.practiced ? "Praticado" : "Sugerido"}</small>` : ""}</td>
+                  <td class="${row.unitProfit < 0 ? "negative" : row.recipe ? "positive" : ""}">${row.recipe ? money(row.unitProfit) : "—"}</td>
+                  <td class="${row.estimatedProfit < 0 ? "negative" : row.recipe ? "positive" : ""}">${row.recipe ? money(row.estimatedProfit) : "—"}</td>
+                  <td>${row.recipe ? pricingPercent(row.estimatedMargin) : "—"}</td>
+                  <td>
+                    ${row.units === 0
+                      ? `<span class="pricing-status attention">Sem saída</span>`
+                      : row.recipe
+                        ? pricingStatusPill(row.metrics.status)
+                        : `<span class="pricing-status attention">Sem receita</span>`}
+                  </td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      ` : `<p class="muted">Cadastre produtos em Loja &gt; Produtos e informe o produto ao lançar cada venda.</p>`}
+    </section>
+    ${lowMarginRows.length ? `
+      <section class="panel report-section">
+        <h2>Produtos com saída e margem abaixo da meta</h2>
+        <div class="recent-list">
+          ${lowMarginRows.map(row => `
+            <span><b>${escapeHtml(row.name)}</b>${row.units} unidade(s) · ${pricingPercent(row.estimatedMargin)} de margem · meta ${pricingPercent(row.metrics.desiredMarginPercent)}</span>
+          `).join("")}
+        </div>
+      </section>
+    ` : ""}
+    ${noOutputRows.length ? `
+      <section class="panel report-section">
+        <h2>Produtos sem saída ${reportTitleSuffix(data)}</h2>
+        <div class="recent-list">
+          ${noOutputRows.map(row => `<span><b>${escapeHtml(row.name)}</b>0 unidade</span>`).join("")}
+        </div>
+      </section>
+    ` : ""}
+  `;
+}
+
 function clientReportRows(data) {
   const rows = data.orders.reduce((acc, order) => {
     const client = clientByPhone(order.clientPhone);
@@ -11064,6 +11245,7 @@ function storeSaleReportRow(entry = {}) {
   const combo = normalizedStoreSaleType(entry) === "combo";
   return [
     entry.date || "",
+    storeSaleProductName(entry),
     storeSaleTypeLabel(entry),
     Number(entry.quantity || 0),
     combo ? storeSaleUnitsPerCombo(entry) : "-",
@@ -11075,10 +11257,11 @@ function storeSaleReportRow(entry = {}) {
 function storeSaleAuditDetail(entry = {}) {
   const quantity = Number(entry?.quantity || 0);
   const totalUnits = storeSaleUnitQuantity(entry);
+  const productName = storeSaleProductName(entry);
   if (normalizedStoreSaleType(entry) === "combo") {
-    return `${quantity} combo(s) de ${storeSaleUnitsPerCombo(entry)} unidade(s), total ${totalUnits}, em ${entry?.date || ""}`;
+    return `${productName}: ${quantity} combo(s) de ${storeSaleUnitsPerCombo(entry)} unidade(s), total ${totalUnits}, em ${entry?.date || ""}`;
   }
-  return `${totalUnits} unidade(s) em ${entry?.date || ""}`;
+  return `${productName}: ${totalUnits} unidade(s) em ${entry?.date || ""}`;
 }
 
 function storeSalesTable(entries) {
@@ -11089,11 +11272,12 @@ function storeSalesTable(entries) {
   return `
     <div class="table-wrap report-table">
       <table>
-        <thead><tr><th>Data</th><th>Tipo</th><th>Quantidade</th><th>Unid. por combo</th><th>Total de unidades</th><th>Observação</th><th>Ações</th></tr></thead>
+        <thead><tr><th>Data</th><th>Produto</th><th>Tipo</th><th>Quantidade</th><th>Unid. por combo</th><th>Total de unidades</th><th>Observação</th><th>Ações</th></tr></thead>
         <tbody>
           ${entries.map(entry => `
             <tr>
               <td>${formatIsoDateBr(entry.date)}</td>
+              <td><strong>${escapeHtml(storeSaleProductName(entry))}</strong></td>
               <td>${storeSaleTypeLabel(entry)}</td>
               <td>${Number(entry.quantity || 0)}</td>
               <td>${normalizedStoreSaleType(entry) === "combo" ? storeSaleUnitsPerCombo(entry) : "-"}</td>
@@ -11457,6 +11641,52 @@ function sortedStoreProducts() {
   });
 }
 
+function storeProductById(productId) {
+  if (!productId) {
+    return null;
+  }
+  return (state.storeProducts || []).find(product => String(product.id) === String(productId)) || null;
+}
+
+function storeSaleProductName(entry = {}) {
+  const product = storeProductById(entry.productId);
+  return product?.name || entry.productName || "Sem produto informado";
+}
+
+function storeProductRecipe(product = {}) {
+  return pricingRecipeById(product.pricingRecipeId) || null;
+}
+
+function storeProductRecipeName(product = {}) {
+  return storeProductRecipe(product)?.name || "Sem receita vinculada";
+}
+
+function storeProductRecipeOptions(selectedRecipeId = "") {
+  const recipes = [...(state.pricingRecipes || [])].sort((a, b) => {
+    return String(a.name || "").localeCompare(String(b.name || ""), "pt-BR");
+  });
+  return `
+    <option value="">Sem receita vinculada</option>
+    ${recipes.map(recipe => `
+      <option value="${escapeHtml(recipe.id)}" ${String(recipe.id) === String(selectedRecipeId) ? "selected" : ""}>
+        ${escapeHtml(recipe.name || "Receita sem nome")}
+      </option>
+    `).join("")}
+  `;
+}
+
+function storeSaleProductOptions(selectedProductId = "") {
+  const products = sortedStoreProducts();
+  return `
+    <option value="">Sem produto informado</option>
+    ${products.map(product => `
+      <option value="${escapeHtml(product.id)}" ${String(product.id) === String(selectedProductId) ? "selected" : ""}>
+        ${escapeHtml(product.name || "Produto sem nome")}
+      </option>
+    `).join("")}
+  `;
+}
+
 function storeProductQuantityForMonth(productId, month) {
   const entry = (state.storeProductQuantities || []).find(item => {
     return String(item.productId) === String(productId) && item.month === month;
@@ -11507,6 +11737,12 @@ function storeProductsPanel(month, editingProduct = null) {
           <label>Nome do produto
             <input name="name" placeholder="Ex.: Cumbuca 500 ml" value="${escapeHtml(editingProduct?.name || "")}" required>
           </label>
+          <label>Receita vinculada
+            <select name="pricingRecipeId">
+              ${storeProductRecipeOptions(editingProduct?.pricingRecipeId)}
+            </select>
+            <small>O vínculo permite calcular receita e lucro estimados por produto nos relatórios.</small>
+          </label>
           <div class="actions">
             <button type="submit">${editingProduct ? "Salvar produto" : "Cadastrar produto"}</button>
             ${editingProduct ? `<button class="secondary" type="button" id="cancel-store-product-edit">Cancelar</button>` : ""}
@@ -11521,11 +11757,12 @@ function storeProductsPanel(month, editingProduct = null) {
         ${products.length ? `
           <div class="table-wrap report-table store-product-table">
             <table>
-              <thead><tr><th>Produto</th><th>${formatMonthKeyBr(selectedMonth)}</th><th>Ações</th></tr></thead>
+              <thead><tr><th>Produto</th><th>Receita vinculada</th><th>${formatMonthKeyBr(selectedMonth)}</th><th>Ações</th></tr></thead>
               <tbody>
                 ${products.map(product => `
                   <tr>
                     <td><strong>${escapeHtml(product.name || "")}</strong></td>
+                    <td>${escapeHtml(storeProductRecipeName(product))}</td>
                     <td>${storeProductQuantityForMonth(product.id, selectedMonth)}</td>
                     <td>
                       <div class="table-actions">
@@ -11667,6 +11904,12 @@ function renderStoreSales() {
         <form id="store-sale-form" class="form-grid single">
           <label>Data
             <input name="date" type="date" value="${editing?.date || today}" required>
+          </label>
+          <label>Produto vendido
+            <select name="productId">
+              ${storeSaleProductOptions(editing?.productId)}
+            </select>
+            <small>Cadastre produtos e vincule receitas em Loja &gt; Produtos para acompanhar o lucro.</small>
           </label>
           <fieldset class="store-sale-type">
             <legend>Tipo da venda</legend>
@@ -11815,6 +12058,7 @@ function renderStoreSales() {
       const product = {
         id: editingStoreProduct?.id || `store-product-${Date.now()}`,
         name,
+        pricingRecipeId: pricingRecipeById(values.pricingRecipeId)?.id || "",
         createdAt: editingStoreProduct?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
@@ -11860,6 +12104,13 @@ function renderStoreSales() {
       const quantities = state.storeProductQuantities.filter(entry => {
         return String(entry.productId) === String(productId);
       });
+      const linkedSales = state.storeSales.filter(entry => {
+        return String(entry.productId) === String(productId);
+      });
+      if (linkedSales.length) {
+        showToast(`Este produto possui ${linkedSales.length} venda(s). Edite o nome ou o vínculo em vez de excluí-lo.`, "warning");
+        return;
+      }
       const lockedQuantity = quantities.find(entry => isMonthClosed(`${entry.month}-01`));
       if (lockedQuantity) {
         showToast(`O mês ${formatMonthKeyBr(lockedQuantity.month)} está fechado. Reabra antes de excluir o produto.`, "warning");
@@ -11980,6 +12231,11 @@ function renderStoreSales() {
     const saleType = values.saleType === "combo" ? "combo" : "unit";
     const quantity = Number(values.quantity || 0);
     const unitsPerCombo = saleType === "combo" ? Number(values.unitsPerCombo || 0) : 1;
+    const selectedProduct = storeProductById(values.productId);
+    if (values.productId && !selectedProduct) {
+      showToast("Selecione um produto cadastrado.", "error");
+      return;
+    }
     if (!values.date || !Number.isInteger(quantity) || quantity <= 0) {
       showToast("Informe data e uma quantidade inteira maior que zero.", "error");
       return;
@@ -11997,6 +12253,8 @@ function renderStoreSales() {
     const entry = {
       id: editing?.id || Date.now(),
       date: values.date,
+      productId: selectedProduct?.id || "",
+      productName: selectedProduct?.name || "",
       saleType,
       quantity,
       unitsPerCombo,
@@ -14062,6 +14320,7 @@ function renderReports() {
   const weekRange = reportWeekRange();
   const tabs = [
     ["summary", "Resumo"],
+    ["products", "Produtos"],
     ["income", "Entradas"],
     ["expenses", "Saídas"],
     ["withdrawals", "Retiradas"],
@@ -14145,6 +14404,7 @@ function renderReports() {
         ${reportMenuTable(data)}
       </section>
     `)}
+    ${viewPaneHtml("products", activeTab, storeProductPerformancePanel(data))}
     ${viewPaneHtml("income", activeTab, `
       ${channelReportPanel(data)}
       <section class="panel report-section">

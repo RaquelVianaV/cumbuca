@@ -82,7 +82,10 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(css, /\.store-sale-type-options/);
   assert.match(css, /\.store-sale-total/);
   assert.match(css, /\.table-wrap table \{\s*width: 100%;\s*min-width: 0;/);
-  assert.match(server, /\['Data', 'Tipo', 'Quantidade', 'Unidades por combo', 'Total de unidades'/);
+  assert.match(
+    server,
+    /\[\s*'Data',\s*'Produto',\s*'Tipo',\s*'Quantidade',\s*'Unidades por combo',\s*'Total de unidades'/
+  );
   const cashTabs = app.match(/const cashPanelTabs = \[([\s\S]*?)\];/);
   const storeTabs = app.match(/const storeTabs = \[([\s\S]*?)\];/);
   assert.ok(cashTabs);
@@ -93,6 +96,8 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /\/loja\?view=channels/);
   assert.match(app, /bindChannelReceipts\(renderStoreSales/);
   assert.match(app, /id="store-product-form"/);
+  assert.match(app, /name="pricingRecipeId"/);
+  assert.match(app, /name="productId"/);
   assert.match(app, /id="store-product-quantities-form"/);
   assert.match(app, /data-store-product-quantity/);
   assert.match(app, /function storeProductMonthlyHistory/);
@@ -109,6 +114,10 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /id="pricing-recipe-form"/);
   assert.match(app, /id="pricing-shared-cost-form"/);
   assert.match(app, /function pricingRecipeMetrics/);
+  assert.match(app, /function storeProductPerformanceRows/);
+  assert.match(app, /function storeProductPerformancePanel/);
+  assert.match(app, /data-store-product-performance/);
+  assert.match(app, /\["products", "Produtos"\]/);
   assert.match(app, /function pricingSharedCosts/);
   assert.match(app, /function pricingDecimalNumber/);
   assert.match(app, /function pricingUnitCostMoney/);

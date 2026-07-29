@@ -2432,9 +2432,9 @@ function buildReportPdf(payload = {}) {
   addPdfSectionTitle(doc, 'Cumbucas vendidas na loja');
   addPdfTable(
     doc,
-    ['Data', 'Tipo', 'Qtd.', 'Unid./combo', 'Total unid.', 'Observação'],
+    ['Data', 'Produto', 'Tipo', 'Qtd.', 'Unid./combo', 'Total unid.', 'Observação'],
     data.storeRows || [],
-    [58, 56, 48, 68, 68, 214]
+    [54, 88, 48, 42, 58, 62, 160]
   );
 
   const footerY = 760;
@@ -2520,7 +2520,15 @@ async function buildReportXlsx(payload = {}) {
     [
       'Loja',
       [
-        ['Data', 'Tipo', 'Quantidade', 'Unidades por combo', 'Total de unidades', 'Observação'],
+        [
+          'Data',
+          'Produto',
+          'Tipo',
+          'Quantidade',
+          'Unidades por combo',
+          'Total de unidades',
+          'Observação',
+        ],
         ...(data.storeRows || []),
       ],
     ],
