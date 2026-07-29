@@ -490,6 +490,84 @@ test('store sale supports unit and combo quantities', async ({ page }, testInfo)
   });
 });
 
+test('store sales can filter combos and count combos separately from units', async ({ page }) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    storeSales: [
+      {
+        id: 'combo-1',
+        date: '2026-07-29',
+        saleType: 'combo',
+        quantity: 2,
+        unitsPerCombo: 10,
+        notes: 'Combo maior',
+      },
+      {
+        id: 'combo-2',
+        date: '2026-07-28',
+        saleType: 'combo',
+        quantity: 39,
+        unitsPerCombo: 6,
+        notes: 'Combo menor',
+      },
+      {
+        id: 'unit-1',
+        date: '2026-07-28',
+        saleType: 'unit',
+        quantity: 31,
+        notes: 'Avulsas',
+      },
+      {
+        id: 'combo-previous',
+        date: '2026-06-20',
+        saleType: 'combo',
+        quantity: 4,
+        unitsPerCombo: 6,
+        notes: 'Mês anterior',
+      },
+    ],
+  };
+  await page.evaluate(() => {
+    localStorage.setItem(
+      'storeSalesFilter',
+      JSON.stringify({
+        period: 'month',
+        saleType: 'all',
+        date: '2026-07-29',
+        month: '2026-07',
+      })
+    );
+  });
+
+  await page.goto('/loja?view=sales');
+  const filterForm = page.locator('#store-sales-filter-form');
+  const rows = page.locator('.store-sales-results tbody tr');
+
+  await filterForm.locator('select[name="saleType"]').selectOption('combo');
+  await filterForm.getByRole('button', { name: 'Aplicar', exact: true }).click();
+
+  await expect(rows).toHaveCount(2);
+  await expect(page.locator('[data-store-sales-filter-total]')).toHaveText(
+    /Combos no período\s*41/
+  );
+  await expect(page.locator('[data-store-sales-filter-units]')).toHaveText(
+    /Unidades nos combos\s*254/
+  );
+  await expect(page.locator('[data-store-sales-comparison]')).toContainText(
+    'Comparação de combos com o mês anterior'
+  );
+  await expect(page.locator('[data-store-sales-comparison]')).toContainText('+37');
+
+  await filterForm.locator('select[name="saleType"]').selectOption('unit');
+  await filterForm.getByRole('button', { name: 'Aplicar', exact: true }).click();
+
+  await expect(rows).toHaveCount(1);
+  await expect(page.locator('[data-store-sales-filter-total]')).toHaveText(
+    /Unidades avulsas no período\s*31/
+  );
+  await expect(page.locator('[data-store-sales-filter-units]')).toHaveCount(0);
+});
+
 test('store products receive individual monthly quantities', async ({ page }, testInfo) => {
   const database = await mockOnlineDatabase(page);
   database.state = {
@@ -559,13 +637,18 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   await expect(costForm.locator('input[name="averageMonthlyUnits"]')).toHaveValue('150');
   await costForm.locator('input[name="gas"]').fill('100');
   await costForm.locator('input[name="energy"]').fill('50');
+  await expect(costForm.locator('input[name="water"]')).toHaveCount(0);
   await costForm.locator('input[name="labor"]').fill('300');
   await costForm.locator('input[name="rent"]').fill('600');
+  await costForm.locator('input[name="accountant"]').fill('150');
   await costForm.locator('input[name="marketing"]').fill('150');
-  await costForm.locator('input[name="extraordinary"]').fill('150');
   await expect(page.locator('[data-pricing-shared-preview="total"]')).toContainText('9,00');
   await costForm.getByRole('button', { name: 'Salvar custos rateados', exact: true }).click();
   await expect.poll(() => database.state.pricingConfig?.sharedCosts?.averageMonthlyUnits).toBe(150);
+  expect(database.state.pricingConfig.sharedCosts).toMatchObject({
+    accountant: 150,
+  });
+  expect(database.state.pricingConfig.sharedCosts).not.toHaveProperty('water');
 
   await page.getByRole('button', { name: 'Ingredientes', exact: true }).click();
   let ingredientForm = page.locator('#pricing-ingredient-form');

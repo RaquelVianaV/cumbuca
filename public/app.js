@@ -8256,22 +8256,22 @@ function pricingSharedCosts(config = state.pricingConfig) {
   const averageMonthlyUnits = pricingDecimalNumber(shared.averageMonthlyUnits);
   const gas = pricingSafeNumber(shared.gas);
   const energy = pricingSafeNumber(shared.energy);
-  const water = pricingSafeNumber(shared.water);
   const labor = pricingSafeNumber(shared.labor);
   const rent = pricingSafeNumber(shared.rent);
+  const accountant = pricingSafeNumber(shared.accountant);
   const marketing = pricingSafeNumber(shared.marketing);
   const extraordinary = pricingSafeNumber(shared.extraordinary);
-  const productionMonthly = gas + energy + water;
-  const otherMonthly = rent + marketing + extraordinary;
+  const productionMonthly = gas + energy;
+  const otherMonthly = rent + accountant + marketing + extraordinary;
   const monthlyTotal = productionMonthly + labor + otherMonthly;
   const divisor = averageMonthlyUnits > 0 ? averageMonthlyUnits : 0;
   return {
     averageMonthlyUnits,
     gas,
     energy,
-    water,
     labor,
     rent,
+    accountant,
     marketing,
     extraordinary,
     productionMonthly,
@@ -8555,7 +8555,7 @@ function pricingDashboardPanel() {
             <span><small>Embalagem</small><strong>${money(projection.packagingCost)}</strong></span>
             <span><small>Produção</small><strong>${money(projection.productionCost)}</strong></span>
             <span><small>Mão de obra</small><strong>${money(projection.laborCost)}</strong></span>
-            <span><small>Aluguel, marketing e extras</small><strong>${money(projection.otherCost)}</strong></span>
+            <span><small>Aluguel, contador, marketing e extras</small><strong>${money(projection.otherCost)}</strong></span>
             <span><small>Taxas</small><strong>${money(taxForBreakdown)}</strong></span>
             <span class="total"><small>Custo total</small><strong>${money(totalForBreakdown)}</strong></span>
           </div>
@@ -8798,9 +8798,6 @@ function pricingCostsPanel() {
             <label>Energia
               <input name="energy" type="text" inputmode="decimal" value="${moneyInputValue(shared.energy)}">
             </label>
-            <label>Água
-              <input name="water" type="text" inputmode="decimal" value="${moneyInputValue(shared.water)}">
-            </label>
           </fieldset>
           <fieldset class="pricing-cost-group">
             <legend>Equipe</legend>
@@ -8812,6 +8809,9 @@ function pricingCostsPanel() {
             <legend>Demais custos mensais</legend>
             <label>Aluguel
               <input name="rent" type="text" inputmode="decimal" value="${moneyInputValue(shared.rent)}">
+            </label>
+            <label>Contador
+              <input name="accountant" type="text" inputmode="decimal" value="${moneyInputValue(shared.accountant)}">
             </label>
             <label>Marketing
               <input name="marketing" type="text" inputmode="decimal" value="${moneyInputValue(shared.marketing)}">
@@ -8831,7 +8831,7 @@ function pricingCostsPanel() {
           <span><small>Custo mensal informado</small><strong data-pricing-shared-preview="monthly">${money(shared.monthlyTotal)}</strong></span>
           <span><small>Produção por cumbuca</small><strong data-pricing-shared-preview="production">${money(shared.productionPerUnit)}</strong></span>
           <span><small>Mão de obra por cumbuca</small><strong data-pricing-shared-preview="labor">${money(shared.laborPerUnit)}</strong></span>
-          <span><small>Aluguel, marketing e extras</small><strong data-pricing-shared-preview="other">${money(shared.otherPerUnit)}</strong></span>
+          <span><small>Aluguel, contador, marketing e extras</small><strong data-pricing-shared-preview="other">${money(shared.otherPerUnit)}</strong></span>
           <span class="total"><small>Total rateado por cumbuca</small><strong data-pricing-shared-preview="total">${money(shared.totalPerUnit)}</strong></span>
         </div>
         <p class="pricing-formula">Rateio por unidade = custo mensal ÷ média mensal de cumbucas.</p>
@@ -8846,9 +8846,9 @@ function pricingSharedCostsFromForm(form) {
     averageMonthlyUnits: pricingDecimalNumber(values.averageMonthlyUnits),
     gas: pricingSafeNumber(values.gas),
     energy: pricingSafeNumber(values.energy),
-    water: pricingSafeNumber(values.water),
     labor: pricingSafeNumber(values.labor),
     rent: pricingSafeNumber(values.rent),
+    accountant: pricingSafeNumber(values.accountant),
     marketing: pricingSafeNumber(values.marketing),
     extraordinary: pricingSafeNumber(values.extraordinary),
     updatedAt: new Date().toISOString()
@@ -10998,6 +10998,43 @@ function storeSaleTypeLabel(entry = {}) {
   return normalizedStoreSaleType(entry) === "combo" ? "Combo" : "Unidade";
 }
 
+function normalizedStoreSalesTypeFilter(value) {
+  return ["combo", "unit"].includes(value) ? value : "all";
+}
+
+function storeSaleMatchesTypeFilter(entry = {}, saleType = "all") {
+  const normalizedFilter = normalizedStoreSalesTypeFilter(saleType);
+  return normalizedFilter === "all" || normalizedStoreSaleType(entry) === normalizedFilter;
+}
+
+function storeSalesFilteredQuantity(entry = {}, saleType = "all") {
+  return normalizedStoreSalesTypeFilter(saleType) === "combo"
+    ? Math.max(0, Number(entry?.quantity || 0))
+    : storeSaleUnitQuantity(entry);
+}
+
+function storeSalesFilteredMetricLabel(saleType = "all") {
+  const normalizedFilter = normalizedStoreSalesTypeFilter(saleType);
+  if (normalizedFilter === "combo") {
+    return "Combos no período";
+  }
+  if (normalizedFilter === "unit") {
+    return "Unidades avulsas no período";
+  }
+  return "Cumbucas no período";
+}
+
+function storeSalesComparisonTitle(saleType = "all") {
+  const normalizedFilter = normalizedStoreSalesTypeFilter(saleType);
+  if (normalizedFilter === "combo") {
+    return "Comparação de combos com o mês anterior";
+  }
+  if (normalizedFilter === "unit") {
+    return "Comparação de unidades avulsas com o mês anterior";
+  }
+  return "Comparação com o mês anterior";
+}
+
 function storeSaleReportRow(entry = {}) {
   const combo = normalizedStoreSaleType(entry) === "combo";
   return [
@@ -11311,6 +11348,7 @@ function storeSalesFilterDefaults() {
   const period = ["day", "week", "month"].includes(saved.period) ? saved.period : "month";
   return {
     period,
+    saleType: normalizedStoreSalesTypeFilter(saved.saleType),
     date: saved.date || today,
     month: saved.month || today.slice(0, 7)
   };
@@ -11319,6 +11357,9 @@ function storeSalesFilterDefaults() {
 function filteredStoreSales(filter = storeSalesFilterDefaults()) {
   return [...state.storeSales]
     .filter(entry => {
+      if (!storeSaleMatchesTypeFilter(entry, filter.saleType)) {
+        return false;
+      }
       const date = String(entry.date || "");
       if (filter.period === "day") {
         return date === filter.date;
@@ -11352,8 +11393,11 @@ function storeSalesMonthComparison(filter = storeSalesFilterDefaults()) {
     : String(filter.date || isoDate(new Date())).slice(0, 7);
   const previousMonth = previousMonthKeyFromPeriod(currentMonth);
   const totalForMonth = month => state.storeSales
-    .filter(entry => String(entry.date || "").startsWith(month))
-    .reduce((sum, entry) => sum + storeSaleUnitQuantity(entry), 0);
+    .filter(entry => {
+      return String(entry.date || "").startsWith(month)
+        && storeSaleMatchesTypeFilter(entry, filter.saleType);
+    })
+    .reduce((sum, entry) => sum + storeSalesFilteredQuantity(entry, filter.saleType), 0);
   const currentTotal = totalForMonth(currentMonth);
   const previousTotal = totalForMonth(previousMonth);
   const difference = currentTotal - previousTotal;
@@ -11581,7 +11625,12 @@ function renderStoreSales() {
     : null;
   const filter = storeSalesFilterDefaults();
   const filteredEntries = filteredStoreSales(filter);
-  const filteredTotal = filteredEntries.reduce((sum, entry) => sum + storeSaleUnitQuantity(entry), 0);
+  const filteredTotal = filteredEntries.reduce((sum, entry) => {
+    return sum + storeSalesFilteredQuantity(entry, filter.saleType);
+  }, 0);
+  const filteredUnitTotal = filteredEntries.reduce((sum, entry) => {
+    return sum + storeSaleUnitQuantity(entry);
+  }, 0);
   const comparison = storeSalesMonthComparison(filter);
 
   app.innerHTML = `
@@ -11637,6 +11686,13 @@ function renderStoreSales() {
               <option value="month" ${filter.period === "month" ? "selected" : ""}>Mês</option>
             </select>
           </label>
+          <label>Tipo de venda
+            <select name="saleType" id="store-sales-filter-type">
+              <option value="all" ${filter.saleType === "all" ? "selected" : ""}>Todos</option>
+              <option value="combo" ${filter.saleType === "combo" ? "selected" : ""}>Combos</option>
+              <option value="unit" ${filter.saleType === "unit" ? "selected" : ""}>Unidades</option>
+            </select>
+          </label>
           <label class="store-sales-filter-date">Data / semana
             <input name="date" type="date" value="${filter.date}">
           </label>
@@ -11647,12 +11703,15 @@ function renderStoreSales() {
         </form>
         <h2>${storeSalesFilterTitle(filter)}</h2>
         <div class="summary">
-          <div class="metric" data-store-sales-filter-total><span>Cumbucas no período</span><strong>${filteredTotal}</strong></div>
+          <div class="metric" data-store-sales-filter-total><span>${storeSalesFilteredMetricLabel(filter.saleType)}</span><strong>${filteredTotal}</strong></div>
+          ${filter.saleType === "combo"
+            ? `<div class="metric" data-store-sales-filter-units><span>Unidades nos combos</span><strong>${filteredUnitTotal}</strong></div>`
+            : ""}
           <div class="metric"><span>Lançamentos</span><strong>${filteredEntries.length}</strong></div>
         </div>
         ${storeSalesTable(filteredEntries)}
         <div class="store-sales-comparison" data-store-sales-comparison>
-          <h2>Comparação com o mês anterior</h2>
+          <h2>${storeSalesComparisonTitle(filter.saleType)}</h2>
           <div class="summary">
             <div class="metric"><span>${formatMonthKeyBr(comparison.currentMonth)}</span><strong>${comparison.currentTotal}</strong></div>
             <div class="metric"><span>${formatMonthKeyBr(comparison.previousMonth)}</span><strong>${comparison.previousTotal}</strong></div>
@@ -11879,6 +11938,7 @@ function renderStoreSales() {
       const selectedDate = values.date || today;
       state.storeSalesFilter = {
         period: values.period || "month",
+        saleType: normalizedStoreSalesTypeFilter(values.saleType),
         date: selectedDate,
         month: values.period === "month"
           ? (values.month || today.slice(0, 7))

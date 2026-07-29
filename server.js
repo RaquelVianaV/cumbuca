@@ -2130,13 +2130,11 @@ function calculatePricing(payload = {}) {
     );
     const shared = payload.sharedCosts || {};
     const averageMonthlyUnits = Math.max(0, number(shared.averageMonthlyUnits));
-    const productionMonthly =
-      Math.max(0, number(shared.gas)) +
-      Math.max(0, number(shared.energy)) +
-      Math.max(0, number(shared.water));
+    const productionMonthly = Math.max(0, number(shared.gas)) + Math.max(0, number(shared.energy));
     const laborMonthly = Math.max(0, number(shared.labor));
     const otherMonthly =
       Math.max(0, number(shared.rent)) +
+      Math.max(0, number(shared.accountant)) +
       Math.max(0, number(shared.marketing)) +
       Math.max(0, number(shared.extraordinary));
     const productionCost = averageMonthlyUnits ? productionMonthly / averageMonthlyUnits : 0;

@@ -66,6 +66,9 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /storeSalesFilterDefaults/);
   assert.match(app, /storeSalesMonthComparison/);
   assert.match(app, /id="store-sales-filter-form"/);
+  assert.match(app, /id="store-sales-filter-type"/);
+  assert.match(app, /Combos no período/);
+  assert.match(app, /Unidades nos combos/);
   assert.match(app, /data-store-sales-comparison/);
   assert.match(app, /name="saleType"/);
   assert.match(app, /name="unitsPerCombo"/);

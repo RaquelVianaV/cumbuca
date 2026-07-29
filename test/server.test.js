@@ -77,9 +77,9 @@ test('calculatePricing rates monthly costs and calculates suggested and real mar
       averageMonthlyUnits: 1000,
       gas: 100,
       energy: 200,
-      water: 100,
       labor: 1000,
       rent: 1000,
+      accountant: 100,
       marketing: 500,
       extraordinary: 100,
     },
@@ -97,9 +97,9 @@ test('calculatePricing rates monthly costs and calculates suggested and real mar
   });
 
   assert.equal(result.ingredientCost, 4.75);
-  assert.equal(result.productionCost, 0.4);
+  assert.equal(result.productionCost, 0.3);
   assert.equal(result.laborCost, 1);
-  assert.equal(result.otherCost, 1.6);
+  assert.equal(result.otherCost, 1.7);
   assert.equal(result.baseCost, 10.25);
   assert.equal(result.suggestedPrice, 20.5);
   assert.equal(result.totalCost, 12.3);
