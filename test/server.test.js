@@ -84,15 +84,16 @@ test('calculatePricing rates monthly costs and calculates suggested and real mar
       ],
       rent: 1000,
       accountant: 100,
-      labels: 40,
+      labels: 9999,
       telephony: 60,
       marketing: 400,
       extraordinary: 100,
     },
     recipe: {
+      ingredientBatchSize: 50,
       ingredients: [
-        { ingredientId: 'chicken', quantity: 0.2 },
-        { ingredientId: 'rice', quantity: 0.03 },
+        { ingredientId: 'chicken', quantity: 10 },
+        { ingredientId: 'rice', quantity: 1.5 },
       ],
       packagingCost: 2,
       fixedFee: 0.5,
@@ -105,15 +106,29 @@ test('calculatePricing rates monthly costs and calculates suggested and real mar
   assert.equal(result.ingredientCost, 4.75);
   assert.equal(result.productionCost, 0.3);
   assert.equal(result.laborCost, 1);
-  assert.equal(result.otherCost, 1.7);
-  assert.equal(result.baseCost, 10.25);
-  assert.equal(result.suggestedPrice, 20.5);
-  assert.equal(result.totalCost, 12.3);
-  assert.equal(result.profit, 8.2);
-  assert.equal(result.realTotalCost, 12.75);
-  assert.equal(result.realProfit, 12.25);
-  assert.equal(result.realMarginPercent, 49);
+  assert.equal(result.otherCost, 1.66);
+  assert.equal(result.baseCost, 10.21);
+  assert.equal(result.suggestedPrice, 20.42);
+  assert.equal(result.totalCost, 12.252);
+  assert.ok(Math.abs(result.profit - 8.168) < 0.000001);
+  assert.equal(result.realTotalCost, 12.71);
+  assert.equal(result.realProfit, 12.29);
+  assert.equal(result.realMarginPercent, 49.16);
   assert.equal(result.status, 'Lucrativa');
+});
+
+test('calculatePricing preserves legacy per-plate ingredient quantities', () => {
+  const result = calculatePricing({
+    catalog: [{ id: 'chicken', unit: 'kg', purchaseQuantity: 1, purchaseCost: 20 }],
+    recipe: {
+      ingredients: [{ ingredientId: 'chicken', quantity: 0.2 }],
+      desiredMarginPercent: 0,
+      variableFeePercent: 0,
+    },
+  });
+
+  assert.equal(result.ingredientCost, 4);
+  assert.equal(result.baseCost, 4);
 });
 
 test('calculatePricing preserves legacy labor until staff is registered', () => {

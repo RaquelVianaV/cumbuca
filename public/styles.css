@@ -4194,6 +4194,20 @@ textarea {
   font-weight: 900;
 }
 
+.pricing-recipe-batch-note {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(5, 103, 73, 0.2);
+  border-radius: 8px;
+  background: #effbf6;
+  color: #315e50;
+  line-height: 1.45;
+}
+
+.pricing-recipe-batch-note strong {
+  color: var(--green-800);
+}
+
 .pricing-recipe-ingredient-list {
   display: grid;
   gap: 8px;
@@ -4262,6 +4276,17 @@ textarea {
 }
 
 .pricing-average-field small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.pricing-cost-group-note {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.pricing-recipe-layout label small {
   color: var(--muted);
   font-size: 0.72rem;
   line-height: 1.35;

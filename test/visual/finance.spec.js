@@ -748,7 +748,7 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   database.state = {
     pricingIngredients: [],
     pricingRecipes: [],
-    pricingConfig: {},
+    pricingConfig: { sharedCosts: { labels: 3120 } },
     storeProductQuantities: [
       { id: 'q-1', productId: 'product-1', month: '2026-06', quantity: 100 },
       { id: 'q-2', productId: 'product-1', month: '2026-07', quantity: 200 },
@@ -758,6 +758,8 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   await page.goto('/precificacao?view=costs');
   const costForm = page.locator('#pricing-shared-cost-form');
   await expect(costForm).toBeVisible();
+  await expect(costForm.locator('input[name="labels"]')).toHaveCount(0);
+  await expect(page.locator('[data-pricing-shared-preview="monthly"]')).toContainText('R$ 0,00');
   await costForm.getByRole('button', { name: 'Usar média da Loja (150)', exact: true }).click();
   await expect(costForm.locator('input[name="averageMonthlyUnits"]')).toHaveValue('150');
   await costForm.locator('input[name="gas"]').fill('100');
@@ -794,9 +796,8 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   await expect(page.locator('[data-pricing-staff-total]')).toContainText('R$ 300,00');
   await costForm.locator('input[name="rent"]').fill('600');
   await costForm.locator('input[name="accountant"]').fill('150');
-  await costForm.locator('input[name="labels"]').fill('100');
   await costForm.locator('input[name="telephony"]').fill('50');
-  await expect(page.locator('[data-pricing-shared-preview="total"]')).toContainText('9,00');
+  await expect(page.locator('[data-pricing-shared-preview="total"]')).toContainText('8,33');
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
     path: testInfo.outputPath('pricing-team-costs.png'),
@@ -808,12 +809,12 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   await expect.poll(() => database.state.pricingConfig?.sharedCosts?.accountant).toBe(150);
   expect(database.state.pricingConfig.sharedCosts).toMatchObject({
     accountant: 150,
-    labels: 100,
     telephony: 50,
     labor: 300,
     staff: [expect.objectContaining({ name: 'Ana Silva', salary: 300 })],
   });
   expect(database.state.pricingConfig.sharedCosts).not.toHaveProperty('water');
+  expect(database.state.pricingConfig.sharedCosts).not.toHaveProperty('labels');
 
   await page.getByRole('button', { name: 'Ingredientes', exact: true }).click();
   let ingredientForm = page.locator('#pricing-ingredient-form');
@@ -848,22 +849,59 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   await recipeForm.locator('input[name="variableFeePercent"]').fill('10');
   await recipeForm.locator('input[name="desiredMarginPercent"]').fill('40');
   await recipeForm.locator('input[name="practicedPrice"]').fill('30');
-  await recipeForm.getByLabel('Quantidade de Peito de frango', { exact: true }).fill('0.2');
-  await recipeForm.getByLabel('Quantidade de Arroz', { exact: true }).fill('0.03');
-  await expect(page.locator('[data-pricing-preview="suggested"]')).toContainText('32,50');
-  await expect(page.locator('[data-pricing-preview="profit"]')).toContainText('10,75');
-  await recipeForm.getByRole('button', { name: 'Cadastrar receita', exact: true }).click();
+  await expect(recipeForm.locator('fieldset')).toContainText('50 pratos');
+  await recipeForm.locator('[data-pricing-recipe-ingredient]').nth(0).fill('10');
+  await recipeForm.locator('[data-pricing-recipe-ingredient]').nth(1).fill('1.5');
+  await expect(page.locator('[data-pricing-preview="suggested"]')).toContainText('31,17');
+  await expect(page.locator('[data-pricing-preview="profit"]')).toContainText('11,42');
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath('pricing-recipe-batch-50.png'),
+    fullPage: true,
+  });
+  await recipeForm
+    .getByRole('button', { name: 'Cadastrar e adicionar outra', exact: true })
+    .click();
   await expect.poll(() => database.state.pricingRecipes?.length).toBe(1);
+  expect(database.state.pricingRecipes[0]).toMatchObject({
+    ingredientBatchSize: 50,
+    ingredients: [
+      expect.objectContaining({ quantity: 10 }),
+      expect.objectContaining({ quantity: 1.5 }),
+    ],
+  });
+  await expect(page).toHaveURL(/precificacao\?view=recipes/);
+  await expect(page.locator('#pricing-recipe-form input[name="name"]')).toHaveValue('');
 
+  await page.locator('[data-view-tab="dashboard"]').click();
   await expect(page).toHaveURL(/precificacao\?view=dashboard/);
   const recipeRow = page.locator('.pricing-table tbody tr');
   await expect(recipeRow).toHaveCount(1);
   await expect(recipeRow).toContainText('Frango Fit');
-  await expect(recipeRow).toContainText('R$ 32,50');
-  await expect(recipeRow).toContainText('R$ 10,75');
-  await expect(recipeRow).toContainText('35,8%');
+  await expect(recipeRow).toContainText('R$ 31,17');
+  await expect(recipeRow).toContainText('R$ 11,42');
+  await expect(recipeRow).toContainText('38,1%');
   await expect(recipeRow).toContainText('Atenção');
   await expect(page.getByRole('heading', { name: 'Lucro estimado por lote' })).toBeVisible();
+
+  delete database.state.pricingRecipes[0].ingredientBatchSize;
+  database.state.pricingRecipes[0].ingredients[0].quantity = 0.2;
+  database.state.pricingRecipes[0].ingredients[1].quantity = 0.03;
+  await page.reload();
+  await page
+    .locator('.pricing-table tbody tr')
+    .getByRole('button', { name: 'Editar', exact: true })
+    .click();
+  const legacyRecipeForm = page.locator('#pricing-recipe-form');
+  await expect(legacyRecipeForm.locator('[data-pricing-recipe-ingredient]').nth(0)).toHaveValue(
+    '10'
+  );
+  await expect(legacyRecipeForm.locator('[data-pricing-recipe-ingredient]').nth(1)).toHaveValue(
+    '1.5'
+  );
+  await expect(page.locator('[data-pricing-preview="suggested"]')).toContainText('31,17');
+  await legacyRecipeForm.getByRole('button', { name: 'Salvar receita', exact: true }).click();
+  await expect.poll(() => database.state.pricingRecipes?.[0]?.ingredientBatchSize).toBe(50);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expectNoHorizontalOverflow(page);

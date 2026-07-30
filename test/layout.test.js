@@ -73,8 +73,9 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /name="saleType"/);
   assert.match(app, /name="unitsPerCombo"/);
   assert.match(app, /data-store-sale-total/);
-  assert.match(app, /name="labels"/);
+  assert.doesNotMatch(app, /name="labels"/);
   assert.match(app, /name="telephony"/);
+  assert.match(app, /Embalagens e etiquetas não entram aqui/);
   assert.match(app, /value="kg"/);
   assert.match(app, /value="box"/);
   assert.match(app, /function storeSaleUnitQuantity/);
@@ -119,6 +120,11 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /function pricingStaffMembersFromForm/);
   assert.match(app, /Mão de obra cadastrada anteriormente/);
   assert.match(app, /function pricingRecipeMetrics/);
+  assert.match(app, /PRICING_RECIPE_BATCH_SIZE = 50/);
+  assert.match(app, /function pricingRecipeIngredientBatchSize/);
+  assert.match(app, /ingredientBatchSize: PRICING_RECIPE_BATCH_SIZE/);
+  assert.match(app, /Quantidade total para 50 pratos/);
+  assert.match(app, /data-pricing-save-next/);
   assert.match(app, /function storeProductPerformanceRows/);
   assert.match(app, /function storeProductPerformancePanel/);
   assert.match(app, /data-store-product-performance/);
@@ -133,10 +139,12 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /Cumbuca mais lucrativa/);
   assert.match(server, /'pricingRecipes'/);
   assert.match(server, /function calculatePricing/);
+  assert.match(server, /ingredientBatchSize/);
   assert.match(css, /\.pricing-dashboard-grid/);
   assert.match(css, /\.pricing-staff-editor/);
   assert.match(css, /\.pricing-staff-total/);
   assert.match(css, /\.pricing-recipe-layout/);
+  assert.match(css, /\.pricing-recipe-batch-note/);
   assert.match(css, /\.pricing-status\.profitable/);
   assert.match(app, /name="expectedVanessa"/);
   assert.match(app, /name="expectedRaquel"/);

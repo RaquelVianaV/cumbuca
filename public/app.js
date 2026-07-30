@@ -8192,6 +8192,17 @@ function pricingDecimalNumber(value) {
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
 }
 
+const PRICING_RECIPE_BATCH_SIZE = 50;
+
+function pricingRecipeIngredientBatchSize(recipe = {}) {
+  return pricingDecimalNumber(recipe?.ingredientBatchSize) || 1;
+}
+
+function pricingRecipeIngredientQuantityForBatch(recipe, item, batchSize = PRICING_RECIPE_BATCH_SIZE) {
+  return pricingDecimalNumber(item?.quantity)
+    * (pricingDecimalNumber(batchSize) / pricingRecipeIngredientBatchSize(recipe));
+}
+
 function pricingPercent(value) {
   if (value === null || value === undefined || value === "") {
     return "—";
@@ -8290,12 +8301,11 @@ function pricingSharedCosts(config = state.pricingConfig) {
   const labor = staff.reduce((sum, member) => sum + member.salary, 0);
   const rent = pricingSafeNumber(shared.rent);
   const accountant = pricingSafeNumber(shared.accountant);
-  const labels = pricingSafeNumber(shared.labels);
   const telephony = pricingSafeNumber(shared.telephony);
   const marketing = pricingSafeNumber(shared.marketing);
   const extraordinary = pricingSafeNumber(shared.extraordinary);
   const productionMonthly = gas + energy;
-  const otherMonthly = rent + accountant + labels + telephony + marketing + extraordinary;
+  const otherMonthly = rent + accountant + telephony + marketing + extraordinary;
   const monthlyTotal = productionMonthly + labor + otherMonthly;
   const divisor = averageMonthlyUnits > 0 ? averageMonthlyUnits : 0;
   return {
@@ -8306,7 +8316,6 @@ function pricingSharedCosts(config = state.pricingConfig) {
     labor,
     rent,
     accountant,
-    labels,
     telephony,
     marketing,
     extraordinary,
@@ -8340,9 +8349,11 @@ function pricingRecipeMetrics(recipe, config = state.pricingConfig) {
   const ingredientMap = new Map(
     normalizedPricingIngredients().map(ingredient => [String(ingredient.id), ingredient])
   );
+  const ingredientBatchSize = pricingRecipeIngredientBatchSize(recipe);
   const ingredientCost = (recipe?.ingredients || []).reduce((sum, item) => {
     const ingredient = ingredientMap.get(String(item.ingredientId));
-    return sum + pricingDecimalNumber(item.quantity) * pricingIngredientUnitCost(ingredient);
+    const quantityPerPlate = pricingDecimalNumber(item.quantity) / ingredientBatchSize;
+    return sum + quantityPerPlate * pricingIngredientUnitCost(ingredient);
   }, 0);
   const packagingCost = pricingSafeNumber(recipe?.packagingCost);
   const fixedFee = pricingSafeNumber(recipe?.fixedFee);
@@ -8422,8 +8433,8 @@ function pricingProjectionRecipe() {
 function pricingFlowHtml() {
   return `
     <section class="pricing-flow" aria-label="Etapas da precificação">
-      <span><b>1</b><small>Ingredientes</small><strong>Custo por g, ml ou unidade</strong></span>
-      <span><b>2</b><small>Receita</small><strong>Quantidade usada em cada cumbuca</strong></span>
+      <span><b>1</b><small>Ingredientes</small><strong>Custo por kg, unidade ou caixa</strong></span>
+      <span><b>2</b><small>Receita</small><strong>Quantidade total para 50 pratos</strong></span>
       <span><b>3</b><small>Precificação</small><strong>Custos, margem e preço sugerido</strong></span>
     </section>
   `;
@@ -8689,7 +8700,10 @@ function pricingRecipesPanel(editingRecipe = null) {
   const ingredients = normalizedPricingIngredients();
   const shared = pricingSharedCosts();
   const editingItems = new Map(
-    (editingRecipe?.ingredients || []).map(item => [String(item.ingredientId), pricingDecimalNumber(item.quantity)])
+    (editingRecipe?.ingredients || []).map(item => [
+      String(item.ingredientId),
+      pricingRecipeIngredientQuantityForBatch(editingRecipe, item)
+    ])
   );
   const preview = pricingRecipeMetrics(editingRecipe || {});
   return `
@@ -8710,6 +8724,7 @@ function pricingRecipesPanel(editingRecipe = null) {
           </label>
           <label>Custo da embalagem
             <input name="packagingCost" type="text" inputmode="decimal" placeholder="Cumbuca, tampa, talheres..." value="${moneyInputValue(editingRecipe?.packagingCost)}">
+            <small>Informe o custo variável de uma unidade, incluindo embalagem e etiqueta.</small>
           </label>
           <label>Taxa fixa por unidade
             <input name="fixedFee" type="text" inputmode="decimal" placeholder="Ex.: 0,50" value="${moneyInputValue(editingRecipe?.fixedFee)}">
@@ -8724,8 +8739,13 @@ function pricingRecipesPanel(editingRecipe = null) {
             <input name="practicedPrice" type="text" inputmode="decimal" placeholder="Valor realmente vendido" value="${moneyInputValue(editingRecipe?.practicedPrice)}">
           </label>
           <fieldset class="pricing-ingredient-picker">
-            <legend>Ingredientes da receita</legend>
+            <legend>Ingredientes para ${PRICING_RECIPE_BATCH_SIZE} pratos</legend>
             ${ingredients.length ? `
+              <p class="pricing-recipe-batch-note">
+                <strong>Lote padrão: ${PRICING_RECIPE_BATCH_SIZE} pratos.</strong>
+                Informe abaixo a quantidade total de cada ingrediente usada para produzir os ${PRICING_RECIPE_BATCH_SIZE} pratos.
+                O sistema calcula automaticamente o custo de uma cumbuca.
+              </p>
               <div class="pricing-recipe-ingredient-list">
                 ${ingredients.map(ingredient => `
                   <label class="pricing-recipe-ingredient">
@@ -8737,10 +8757,10 @@ function pricingRecipesPanel(editingRecipe = null) {
                       type="number"
                       min="0"
                       step="0.001"
-                      placeholder="0 ${pricingIngredientUnitLabel(ingredient.unit)}"
+                      placeholder="Total para ${PRICING_RECIPE_BATCH_SIZE} (${pricingIngredientUnitLabel(ingredient.unit)})"
                       value="${editingItems.get(String(ingredient.id)) || ""}"
                       data-pricing-recipe-ingredient="${escapeHtml(ingredient.id)}"
-                      aria-label="Quantidade de ${escapeHtml(ingredient.name)}"
+                      aria-label="Quantidade de ${escapeHtml(ingredient.name)} para ${PRICING_RECIPE_BATCH_SIZE} pratos"
                     >
                   </label>
                 `).join("")}
@@ -8752,6 +8772,11 @@ function pricingRecipesPanel(editingRecipe = null) {
           </fieldset>
           <div class="actions">
             <button type="submit" ${ingredients.length ? "" : "disabled"}>${editingRecipe ? "Salvar receita" : "Cadastrar receita"}</button>
+            ${!editingRecipe ? `
+              <button class="secondary" type="submit" data-pricing-save-next ${ingredients.length ? "" : "disabled"}>
+                Cadastrar e adicionar outra
+              </button>
+            ` : ""}
             ${editingRecipe ? `<button class="secondary" type="button" id="cancel-pricing-recipe-edit">Cancelar</button>` : ""}
           </div>
         </form>
@@ -8759,7 +8784,7 @@ function pricingRecipesPanel(editingRecipe = null) {
       <aside class="panel pricing-recipe-preview" aria-live="polite">
         <h2>Prévia automática</h2>
         <div class="pricing-cost-breakdown compact">
-          <span><small>Ingredientes</small><strong data-pricing-preview="ingredients">${money(preview.ingredientCost)}</strong></span>
+          <span><small>Ingredientes por cumbuca</small><strong data-pricing-preview="ingredients">${money(preview.ingredientCost)}</strong></span>
           <span><small>Embalagem</small><strong data-pricing-preview="packaging">${money(preview.packagingCost)}</strong></span>
           <span><small>Produção rateada</small><strong data-pricing-preview="production">${money(shared.productionPerUnit)}</strong></span>
           <span><small>Mão de obra rateada</small><strong data-pricing-preview="labor">${money(shared.laborPerUnit)}</strong></span>
@@ -8889,14 +8914,12 @@ function pricingCostsPanel() {
           </fieldset>
           <fieldset class="pricing-cost-group">
             <legend>Demais custos mensais</legend>
+            <p class="muted-inline pricing-cost-group-note">Embalagens e etiquetas não entram aqui. Cadastre o valor por unidade em Receitas &gt; Custo da embalagem.</p>
             <label>Aluguel
               <input name="rent" type="text" inputmode="decimal" value="${moneyInputValue(shared.rent)}">
             </label>
             <label>Contador
               <input name="accountant" type="text" inputmode="decimal" value="${moneyInputValue(shared.accountant)}">
-            </label>
-            <label>Etiquetas
-              <input name="labels" type="text" inputmode="decimal" value="${moneyInputValue(shared.labels)}">
             </label>
             <label>Telefonia
               <input name="telephony" type="text" inputmode="decimal" value="${moneyInputValue(shared.telephony)}">
@@ -8950,7 +8973,6 @@ function pricingSharedCostsFromForm(form, staffOverride = null) {
     labor,
     rent: pricingSafeNumber(values.rent),
     accountant: pricingSafeNumber(values.accountant),
-    labels: pricingSafeNumber(values.labels),
     telephony: pricingSafeNumber(values.telephony),
     marketing: pricingSafeNumber(values.marketing),
     extraordinary: pricingSafeNumber(values.extraordinary),
@@ -8970,6 +8992,7 @@ function pricingRecipeDraftFromForm(form) {
     variableFeePercent: pricingDecimalNumber(values.variableFeePercent),
     desiredMarginPercent: pricingDecimalNumber(values.desiredMarginPercent),
     practicedPrice: pricingSafeNumber(values.practicedPrice),
+    ingredientBatchSize: PRICING_RECIPE_BATCH_SIZE,
     ingredients: [...form.querySelectorAll("[data-pricing-recipe-ingredient]")]
       .map(field => ({
         ingredientId: field.dataset.pricingRecipeIngredient,
@@ -9279,6 +9302,7 @@ async function renderPricing() {
     recipeForm.addEventListener("input", () => updatePricingRecipePreview(recipeForm));
     recipeForm.addEventListener("submit", async event => {
       event.preventDefault();
+      const saveAndAddAnother = event.submitter?.hasAttribute("data-pricing-save-next") || false;
       const recipe = pricingRecipeDraftFromForm(event.currentTarget);
       if (!recipe.name || !recipe.category || recipe.weightGrams <= 0) {
         showToast("Informe nome, categoria e peso final da cumbuca.", "warning");
@@ -9321,7 +9345,12 @@ async function renderPricing() {
       };
       if (await persistState()) {
         state.editPricingRecipeId = null;
-        openPricingView("dashboard");
+        if (saveAndAddAnother && !recipe.id) {
+          showToast("Receita cadastrada. O formulário está pronto para o próximo prato.", "success");
+          openPricingView("recipes");
+        } else {
+          openPricingView("dashboard");
+        }
       }
     });
   }

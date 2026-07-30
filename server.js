@@ -2108,6 +2108,7 @@ function calculatePricing(payload = {}) {
         ingredient,
       ])
     );
+    const ingredientBatchSize = Math.max(1, number(recipe.ingredientBatchSize) || 1);
     const ingredientCost = (Array.isArray(recipe.ingredients) ? recipe.ingredients : []).reduce(
       (sum, item) => {
         const ingredient = ingredientMap.get(String(item.ingredientId));
@@ -2124,7 +2125,7 @@ function calculatePricing(payload = {}) {
             number(ingredient.quantity) * number(ingredient.unitCost)
         );
         const unitCost = purchaseQuantity > 0 ? purchaseCost / purchaseQuantity : 0;
-        return sum + Math.max(0, number(item.quantity)) * unitCost;
+        return sum + (Math.max(0, number(item.quantity)) / ingredientBatchSize) * unitCost;
       },
       0
     );
@@ -2137,7 +2138,6 @@ function calculatePricing(payload = {}) {
     const otherMonthly =
       Math.max(0, number(shared.rent)) +
       Math.max(0, number(shared.accountant)) +
-      Math.max(0, number(shared.labels)) +
       Math.max(0, number(shared.telephony)) +
       Math.max(0, number(shared.marketing)) +
       Math.max(0, number(shared.extraordinary));
