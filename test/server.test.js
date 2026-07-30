@@ -147,6 +147,7 @@ test('calculatePricing preserves legacy labor until staff is registered', () => 
 
   assert.equal(result.laborCost, 5);
   assert.equal(result.baseCost, 5);
+  assert.equal(result.status, 'Ingredientes pendentes');
 });
 
 test('automatic backups share one version per UTC hour', () => {

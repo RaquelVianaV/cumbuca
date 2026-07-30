@@ -8381,13 +8381,15 @@ function pricingRecipeMetrics(recipe, config = state.pricingConfig) {
     : totalCost > 0
       ? suggestedPrice / totalCost
       : 0;
-  const status = practicedPrice <= 0 || realMarginPercent === null
-    ? "Atenção"
-    : realProfit < 0
-      ? "Prejuízo"
-      : realMarginPercent + 0.0001 >= desiredMarginPercent
-        ? "Lucrativa"
-        : "Atenção";
+  const status = !pricingRecipeIsComplete(recipe)
+    ? "Ingredientes pendentes"
+    : practicedPrice <= 0 || realMarginPercent === null
+      ? "Atenção"
+      : realProfit < 0
+        ? "Prejuízo"
+        : realMarginPercent + 0.0001 >= desiredMarginPercent
+          ? "Lucrativa"
+          : "Atenção";
   return {
     ingredientCost,
     packagingCost,
@@ -8417,6 +8419,8 @@ function pricingStatusPill(status) {
     ? "profitable"
     : status === "Prejuízo"
       ? "loss"
+      : status === "Ingredientes pendentes"
+        ? "pending"
       : "attention";
   return `<span class="pricing-status ${className}">${status}</span>`;
 }
@@ -8425,16 +8429,23 @@ function pricingRecipeById(recipeId) {
   return (state.pricingRecipes || []).find(recipe => String(recipe.id) === String(recipeId));
 }
 
+function pricingRecipeIsComplete(recipe) {
+  return (recipe?.ingredients || []).some(item => pricingDecimalNumber(item.quantity) > 0);
+}
+
 function pricingProjectionRecipe() {
   const configured = pricingRecipeById(state.pricingConfig?.projectionRecipeId);
-  return configured || (state.pricingRecipes || [])[0] || null;
+  if (configured && pricingRecipeIsComplete(configured)) {
+    return configured;
+  }
+  return (state.pricingRecipes || []).find(pricingRecipeIsComplete) || null;
 }
 
 function pricingFlowHtml() {
   return `
     <section class="pricing-flow" aria-label="Etapas da precificação">
-      <span><b>1</b><small>Ingredientes</small><strong>Custo por kg, unidade ou caixa</strong></span>
-      <span><b>2</b><small>Receita</small><strong>Quantidade total para 50 pratos</strong></span>
+      <span><b>1</b><small>Receita</small><strong>Cadastre primeiro os dados do prato</strong></span>
+      <span><b>2</b><small>Ingredientes</small><strong>Informe depois o lote para 50 pratos</strong></span>
       <span><b>3</b><small>Precificação</small><strong>Custos, margem e preço sugerido</strong></span>
     </section>
   `;
@@ -8445,17 +8456,19 @@ function pricingDashboardPanel() {
     recipe,
     metrics: pricingRecipeMetrics(recipe)
   }));
-  const realRows = rows.filter(row => row.metrics.practicedPrice > 0);
-  const averageCost = rows.length
-    ? rows.reduce((sum, row) => sum + row.metrics.totalCost, 0) / rows.length
+  const completeRows = rows.filter(row => pricingRecipeIsComplete(row.recipe));
+  const pendingRows = rows.filter(row => !pricingRecipeIsComplete(row.recipe));
+  const realRows = completeRows.filter(row => row.metrics.practicedPrice > 0);
+  const averageCost = completeRows.length
+    ? completeRows.reduce((sum, row) => sum + row.metrics.totalCost, 0) / completeRows.length
     : 0;
   const averageMargin = realRows.length
     ? realRows.reduce((sum, row) => sum + row.metrics.realMarginPercent, 0) / realRows.length
     : null;
-  const averagePackaging = rows.length
-    ? rows.reduce((sum, row) => sum + row.metrics.packagingCost, 0) / rows.length
+  const averagePackaging = completeRows.length
+    ? completeRows.reduce((sum, row) => sum + row.metrics.packagingCost, 0) / completeRows.length
     : 0;
-  const profitRows = realRows.length ? realRows : rows;
+  const profitRows = realRows.length ? realRows : completeRows;
   const mostProfitable = profitRows.reduce((best, row) => {
     const profit = row.metrics.practicedPrice > 0
       ? row.metrics.realProfit
@@ -8493,11 +8506,18 @@ function pricingDashboardPanel() {
         <button class="secondary" type="button" data-pricing-open-view="costs">Configurar custos rateados</button>
       </div>
     `}
+    ${pendingRows.length ? `
+      <div class="pricing-warning">
+        <strong>${pendingRows.length} receita(s) aguardando ingredientes</strong>
+        <span>Essas receitas já estão salvas, mas só entram nos cálculos depois que você informar os ingredientes para 50 pratos.</span>
+        <button class="secondary" type="button" data-pricing-edit-pending-recipe="${escapeHtml(pendingRows[0].recipe.id)}">Continuar cadastro</button>
+      </div>
+    ` : ""}
     <section class="pricing-dashboard-grid">
       <article class="panel pricing-kpi">
         <span>Custo médio por cumbuca</span>
         <strong>${money(averageCost)}</strong>
-        <small>${rows.length} receita(s) cadastrada(s)</small>
+        <small>${completeRows.length} receita(s) completa(s)</small>
       </article>
       <article class="panel pricing-kpi">
         <span>Margem média real</span>
@@ -8559,17 +8579,17 @@ function pricingDashboardPanel() {
                   <td><strong>${escapeHtml(recipe.name || "")}</strong></td>
                   <td>${escapeHtml(recipe.category || "Sem categoria")}</td>
                   <td>${pricingDecimalNumber(recipe.weightGrams) || "—"}${pricingDecimalNumber(recipe.weightGrams) ? " g" : ""}</td>
-                  <td>${money(metrics.practicedPrice > 0 ? metrics.realTotalCost : metrics.totalCost)}</td>
+                  <td>${pricingRecipeIsComplete(recipe) ? money(metrics.practicedPrice > 0 ? metrics.realTotalCost : metrics.totalCost) : "—"}</td>
                   <td>${pricingPercent(metrics.desiredMarginPercent)}</td>
-                  <td><strong>${money(metrics.suggestedPrice)}</strong></td>
-                  <td>${metrics.practicedPrice > 0 ? money(metrics.practicedPrice) : "—"}</td>
-                  <td class="${metrics.practicedPrice > 0 && metrics.realProfit < 0 ? "negative" : "positive"}">${metrics.practicedPrice > 0 ? money(metrics.realProfit) : "—"}</td>
-                  <td>${pricingPercent(metrics.realMarginPercent)}</td>
-                  <td>${metrics.markup ? `${metrics.markup.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}x` : "—"}</td>
-                  <td>${pricingStatusPill(metrics.status)}</td>
+                  <td><strong>${pricingRecipeIsComplete(recipe) ? money(metrics.suggestedPrice) : "—"}</strong></td>
+                  <td>${pricingRecipeIsComplete(recipe) && metrics.practicedPrice > 0 ? money(metrics.practicedPrice) : "—"}</td>
+                  <td class="${metrics.practicedPrice > 0 && metrics.realProfit < 0 ? "negative" : "positive"}">${pricingRecipeIsComplete(recipe) && metrics.practicedPrice > 0 ? money(metrics.realProfit) : "—"}</td>
+                  <td>${pricingRecipeIsComplete(recipe) ? pricingPercent(metrics.realMarginPercent) : "—"}</td>
+                  <td>${pricingRecipeIsComplete(recipe) && metrics.markup ? `${metrics.markup.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}x` : "—"}</td>
+                  <td>${pricingStatusPill(pricingRecipeIsComplete(recipe) ? metrics.status : "Ingredientes pendentes")}</td>
                   <td>
                     <div class="table-actions">
-                      <button class="secondary table-action" type="button" data-edit-pricing-recipe="${escapeHtml(recipe.id)}">Editar</button>
+                      <button class="secondary table-action" type="button" data-edit-pricing-recipe="${escapeHtml(recipe.id)}">${pricingRecipeIsComplete(recipe) ? "Editar" : "Adicionar ingredientes"}</button>
                       <button class="danger table-action" type="button" data-delete-pricing-recipe="${escapeHtml(recipe.id)}">Excluir</button>
                     </div>
                   </td>
@@ -8578,7 +8598,7 @@ function pricingDashboardPanel() {
             </tbody>
           </table>
         </div>
-      ` : `<p class="muted">Cadastre ingredientes e depois crie a primeira receita para visualizar custos, preços e margens.</p>`}
+      ` : `<p class="muted">Cadastre primeiro a receita. Depois, informe os ingredientes usados para 50 pratos.</p>`}
     </section>
 
     ${projectionRecipe && projection ? `
@@ -8623,11 +8643,21 @@ function pricingDashboardPanel() {
 
 function pricingIngredientsPanel(editingIngredient = null) {
   const ingredients = normalizedPricingIngredients();
+  const returnRecipe = pricingRecipeById(state.pricingReturnRecipeId);
   const legacyUnit = ["g", "ml"].includes(editingIngredient?.unit)
     ? editingIngredient.unit
     : "";
   return `
     ${pricingFlowHtml()}
+    ${returnRecipe ? `
+      <div class="pricing-workflow-context">
+        <div>
+          <strong>Etapa 2: ingredientes de ${escapeHtml(returnRecipe.name)}</strong>
+          <span>Cadastre o ingrediente abaixo. Depois de salvar, você voltará automaticamente para informar a quantidade usada em 50 pratos.</span>
+        </div>
+        <button class="secondary" type="button" data-return-to-pricing-recipe="${escapeHtml(returnRecipe.id)}">Voltar para a receita</button>
+      </div>
+    ` : ""}
     <div class="pricing-editor-grid">
       <section class="panel">
         <h2>${editingIngredient ? "Editar ingrediente" : "Cadastrar ingrediente"}</h2>
@@ -8699,6 +8729,8 @@ function pricingIngredientsPanel(editingIngredient = null) {
 function pricingRecipesPanel(editingRecipe = null) {
   const ingredients = normalizedPricingIngredients();
   const shared = pricingSharedCosts();
+  const isIngredientStep = Boolean(editingRecipe);
+  const isComplete = pricingRecipeIsComplete(editingRecipe);
   const editingItems = new Map(
     (editingRecipe?.ingredients || []).map(item => [
       String(item.ingredientId),
@@ -8710,7 +8742,11 @@ function pricingRecipesPanel(editingRecipe = null) {
     ${pricingFlowHtml()}
     <div class="pricing-recipe-layout">
       <section class="panel">
-        <h2>${editingRecipe ? "Editar receita" : "Cadastrar receita"}</h2>
+        <p class="pricing-recipe-step">Etapa ${isIngredientStep ? "2" : "1"} de 2</p>
+        <h2>${isIngredientStep ? `${isComplete ? "Editar" : "Adicionar"} ingredientes à receita` : "Cadastrar receita"}</h2>
+        <p class="muted-inline">${isIngredientStep
+          ? `A receita ${escapeHtml(editingRecipe.name)} já está salva. Agora informe os ingredientes usados no lote de ${PRICING_RECIPE_BATCH_SIZE} pratos.`
+          : "Primeiro salve os dados do prato. Na próxima etapa, você cadastrará os ingredientes da receita."}</p>
         <form id="pricing-recipe-form" class="form-grid">
           <input name="recipeId" type="hidden" value="${escapeHtml(editingRecipe?.id || "")}">
           <label>Nome da cumbuca
@@ -8738,6 +8774,7 @@ function pricingRecipesPanel(editingRecipe = null) {
           <label>Preço praticado
             <input name="practicedPrice" type="text" inputmode="decimal" placeholder="Valor realmente vendido" value="${moneyInputValue(editingRecipe?.practicedPrice)}">
           </label>
+          ${isIngredientStep ? `
           <fieldset class="pricing-ingredient-picker">
             <legend>Ingredientes para ${PRICING_RECIPE_BATCH_SIZE} pratos</legend>
             ${ingredients.length ? `
@@ -8765,22 +8802,29 @@ function pricingRecipesPanel(editingRecipe = null) {
                   </label>
                 `).join("")}
               </div>
+              <button class="secondary pricing-add-ingredient" type="button" data-pricing-add-ingredient-for-recipe="${escapeHtml(editingRecipe.id)}">
+                Cadastrar novo ingrediente
+              </button>
             ` : `
-              <p class="muted">Cadastre ingredientes antes de criar uma receita.</p>
-              <button class="secondary" type="button" data-pricing-open-view="ingredients">Cadastrar ingredientes</button>
+              <p class="muted">A receita já foi cadastrada. Agora cadastre o primeiro ingrediente para montar o lote de ${PRICING_RECIPE_BATCH_SIZE} pratos.</p>
+              <button class="secondary" type="button" data-pricing-add-ingredient-for-recipe="${escapeHtml(editingRecipe.id)}">Cadastrar primeiro ingrediente</button>
             `}
           </fieldset>
+          ` : ""}
           <div class="actions">
-            <button type="submit" ${ingredients.length ? "" : "disabled"}>${editingRecipe ? "Salvar receita" : "Cadastrar receita"}</button>
-            ${!editingRecipe ? `
+            ${isIngredientStep ? `
+              <button type="submit" ${ingredients.length ? "" : "disabled"}>Salvar ingredientes da receita</button>
               <button class="secondary" type="submit" data-pricing-save-next ${ingredients.length ? "" : "disabled"}>
-                Cadastrar e adicionar outra
+                Salvar ingredientes e cadastrar outra receita
               </button>
-            ` : ""}
-            ${editingRecipe ? `<button class="secondary" type="button" id="cancel-pricing-recipe-edit">Cancelar</button>` : ""}
+              <button class="secondary" type="button" id="cancel-pricing-recipe-edit">Voltar</button>
+            ` : `
+              <button type="submit" data-pricing-create-base>Cadastrar receita e continuar</button>
+            `}
           </div>
         </form>
       </section>
+      ${isIngredientStep ? `
       <aside class="panel pricing-recipe-preview" aria-live="polite">
         <h2>Prévia automática</h2>
         <div class="pricing-cost-breakdown compact">
@@ -8800,6 +8844,13 @@ function pricingRecipesPanel(editingRecipe = null) {
         </div>
         <p class="pricing-formula">Preço sugerido = custo base ÷ (1 − margem desejada − taxa variável).</p>
       </aside>
+      ` : `
+        <aside class="panel pricing-recipe-next-step">
+          <span>Próxima etapa</span>
+          <strong>Ingredientes da receita</strong>
+          <p>Depois de salvar o prato, informe os ingredientes e as quantidades totais usadas para 50 unidades.</p>
+        </aside>
+      `}
     </div>
     <section class="panel report-section">
       <div class="section-heading">
@@ -8821,11 +8872,11 @@ function pricingRecipesPanel(editingRecipe = null) {
                     <td>${escapeHtml(recipe.category || "Sem categoria")}</td>
                     <td>${pricingDecimalNumber(recipe.weightGrams)} g</td>
                     <td>${(recipe.ingredients || []).length}</td>
-                    <td>${money(metrics.suggestedPrice)}</td>
-                    <td>${pricingStatusPill(metrics.status)}</td>
+                    <td>${pricingRecipeIsComplete(recipe) ? money(metrics.suggestedPrice) : "—"}</td>
+                    <td>${pricingStatusPill(pricingRecipeIsComplete(recipe) ? metrics.status : "Ingredientes pendentes")}</td>
                     <td>
                       <div class="table-actions">
-                        <button class="secondary table-action" type="button" data-edit-pricing-recipe="${escapeHtml(recipe.id)}">Editar</button>
+                        <button class="secondary table-action" type="button" data-edit-pricing-recipe="${escapeHtml(recipe.id)}">${pricingRecipeIsComplete(recipe) ? "Editar" : "Adicionar ingredientes"}</button>
                         <button class="danger table-action" type="button" data-delete-pricing-recipe="${escapeHtml(recipe.id)}">Excluir</button>
                       </div>
                     </td>
@@ -9197,6 +9248,29 @@ async function renderPricing() {
     });
   });
 
+  document.querySelectorAll("[data-pricing-add-ingredient-for-recipe]").forEach(button => {
+    button.addEventListener("click", event => {
+      state.pricingReturnRecipeId = event.currentTarget.dataset.pricingAddIngredientForRecipe;
+      state.editPricingIngredientId = null;
+      openPricingView("ingredients");
+    });
+  });
+
+  document.querySelectorAll("[data-return-to-pricing-recipe]").forEach(button => {
+    button.addEventListener("click", event => {
+      state.editPricingRecipeId = event.currentTarget.dataset.returnToPricingRecipe;
+      state.pricingReturnRecipeId = null;
+      openPricingView("recipes");
+    });
+  });
+
+  document.querySelectorAll("[data-pricing-edit-pending-recipe]").forEach(button => {
+    button.addEventListener("click", event => {
+      state.editPricingRecipeId = event.currentTarget.dataset.pricingEditPendingRecipe;
+      openPricingView("recipes");
+    });
+  });
+
   const ingredientForm = document.querySelector("#pricing-ingredient-form");
   if (ingredientForm) {
     const updateUnitCost = () => {
@@ -9247,8 +9321,16 @@ async function renderPricing() {
         recordAudit("Ingrediente de precificação cadastrado", name);
       }
       if (await persistState()) {
+        const returnRecipeId = state.pricingReturnRecipeId;
         state.editPricingIngredientId = null;
-        renderPricing();
+        if (returnRecipeId && pricingRecipeById(returnRecipeId)) {
+          state.editPricingRecipeId = returnRecipeId;
+          state.pricingReturnRecipeId = null;
+          showToast(`Ingrediente cadastrado. Informe agora a quantidade usada em ${PRICING_RECIPE_BATCH_SIZE} pratos.`, "success");
+          openPricingView("recipes");
+        } else {
+          renderPricing();
+        }
       }
     });
   }
@@ -9304,11 +9386,12 @@ async function renderPricing() {
       event.preventDefault();
       const saveAndAddAnother = event.submitter?.hasAttribute("data-pricing-save-next") || false;
       const recipe = pricingRecipeDraftFromForm(event.currentTarget);
+      const creatingRecipe = !recipe.id;
       if (!recipe.name || !recipe.category || recipe.weightGrams <= 0) {
         showToast("Informe nome, categoria e peso final da cumbuca.", "warning");
         return;
       }
-      if (!recipe.ingredients.length) {
+      if (!creatingRecipe && !recipe.ingredients.length) {
         showToast("Informe ao menos um ingrediente usado na receita.", "warning");
         return;
       }
@@ -9344,11 +9427,16 @@ async function renderPricing() {
         projectionRecipeId: state.pricingConfig?.projectionRecipeId || savedRecipe.id
       };
       if (await persistState()) {
-        state.editPricingRecipeId = null;
-        if (saveAndAddAnother && !recipe.id) {
-          showToast("Receita cadastrada. O formulário está pronto para o próximo prato.", "success");
+        if (creatingRecipe) {
+          state.editPricingRecipeId = savedRecipe.id;
+          showToast("Receita cadastrada. Agora adicione os ingredientes usados em 50 pratos.", "success");
+          openPricingView("recipes");
+        } else if (saveAndAddAnother) {
+          state.editPricingRecipeId = null;
+          showToast("Ingredientes salvos. O formulário está pronto para a próxima receita.", "success");
           openPricingView("recipes");
         } else {
+          state.editPricingRecipeId = null;
           openPricingView("dashboard");
         }
       }

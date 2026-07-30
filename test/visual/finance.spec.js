@@ -816,8 +816,41 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   expect(database.state.pricingConfig.sharedCosts).not.toHaveProperty('water');
   expect(database.state.pricingConfig.sharedCosts).not.toHaveProperty('labels');
 
-  await page.getByRole('button', { name: 'Ingredientes', exact: true }).click();
+  await page.getByRole('button', { name: 'Receitas', exact: true }).click();
+  let recipeForm = page.locator('#pricing-recipe-form');
+  await expect(page.locator('.pricing-recipe-step')).toHaveText('Etapa 1 de 2');
+  await expect(recipeForm.locator('[data-pricing-recipe-ingredient]')).toHaveCount(0);
+  await recipeForm.locator('input[name="name"]').fill('Frango Fit');
+  await recipeForm.locator('input[name="category"]').fill('Frango');
+  await recipeForm.locator('input[name="weightGrams"]').fill('500');
+  await recipeForm.locator('input[name="packagingCost"]').fill('2');
+  await recipeForm.locator('input[name="fixedFee"]').fill('0,50');
+  await recipeForm.locator('input[name="variableFeePercent"]').fill('10');
+  await recipeForm.locator('input[name="desiredMarginPercent"]').fill('40');
+  await recipeForm.locator('input[name="practicedPrice"]').fill('30');
+  await recipeForm
+    .getByRole('button', { name: 'Cadastrar receita e continuar', exact: true })
+    .click();
+  await expect.poll(() => database.state.pricingRecipes?.length).toBe(1);
+  expect(database.state.pricingRecipes[0]).toMatchObject({
+    name: 'Frango Fit',
+    ingredientBatchSize: 50,
+    ingredients: [],
+  });
+
+  recipeForm = page.locator('#pricing-recipe-form');
+  await expect(page.locator('.pricing-recipe-step')).toHaveText('Etapa 2 de 2');
+  await expect(
+    page.locator(
+      '.view-pane[data-view-pane="recipes"] .report-section table .pricing-status.pending'
+    )
+  ).toContainText('Ingredientes pendentes');
+  await recipeForm
+    .getByRole('button', { name: 'Cadastrar primeiro ingrediente', exact: true })
+    .click();
+
   let ingredientForm = page.locator('#pricing-ingredient-form');
+  await expect(page.locator('.pricing-workflow-context')).toContainText('Frango Fit');
   const unitSelect = ingredientForm.locator('select[name="unit"]');
   await expect(unitSelect.locator('option')).toHaveCount(3);
   await expect(unitSelect.locator('option')).toHaveText(['Quilograma (kg)', 'Unidade', 'Caixa']);
@@ -828,8 +861,11 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   await expect(page.locator('[data-pricing-ingredient-unit-cost]')).toContainText('20,00');
   await ingredientForm.getByRole('button', { name: 'Cadastrar ingrediente', exact: true }).click();
   await expect.poll(() => database.state.pricingIngredients?.length).toBe(1);
+  await expect(page).toHaveURL(/precificacao\?view=recipes/);
   expect(database.state.pricingIngredients[0]).toMatchObject({ unit: 'kg' });
 
+  recipeForm = page.locator('#pricing-recipe-form');
+  await recipeForm.getByRole('button', { name: 'Cadastrar novo ingrediente', exact: true }).click();
   ingredientForm = page.locator('#pricing-ingredient-form');
   await ingredientForm.locator('input[name="name"]').fill('Arroz');
   await ingredientForm.locator('select[name="unit"]').selectOption('box');
@@ -837,18 +873,10 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   await ingredientForm.locator('input[name="purchaseCost"]').fill('25');
   await ingredientForm.getByRole('button', { name: 'Cadastrar ingrediente', exact: true }).click();
   await expect.poll(() => database.state.pricingIngredients?.length).toBe(2);
+  await expect(page).toHaveURL(/precificacao\?view=recipes/);
   expect(database.state.pricingIngredients[1]).toMatchObject({ unit: 'box' });
 
-  await page.getByRole('button', { name: 'Receitas', exact: true }).click();
-  const recipeForm = page.locator('#pricing-recipe-form');
-  await recipeForm.locator('input[name="name"]').fill('Frango Fit');
-  await recipeForm.locator('input[name="category"]').fill('Frango');
-  await recipeForm.locator('input[name="weightGrams"]').fill('500');
-  await recipeForm.locator('input[name="packagingCost"]').fill('2');
-  await recipeForm.locator('input[name="fixedFee"]').fill('0,50');
-  await recipeForm.locator('input[name="variableFeePercent"]').fill('10');
-  await recipeForm.locator('input[name="desiredMarginPercent"]').fill('40');
-  await recipeForm.locator('input[name="practicedPrice"]').fill('30');
+  recipeForm = page.locator('#pricing-recipe-form');
   await expect(recipeForm.locator('fieldset')).toContainText('50 pratos');
   await recipeForm.locator('[data-pricing-recipe-ingredient]').nth(0).fill('10');
   await recipeForm.locator('[data-pricing-recipe-ingredient]').nth(1).fill('1.5');
@@ -860,9 +888,9 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
     fullPage: true,
   });
   await recipeForm
-    .getByRole('button', { name: 'Cadastrar e adicionar outra', exact: true })
+    .getByRole('button', { name: 'Salvar ingredientes e cadastrar outra receita', exact: true })
     .click();
-  await expect.poll(() => database.state.pricingRecipes?.length).toBe(1);
+  await expect.poll(() => database.state.pricingRecipes?.[0]?.ingredients?.length).toBe(2);
   expect(database.state.pricingRecipes[0]).toMatchObject({
     ingredientBatchSize: 50,
     ingredients: [
@@ -900,7 +928,9 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
     '1.5'
   );
   await expect(page.locator('[data-pricing-preview="suggested"]')).toContainText('31,17');
-  await legacyRecipeForm.getByRole('button', { name: 'Salvar receita', exact: true }).click();
+  await legacyRecipeForm
+    .getByRole('button', { name: 'Salvar ingredientes da receita', exact: true })
+    .click();
   await expect.poll(() => database.state.pricingRecipes?.[0]?.ingredientBatchSize).toBe(50);
 
   await page.setViewportSize({ width: 390, height: 844 });

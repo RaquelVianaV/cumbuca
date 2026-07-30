@@ -4057,6 +4057,11 @@ textarea {
   color: #9a3412;
 }
 
+.pricing-status.pending {
+  background: #e0f2fe;
+  color: #075985;
+}
+
 .pricing-status.loss {
   background: #fee2e2;
   color: #991b1b;
@@ -4163,6 +4168,75 @@ textarea {
   grid-template-columns: minmax(0, 1.28fr) minmax(300px, 0.72fr);
   gap: 16px;
   align-items: start;
+}
+
+.pricing-recipe-step {
+  width: fit-content;
+  margin: 0 0 6px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(8, 127, 91, 0.1);
+  color: var(--green-dark);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.pricing-recipe-next-step {
+  position: sticky;
+  top: 18px;
+  display: grid;
+  gap: 8px;
+  border-color: rgba(8, 127, 91, 0.24);
+  background: linear-gradient(145deg, rgba(232, 250, 243, 0.95), var(--surface));
+}
+
+.pricing-recipe-next-step span {
+  color: var(--green-dark);
+  font-size: 0.74rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.pricing-recipe-next-step strong {
+  color: var(--ink);
+  font-size: 1.2rem;
+}
+
+.pricing-recipe-next-step p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.pricing-workflow-context {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(8, 127, 91, 0.26);
+  border-radius: 10px;
+  background: #effbf6;
+}
+
+.pricing-workflow-context > div {
+  display: grid;
+  gap: 4px;
+}
+
+.pricing-workflow-context strong {
+  color: var(--green-dark);
+}
+
+.pricing-workflow-context span {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.pricing-add-ingredient {
+  justify-self: start;
 }
 
 .pricing-recipe-preview,
@@ -6716,6 +6790,7 @@ a.secondary.table-action,
   }
 
   .pricing-recipe-preview,
+  .pricing-recipe-next-step,
   .pricing-shared-preview {
     position: static;
   }
@@ -6738,6 +6813,15 @@ a.secondary.table-action,
 
   .pricing-warning button,
   .pricing-projection-select {
+    width: 100%;
+  }
+
+  .pricing-workflow-context {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pricing-workflow-context button {
     width: 100%;
   }
 

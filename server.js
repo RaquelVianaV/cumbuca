@@ -2108,27 +2108,25 @@ function calculatePricing(payload = {}) {
         ingredient,
       ])
     );
+    const recipeIngredients = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
+    const hasIngredients = recipeIngredients.some((item) => Math.max(0, number(item.quantity)) > 0);
     const ingredientBatchSize = Math.max(1, number(recipe.ingredientBatchSize) || 1);
-    const ingredientCost = (Array.isArray(recipe.ingredients) ? recipe.ingredients : []).reduce(
-      (sum, item) => {
-        const ingredient = ingredientMap.get(String(item.ingredientId));
-        if (!ingredient) {
-          return sum;
-        }
-        const purchaseQuantity = Math.max(
-          0,
-          number(ingredient.purchaseQuantity) || number(ingredient.quantity)
-        );
-        const purchaseCost = Math.max(
-          0,
-          number(ingredient.purchaseCost) ||
-            number(ingredient.quantity) * number(ingredient.unitCost)
-        );
-        const unitCost = purchaseQuantity > 0 ? purchaseCost / purchaseQuantity : 0;
-        return sum + (Math.max(0, number(item.quantity)) / ingredientBatchSize) * unitCost;
-      },
-      0
-    );
+    const ingredientCost = recipeIngredients.reduce((sum, item) => {
+      const ingredient = ingredientMap.get(String(item.ingredientId));
+      if (!ingredient) {
+        return sum;
+      }
+      const purchaseQuantity = Math.max(
+        0,
+        number(ingredient.purchaseQuantity) || number(ingredient.quantity)
+      );
+      const purchaseCost = Math.max(
+        0,
+        number(ingredient.purchaseCost) || number(ingredient.quantity) * number(ingredient.unitCost)
+      );
+      const unitCost = purchaseQuantity > 0 ? purchaseCost / purchaseQuantity : 0;
+      return sum + (Math.max(0, number(item.quantity)) / ingredientBatchSize) * unitCost;
+    }, 0);
     const shared = payload.sharedCosts || {};
     const averageMonthlyUnits = Math.max(0, number(shared.averageMonthlyUnits));
     const productionMonthly = Math.max(0, number(shared.gas)) + Math.max(0, number(shared.energy));
@@ -2166,14 +2164,15 @@ function calculatePricing(payload = {}) {
         : totalCost > 0
         ? suggestedPrice / totalCost
         : 0;
-    const status =
-      practicedPrice <= 0 || realMarginPercent === null
-        ? 'Atenção'
-        : realProfit < 0
-        ? 'Prejuízo'
-        : realMarginPercent + 0.0001 >= desiredMarginPercent
-        ? 'Lucrativa'
-        : 'Atenção';
+    const status = !hasIngredients
+      ? 'Ingredientes pendentes'
+      : practicedPrice <= 0 || realMarginPercent === null
+      ? 'Atenção'
+      : realProfit < 0
+      ? 'Prejuízo'
+      : realMarginPercent + 0.0001 >= desiredMarginPercent
+      ? 'Lucrativa'
+      : 'Atenção';
 
     return {
       ingredientCost,
