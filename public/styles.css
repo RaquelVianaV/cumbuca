@@ -6878,3 +6878,221 @@ a.secondary.table-action,
     min-width: 108px;
   }
 }
+
+.operation-agenda {
+  display: grid;
+  gap: 16px;
+}
+
+.operation-priority-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.operation-priority-card {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-height: 178px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--terracotta);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.operation-priority-card.danger {
+  border-left-color: var(--tomato);
+}
+
+.operation-priority-card > span,
+.alert-category {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.operation-priority-card > small {
+  min-height: 44px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.operation-priority-card .table-action {
+  align-self: end;
+  justify-self: start;
+}
+
+.operation-all-clear {
+  display: grid;
+  gap: 4px;
+  padding: 18px;
+  border: 1px solid rgba(8, 127, 91, 0.28);
+  border-radius: 10px;
+  background: rgba(8, 127, 91, 0.08);
+}
+
+.menu-recipe-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.menu-recipe-summary > span {
+  display: grid;
+  gap: 2px;
+}
+
+.menu-recipe-summary small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.menu-recipe-empty,
+.menu-recipe-warning {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.menu-recipe-warning {
+  color: var(--red);
+}
+
+.plan-vs-actual-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.plan-vs-actual-grid article {
+  display: grid;
+  gap: 7px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.plan-vs-actual-grid article > span,
+.plan-vs-actual-grid article > small {
+  color: var(--muted);
+}
+
+.plan-vs-actual-grid article > strong {
+  font-size: 1.2rem;
+}
+
+.budget-progress.is-warning span {
+  background: var(--yellow);
+}
+
+.budget-progress.is-danger span {
+  background: var(--tomato);
+}
+
+.plan-category-list {
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.profitability-panel .summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.settings-section-title,
+.settings-fixed-rule {
+  grid-column: 1 / -1;
+}
+
+.settings-section-title {
+  display: grid;
+  gap: 3px;
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.settings-section-title:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.settings-section-title strong {
+  font-size: 1.05rem;
+}
+
+.settings-section-title span,
+.settings-fixed-rule span {
+  color: var(--muted);
+}
+
+.settings-fixed-rule {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(8, 127, 91, 0.3);
+  border-radius: 9px;
+  background: rgba(8, 127, 91, 0.08);
+}
+
+.maintenance-health-overview {
+  display: grid;
+  gap: 14px;
+}
+
+.maintenance-health-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.maintenance-health-grid .backup-list-state {
+  margin: 0;
+}
+
+.alert-card .alert-category {
+  display: block;
+  margin-bottom: 2px;
+}
+
+@media (max-width: 1050px) {
+  .operation-priority-list,
+  .maintenance-health-grid,
+  .profitability-panel .summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .plan-vs-actual-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .operation-priority-list,
+  .menu-recipe-summary,
+  .plan-vs-actual-grid,
+  .maintenance-health-grid,
+  .profitability-panel .summary {
+    grid-template-columns: 1fr;
+  }
+
+  .operation-priority-card {
+    min-height: 0;
+  }
+
+  .settings-fixed-rule {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

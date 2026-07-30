@@ -113,6 +113,11 @@ const defaultState = {
     splitSavingsPercent: 10,
     splitVanessaPercent: 70,
     splitRaquelPercent: 30,
+    defaultPackagingCost: 0,
+    defaultFixedFee: 0,
+    defaultVariableFeePercent: 0,
+    defaultDesiredMarginPercent: 30,
+    backupReminderDays: 7,
   },
 };
 
@@ -2699,6 +2704,7 @@ function weeklyMenu(payload = {}) {
     const ingredientCost = ingredients.reduce((sum, item) => sum + item.value, 0);
     return {
       slot: index + 1,
+      recipeId: String(found.recipeId || '').trim(),
       dish: String(found.dish || '').trim(),
       ingredients,
       cost: ingredientCost || number(found.cost),

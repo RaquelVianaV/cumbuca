@@ -31,11 +31,16 @@ const defaultAppConfig = {
   homeDashboardVersion: "2026-06-budget",
   splitSavingsPercent: 10,
   splitVanessaPercent: 70,
-  splitRaquelPercent: 30
+  splitRaquelPercent: 30,
+  defaultPackagingCost: 0,
+  defaultFixedFee: 0,
+  defaultVariableFeePercent: 0,
+  defaultDesiredMarginPercent: 30,
+  backupReminderDays: 7
 };
 const configRouteOptions = [
   ["home", "Painel"],
-  ["hoje", "Hoje"],
+  ["hoje", "Operação"],
   ["pedidos", "Pedidos"],
   ["fluxo-de-caixa", "Caixa"],
   ["financeiro", "Financeiro"],
@@ -3895,6 +3900,17 @@ function homeMetricData() {
 
 function dashboardAlerts(metrics, weeklyOrders) {
   const alerts = [];
+  const incompleteRecipes = (state.pricingRecipes || []).filter(recipe => !pricingRecipeIsComplete(recipe));
+  const lossRecipes = (state.pricingRecipes || []).filter(recipe => {
+    if (!pricingRecipeIsComplete(recipe)) {
+      return false;
+    }
+    const recipeMetrics = pricingRecipeMetrics(recipe);
+    return recipeMetrics.practicedPrice > 0 && recipeMetrics.realProfit < 0;
+  });
+  const unlinkedMenuItems = (state.menus[menuKey(state.menuWeek || 1)] || []).filter(item => {
+    return String(item.dish || "").trim() && !pricingRecipeForMenuItem(item);
+  });
 
   if (metrics.weekBalance < 0) {
     alerts.push(["Saldo da semana negativo", money(metrics.weekBalance)]);
@@ -3922,6 +3938,18 @@ function dashboardAlerts(metrics, weeklyOrders) {
 
   if (metrics.menuWithoutCost.length) {
     alerts.push(["Menu sem custo", `${metrics.menuWithoutCost.length} cumbuca(s)`]);
+  }
+
+  if (unlinkedMenuItems.length) {
+    alerts.push(["Menu sem receita vinculada", `${unlinkedMenuItems.length} prato(s)`]);
+  }
+
+  if (incompleteRecipes.length) {
+    alerts.push(["Receitas incompletas", `${incompleteRecipes.length} receita(s) sem ingredientes`]);
+  }
+
+  if (lossRecipes.length) {
+    alerts.push(["Preço abaixo do custo", `${lossRecipes.length} receita(s) com prejuízo`]);
   }
 
   if (!metrics.storeToday) {
@@ -4057,13 +4085,28 @@ function growthDashboardPanel() {
   `;
 }
 
+function configuredBackupReminderDays() {
+  const days = Number(state.appConfig?.backupReminderDays || defaultAppConfig.backupReminderDays);
+  return Number.isFinite(days) ? Math.min(30, Math.max(1, Math.round(days))) : 7;
+}
+
+function backupAgeDays(backupAt) {
+  if (!backupAt) {
+    return null;
+  }
+  const timestamp = new Date(backupAt).getTime();
+  return Number.isFinite(timestamp) ? Math.max(0, Math.floor((Date.now() - timestamp) / 86400000)) : null;
+}
+
 function notificationRows(metrics = homeMetricData(), weeklyOrders = 0) {
   const backupAt = localStorage.getItem("lastManualBackupAt") || "";
-  const backupOld = !backupAt || (Date.now() - new Date(backupAt).getTime()) > 7 * 86400000;
+  const reminderDays = configuredBackupReminderDays();
+  const ageDays = backupAgeDays(backupAt);
+  const backupOld = ageDays === null || ageDays >= reminderDays;
   return [
     ...dashboardAlerts(metrics, weeklyOrders).map(([title, detail]) => ({ type: "alerta", title, detail, action: "/alertas" })),
     ...financialAccountNotifications(7),
-    backupOld ? { type: "backup", title: "Backup manual antigo", detail: "Baixe ou salve um backup no Supabase.", action: "/backups" } : null,
+    backupOld ? { type: "backup", title: "Backup precisa de atenção", detail: `Faça uma cópia a cada ${reminderDays} dia(s).`, action: "/backups" } : null,
     ...systemIssues().slice(0, 3).map(issue => ({ type: issue.type, title: issue.message, detail: new Date(issue.createdAt).toLocaleString("pt-BR"), action: "/backups" }))
   ].filter(Boolean);
 }
@@ -4244,25 +4287,123 @@ function todayOperationData() {
   };
 }
 
+function operationAgendaItems(data = todayOperationData()) {
+  const currentMenu = state.menus[data.currentKey] || [];
+  const unlinkedMenuItems = currentMenu.filter(item => {
+    return String(item.dish || "").trim() && !pricingRecipeForMenuItem(item);
+  });
+  const incompleteRecipes = (state.pricingRecipes || []).filter(recipe => !pricingRecipeIsComplete(recipe));
+  const backupAt = localStorage.getItem("lastManualBackupAt") || "";
+  const backupDays = backupAgeDays(backupAt);
+  const reminderDays = configuredBackupReminderDays();
+  const dayClosing = dayClosingForDate(data.today);
+  return [
+    data.pendingPayments.length ? {
+      type: "danger",
+      category: "Pedidos",
+      title: `${data.pendingPayments.length} pagamento(s) pendente(s)`,
+      detail: "Revise os pedidos semanais e registre os recebimentos.",
+      href: "/pedidos",
+      action: "Abrir pedidos"
+    } : null,
+    data.pendingDelivery.length ? {
+      type: "warning",
+      category: "Entregas",
+      title: `${data.pendingDelivery.length} entrega(s) pendente(s)`,
+      detail: "Confira a lista de entrega antes de encerrar a operação.",
+      href: "/pedidos",
+      action: "Ver entregas"
+    } : null,
+    data.billsDue.length ? {
+      type: "danger",
+      category: "Financeiro",
+      title: `${data.billsDue.length} conta(s) aguardando pagamento`,
+      detail: "Existem contas vencidas ou com vencimento dentro do mês.",
+      href: "/financeiro?view=accounts",
+      action: "Ver contas"
+    } : null,
+    unlinkedMenuItems.length ? {
+      type: "warning",
+      category: "Menu",
+      title: `${unlinkedMenuItems.length} prato(s) sem receita vinculada`,
+      detail: "Vincule a receita para calcular custo e rentabilidade automaticamente.",
+      href: "/menu-semanal",
+      action: "Abrir menu"
+    } : null,
+    incompleteRecipes.length ? {
+      type: "warning",
+      category: "Preços",
+      title: `${incompleteRecipes.length} receita(s) sem ingredientes`,
+      detail: "Complete o lote de 50 pratos para liberar os cálculos.",
+      href: "/precificacao?view=recipes",
+      action: "Completar receitas"
+    } : null,
+    data.todayCash.length && !dayClosing ? {
+      type: "warning",
+      category: "Caixa",
+      title: "Fechamento do dia pendente",
+      detail: "Há movimentações lançadas hoje e o fechamento ainda não foi concluído.",
+      href: "/fluxo-de-caixa?panel=day-closing",
+      action: "Fechar o dia"
+    } : null,
+    backupDays === null || backupDays >= reminderDays ? {
+      type: "warning",
+      category: "Segurança",
+      title: backupDays === null ? "Nenhum backup manual recente" : `Backup manual há ${backupDays} dia(s)`,
+      detail: `A configuração recomenda uma cópia a cada ${reminderDays} dia(s).`,
+      href: "/backups?tab=backup",
+      action: "Ver backups"
+    } : null
+  ].filter(Boolean);
+}
+
 function renderToday() {
-  title.textContent = "Hoje";
+  title.textContent = "Operação";
   setActive("hoje");
   ensureCashEntryIds();
   const data = todayOperationData();
+  const agenda = operationAgendaItems(data);
 
   app.innerHTML = `
     <section class="dashboard-band today-band">
       <div class="dashboard-copy">
         <span>${formatIsoDateBr(data.today)}</span>
-        <h2>Operação do dia</h2>
-        <p>Vendas da loja, caixa rápido, pedidos da semana, contas e pendências em uma tela.</p>
+        <h2>Central de operações</h2>
+        <p>Agenda, vendas, caixa, pedidos, contas e decisões importantes em uma única tela.</p>
       </div>
       <div class="dashboard-kpis">
         <div class="metric dashboard-metric is-primary"><span>Loja hoje</span><strong>${data.storeQuantity}</strong></div>
         <div class="metric dashboard-metric"><span>Entradas hoje</span><strong>${money(data.income)}</strong></div>
         <div class="metric dashboard-metric"><span>Saídas hoje</span><strong>${money(data.expenses)}</strong></div>
-        <div class="metric dashboard-metric"><span>Pendências</span><strong>${data.pendingPayments.length + data.pendingDelivery.length + data.billsDue.length}</strong></div>
+        <div class="metric dashboard-metric"><span>Prioridades</span><strong class="${agenda.length ? "negative" : "positive"}">${agenda.length}</strong></div>
       </div>
+    </section>
+
+    <section class="panel operation-agenda">
+      <div class="section-heading">
+        <div>
+          <h2>Agenda da operação</h2>
+          <p class="muted-inline">Pendências reunidas de pedidos, financeiro, menu, preços, caixa e segurança.</p>
+        </div>
+        <a class="secondary table-action" href="/alertas">Ver central de alertas</a>
+      </div>
+      ${agenda.length ? `
+        <div class="operation-priority-list">
+          ${agenda.map(item => `
+            <article class="operation-priority-card ${item.type}">
+              <span>${item.category}</span>
+              <strong>${item.title}</strong>
+              <small>${item.detail}</small>
+              <a class="secondary table-action" href="${item.href}">${item.action}</a>
+            </article>
+          `).join("")}
+        </div>
+      ` : `
+        <div class="operation-all-clear">
+          <strong>Operação em dia</strong>
+          <span>Nenhuma prioridade automática encontrada agora.</span>
+        </div>
+      `}
     </section>
 
     <section class="dashboard-lane">
@@ -4374,11 +4515,12 @@ function renderToday() {
         ` : `<p class="muted">Nenhuma conta a pagar até o fim deste mês.</p>`}
       </div>
       <div class="panel dashboard-panel">
-        <h2>Pendências</h2>
+        <h2>Resumo operacional</h2>
         <div class="alert-list">
-          <span><b>Pagamentos</b>${data.pendingPayments.length} pedido(s)</span>
-          <span><b>Entregas</b>${data.pendingDelivery.length} pedido(s)</span>
-          <span><b>Contas</b>${data.billsDue.length} conta(s)</span>
+          <span><b>Pedidos da semana</b>${data.weekOrders.length}</span>
+          <span><b>Pagamentos pendentes</b>${data.pendingPayments.length}</span>
+          <span><b>Entregas pendentes</b>${data.pendingDelivery.length}</span>
+          <span><b>Contas aguardando pagamento</b>${data.billsDue.length}</span>
         </div>
       </div>
     </section>
@@ -6655,11 +6797,19 @@ async function renderMenu() {
                     <span>Cumbuca ${item.slot}</span>
                     <strong>${item.status === "pronto" ? "Pronto" : item.status === "preparo" ? "Preparo" : item.status === "compras" ? "Compras" : "Planejado"}</strong>
                   </div>
-                  <label>Prato
-                    <input name="dish-${index}" value="${item.dish}" placeholder="Nome da cumbuca">
+                  <label>Receita vinculada
+                    <select name="recipe-${index}" data-menu-recipe-select="${index}">
+                      ${menuRecipeOptions(pricingRecipeForMenuItem(item)?.id || item.recipeId || "")}
+                    </select>
                   </label>
-                  <label>Custo total
-                    <input name="cost-${index}" type="text" inputmode="decimal" value="${moneyInputValue(item.cost)}" placeholder="Soma dos ingredientes">
+                  <div class="menu-recipe-summary" data-menu-recipe-summary="${index}">
+                    ${menuRecipeSummaryHtml(pricingRecipeForMenuItem(item))}
+                  </div>
+                  <label>Prato
+                    <input name="dish-${index}" data-menu-dish="${index}" value="${item.dish}" placeholder="Nome da cumbuca">
+                  </label>
+                  <label>Custo por prato
+                    <input name="cost-${index}" data-menu-cost="${index}" type="text" inputmode="decimal" value="${moneyInputValue(item.cost)}" placeholder="Calculado ou manual">
                   </label>
                   <div class="ingredient-list">
                     <div class="ingredient-list-title">
@@ -7255,6 +7405,30 @@ async function renderMenu() {
 
   const menuForm = document.querySelector("#menu-form");
   if (menuForm) {
+    document.querySelectorAll("[data-menu-recipe-select]").forEach(select => {
+      select.addEventListener("change", event => {
+        const index = Number(event.currentTarget.dataset.menuRecipeSelect);
+        const recipe = pricingRecipeById(event.currentTarget.value);
+        const dishField = menuForm.querySelector(`[data-menu-dish="${index}"]`);
+        const costField = menuForm.querySelector(`[data-menu-cost="${index}"]`);
+        const summary = menuForm.querySelector(`[data-menu-recipe-summary="${index}"]`);
+        if (summary) {
+          summary.innerHTML = menuRecipeSummaryHtml(recipe);
+        }
+        if (!recipe) {
+          return;
+        }
+        if (dishField) {
+          dishField.value = recipe.name || "";
+        }
+        if (costField) {
+          costField.value = pricingRecipeIsComplete(recipe)
+            ? moneyInputValue(menuRecipeUnitCost(recipe))
+            : "";
+        }
+      });
+    });
+
     document.querySelectorAll("[data-add-ingredient]").forEach(button => {
       button.addEventListener("click", event => {
         const menuIndex = Number(event.currentTarget.dataset.addIngredient);
@@ -7288,11 +7462,15 @@ async function renderMenu() {
       state.menus[currentKey] = result.plan.map((item, index) => {
         const ingredients = readPlanningIngredients(event.currentTarget, index);
         const ingredientTotal = planningIngredientTotal(ingredients);
+        const recipeId = data[`recipe-${index}`] || "";
+        const recipe = pricingRecipeById(recipeId);
+        const linkedCost = menuRecipeUnitCost(recipe);
         return {
           slot: index + 1,
-          dish: data[`dish-${index}`],
+          recipeId,
+          dish: recipe?.name || data[`dish-${index}`],
           ingredients,
-          cost: (ingredientTotal || parseMoneyInput(data[`cost-${index}`])).toFixed(2),
+          cost: (linkedCost || ingredientTotal || parseMoneyInput(data[`cost-${index}`])).toFixed(2),
           status: data[`status-${index}`],
           notes: data[`notes-${index}`]
         };
@@ -8429,6 +8607,63 @@ function pricingRecipeById(recipeId) {
   return (state.pricingRecipes || []).find(recipe => String(recipe.id) === String(recipeId));
 }
 
+function normalizedDishLookup(value) {
+  return String(value || "").trim().toLocaleLowerCase("pt-BR");
+}
+
+function pricingRecipeForMenuItem(item = {}) {
+  const linked = pricingRecipeById(item.recipeId);
+  if (linked) {
+    return linked;
+  }
+  const dish = normalizedDishLookup(item.dish);
+  if (!dish) {
+    return null;
+  }
+  return (state.pricingRecipes || []).find(recipe => normalizedDishLookup(recipe.name) === dish) || null;
+}
+
+function menuRecipeUnitCost(recipe) {
+  if (!recipe || !pricingRecipeIsComplete(recipe)) {
+    return 0;
+  }
+  const metrics = pricingRecipeMetrics(recipe);
+  return metrics.practicedPrice > 0 ? metrics.realTotalCost : metrics.totalCost;
+}
+
+function menuRecipeOptions(selectedRecipeId = "") {
+  const recipes = [...(state.pricingRecipes || [])].sort((a, b) => {
+    return String(a.name || "").localeCompare(String(b.name || ""), "pt-BR");
+  });
+  return `
+    <option value="">Prato manual, sem receita vinculada</option>
+    ${recipes.map(recipe => `
+      <option value="${escapeHtml(recipe.id)}" ${String(recipe.id) === String(selectedRecipeId) ? "selected" : ""}>
+        ${escapeHtml(recipe.name || "Receita sem nome")}${pricingRecipeIsComplete(recipe) ? "" : " — ingredientes pendentes"}
+      </option>
+    `).join("")}
+  `;
+}
+
+function menuRecipeSummaryHtml(recipe) {
+  if (!recipe) {
+    return `<span class="menu-recipe-empty">Escolha uma receita para preencher prato, custo e margem automaticamente.</span>`;
+  }
+  if (!pricingRecipeIsComplete(recipe)) {
+    return `<span class="menu-recipe-warning"><b>Receita incompleta.</b> Cadastre os ingredientes do lote de 50 pratos em Preços.</span>`;
+  }
+  const metrics = pricingRecipeMetrics(recipe);
+  const cost = menuRecipeUnitCost(recipe);
+  const profit = metrics.practicedPrice > 0 ? metrics.realProfit : metrics.suggestedProfit;
+  const margin = metrics.practicedPrice > 0 ? metrics.realMarginPercent : metrics.desiredMarginPercent;
+  return `
+    <span><small>Custo por prato</small><b>${money(cost)}</b></span>
+    <span><small>${metrics.practicedPrice > 0 ? "Lucro praticado" : "Lucro sugerido"}</small><b class="${profit < 0 ? "negative" : "positive"}">${money(profit)}</b></span>
+    <span><small>Margem</small><b>${pricingPercent(margin)}</b></span>
+    <span><small>Status</small>${pricingStatusPill(metrics.status)}</span>
+  `;
+}
+
 function pricingRecipeIsComplete(recipe) {
   return (recipe?.ingredients || []).some(item => pricingDecimalNumber(item.quantity) > 0);
 }
@@ -8738,6 +8973,10 @@ function pricingRecipesPanel(editingRecipe = null) {
     ])
   );
   const preview = pricingRecipeMetrics(editingRecipe || {});
+  const recipeDefaults = {
+    ...defaultAppConfig,
+    ...(state.appConfig || {})
+  };
   return `
     ${pricingFlowHtml()}
     <div class="pricing-recipe-layout">
@@ -8759,17 +8998,17 @@ function pricingRecipesPanel(editingRecipe = null) {
             <input name="weightGrams" type="number" min="1" step="1" placeholder="Ex.: 500" value="${pricingDecimalNumber(editingRecipe?.weightGrams) || ""}" required>
           </label>
           <label>Custo da embalagem
-            <input name="packagingCost" type="text" inputmode="decimal" placeholder="Cumbuca, tampa, talheres..." value="${moneyInputValue(editingRecipe?.packagingCost)}">
+            <input name="packagingCost" type="text" inputmode="decimal" placeholder="Cumbuca, tampa, talheres..." value="${moneyInputValue(editingRecipe ? editingRecipe.packagingCost : recipeDefaults.defaultPackagingCost)}">
             <small>Informe o custo variável de uma unidade, incluindo embalagem e etiqueta.</small>
           </label>
           <label>Taxa fixa por unidade
-            <input name="fixedFee" type="text" inputmode="decimal" placeholder="Ex.: 0,50" value="${moneyInputValue(editingRecipe?.fixedFee)}">
+            <input name="fixedFee" type="text" inputmode="decimal" placeholder="Ex.: 0,50" value="${moneyInputValue(editingRecipe ? editingRecipe.fixedFee : recipeDefaults.defaultFixedFee)}">
           </label>
           <label>Taxa variável (%)
-            <input name="variableFeePercent" type="number" min="0" max="99" step="0.01" placeholder="iFood, cartão, Pix" value="${pricingDecimalNumber(editingRecipe?.variableFeePercent) || ""}">
+            <input name="variableFeePercent" type="number" min="0" max="99" step="0.01" placeholder="iFood, cartão, Pix" value="${editingRecipe ? (pricingDecimalNumber(editingRecipe.variableFeePercent) || "") : pricingDecimalNumber(recipeDefaults.defaultVariableFeePercent)}">
           </label>
           <label>Margem desejada (%)
-            <input name="desiredMarginPercent" type="number" min="0" max="99" step="0.01" placeholder="Ex.: 40" value="${pricingDecimalNumber(editingRecipe?.desiredMarginPercent) || ""}" required>
+            <input name="desiredMarginPercent" type="number" min="0" max="99" step="0.01" placeholder="Ex.: 40" value="${editingRecipe ? (pricingDecimalNumber(editingRecipe.desiredMarginPercent) || "") : pricingDecimalNumber(recipeDefaults.defaultDesiredMarginPercent)}" required>
           </label>
           <label>Preço praticado
             <input name="practicedPrice" type="text" inputmode="decimal" placeholder="Valor realmente vendido" value="${moneyInputValue(editingRecipe?.practicedPrice)}">
@@ -11254,6 +11493,159 @@ function storeProductPerformancePanel(data) {
   `;
 }
 
+function weeklyRecipeProfitabilityRows(data) {
+  const rows = new Map();
+  let unallocatedUnits = 0;
+
+  (data.orders || []).forEach(order => {
+    const totalOrderQuantity = orderQuantity(order);
+    if (!(order.dishes || []).length) {
+      unallocatedUnits += totalOrderQuantity;
+      return;
+    }
+    const unitRevenue = totalOrderQuantity > 0
+      ? Number(order.amount || 0) / totalOrderQuantity
+      : 0;
+    (order.dishes || []).forEach(dish => {
+      const quantity = Number(dish.quantity || 0);
+      if (quantity <= 0) {
+        return;
+      }
+      const menuItem = (state.menus[order.menuKey] || []).find(item => Number(item.slot) === Number(dish.slot)) || {};
+      const recipe = pricingRecipeForMenuItem(menuItem);
+      const key = recipe
+        ? `recipe:${recipe.id}`
+        : `menu:${order.menuKey || "sem-menu"}:${dish.slot}`;
+      if (!rows.has(key)) {
+        const metrics = recipe ? pricingRecipeMetrics(recipe) : null;
+        rows.set(key, {
+          key,
+          recipe,
+          name: recipe?.name || menuItem.dish || `Cumbuca ${dish.slot}`,
+          quantity: 0,
+          revenue: 0,
+          cost: 0,
+          desiredMargin: Number(metrics?.desiredMarginPercent || 0)
+        });
+      }
+      const row = rows.get(key);
+      row.quantity += quantity;
+      row.revenue += unitRevenue * quantity;
+      row.cost += menuRecipeUnitCost(recipe) * quantity;
+    });
+  });
+
+  return {
+    rows: [...rows.values()].map(row => {
+      const profit = row.revenue - row.cost;
+      return {
+        ...row,
+        profit,
+        margin: row.revenue > 0 ? (profit / row.revenue) * 100 : null
+      };
+    }).sort((a, b) => b.quantity - a.quantity || b.profit - a.profit),
+    unallocatedUnits
+  };
+}
+
+function businessProfitabilityPanel(data) {
+  const weekly = weeklyRecipeProfitabilityRows(data);
+  const storeRows = storeProductPerformanceRows(data);
+  const weeklyRevenue = weekly.rows.reduce((sum, row) => sum + row.revenue, 0);
+  const weeklyCost = weekly.rows.reduce((sum, row) => sum + row.cost, 0);
+  const weeklyProfit = weeklyRevenue - weeklyCost;
+  const storeRevenue = storeRows.reduce((sum, row) => sum + row.estimatedRevenue, 0);
+  const storeProfit = storeRows.reduce((sum, row) => sum + row.estimatedProfit, 0);
+  const totalRevenue = weeklyRevenue + storeRevenue;
+  const totalProfit = weeklyProfit + storeProfit;
+  const unlinkedRows = weekly.rows.filter(row => !row.recipe);
+  const lowMarginRows = weekly.rows.filter(row => {
+    return row.recipe && row.margin !== null && row.margin + 0.0001 < row.desiredMargin;
+  });
+
+  return `
+    <section class="panel report-section profitability-panel" data-profitability-panel>
+      <div class="section-heading">
+        <div>
+          <h2>Rentabilidade por prato ${reportTitleSuffix(data)}</h2>
+          <p class="muted-inline">Pedidos usam o valor realmente registrado. Loja usa o preço atual da receita vinculada.</p>
+        </div>
+        <a class="secondary table-action" href="/menu-semanal">Vincular receitas no menu</a>
+      </div>
+      <div class="summary">
+        <div class="metric report-metric"><span>Receita considerada</span><strong>${money(totalRevenue)}</strong></div>
+        <div class="metric report-metric"><span>Custo estimado</span><strong>${money(weeklyCost + (storeRevenue - storeProfit))}</strong></div>
+        <div class="metric report-metric"><span>Lucro estimado</span><strong class="${totalProfit < 0 ? "negative" : "positive"}">${money(totalProfit)}</strong></div>
+        <div class="metric report-metric"><span>Margem estimada</span><strong>${pricingPercent(totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : null)}</strong></div>
+        <div class="metric report-metric"><span>Lucro dos pedidos</span><strong class="${weeklyProfit < 0 ? "negative" : "positive"}">${money(weeklyProfit)}</strong></div>
+        <div class="metric report-metric"><span>Lucro da loja</span><strong class="${storeProfit < 0 ? "negative" : "positive"}">${money(storeProfit)}</strong></div>
+      </div>
+      ${unlinkedRows.length || weekly.unallocatedUnits ? `
+        <p class="form-hint warning-text">
+          ${unlinkedRows.reduce((sum, row) => sum + row.quantity, 0) + weekly.unallocatedUnits} unidade(s) de pedidos ainda não têm receita identificada e não entram no custo.
+        </p>
+      ` : ""}
+      ${weekly.rows.length ? `
+        <div class="table-wrap report-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Prato</th>
+                <th>Receita</th>
+                <th>Quantidade</th>
+                <th>Receita de pedidos</th>
+                <th>Custo estimado</th>
+                <th>Lucro estimado</th>
+                <th>Margem</th>
+                <th>Situação</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${weekly.rows.map(row => `
+                <tr>
+                  <td><strong>${escapeHtml(row.name)}</strong></td>
+                  <td>${row.recipe ? "Vinculada" : "Sem vínculo"}</td>
+                  <td>${row.quantity}</td>
+                  <td>${money(row.revenue)}</td>
+                  <td>${row.recipe ? money(row.cost) : "—"}</td>
+                  <td class="${row.profit < 0 ? "negative" : row.recipe ? "positive" : ""}">${row.recipe ? money(row.profit) : "—"}</td>
+                  <td>${row.recipe ? pricingPercent(row.margin) : "—"}</td>
+                  <td>${!row.recipe
+                    ? `<span class="pricing-status pending">Vincular receita</span>`
+                    : row.profit < 0
+                      ? `<span class="pricing-status loss">Prejuízo</span>`
+                      : row.margin !== null && row.margin + 0.0001 < row.desiredMargin
+                        ? `<span class="pricing-status attention">Abaixo da meta</span>`
+                        : `<span class="pricing-status profitable">Saudável</span>`}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      ` : `<p class="muted">Nenhum pedido com pratos detalhados no período.</p>`}
+    </section>
+    ${lowMarginRows.length ? `
+      <section class="panel report-section">
+        <h2>Pratos abaixo da margem desejada</h2>
+        <div class="recent-list">
+          ${lowMarginRows.map(row => `
+            <span><b>${escapeHtml(row.name)}</b>${pricingPercent(row.margin)} realizado · meta ${pricingPercent(row.desiredMargin)}</span>
+          `).join("")}
+        </div>
+      </section>
+    ` : ""}
+    <section class="panel report-section">
+      <div class="section-heading">
+        <div>
+          <h2>Detalhamento da loja</h2>
+          <p class="muted-inline">${storeRows.reduce((sum, row) => sum + row.units, 0)} unidade(s) · lucro estimado ${money(storeProfit)}.</p>
+        </div>
+        <button class="secondary table-action" type="button" data-open-report-products>Ver produtos</button>
+      </div>
+    </section>
+  `;
+}
+
 function clientReportRows(data) {
   const rows = data.orders.reduce((acc, order) => {
     const client = clientByPhone(order.clientPhone);
@@ -13361,6 +13753,73 @@ function monthlyBudgetPanel() {
   `;
 }
 
+function financialPlanVsActualPanel(data) {
+  const budget = budgetSummary(data.periodKey);
+  const budgetRows = budgetStatus(data.periodKey);
+  const goal = Number(state.financialPlanning?.monthlyGoal || 0);
+  const actualProfit = Number(data.financial?.profitBeforeWithdrawals || 0);
+  const projection = withdrawalProjection(data);
+  const projectedProfit = Number(projection.projectedProfitBeforeWithdrawals || 0);
+  const goalDifference = goal > 0 ? projectedProfit - goal : 0;
+  const expenseDifference = budget.limit > 0
+    ? budget.limit - Number(data.financial?.operationalExpenses || 0)
+    : 0;
+  const goalProgress = goal > 0 ? Math.max(0, (actualProfit / goal) * 100) : 0;
+  const budgetProgress = budget.limit > 0
+    ? Math.max(0, (Number(data.financial?.operationalExpenses || 0) / budget.limit) * 100)
+    : 0;
+
+  return `
+    <section class="panel report-section plan-vs-actual-panel">
+      <div class="section-heading">
+        <div>
+          <h2>Planejado x realizado ${reportTitleSuffix(data)}</h2>
+          <p class="muted-inline">Compara meta de lucro, projeção do período e limites de despesas com os valores já lançados.</p>
+        </div>
+        <a class="secondary table-action" href="/financeiro?view=planning">Ajustar planejamento</a>
+      </div>
+      <div class="plan-vs-actual-grid">
+        <article>
+          <span>Meta de lucro</span>
+          <strong>${goal > 0 ? money(goal) : "Não definida"}</strong>
+          <small>Realizado: ${money(actualProfit)}</small>
+          <div class="budget-progress" aria-label="${Math.round(goalProgress)}% da meta">
+            <span style="width:${Math.min(100, goalProgress)}%"></span>
+          </div>
+        </article>
+        <article>
+          <span>Projeção de lucro</span>
+          <strong class="${projectedProfit < 0 ? "negative" : "positive"}">${money(projectedProfit)}</strong>
+          <small>${goal > 0 ? `${goalDifference >= 0 ? "Acima" : "Abaixo"} da meta em ${money(Math.abs(goalDifference))}` : "Defina a meta no Planejamento"}</small>
+        </article>
+        <article>
+          <span>Despesas planejadas</span>
+          <strong>${budget.limit > 0 ? money(budget.limit) : "Sem limites"}</strong>
+          <small>Realizado: ${money(data.financial?.operationalExpenses || 0)}</small>
+          <div class="budget-progress ${budgetProgress >= 100 ? "is-danger" : budgetProgress >= 80 ? "is-warning" : ""}" aria-label="${Math.round(budgetProgress)}% do orçamento">
+            <span style="width:${Math.min(100, budgetProgress)}%"></span>
+          </div>
+        </article>
+        <article>
+          <span>Saldo do orçamento</span>
+          <strong class="${expenseDifference < 0 ? "negative" : "positive"}">${budget.limit > 0 ? money(expenseDifference) : "—"}</strong>
+          <small>${budget.limit > 0 ? (expenseDifference >= 0 ? "Ainda disponível" : "Acima do planejado") : "Cadastre limites por categoria"}</small>
+        </article>
+      </div>
+      ${budgetRows.length ? `
+        <div class="budget-mini-list plan-category-list">
+          ${budgetRows.slice(0, 6).map(item => `
+            <span class="${item.percent >= 100 ? "negative" : item.percent >= 80 ? "warning-text" : ""}">
+              <b>${Math.round(item.percent)}%</b>${escapeHtml(item.label)}
+              <small>${money(item.spent)} realizado de ${money(item.limit)} planejado</small>
+            </span>
+          `).join("")}
+        </div>
+      ` : `<p class="muted">Cadastre limites em Financeiro &gt; Planejamento para completar esta comparação.</p>`}
+    </section>
+  `;
+}
+
 function financialPlanningPanel() {
   const planning = state.financialPlanning || {};
 
@@ -14549,6 +15008,7 @@ function renderFinance() {
     </section>
     ${viewTabsHtml("financeViewTab", activeTab, tabs)}
     ${viewPaneHtml("summary", activeTab, `
+      ${financialPlanVsActualPanel(data)}
       ${["month", "week"].includes(reportType) ? monthlyOriginCategoryPanel(data) : ""}
       ${simplifiedStatementPanel(data)}
       ${withdrawalProjectionPanel(data)}
@@ -14624,6 +15084,7 @@ function renderReports() {
   const weekRange = reportWeekRange();
   const tabs = [
     ["summary", "Resumo"],
+    ["profitability", "Rentabilidade"],
     ["products", "Produtos"],
     ["income", "Entradas"],
     ["expenses", "Saídas"],
@@ -14708,6 +15169,7 @@ function renderReports() {
         ${reportMenuTable(data)}
       </section>
     `)}
+    ${viewPaneHtml("profitability", activeTab, businessProfitabilityPanel(data))}
     ${viewPaneHtml("products", activeTab, storeProductPerformancePanel(data))}
     ${viewPaneHtml("income", activeTab, `
       ${channelReportPanel(data)}
@@ -14744,6 +15206,10 @@ function renderReports() {
 
   bindReportPeriodForm(renderReports, "relatorios");
   bindViewTabs("reportViewTab", renderReports);
+  on("[data-open-report-products]", "click", () => {
+    state.reportViewTab = "products";
+    renderReports();
+  });
 
   document.querySelectorAll("[data-export-report]").forEach(button => {
     button.addEventListener("click", event => {
@@ -14772,9 +15238,10 @@ async function renderBackups() {
   const selectedYear = years[0] || String(new Date().getFullYear() - 1);
   const preview = cleanupPreview(selectedYear);
   const lastBackupAt = localStorage.getItem("lastManualBackupAt") || "";
-  const backupAgeDays = lastBackupAt ? Math.floor((Date.now() - new Date(lastBackupAt).getTime()) / 86400000) : null;
+  const manualBackupAgeDays = backupAgeDays(lastBackupAt);
+  const reminderDays = configuredBackupReminderDays();
   const backupStatus = lastBackupAt
-    ? `${shortDateTime.format(new Date(lastBackupAt))}${backupAgeDays >= 7 ? " - backup antigo" : " - em dia"}`
+    ? `${shortDateTime.format(new Date(lastBackupAt))}${manualBackupAgeDays >= reminderDays ? " - precisa renovar" : " - em dia"}`
     : "Nenhum backup manual registrado neste navegador";
   const maintenanceAccountDate = isoDate(new Date());
   const maintenanceAccountBalance = accountBalanceUntilDate(maintenanceAccountDate);
@@ -14794,6 +15261,30 @@ async function renderBackups() {
           <button class="danger" type="button" data-maintenance-scroll="reset-database-zone">Limpar todo o banco</button>
         ` : ""}
         <button class="secondary" type="button" data-maintenance-scroll="real-db-usage">Ver banco</button>
+      </div>
+    </section>
+
+    <section class="panel maintenance-health-overview">
+      <div class="section-heading">
+        <div>
+          <h2>Proteção dos dados</h2>
+          <p class="muted-inline">Situação dos backups manuais e automáticos antes de qualquer manutenção.</p>
+        </div>
+        <a class="secondary table-action" href="/configuracoes">Alterar lembrete</a>
+      </div>
+      <div class="maintenance-health-grid">
+        <div class="backup-list-state ${manualBackupAgeDays === null || manualBackupAgeDays >= reminderDays ? "warning-state" : ""}">
+          <strong>Backup manual</strong>
+          <span>${backupStatus}</span>
+        </div>
+        <div class="backup-list-state">
+          <strong>Frequência recomendada</strong>
+          <span>A cada ${reminderDays} dia(s), configurável em Configurações.</span>
+        </div>
+        <div id="maintenance-backup-health" class="backup-list-state">
+          <strong>Backup automático</strong>
+          <span>Consultando o Supabase...</span>
+        </div>
       </div>
     </section>
 
@@ -14828,10 +15319,10 @@ async function renderBackups() {
           <strong>Último backup manual</strong>
           <span>${backupStatus}</span>
         </div>
-        ${backupAgeDays === null || backupAgeDays >= 7 ? `
+        ${manualBackupAgeDays === null || manualBackupAgeDays >= reminderDays ? `
           <div class="backup-list-state warning-state">
-            <strong>Baixe um backup JSON</strong>
-            <span>Recomendado antes de limpar dados ou fazer mudanças grandes.</span>
+            <strong>Faça um novo backup</strong>
+            <span>O lembrete está configurado para ${reminderDays} dia(s). Faça uma cópia antes de limpar dados ou realizar mudanças grandes.</span>
           </div>
         ` : ""}
         <div id="automatic-backups">
@@ -15336,18 +15827,62 @@ function configuredDefaultRoute() {
   return configRouteOptions.some(([value]) => value === route) ? route : defaultAppConfig.defaultRoute;
 }
 
-function renderAlerts() {
-  title.textContent = "Alertas";
-  setActive("alertas");
-  const metrics = homeMetricData();
-  const weeklyOrders = state.orders.filter(order => order.menuKey === menuKey(state.menuWeek || 1)).length;
-  const alerts = dashboardAlerts(metrics, weeklyOrders);
-  const notifications = notificationRows(metrics, weeklyOrders);
-  const secondaryNotifications = notifications.filter(item => !item.accountId);
-  const today = todayOperationData();
-  const urgent = [
-    ...alerts.map(([label, detail]) => ({ label, detail, type: "warning" })),
+function actionableManagementAlerts(metrics = homeMetricData(), today = todayOperationData()) {
+  const priceAlerts = (state.pricingRecipes || []).flatMap(recipe => {
+    if (!pricingRecipeIsComplete(recipe)) {
+      return [{
+        category: "Preços",
+        label: "Receita sem ingredientes",
+        detail: `${recipe.name || "Receita sem nome"} precisa do lote de 50 pratos.`,
+        type: "warning",
+        href: "/precificacao?view=recipes",
+        action: "Completar"
+      }];
+    }
+    const recipeMetrics = pricingRecipeMetrics(recipe);
+    if (recipeMetrics.practicedPrice > 0 && recipeMetrics.realProfit < 0) {
+      return [{
+        category: "Preços",
+        label: "Preço abaixo do custo",
+        detail: `${recipe.name}: prejuízo de ${money(Math.abs(recipeMetrics.realProfit))} por unidade.`,
+        type: "danger",
+        href: "/precificacao?view=recipes",
+        action: "Corrigir preço"
+      }];
+    }
+    if (
+      recipeMetrics.practicedPrice > 0
+      && recipeMetrics.realMarginPercent !== null
+      && recipeMetrics.realMarginPercent + 0.0001 < recipeMetrics.desiredMarginPercent
+    ) {
+      return [{
+        category: "Preços",
+        label: "Margem abaixo da meta",
+        detail: `${recipe.name}: ${pricingPercent(recipeMetrics.realMarginPercent)} de margem para meta de ${pricingPercent(recipeMetrics.desiredMarginPercent)}.`,
+        type: "warning",
+        href: "/precificacao?view=recipes",
+        action: "Revisar"
+      }];
+    }
+    return [];
+  });
+  const menuAlerts = (state.menus[today.currentKey] || [])
+    .filter(item => String(item.dish || "").trim() && !pricingRecipeForMenuItem(item))
+    .map(item => ({
+      category: "Menu",
+      label: "Prato sem receita vinculada",
+      detail: `${item.dish} ainda não tem custo automático.`,
+      type: "warning",
+      href: "/menu-semanal",
+      action: "Vincular"
+    }));
+  const backupAt = localStorage.getItem("lastManualBackupAt") || "";
+  const backupDays = backupAgeDays(backupAt);
+  const reminderDays = configuredBackupReminderDays();
+
+  return [
     ...financialAccountNotifications(7).map(item => ({
+      category: "Financeiro",
       label: item.title,
       detail: item.detail,
       type: item.type,
@@ -15356,14 +15891,60 @@ function renderAlerts() {
     })),
     ...metrics.pendingPayments.map(order => {
       const client = clientByPhone(order.clientPhone);
-      return { label: "Cobrar cliente", detail: `${client.name || order.clientPhone} - ${money(order.amount)}`, type: "danger", href: clientChargeWhatsAppUrl(client, order.amount), action: "WhatsApp" };
+      return {
+        category: "Pedidos",
+        label: "Cobrar cliente",
+        detail: `${client.name || order.clientPhone} - ${money(order.amount)}`,
+        type: "danger",
+        href: clientChargeWhatsAppUrl(client, order.amount),
+        action: "WhatsApp",
+        external: true
+      };
     }),
-    ...today.billsDue.map(item => ({ label: "Conta para pagar", detail: `${item.description || "Despesa"} - ${money(item.amount)}`, type: "danger" })),
+    ...today.billsDue.map(item => ({
+      category: "Financeiro",
+      label: "Conta para pagar",
+      detail: `${item.description || "Despesa"} - ${money(item.amount)}`,
+      type: "danger",
+      href: item.id ? `/fluxo-de-caixa?edit=${encodeURIComponent(item.id)}` : "/financeiro?view=accounts",
+      action: "Abrir"
+    })),
     ...today.pendingDelivery.map(order => {
       const client = clientByPhone(order.clientPhone);
-      return { label: "Entrega pendente", detail: client.name || order.clientPhone || "Cliente", type: "warning", href: orderWhatsAppUrl(order, state.menus[order.menuKey] || []), action: "WhatsApp" };
-    })
-  ];
+      return {
+        category: "Entregas",
+        label: "Entrega pendente",
+        detail: client.name || order.clientPhone || "Cliente",
+        type: "warning",
+        href: orderWhatsAppUrl(order, state.menus[order.menuKey] || []),
+        action: "WhatsApp",
+        external: true
+      };
+    }),
+    ...menuAlerts,
+    ...priceAlerts,
+    backupDays === null || backupDays >= reminderDays ? {
+      category: "Segurança",
+      label: "Backup precisa de atenção",
+      detail: backupDays === null
+        ? `Nenhum backup manual registrado. Frequência recomendada: ${reminderDays} dia(s).`
+        : `Último backup manual há ${backupDays} dia(s).`,
+      type: "warning",
+      href: "/backups?tab=backup",
+      action: "Ver backups"
+    } : null
+  ].filter(Boolean);
+}
+
+function renderAlerts() {
+  title.textContent = "Alertas";
+  setActive("alertas");
+  const metrics = homeMetricData();
+  const today = todayOperationData();
+  const urgent = actionableManagementAlerts(metrics, today);
+  const criticalCount = urgent.filter(item => item.type === "danger").length;
+  const pricingCount = urgent.filter(item => item.category === "Preços" || item.category === "Menu").length;
+  const systemNotifications = systemIssues().slice(0, 8);
 
   app.innerHTML = `
     <section class="dashboard-band alerts-band">
@@ -15378,12 +15959,12 @@ function renderAlerts() {
           <strong>${urgent.length}</strong>
         </div>
         <div class="metric dashboard-metric">
-          <span>Pagamentos pendentes</span>
-          <strong>${metrics.pendingPayments.length}</strong>
+          <span>Críticos</span>
+          <strong class="${criticalCount ? "negative" : "positive"}">${criticalCount}</strong>
         </div>
         <div class="metric dashboard-metric">
-          <span>Entregas hoje</span>
-          <strong>${today.pendingDelivery.length}</strong>
+          <span>Menu e preços</span>
+          <strong>${pricingCount}</strong>
         </div>
       </div>
     </section>
@@ -15396,18 +15977,19 @@ function renderAlerts() {
       ${urgent.length ? `
         <div class="alert-card-list">
           ${urgent.map(item => `
-            <article class="alert-card ${item.type}">
+            <article class="alert-card ${item.type}" data-alert-category="${escapeHtml(item.category)}">
+              <small class="alert-category">${item.category}</small>
               <strong>${item.label}</strong>
               <span>${item.detail}</span>
-              ${item.href ? `<a class="secondary table-action" href="${item.href}" target="_blank" rel="noopener">${item.action || "Abrir"}</a>` : ""}
+              ${item.href ? `<a class="secondary table-action" href="${item.href}" ${item.external ? `target="_blank" rel="noopener"` : ""}>${item.action || "Abrir"}</a>` : ""}
             </article>
           `).join("")}
         </div>
       ` : `<p class="muted">Nenhuma pendência crítica agora.</p>`}
-      ${secondaryNotifications.length ? `
-        <h2>Notificações recentes</h2>
+      ${systemNotifications.length ? `
+        <h2>Ocorrências do sistema</h2>
         <div class="alert-list">
-          ${secondaryNotifications.slice(0, 8).map(item => `<span><b>${item.title}</b>${item.detail}<a class="secondary table-action" href="${item.action}">Abrir</a></span>`).join("")}
+          ${systemNotifications.map(item => `<span><b>${escapeHtml(item.message)}</b>${new Date(item.createdAt).toLocaleString("pt-BR")}<a class="secondary table-action" href="/backups?tab=integrity">Ver integridade</a></span>`).join("")}
         </div>
       ` : ""}
       <div class="start-actions">
@@ -15431,6 +16013,10 @@ function renderSettings() {
     <section class="panel settings-panel">
       <h2>Configurações</h2>
       <form id="settings-form" class="settings-form">
+        <div class="settings-section-title">
+          <strong>Geral</strong>
+          <span>Identidade, tela inicial e aparência.</span>
+        </div>
         <label>Nome da loja
           <input name="storeName" value="${config.storeName || ""}" placeholder="Cumbuca">
         </label>
@@ -15444,6 +16030,30 @@ function renderSettings() {
             ${themePreferenceOptions.map(([value, label]) => `<option value="${value}" ${storedThemePreference() === value ? "selected" : ""}>${label}</option>`).join("")}
           </select>
         </label>
+        <div class="settings-section-title">
+          <strong>Padrões de novas receitas</strong>
+          <span>Esses valores serão preenchidos automaticamente ao cadastrar uma receita.</span>
+        </div>
+        <div class="settings-fixed-rule">
+          <b>Lote padrão protegido</b>
+          <span>Ingredientes sempre calculados para 50 pratos.</span>
+        </div>
+        <label>Embalagem padrão
+          <input name="defaultPackagingCost" type="text" inputmode="decimal" value="${moneyInputValue(config.defaultPackagingCost)}" placeholder="0,00">
+        </label>
+        <label>Taxa fixa padrão
+          <input name="defaultFixedFee" type="text" inputmode="decimal" value="${moneyInputValue(config.defaultFixedFee)}" placeholder="0,00">
+        </label>
+        <label>Taxa variável padrão (%)
+          <input name="defaultVariableFeePercent" type="number" min="0" max="99" step="0.01" value="${Number(config.defaultVariableFeePercent || 0)}">
+        </label>
+        <label>Margem desejada padrão (%)
+          <input name="defaultDesiredMarginPercent" type="number" min="0" max="99" step="0.01" value="${Number(config.defaultDesiredMarginPercent || 0)}">
+        </label>
+        <div class="settings-section-title">
+          <strong>Distribuição financeira</strong>
+          <span>Percentuais usados nas retiradas e na reserva.</span>
+        </div>
         <label>Reserva (%)
           <input name="splitSavingsPercent" type="number" min="0" max="100" step="1" value="${Number(config.splitSavingsPercent || 0)}">
         </label>
@@ -15452,6 +16062,14 @@ function renderSettings() {
         </label>
         <label>Raquel (%)
           <input name="splitRaquelPercent" type="number" min="0" max="100" step="1" value="${Number(config.splitRaquelPercent || 0)}">
+        </label>
+        <div class="settings-section-title">
+          <strong>Segurança dos dados</strong>
+          <span>Defina quando o sistema deve lembrar de fazer uma nova cópia.</span>
+        </div>
+        <label>Lembrar backup após
+          <input name="backupReminderDays" aria-label="Lembrar backup após" type="number" min="1" max="30" step="1" value="${configuredBackupReminderDays()}">
+          <small>Dias desde o último backup manual.</small>
         </label>
         <button type="submit">Salvar configurações</button>
       </form>
@@ -15472,7 +16090,12 @@ function renderSettings() {
       defaultRoute: String(form.defaultRoute || defaultAppConfig.defaultRoute),
       splitSavingsPercent: Number(form.splitSavingsPercent || 0),
       splitVanessaPercent: Number(form.splitVanessaPercent || 0),
-      splitRaquelPercent: Number(form.splitRaquelPercent || 0)
+      splitRaquelPercent: Number(form.splitRaquelPercent || 0),
+      defaultPackagingCost: pricingSafeNumber(form.defaultPackagingCost),
+      defaultFixedFee: pricingSafeNumber(form.defaultFixedFee),
+      defaultVariableFeePercent: pricingDecimalNumber(form.defaultVariableFeePercent),
+      defaultDesiredMarginPercent: pricingDecimalNumber(form.defaultDesiredMarginPercent),
+      backupReminderDays: Math.min(30, Math.max(1, Number(form.backupReminderDays || 7)))
     };
     await persistState();
     renderSettings();
@@ -15571,6 +16194,22 @@ function applyRouteParams() {
   }
 }
 
+function automaticBackupHealthHtml(result) {
+  if (!result?.database) {
+    return `<strong>Backup automático</strong><span>Não foi possível confirmar o Supabase agora.</span>`;
+  }
+  if (!result.backups?.length) {
+    return `<strong>Backup automático</strong><span>Nenhuma cópia automática encontrada.</span>`;
+  }
+  const latest = result.backups[0];
+  const updatedAt = latest.updated_at || latest.created_at;
+  const ageDays = backupAgeDays(updatedAt);
+  return `
+    <strong>Último backup automático válido</strong>
+    <span>${new Date(updatedAt).toLocaleString("pt-BR")} · ${ageDays === 0 ? "feito hoje" : `há ${ageDays} dia(s)`}</span>
+  `;
+}
+
 function automaticBackupsHtml(result) {
   if (!result?.database) {
     return `<p class="muted">Não foi possível consultar os backups automáticos agora.</p>`;
@@ -15579,10 +16218,12 @@ function automaticBackupsHtml(result) {
     return `<p class="muted">Nenhum backup automático encontrado ainda.</p>`;
   }
   const latest = result.backups[0];
+  const latestUpdatedAt = latest.updated_at || latest.created_at;
+  const latestAgeDays = backupAgeDays(latestUpdatedAt);
   return `
-    <div class="backup-list-state">
-      <strong>Último backup automático</strong>
-      <span>${formatIsoDateBr(String(latest.backup_date || "").slice(0, 10))} - salvo ${new Date(latest.updated_at || latest.created_at).toLocaleString("pt-BR")}</span>
+    <div class="backup-list-state ${latestAgeDays !== null && latestAgeDays > 2 ? "warning-state" : ""}">
+      <strong>Último backup automático ${latestAgeDays !== null && latestAgeDays <= 2 ? "válido e recente" : "precisa ser conferido"}</strong>
+      <span>${formatIsoDateBr(String(latest.backup_date || "").slice(0, 10))} - salvo ${new Date(latestUpdatedAt).toLocaleString("pt-BR")}</span>
     </div>
     <div class="table-wrap report-table">
       <table>
@@ -15622,6 +16263,7 @@ function automaticBackupsHtml(result) {
 
 async function loadAutomaticBackups() {
   const target = document.querySelector("#automatic-backups");
+  const healthTarget = document.querySelector("#maintenance-backup-health");
   if (!target) {
     return;
   }
@@ -15629,11 +16271,24 @@ async function loadAutomaticBackups() {
     const response = await fetch("/api/backups", { cache: "no-store" });
     const result = await response.json();
     target.innerHTML = automaticBackupsHtml(result);
+    if (healthTarget) {
+      const latestTimestamp = result.backups?.[0]?.updated_at || result.backups?.[0]?.created_at || "";
+      const latestAgeDays = backupAgeDays(latestTimestamp);
+      healthTarget.innerHTML = automaticBackupHealthHtml(result);
+      healthTarget.classList.toggle(
+        "warning-state",
+        !result?.database || !result.backups?.length || latestAgeDays === null || latestAgeDays > 2
+      );
+    }
     enhanceResponsiveTables(target);
     bindRestoreBackupButtons();
     bindDeleteBackupButtons();
   } catch (error) {
     target.innerHTML = `<p class="muted">Não foi possível consultar os backups automáticos agora.</p>`;
+    if (healthTarget) {
+      healthTarget.innerHTML = automaticBackupHealthHtml(null);
+      healthTarget.classList.add("warning-state");
+    }
   }
 }
 

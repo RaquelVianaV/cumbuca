@@ -169,6 +169,58 @@ test('menu tab shows operational configuration and settings', async ({ page }) =
   expect(inputs).toBeGreaterThan(0);
 });
 
+test('management improvements are connected across the main areas', async ({ page }, testInfo) => {
+  await page.goto('/hoje');
+  await expect(page.locator('#page-title')).toHaveText('Operação');
+  await expect(
+    page.getByRole('heading', { name: 'Agenda da operação', exact: true })
+  ).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath('operation-center.png'),
+    fullPage: true,
+  });
+
+  await page.goto('/menu-semanal');
+  await page.getByRole('button', { name: 'Planejamento', exact: true }).click();
+  await expect(page.locator('[data-menu-recipe-select]')).toHaveCount(5);
+  await page.screenshot({
+    path: testInfo.outputPath('menu-recipe-link.png'),
+    fullPage: true,
+  });
+
+  await page.goto('/financeiro');
+  await expect(page.getByRole('heading', { name: /Planejado x realizado/ })).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath('finance-plan-vs-actual.png'),
+    fullPage: true,
+  });
+
+  await page.goto('/relatorios');
+  await page.getByRole('button', { name: 'Rentabilidade', exact: true }).click();
+  await expect(page.locator('[data-profitability-panel]')).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath('profitability-report.png'),
+    fullPage: true,
+  });
+
+  await page.goto('/alertas');
+  await expect(page.getByText('Menu e preços', { exact: true })).toBeVisible();
+
+  await page.goto('/configuracoes');
+  await expect(page.getByLabel('Embalagem padrão', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Lembrar backup após', { exact: true })).toBeVisible();
+
+  await page.goto('/backups?tab=backup');
+  await expect(
+    page.getByRole('heading', { name: 'Proteção dos dados', exact: true })
+  ).toBeVisible();
+  await expect(page.locator('#maintenance-backup-health')).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath('maintenance-health.png'),
+    fullPage: true,
+  });
+});
+
 test('cash flow daily reconciliation workflow is accessible', async ({ page }) => {
   await page.goto('/fluxo-de-caixa');
   await expect(page.getByRole('heading', { name: 'Fluxo de Caixa', exact: true })).toBeVisible();

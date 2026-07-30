@@ -15,6 +15,8 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /Contas a pagar e receber/);
   assert.match(app, /finance-pending-dashboard/);
   assert.match(app, /financeMonthCommandPanel/);
+  assert.match(app, /financialPlanVsActualPanel/);
+  assert.match(app, /plan-vs-actual-panel/);
   assert.match(app, /finance-month-command/);
   assert.match(app, /data-finance-month-action/);
   assert.match(app, /reconciliationHistory/);
@@ -121,6 +123,10 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /Mão de obra cadastrada anteriormente/);
   assert.match(app, /function pricingRecipeMetrics/);
   assert.match(app, /function pricingRecipeIsComplete/);
+  assert.match(app, /function pricingRecipeForMenuItem/);
+  assert.match(app, /data-menu-recipe-select/);
+  assert.match(app, /data-menu-recipe-summary/);
+  assert.match(server, /recipeId: String\(found\.recipeId/);
   assert.match(app, /PRICING_RECIPE_BATCH_SIZE = 50/);
   assert.match(app, /function pricingRecipeIngredientBatchSize/);
   assert.match(app, /ingredientBatchSize: PRICING_RECIPE_BATCH_SIZE/);
@@ -132,6 +138,10 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /Ingredientes pendentes/);
   assert.match(app, /function storeProductPerformanceRows/);
   assert.match(app, /function storeProductPerformancePanel/);
+  assert.match(app, /function weeklyRecipeProfitabilityRows/);
+  assert.match(app, /function businessProfitabilityPanel/);
+  assert.match(app, /\["profitability", "Rentabilidade"\]/);
+  assert.match(app, /data-profitability-panel/);
   assert.match(app, /data-store-product-performance/);
   assert.match(app, /\["products", "Produtos"\]/);
   assert.match(app, /function pricingSharedCosts/);
@@ -175,6 +185,15 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(css, /\.linked-action-row/);
   assert.match(css, /\.withdrawal-value-group/);
   assert.match(app, /reportViewTab/);
+  assert.match(html, />Operação<\/a>/);
+  assert.match(app, /function operationAgendaItems/);
+  assert.match(app, /function actionableManagementAlerts/);
+  assert.match(app, /data-alert-category/);
+  assert.match(app, /name="defaultPackagingCost"/);
+  assert.match(app, /name="defaultDesiredMarginPercent"/);
+  assert.match(app, /name="backupReminderDays"/);
+  assert.match(app, /id="maintenance-backup-health"/);
+  assert.match(app, /function automaticBackupHealthHtml/);
   assert.match(app, /data-maintenance-pane="integrity"/);
   assert.match(app, /updateMaintenanceTabRoute/);
   assert.match(app, /maintenanceTabForTarget/);
@@ -189,6 +208,10 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(css, /\.finance-month-summary/);
   assert.match(css, /\.month-status-pill/);
   assert.match(css, /\.maintenance-grid \.period-picker button/);
+  assert.match(css, /\.operation-priority-list/);
+  assert.match(css, /\.menu-recipe-summary/);
+  assert.match(css, /\.plan-vs-actual-grid/);
+  assert.match(css, /\.maintenance-health-grid/);
 });
 
 test('mobile tables receive column labels', () => {
