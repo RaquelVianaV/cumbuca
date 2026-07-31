@@ -52,7 +52,8 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /normalizedCashEntryDraft/);
   assert.match(app, /lockFormSubmission/);
   assert.match(app, /dataset\.submitting/);
-  assert.match(app, /return \[\.\.\.entries\]\.reverse\(\)/);
+  assert.match(app, /cashSort: \{ key: "date", direction: "desc" \}/);
+  assert.match(app, /return comparison \|\| \(a\.index - b\.index\) \* direction/);
   assert.match(app, /cashAccountOptionsHtml/);
   assert.match(app, /reconciliationCashAccount/);
   assert.match(app, /cash-account-summary/);

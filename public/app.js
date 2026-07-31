@@ -597,7 +597,7 @@ const state = {
   editCashId: null,
   editReconciliationId: null,
   editSavingsEntryId: null,
-  cashSort: { key: "", direction: "desc" },
+  cashSort: { key: "date", direction: "desc" },
   editWithdrawalGroup: null,
   editChannelReceiptId: null,
   editCashCategory: null,
@@ -6819,12 +6819,14 @@ async function renderCash() {
       }
       
       state.cashFilter = { ...values, manualAll: values.period === "all" };
+      state.cashSort = { key: "date", direction: "desc" };
       persistState();
       renderCash();
     });
 
     document.querySelector("#clear-cash-filter")?.addEventListener("click", () => {
       state.cashFilter = { period: "month", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", cashAccount: "all", quick: "", search: "" };
+      state.cashSort = { key: "date", direction: "desc" };
       persistState();
       renderCash();
     });
@@ -6854,6 +6856,7 @@ async function renderCash() {
         if (quick === "withdrawals") {
           state.cashFilter = { ...state.cashFilter, ...baseFilter, period: "all", date: today, month: today.slice(0, 7), year: today.slice(0, 4), quick: "withdrawals", manualAll: true };
         }
+        state.cashSort = { key: "date", direction: "desc" };
         persistState();
         renderCash();
       });
@@ -7007,10 +7010,7 @@ async function renderCash() {
 }
 
 function sortedCashEntries(entries = []) {
-  const key = state.cashSort?.key;
-  if (!key) {
-    return [...entries].reverse();
-  }
+  const key = state.cashSort?.key || "date";
   const direction = state.cashSort.direction === "asc" ? 1 : -1;
   const valueFor = entry => {
     if (key === "amount") {
@@ -7027,14 +7027,16 @@ function sortedCashEntries(entries = []) {
     }
     return String(entry[key] || "");
   };
-  return [...entries].sort((a, b) => {
-    const left = valueFor(a);
-    const right = valueFor(b);
+  return entries.map((entry, index) => ({ entry, index })).sort((a, b) => {
+    const left = valueFor(a.entry);
+    const right = valueFor(b.entry);
     if (typeof left === "number" && typeof right === "number") {
-      return (left - right) * direction;
+      const comparison = (left - right) * direction;
+      return comparison || (a.index - b.index) * direction;
     }
-    return String(left).localeCompare(String(right), "pt-BR", { numeric: true, sensitivity: "base" }) * direction;
-  });
+    const comparison = String(left).localeCompare(String(right), "pt-BR", { numeric: true, sensitivity: "base" }) * direction;
+    return comparison || (a.index - b.index) * direction;
+  }).map(item => item.entry);
 }
 
 function cashSortHeader(key, label) {

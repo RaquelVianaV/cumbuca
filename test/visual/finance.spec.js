@@ -382,15 +382,43 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
   };
   await page.goto('/fluxo-de-caixa?panel=ledger');
   await expect(page.getByRole('heading', { name: 'Extrato', exact: true })).toBeVisible();
-  const descriptions = await page
-    .locator('.cash-ledger-table tbody tr td:nth-child(2)')
-    .allTextContents();
+  const ledgerDescriptions = async () =>
+    (await page.locator('.cash-ledger-table tbody tr td:nth-child(2)').allTextContents()).map(
+      (description) => description.trim()
+    );
+  const descriptions = await ledgerDescriptions();
   expect(descriptions).toEqual([
     'Saída sem conta',
     'Último lançamento',
     'Segundo lançamento',
     'Primeiro lançamento',
   ]);
+
+  const dateSort = page.locator('[data-sort-cash="date"]');
+  await expect(dateSort).toHaveClass(/active/);
+  await expect(dateSort).toContainText('↓');
+  if (testInfo.project.name === 'desktop') {
+    await dateSort.click();
+    expect(await ledgerDescriptions()).toEqual([
+      'Primeiro lançamento',
+      'Segundo lançamento',
+      'Último lançamento',
+      'Saída sem conta',
+    ]);
+  }
+
+  const filterFormBeforeSummaryReview = page.locator('#cash-filter-form');
+  await filterFormBeforeSummaryReview.locator('#cash-filter-type').selectOption('income');
+  await filterFormBeforeSummaryReview.getByRole('button', { name: 'Aplicar', exact: true }).click();
+  await expect(page.locator('[data-sort-cash="date"]')).toContainText('↓');
+  expect(await ledgerDescriptions()).toEqual([
+    'Último lançamento',
+    'Segundo lançamento',
+    'Primeiro lançamento',
+  ]);
+  await filterFormBeforeSummaryReview.locator('#cash-filter-type').selectOption('all');
+  await filterFormBeforeSummaryReview.getByRole('button', { name: 'Aplicar', exact: true }).click();
+
   const formattedToday = today.split('-').reverse().join('/');
   const pfAccountSummary = page.locator('[data-cash-account-summary="pf"]');
   const pjAccountSummary = page.locator('[data-cash-account-summary="pj"]');
@@ -416,9 +444,7 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
   await page.getByRole('button', { name: 'Revisar lançamentos', exact: true }).click();
   const filterForm = page.locator('#cash-filter-form');
   await expect(filterForm.locator('#cash-filter-account')).toHaveValue('unassigned');
-  expect(
-    await page.locator('.cash-ledger-table tbody tr td:nth-child(2)').allTextContents()
-  ).toEqual(['Saída sem conta']);
+  expect(await ledgerDescriptions()).toEqual(['Saída sem conta']);
   await expect(filteredIncome).toContainText('R$ 0,00');
   await expect(filteredExpenses).toContainText('R$ 15,00');
   await expect(filteredResult).toContainText('-R$ 15,00');
