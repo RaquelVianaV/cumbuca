@@ -495,6 +495,7 @@ function cashAccountOptionsHtml(selected = "pf", type = "income", includeAll = f
   const normalized = includeAll ? String(selected || "all") : normalizedCashAccount(selected);
   return `
     ${includeAll ? `<option value="all" ${normalized === "all" ? "selected" : ""}>Unificado PF + PJ</option>` : ""}
+    ${includeAll ? `<option value="unassigned" ${normalized === "unassigned" ? "selected" : ""}>Lançamentos sem conta</option>` : ""}
     ${cashAccountOptions.map(([value]) => `
       <option value="${value}" ${normalized === value ? "selected" : ""}>${cashAccountLabel(value, type)}</option>
     `).join("")}
@@ -1771,7 +1772,9 @@ function filterCashEntries(entries) {
     : typedEntries;
 
   const accountEntries = cashAccount && cashAccount !== "all"
-    ? categorizedEntries.filter(entry => normalizedCashAccount(entry.cashAccount, "") === cashAccount)
+    ? categorizedEntries.filter(entry => cashAccount === "unassigned"
+      ? !normalizedCashAccount(entry.cashAccount, "")
+      : normalizedCashAccount(entry.cashAccount, "") === cashAccount)
     : categorizedEntries;
 
   const quickEntries = quick
@@ -2553,9 +2556,10 @@ function latestCashEntryForAccount(cashAccount, dateKey) {
     ))[0]?.entry || null;
 }
 
-async function zeroAccountBalanceAtDate(dateKey) {
+async function zeroAccountBalanceAtDate(dateKey, cashAccount = "pf") {
   const date = String(dateKey || isoDate(new Date())).slice(0, 10);
-  const balance = Number(accountBalanceUntilDate(date) || 0);
+  const selectedCashAccount = normalizedCashAccount(cashAccount);
+  const balance = Number(accountBalanceUntilDate(date, [], selectedCashAccount) || 0);
   if (Math.abs(balance) < 0.01) {
     showToast("A conta já está zerada.", "success");
     return false;
@@ -2576,6 +2580,7 @@ async function zeroAccountBalanceAtDate(dateKey) {
     date,
     type: adjustmentType,
     category: "ajuste-conta",
+    cashAccount: selectedCashAccount,
     amount: adjustmentAmount.toFixed(2)
   });
   state.cashFilter = {
@@ -2590,7 +2595,7 @@ async function zeroAccountBalanceAtDate(dateKey) {
     search: "",
     manualAll: false
   };
-  recordAudit("Conta zerada", `${actionLabel} ${money(adjustmentAmount)} em ${formatIsoDateBr(date)}`);
+  recordAudit("Conta zerada", `${cashAccountLabel(selectedCashAccount)} - ${actionLabel} ${money(adjustmentAmount)} em ${formatIsoDateBr(date)}`);
   if (!await persistState()) {
     return false;
   }
@@ -3165,8 +3170,16 @@ function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
       hasExpectedSavings: false,
       hasExpectedVanessa: false,
       hasExpectedRaquel: false,
+      cashAccount: "",
+      mixedCashAccounts: false,
       entries: []
     };
+    const entryCashAccount = normalizedCashAccount(entry.cashAccount, "");
+    if (entryCashAccount) {
+      group.mixedCashAccounts = group.mixedCashAccounts
+        || Boolean(group.cashAccount && group.cashAccount !== entryCashAccount);
+      group.cashAccount = group.cashAccount || entryCashAccount;
+    }
     const target = withdrawalTarget(entry);
     group[target] += Number(entry.amount || 0);
     group.total += Number(entry.amount || 0);
@@ -3216,7 +3229,7 @@ function partnerPendingLabel(value) {
   if (amount < 0.01) {
     return "Quitado";
   }
-  return `A receber ${money(amount)}`;
+  return `Pagou ${money(amount)}`;
 }
 
 function withdrawalGroupsBetween(start, end) {
@@ -3292,11 +3305,12 @@ function withdrawalHistoryHtml(monthKey = currentMonthKey()) {
   return `
     <div class="table-wrap report-table">
       <table>
-        <thead><tr><th>Data</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Saldo pendente</th><th>Total retirado</th><th></th></tr></thead>
+        <thead><tr><th>Data</th><th>Conta</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Saldo pendente</th><th>Total retirado</th><th></th></tr></thead>
         <tbody>
           ${groups.map(group => `
             <tr>
               <td>${formatIsoDateBr(group.date)}</td>
+              <td>${group.mixedCashAccounts ? "Mais de uma conta" : cashAccountLabel(group.cashAccount)}</td>
               <td>${money(group.savings)}<br><small>Deveria ${money(group.expectedSavings)}</small></td>
               <td>${money(group.vanessa)}<br><small>Deveria ${money(group.expectedVanessa)}</small></td>
               <td>${money(group.raquel)}<br><small>Deveria ${money(group.expectedRaquel)}</small></td>
@@ -4363,6 +4377,7 @@ function renderToday() {
   ensureCashEntryIds();
   const data = todayOperationData();
   const agenda = operationAgendaItems(data);
+  const quickCashAccount = normalizedCashAccount(state.cashEntryDraft.cashAccount);
 
   app.innerHTML = `
     <section class="dashboard-band today-band">
@@ -4416,6 +4431,11 @@ function renderToday() {
           <label>Descrição
             <input name="description" placeholder="Venda, pix, ajuste" required>
           </label>
+          <label>Conta
+            <select name="cashAccount">
+              ${cashAccountOptionsHtml(quickCashAccount, "income")}
+            </select>
+          </label>
           <label>Valor
             <input name="amount" type="text" inputmode="decimal" placeholder="0,00" required>
           </label>
@@ -4434,6 +4454,11 @@ function renderToday() {
           <label>Categoria
             <select name="category" id="today-expense-category">
               ${cashCategoryOptions("expense", "outros")}
+            </select>
+          </label>
+          <label>Conta
+            <select name="cashAccount">
+              ${cashAccountOptionsHtml(quickCashAccount, "expense")}
             </select>
           </label>
           <label id="today-expense-due-date-field">Vencimento
@@ -4619,6 +4644,7 @@ function bindTodayForms(today) {
         type: "income",
         category: "venda",
         description: values.description,
+        cashAccount: normalizedCashAccount(values.cashAccount),
         amount: amount.toFixed(2)
       });
       if (await persistState()) {
@@ -4655,6 +4681,7 @@ function bindTodayForms(today) {
         type: "expense",
         category: values.category || "outros",
         description: values.description,
+        cashAccount: normalizedCashAccount(values.cashAccount),
         amount: amount.toFixed(2)
       };
       if (isBillCategory(entry.category)) {
@@ -4762,6 +4789,7 @@ async function renderCash() {
     : null;
   const filteredEntries = filterCashEntries(state.cash);
   const accountedEntries = accountingCashEntries(filteredEntries);
+  const filteredTotals = cashTotals(accountedEntries);
   const operationalTotals = cashTotals(businessCashEntries(accountedEntries));
   const currentCashFilter = getCashFilter();
   const selectedDate = currentCashFilter.date || today;
@@ -4773,23 +4801,26 @@ async function renderCash() {
   const editingReconciliation = state.editReconciliationId
     ? reconciliationHistory.find(item => String(item.id) === String(state.editReconciliationId))
     : null;
-  const reconciliationAccount = reconciliationCashAccount(editingReconciliation?.cashAccount || currentCashFilter.cashAccount || "all");
+  const reconciliationAccount = normalizedCashAccount(
+    editingReconciliation?.cashAccount
+      || (["pf", "pj"].includes(currentCashFilter.cashAccount) ? currentCashFilter.cashAccount : "")
+      || state.cashEntryDraft.cashAccount
+  );
   const selectedFilterType = currentCashFilter.type || "all";
   const selectedFilterCategory = currentCashFilter.category || "all";
   const selectedFilterAccount = currentCashFilter.cashAccount || "all";
   const selectedQuickFilter = currentCashFilter.quick || "";
-  const selectedPeriodCashEntries = cashEntriesForSelectedPeriod();
-  const totalCash = cashTotals(selectedPeriodCashEntries);
-  const selectedAdjustmentTotals = accountAdjustmentTotals(selectedPeriodCashEntries);
+  const periodAdjustmentTotals = accountAdjustmentTotals(cashEntriesForSelectedPeriod());
+  const filteredAdjustmentTotals = accountAdjustmentTotals(accountedEntries);
   const reconciliationDate = editingReconciliation?.date || selectedDate;
   const dailyAccountBalance = reconciliationCalculatedBalance(reconciliationDate, editingReconciliation, reconciliationAccount);
   const reconciliationRealBalance = editingReconciliation
     ? Number(editingReconciliation.realBalance || 0)
     : dailyAccountBalance;
   const reconciliationDifference = reconciliationRealBalance - dailyAccountBalance;
-  const adjustmentLabel = selectedAdjustmentTotals.balance === 0
+  const adjustmentLabel = periodAdjustmentTotals.balance === 0
     ? "Sem ajuste no período"
-    : `${selectedAdjustmentTotals.balance > 0 ? "Ajuste entrou" : "Ajuste saiu"} ${money(Math.abs(selectedAdjustmentTotals.balance))}`;
+    : `${periodAdjustmentTotals.balance > 0 ? "Ajuste entrou" : "Ajuste saiu"} ${money(Math.abs(periodAdjustmentTotals.balance))}`;
   const selectedMonthEnd = (() => {
     const [year, month] = selectedMonth.split("-").map(Number);
     return isoDate(new Date(year, month, 0));
@@ -4805,8 +4836,8 @@ async function renderCash() {
   const cashAccountBalances = accountBalanceBreakdownUntilDate(accountBalanceDate);
   const latestPfCashEntry = latestCashEntryForAccount("pf", accountBalanceDate);
   const latestPjCashEntry = latestCashEntryForAccount("pj", accountBalanceDate);
-  const periodBalance = totalCash.balance;
-  const balanceLabel = "Saldo acumulado da conta";
+  const latestUnassignedCashEntry = latestCashEntryForAccount("", accountBalanceDate);
+  const balanceLabel = "Saldo acumulado geral";
   const editingWithdrawalLoan = editingWithdrawal ? withdrawalSavingsLoanEntry(editingWithdrawal) : null;
   const availableForWithdrawal = displayedCashBalance
     + Number(editingWithdrawal?.total || 0)
@@ -4821,6 +4852,9 @@ async function renderCash() {
     pendingVanessa: 0,
     pendingRaquel: 0
   };
+  const withdrawalCashAccount = normalizedCashAccount(
+    editingWithdrawal?.cashAccount || state.cashEntryDraft.cashAccount
+  );
   const previewSavingsLoan = Math.max(0, Number(withdrawalFormValues.total || 0) - availableForWithdrawal);
   const previewAccountAfterWithdrawal = availableForWithdrawal + previewSavingsLoan - Number(withdrawalFormValues.total || 0);
   const savingsPlanning = state.financialPlanning || {};
@@ -4857,24 +4891,36 @@ async function renderCash() {
   app.innerHTML = `
     <section class="cash-hero">
       <div>
-        <span>Saldo da conta</span>
+        <span>Saldo geral da conta</span>
         <h2>${money(displayedCashBalance)}</h2>
       </div>
       <div class="cash-hero-metrics">
-        <span><b>${money(operationalTotals.income)}</b>Entradas operacionais</span>
-        <span><b>${money(operationalTotals.expenses)}</b>Saídas operacionais</span>
-        <span><b>${money(displayedCashBalance)}</b>${balanceLabel}</span>
-        <span><b>${money(periodBalance)}</b>Saldo do filtro<small>Entradas - saídas do filtro atual</small></span>
-        <span class="cash-account-metric" data-cash-account-summary="pf">
-          <b class="${cashAccountBalances.pf < 0 ? "negative" : "positive"}">${money(cashAccountBalances.pf)}</b>
-          Conta PF
-          <small>${latestPfCashEntry ? `Último lançamento em ${formatIsoDateBr(cashAccountingDate(latestPfCashEntry))}` : "Nenhum lançamento registrado"}</small>
+        <span data-cash-filter-income><b>${money(filteredTotals.income)}</b>Entradas do filtro<small>Lançamentos contabilizados</small></span>
+        <span data-cash-filter-expenses><b>${money(filteredTotals.expenses)}</b>Saídas do filtro<small>Lançamentos contabilizados</small></span>
+        <span data-cash-accumulated-balance><b>${money(displayedCashBalance)}</b>${balanceLabel}<small>Inclui ajustes e lançamentos sem conta</small></span>
+        <span data-cash-filter-result>
+          <b class="${filteredTotals.balance < 0 ? "negative" : "positive"}">${money(filteredTotals.balance)}</b>
+          Resultado do filtro
+          <small>Entradas - saídas exibidas</small>
         </span>
-        <span class="cash-account-metric" data-cash-account-summary="pj">
-          <b class="${cashAccountBalances.pj < 0 ? "negative" : "positive"}">${money(cashAccountBalances.pj)}</b>
-          Conta PJ
-          <small>${latestPjCashEntry ? `Último lançamento em ${formatIsoDateBr(cashAccountingDate(latestPjCashEntry))}` : "Nenhum lançamento registrado"}</small>
-        </span>
+        <div class="cash-account-grid" aria-label="Detalhamento do saldo acumulado por conta">
+          <span class="cash-account-metric" data-cash-account-summary="pf">
+            <b class="${cashAccountBalances.pf < 0 ? "negative" : "positive"}">${money(cashAccountBalances.pf)}</b>
+            Conta PF
+            <small>${latestPfCashEntry ? `Último lançamento em ${formatIsoDateBr(cashAccountingDate(latestPfCashEntry))}` : "Nenhum lançamento registrado"}</small>
+          </span>
+          <span class="cash-account-metric" data-cash-account-summary="pj">
+            <b class="${cashAccountBalances.pj < 0 ? "negative" : "positive"}">${money(cashAccountBalances.pj)}</b>
+            Conta PJ
+            <small>${latestPjCashEntry ? `Último lançamento em ${formatIsoDateBr(cashAccountingDate(latestPjCashEntry))}` : "Nenhum lançamento registrado"}</small>
+          </span>
+          <span class="cash-account-metric is-unassigned" data-cash-account-summary="unassigned">
+            <b class="${cashAccountBalances.unassigned < 0 ? "negative" : "positive"}">${money(cashAccountBalances.unassigned)}</b>
+            Lançamentos sem conta
+            <small>${latestUnassignedCashEntry ? `Último lançamento em ${formatIsoDateBr(cashAccountingDate(latestUnassignedCashEntry))}` : "Nenhum lançamento sem conta"}</small>
+            ${latestUnassignedCashEntry ? `<button class="secondary table-action" type="button" data-review-unassigned-cash>Revisar lançamentos</button>` : ""}
+          </span>
+        </div>
       </div>
     </section>
     <section class="account-check-card">
@@ -4958,7 +5004,7 @@ async function renderCash() {
             </label>
             <label>Conta conferida
               <select name="cashAccount" id="daily-reconciliation-account">
-                ${cashAccountOptionsHtml(reconciliationAccount, "expense", true)}
+                ${cashAccountOptionsHtml(reconciliationAccount, "expense")}
               </select>
             </label>
             <label>Saldo real da conta
@@ -5127,6 +5173,11 @@ async function renderCash() {
           <label>Data
             <input name="date" type="date" value="${editingWithdrawal?.date || today}" required>
           </label>
+          <label>Conta de onde saiu o dinheiro
+            <select name="cashAccount" required>
+              ${cashAccountOptionsHtml(withdrawalCashAccount, "expense")}
+            </select>
+          </label>
           <div class="withdrawal-value-group">
             <strong>Quanto deveria ter sido retirado</strong>
             <p class="muted-inline">Informe a parte calculada para cada destino. Ao preencher a parte da Raquel, o sistema sugere automaticamente a divisão padrão.</p>
@@ -5271,7 +5322,7 @@ async function renderCash() {
         <div class="summary">
           <div class="metric"><span>Entradas operacionais</span><strong>${money(operationalTotals.income)}</strong></div>
           <div class="metric"><span>Saídas operacionais</span><strong>${money(operationalTotals.expenses)}</strong></div>
-          <div class="metric"><span>Ajustes da conta</span><strong class="${selectedAdjustmentTotals.balance < 0 ? "negative" : "positive"}">${money(selectedAdjustmentTotals.balance)}</strong></div>
+          <div class="metric"><span>Ajustes da conta</span><strong class="${filteredAdjustmentTotals.balance < 0 ? "negative" : "positive"}">${money(filteredAdjustmentTotals.balance)}</strong></div>
           <div class="metric"><span>${balanceLabel}</span><strong class="${displayedCashBalance < 0 ? "negative" : "positive"}">${money(displayedCashBalance)}</strong></div>
         </div>
         ${cashAccountSummary(businessCashEntries(accountedEntries))}
@@ -5282,6 +5333,24 @@ async function renderCash() {
       </section>
     </div>
   `;
+
+  on("[data-review-unassigned-cash]", "click", () => {
+    state.cashPanelTab = "ledger";
+    state.cashFilter = {
+      period: "all",
+      date: today,
+      month: today.slice(0, 7),
+      year: today.slice(0, 4),
+      type: "all",
+      category: "all",
+      cashAccount: "unassigned",
+      quick: "",
+      search: "",
+      manualAll: true
+    };
+    persistState();
+    renderCash();
+  });
 
   document.querySelectorAll("[data-cash-panel]").forEach(button => {
     button.addEventListener("click", event => {
@@ -5398,7 +5467,7 @@ async function renderCash() {
       const reconciliationId = values.reconciliationId || "";
       const history = state.financialPlanning?.reconciliationHistory || [];
       const date = values.date || today;
-      const cashAccount = reconciliationCashAccount(values.cashAccount || "all");
+      const cashAccount = normalizedCashAccount(values.cashAccount);
       const previousReconciliation = history.find(item => String(item.id) === String(reconciliationId))
         || (!reconciliationId ? history.find(item =>
           String(item.date) === String(date)
@@ -5473,7 +5542,7 @@ async function renderCash() {
         date,
         type: adjustmentType,
         category: "ajuste-conta",
-        ...(cashAccount === "all" ? {} : { cashAccount }),
+        cashAccount,
         amount: adjustmentAmount.toFixed(2),
         reconciliation: true,
         authorizedBy,
@@ -6263,6 +6332,7 @@ async function renderCash() {
       vanessa: Math.max(0, parseMoneyInput(values.vanessa)),
       raquel: Math.max(0, parseMoneyInput(values.raquel))
     };
+    const cashAccount = normalizedCashAccount(values.cashAccount);
     if (expected.total <= 0) {
       showToast("Informe quanto deveria ter sido retirado.", "error");
       return;
@@ -6295,6 +6365,7 @@ async function renderCash() {
         date: values.date,
         type: "income",
         category: "ajuste-conta",
+        cashAccount,
         amount: savingsLoan.toFixed(2),
         withdrawalGroup: `withdrawal-${idBase}`
       }
@@ -6307,6 +6378,7 @@ async function renderCash() {
         date: values.date,
         type: "expense",
         category: "retirada",
+        cashAccount,
         amount: split.savings.toFixed(2),
         distributionBase: split.distributionBase.toFixed(2),
         expectedAmount: expected.savings.toFixed(2)
@@ -6317,6 +6389,7 @@ async function renderCash() {
         date: values.date,
         type: "expense",
         category: "retirada",
+        cashAccount,
         amount: split.vanessa.toFixed(2),
         distributionBase: split.distributionBase.toFixed(2),
         expectedAmount: expected.vanessa.toFixed(2)
@@ -6327,6 +6400,7 @@ async function renderCash() {
         date: values.date,
         type: "expense",
         category: "retirada",
+        cashAccount,
         amount: split.raquel.toFixed(2),
         distributionBase: split.distributionBase.toFixed(2),
         expectedAmount: expected.raquel.toFixed(2)
@@ -6360,7 +6434,7 @@ async function renderCash() {
           : "Devolução ao cofrinho por ajuste de retirada"
       });
     }
-    const auditDetail = `Devido ${money(expected.total)} - retirado ${money(split.total)} - cofrinho devido/recebido ${money(expected.savings)} / ${money(split.savings)}, Vanessa devido/recebido ${money(expected.vanessa)} / ${money(split.vanessa)} (${partnerPendingLabel(expected.vanessa - split.vanessa)}), Raquel devido/recebido ${money(expected.raquel)} / ${money(split.raquel)} (${partnerPendingLabel(expected.raquel - split.raquel)})${savingsLoan > 0 ? ` - empréstimo do cofrinho ${money(savingsLoan)}` : ""}`;
+    const auditDetail = `${cashAccountLabel(cashAccount)} - devido ${money(expected.total)} - retirado ${money(split.total)} - cofrinho devido/recebido ${money(expected.savings)} / ${money(split.savings)}, Vanessa devido/recebido ${money(expected.vanessa)} / ${money(split.vanessa)} (${partnerPendingLabel(expected.vanessa - split.vanessa)}), Raquel devido/recebido ${money(expected.raquel)} / ${money(split.raquel)} (${partnerPendingLabel(expected.raquel - split.raquel)})${savingsLoan > 0 ? ` - empréstimo do cofrinho ${money(savingsLoan)}` : ""}`;
     recordAudit(previousWithdrawal ? "Retirada editada" : "Retirada registrada", auditDetail);
     state.editWithdrawalGroup = null;
     if (await persistState()) {
@@ -13660,6 +13734,10 @@ function withdrawalProjectionPanel(data) {
 function financialCyclePanel() {
   const planning = state.financialPlanning || {};
   const hasCycle = Boolean(planning.cycleStartDate);
+  const openingEntry = state.cash.find(entry => entry.category === "ajuste-conta" && entry.cycleOpening);
+  const openingCashAccount = normalizedCashAccount(
+    planning.openingCashAccount || openingEntry?.cashAccount || state.cashEntryDraft.cashAccount
+  );
   return `
     <section class="panel report-section financial-cycle-panel">
       <div class="section-heading">
@@ -13671,7 +13749,7 @@ function financialCyclePanel() {
       ${hasCycle ? `
         <div class="summary">
           <div class="metric"><span>Início do ciclo</span><strong>${formatIsoDateBr(planning.cycleStartDate)}</strong></div>
-          <div class="metric"><span>Saldo inicial da conta</span><strong>${money(planning.openingBalance)}</strong></div>
+          <div class="metric"><span>Saldo inicial da conta</span><strong>${money(planning.openingBalance)}</strong><small>${cashAccountLabel(openingCashAccount)}</small></div>
           <div class="metric"><span>Cofrinho inicial</span><strong>${money(planning.openingSavings)}</strong></div>
           <div class="metric"><span>Observação</span><strong>${escapeHtml(planning.cycleNote || "Sem observação")}</strong></div>
         </div>
@@ -13684,6 +13762,11 @@ function financialCyclePanel() {
           </label>
           <label>Saldo inicial da conta
             <input name="openingBalance" type="text" inputmode="decimal" value="${moneyInputValue(planning.openingBalance)}" required>
+          </label>
+          <label>Conta do saldo inicial
+            <select name="openingCashAccount" required>
+              ${cashAccountOptionsHtml(openingCashAccount, "income")}
+            </select>
           </label>
           <label>Saldo inicial do cofrinho
             <input name="openingSavings" type="text" inputmode="decimal" value="${moneyInputValue(planning.openingSavings)}" required>
@@ -14133,6 +14216,7 @@ function bindFinancialPlanning() {
       const date = values.date || isoDate(new Date());
       const openingBalance = parseMoneyInput(values.openingBalance);
       const openingSavings = parseMoneyInput(values.openingSavings);
+      const openingCashAccount = normalizedCashAccount(values.openingCashAccount);
       const existingOpeningEntry = state.cash.find(entry => entry.category === "ajuste-conta" && entry.cycleOpening);
       if (blockClosedPeriod(date, "definir saldo inicial")) {
         return;
@@ -14151,6 +14235,7 @@ function bindFinancialPlanning() {
           date,
           type: openingBalance >= 0 ? "income" : "expense",
           category: "ajuste-conta",
+          cashAccount: openingCashAccount,
           amount: Math.abs(openingBalance).toFixed(2),
           cycleOpening: true
         });
@@ -14159,12 +14244,13 @@ function bindFinancialPlanning() {
         ...(state.financialPlanning || {}),
         cycleStartDate: date,
         openingBalance: openingBalance.toFixed(2),
+        openingCashAccount,
         openingSavings: openingSavings.toFixed(2),
         cycleNote: String(values.note || "").trim(),
         savings: openingSavings.toFixed(2),
         savingsUpdatedAt: date
       };
-      recordAudit("Ciclo financeiro definido", `${formatIsoDateBr(date)} - conta ${money(openingBalance)} - cofrinho ${money(openingSavings)}`);
+      recordAudit("Ciclo financeiro definido", `${formatIsoDateBr(date)} - ${cashAccountLabel(openingCashAccount)} ${money(openingBalance)} - cofrinho ${money(openingSavings)}`);
       if (await persistState()) {
         renderFinance();
       }
@@ -14191,6 +14277,7 @@ function bindFinancialPlanning() {
       purchases: textLines(values.purchases),
       cycleStartDate: state.financialPlanning?.cycleStartDate || "",
       openingBalance: state.financialPlanning?.openingBalance || "",
+      openingCashAccount: state.financialPlanning?.openingCashAccount || "",
       openingSavings: state.financialPlanning?.openingSavings || "",
       cycleNote: state.financialPlanning?.cycleNote || "",
       accounts: financialAccounts(),
@@ -15244,7 +15331,9 @@ async function renderBackups() {
     ? `${shortDateTime.format(new Date(lastBackupAt))}${manualBackupAgeDays >= reminderDays ? " - precisa renovar" : " - em dia"}`
     : "Nenhum backup manual registrado neste navegador";
   const maintenanceAccountDate = isoDate(new Date());
-  const maintenanceAccountBalance = accountBalanceUntilDate(maintenanceAccountDate);
+  const maintenanceAccountBalances = accountBalanceBreakdownUntilDate(maintenanceAccountDate);
+  const maintenanceDefaultCashAccount = normalizedCashAccount(state.cashEntryDraft.cashAccount);
+  const maintenanceAccountBalance = maintenanceAccountBalances[maintenanceDefaultCashAccount];
   const canZeroMaintenanceAccount = Math.abs(maintenanceAccountBalance) >= 0.01;
   app.innerHTML = `
     <section class="maintenance-hero">
@@ -15408,10 +15497,19 @@ async function renderBackups() {
         <section class="panel report-section backup-manual-panel reset-all-panel maintenance-pane" data-maintenance-pane="reset" id="reset-all-panel" ${activeTab === "reset" ? "" : "hidden"}>
           <section class="database-danger-zone" id="maintenance-zero-account-panel">
             <h3>Zerar saldo da conta</h3>
-            <p>Cria um lançamento de ajuste no Caixa para deixar o saldo unificado em zero. Os lançamentos anteriores permanecem no histórico.</p>
+            <p>Cria um lançamento de ajuste na conta escolhida. Os lançamentos anteriores permanecem no histórico.</p>
+            <label>Conta a zerar
+              <select id="maintenance-zero-account-target">
+                ${["pf", "pj"].map(cashAccount => `
+                  <option value="${cashAccount}" data-balance="${maintenanceAccountBalances[cashAccount]}" ${cashAccount === maintenanceDefaultCashAccount ? "selected" : ""}>
+                    ${cashAccountLabel(cashAccount)} · ${money(maintenanceAccountBalances[cashAccount])}
+                  </option>
+                `).join("")}
+              </select>
+            </label>
             <div class="backup-list-state warning-state">
-              <strong>Saldo unificado em ${formatIsoDateBr(maintenanceAccountDate)}</strong>
-              <span>${money(maintenanceAccountBalance)}</span>
+              <strong>Saldo da conta em ${formatIsoDateBr(maintenanceAccountDate)}</strong>
+              <span id="maintenance-zero-account-balance">${money(maintenanceAccountBalance)}</span>
             </div>
             <div class="backup-actions">
               <button class="danger" type="button" id="maintenance-zero-account" ${canZeroMaintenanceAccount ? "" : "disabled"}>Zerar conta</button>
@@ -15501,14 +15599,29 @@ async function renderBackups() {
   }
 
   on("#cleanup-backup-first", "click", downloadBackup);
+  const maintenanceZeroAccountTarget = document.querySelector("#maintenance-zero-account-target");
+  const maintenanceZeroAccountBalance = document.querySelector("#maintenance-zero-account-balance");
+  const maintenanceZeroAccountButton = document.querySelector("#maintenance-zero-account");
+  maintenanceZeroAccountTarget?.addEventListener("change", event => {
+    const selectedOption = event.currentTarget.selectedOptions[0];
+    const balance = Number(selectedOption?.dataset.balance || 0);
+    if (maintenanceZeroAccountBalance) {
+      maintenanceZeroAccountBalance.textContent = money(balance);
+    }
+    if (maintenanceZeroAccountButton) {
+      maintenanceZeroAccountButton.disabled = Math.abs(balance) < 0.01;
+    }
+  });
   on("#maintenance-zero-account", "click", async event => {
     const button = event.currentTarget;
+    const cashAccount = normalizedCashAccount(maintenanceZeroAccountTarget?.value);
     button.disabled = true;
-    if (await zeroAccountBalanceAtDate(maintenanceAccountDate)) {
+    if (await zeroAccountBalanceAtDate(maintenanceAccountDate, cashAccount)) {
       renderBackups();
       return;
     }
-    button.disabled = !canZeroMaintenanceAccount;
+    const balance = Number(maintenanceZeroAccountTarget?.selectedOptions[0]?.dataset.balance || 0);
+    button.disabled = Math.abs(balance) < 0.01;
   });
   const resetFinancialConfirmation = document.querySelector("#reset-financial-confirmation");
   const resetFinancialButton = document.querySelector("#reset-financial-data");

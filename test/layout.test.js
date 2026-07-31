@@ -31,6 +31,9 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /latestCashEntryForAccount/);
   assert.match(app, /data-cash-account-summary="pf"/);
   assert.match(app, /data-cash-account-summary="pj"/);
+  assert.match(app, /data-cash-account-summary="unassigned"/);
+  assert.match(app, /Resultado do filtro/);
+  assert.match(app, /Entradas - saídas exibidas/);
   assert.doesNotMatch(app, /id="zero-account-balance/);
   assert.match(app, /id="maintenance-zero-account"/);
   assert.match(app, /zeroAccountBalanceAtDate/);
@@ -167,6 +170,8 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(css, /\.pricing-status\.profitable/);
   assert.match(app, /name="expectedVanessa"/);
   assert.match(app, /name="expectedRaquel"/);
+  assert.match(app, /Conta de onde saiu o dinheiro/);
+  assert.match(app, /value="unassigned"/);
   assert.match(app, /Quanto realmente foi retirado/);
   assert.match(app, /Saldo pendente acumulado/);
   assert.match(app, /partnerPendingLabel/);

@@ -116,7 +116,9 @@ test('reconciliation exposes authorized adjustment preview', async ({ page }, te
   ).toBeVisible();
   const reconciliationAccount = page.locator('#daily-reconciliation-account');
   await expect(reconciliationAccount).toBeVisible();
-  await expect(reconciliationAccount).toContainText('Unificado PF + PJ');
+  await expect(reconciliationAccount).toContainText('Conta PF');
+  await expect(reconciliationAccount).toContainText('Conta PJ');
+  await expect(reconciliationAccount).not.toContainText('Unificado PF + PJ');
   await reconciliationAccount.selectOption('pj');
   await expect(page.locator('#reconciliation-account-label')).toContainText('Conta PJ');
   await expect(page.getByLabel('Saldo real da conta', { exact: true })).toBeVisible();
@@ -272,6 +274,14 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
         cashAccount: 'pf',
         amount: '30.00',
       },
+      {
+        id: 'cash-order-4',
+        date: today,
+        description: 'Saída sem conta',
+        type: 'expense',
+        category: 'outros',
+        amount: '15.00',
+      },
     ],
   };
   await page.goto('/fluxo-de-caixa?panel=ledger');
@@ -279,16 +289,44 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
   const descriptions = await page
     .locator('.cash-ledger-table tbody tr td:nth-child(2)')
     .allTextContents();
-  expect(descriptions).toEqual(['Último lançamento', 'Segundo lançamento', 'Primeiro lançamento']);
+  expect(descriptions).toEqual([
+    'Saída sem conta',
+    'Último lançamento',
+    'Segundo lançamento',
+    'Primeiro lançamento',
+  ]);
   const formattedToday = today.split('-').reverse().join('/');
   const pfAccountSummary = page.locator('[data-cash-account-summary="pf"]');
   const pjAccountSummary = page.locator('[data-cash-account-summary="pj"]');
+  const unassignedAccountSummary = page.locator('[data-cash-account-summary="unassigned"]');
+  const filteredIncome = page.locator('[data-cash-filter-income]');
+  const filteredExpenses = page.locator('[data-cash-filter-expenses]');
+  const filteredResult = page.locator('[data-cash-filter-result]');
+  const accumulatedBalance = page.locator('[data-cash-accumulated-balance]');
   await expect(pfAccountSummary).toContainText('Conta PF');
   await expect(pfAccountSummary).toContainText('R$ 40,00');
   await expect(pfAccountSummary).toContainText(`Último lançamento em ${formattedToday}`);
   await expect(pjAccountSummary).toContainText('Conta PJ');
   await expect(pjAccountSummary).toContainText('R$ 20,00');
   await expect(pjAccountSummary).toContainText(`Último lançamento em ${formattedToday}`);
+  await expect(unassignedAccountSummary).toContainText('Lançamentos sem conta');
+  await expect(unassignedAccountSummary).toContainText('-R$ 15,00');
+  await expect(unassignedAccountSummary).toContainText(`Último lançamento em ${formattedToday}`);
+  await expect(filteredIncome).toContainText('R$ 60,00');
+  await expect(filteredExpenses).toContainText('R$ 15,00');
+  await expect(filteredResult).toContainText('R$ 45,00');
+  await expect(accumulatedBalance).toContainText('R$ 45,00');
+
+  await page.getByRole('button', { name: 'Revisar lançamentos', exact: true }).click();
+  const filterForm = page.locator('#cash-filter-form');
+  await expect(filterForm.locator('#cash-filter-account')).toHaveValue('unassigned');
+  expect(
+    await page.locator('.cash-ledger-table tbody tr td:nth-child(2)').allTextContents()
+  ).toEqual(['Saída sem conta']);
+  await expect(filteredIncome).toContainText('R$ 0,00');
+  await expect(filteredExpenses).toContainText('R$ 15,00');
+  await expect(filteredResult).toContainText('-R$ 15,00');
+  await expect(accumulatedBalance).toContainText('R$ 45,00');
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
     path: testInfo.outputPath('cash-ledger-latest-first.png'),
@@ -322,6 +360,7 @@ test('withdrawals keep expected, received and independent pending balances per p
 
   await page.goto('/fluxo-de-caixa?panel=withdrawals');
   const form = page.locator('#withdrawal-form');
+  await form.locator('select[name="cashAccount"]').selectOption('pj');
   await form.locator('input[name="expectedRaquel"]').fill('450,00');
   await expect(form.locator('input[name="expectedSavings"]')).toHaveValue('150,00');
   await expect(form.locator('input[name="expectedVanessa"]')).toHaveValue('1.050,00');
@@ -336,12 +375,18 @@ test('withdrawals keep expected, received and independent pending balances per p
   expect(firstVanessa).toMatchObject({
     amount: '946.89',
     expectedAmount: '1050.00',
+    cashAccount: 'pj',
   });
+  expect(
+    database.state.cashEntries
+      .filter((entry) => String(entry.id || '').startsWith('withdrawal-'))
+      .every((entry) => entry.cashAccount === 'pj')
+  ).toBe(true);
   const accumulated = page
     .locator('.partners-dashboard section')
     .filter({ hasText: 'Saldo pendente acumulado' });
   await expect(accumulated).toContainText('Vanessa');
-  await expect(accumulated).toContainText('A receber R$ 103,11');
+  await expect(accumulated).toContainText('Pagou R$ 103,11');
   expect(
     await page.evaluate((dateKey) => window.accountBalanceUntilDate(dateKey), today)
   ).toBeCloseTo(3453.11, 2);
@@ -349,11 +394,17 @@ test('withdrawals keep expected, received and independent pending balances per p
   await form.locator('input[name="expectedRaquel"]').fill('300,00');
   await expect(form.locator('input[name="expectedVanessa"]')).toHaveValue('700,00');
   await form.locator('input[name="vanessa"]').fill('803,11');
+  await form.locator('select[name="cashAccount"]').selectOption('pj');
   await form.getByRole('button', { name: 'Registrar retiradas', exact: true }).click();
 
   await expect.poll(() => database.state.cashEntries?.length).toBe(7);
   await expect(accumulated).toContainText('Vanessa');
-  await expect(accumulated).toContainText('A receber R$ 103,11');
+  await expect(accumulated).toContainText('Pagou R$ 103,11');
+  expect(
+    database.state.cashEntries
+      .filter((entry) => String(entry.id || '').startsWith('withdrawal-'))
+      .every((entry) => entry.cashAccount === 'pj')
+  ).toBe(true);
 });
 
 test('store sales filter by day, week and month with previous month comparison', async ({

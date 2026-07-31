@@ -1123,10 +1123,25 @@ h2 {
 }
 
 .cash-hero-metrics span.cash-account-metric {
-  grid-column: span 2;
   min-height: 92px;
   border-left: 4px solid var(--green);
   background: rgba(28, 148, 111, 0.055);
+}
+
+.cash-account-grid {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.cash-hero-metrics .cash-account-grid span.cash-account-metric {
+  grid-column: auto;
+}
+
+.cash-hero-metrics span.cash-account-metric.is-unassigned {
+  border-left-color: var(--yellow);
+  background: rgba(242, 183, 5, 0.07);
 }
 
 .cash-hero-metrics .cash-account-metric b.positive {
@@ -6646,6 +6661,10 @@ a.secondary.table-action,
 
   .cash-hero-metrics span.cash-account-metric {
     grid-column: span 2;
+  }
+
+  .cash-account-grid {
+    grid-template-columns: 1fr;
   }
 
   .savings-trace-panel {
