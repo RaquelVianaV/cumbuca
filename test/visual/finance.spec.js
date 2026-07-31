@@ -107,6 +107,102 @@ test('accounts workflow is visible and responsive', async ({ page }, testInfo) =
   });
 });
 
+test('employee registry links employee expenses automatically', async ({ page }, testInfo) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    cashEntries: [],
+    financialPlanning: {
+      accounts: [],
+      employees: [],
+    },
+  };
+
+  await page.goto('/financeiro?view=employees');
+  await expect(
+    page.getByRole('heading', { name: 'Funcionários da Cumbuca', exact: true })
+  ).toBeVisible();
+  const employeeForm = page.locator('#financial-employee-form');
+  await employeeForm.getByLabel('Nome do funcionário', { exact: true }).fill('Maria Silva');
+  await employeeForm.getByLabel('Função', { exact: true }).fill('Cozinheira');
+  await employeeForm.getByLabel('Salário mensal', { exact: true }).fill('1.500,00');
+  await employeeForm.getByRole('button', { name: 'Cadastrar funcionário', exact: true }).click();
+
+  await expect.poll(() => database.state.financialPlanning?.employees?.length).toBe(1);
+  const employee = database.state.financialPlanning.employees[0];
+  expect(employee.name).toBe('Maria Silva');
+  expect(employee.monthlySalary).toBe('1500.00');
+
+  const employeeCard = page.locator('.employee-card').filter({ hasText: 'Maria Silva' });
+  await expect(employeeCard).toContainText('R$ 1.500,00');
+  await employeeCard.getByRole('link', { name: 'Lançar pagamento', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`employee=${employee.id}`));
+  await expect(page.locator('#cash-type')).toHaveValue('expense');
+  await expect(page.locator('#cash-category')).toHaveValue('funcionarios');
+  await expect(page.locator('#cash-employee')).toHaveValue(employee.id);
+  await expect(page.locator('#cash-employee-field')).toBeVisible();
+
+  const cashForm = page.locator('#cash-form');
+  await cashForm.locator('#cash-account').selectOption('pj');
+  await cashForm.getByLabel('Valor', { exact: true }).fill('800,00');
+  await cashForm.getByRole('button', { name: 'Adicionar', exact: true }).click();
+
+  await expect.poll(() => database.state.cashEntries?.length).toBe(1);
+  expect(database.state.cashEntries[0]).toMatchObject({
+    type: 'expense',
+    category: 'funcionarios',
+    employeeId: employee.id,
+    cashAccount: 'pj',
+    amount: '800.00',
+  });
+
+  await page.goto('/financeiro?view=employees');
+  const updatedCard = page.locator('.employee-card').filter({ hasText: 'Maria Silva' });
+  await expect(updatedCard).toContainText('Pago no mês');
+  await expect(updatedCard).toContainText('R$ 800,00');
+  await expect(updatedCard).toContainText('Falta pagar');
+  await expect(updatedCard).toContainText('R$ 700,00');
+  const paymentsSection = page
+    .getByRole('heading', { name: 'Pagamentos de funcionários no mês', exact: true })
+    .locator('..');
+  await expect(paymentsSection.locator('.report-table')).toContainText('Pagamento - Maria Silva');
+  await expectNoHorizontalOverflow(page);
+
+  const screenshotPath = testInfo.outputPath('finance-employees.png');
+  await page.screenshot({ path: screenshotPath, fullPage: true });
+  await testInfo.attach('finance-employees.png', {
+    path: screenshotPath,
+    contentType: 'image/png',
+  });
+
+  await page.goto('/financeiro?view=accounts');
+  const accountForm = page.locator('#financial-account-form');
+  await accountForm.locator('#financial-account-employee').selectOption(employee.id);
+  await expect(accountForm.locator('#financial-account-category')).toHaveValue('funcionarios');
+  await expect(accountForm.locator('#financial-account-description')).toHaveValue(
+    'Salário - Maria Silva'
+  );
+  await accountForm.getByLabel('Vencimento', { exact: true }).fill(localDateKey());
+  await accountForm.getByLabel('Valor total', { exact: true }).fill('200,00');
+  await accountForm.getByRole('button', { name: 'Adicionar conta', exact: true }).click();
+  await expect(page.locator('.account-row')).toHaveCount(1);
+  await page
+    .locator('.account-row')
+    .getByRole('button', { name: 'Registrar pagamento', exact: true })
+    .click();
+
+  await expect.poll(() => database.state.cashEntries?.length).toBe(2);
+  expect(database.state.cashEntries[1]).toMatchObject({
+    type: 'expense',
+    category: 'funcionarios',
+    employeeId: employee.id,
+    amount: '200.00',
+  });
+  await page.goto('/financeiro?view=employees');
+  const accountUpdatedCard = page.locator('.employee-card').filter({ hasText: 'Maria Silva' });
+  await expect(accountUpdatedCard).toContainText('R$ 1.000,00');
+  await expect(accountUpdatedCard).toContainText('R$ 500,00');
+});
+
 test('reconciliation exposes authorized adjustment preview', async ({ page }, testInfo) => {
   await page.goto('/fluxo-de-caixa');
   await expect(page.getByRole('heading', { name: 'Fluxo de Caixa', exact: true })).toBeVisible();
@@ -566,13 +662,20 @@ test('store sale supports unit and combo quantities', async ({ page }, testInfo)
   });
 });
 
-test('store sales can filter combos and count combos separately from units', async ({ page }) => {
+test('store sales can filter combos and count combos separately from units', async ({
+  page,
+}, testInfo) => {
   const database = await mockOnlineDatabase(page);
   database.state = {
+    storeProducts: [
+      { id: 'product-a', name: 'Cumbuca A' },
+      { id: 'product-b', name: 'Cumbuca B' },
+    ],
     storeSales: [
       {
         id: 'combo-1',
         date: '2026-07-29',
+        productId: 'product-a',
         saleType: 'combo',
         quantity: 2,
         unitsPerCombo: 10,
@@ -581,6 +684,7 @@ test('store sales can filter combos and count combos separately from units', asy
       {
         id: 'combo-2',
         date: '2026-07-28',
+        productId: 'product-b',
         saleType: 'combo',
         quantity: 39,
         unitsPerCombo: 6,
@@ -589,6 +693,7 @@ test('store sales can filter combos and count combos separately from units', asy
       {
         id: 'unit-1',
         date: '2026-07-28',
+        productId: 'product-b',
         saleType: 'unit',
         quantity: 31,
         notes: 'Avulsas',
@@ -596,6 +701,7 @@ test('store sales can filter combos and count combos separately from units', asy
       {
         id: 'combo-previous',
         date: '2026-06-20',
+        productId: 'product-b',
         saleType: 'combo',
         quantity: 4,
         unitsPerCombo: 6,
@@ -623,25 +729,47 @@ test('store sales can filter combos and count combos separately from units', asy
   await filterForm.getByRole('button', { name: 'Aplicar', exact: true }).click();
 
   await expect(rows).toHaveCount(2);
-  await expect(page.locator('[data-store-sales-filter-total]')).toHaveText(
-    /Combos no período\s*41/
-  );
-  await expect(page.locator('[data-store-sales-filter-units]')).toHaveText(
+  await expect(page.locator('[data-store-sales-filter-combos]')).toHaveText(/Combos vendidos\s*41/);
+  await expect(page.locator('[data-store-sales-filter-combo-units]')).toHaveText(
     /Unidades nos combos\s*254/
   );
+  await expect(page.locator('[data-store-sales-filter-standalone-units]')).toContainText('0');
+  await expect(page.locator('[data-store-sales-filter-total]')).toHaveText(
+    /Total de unidades\s*254/
+  );
+  await expect(page.locator('[data-store-sales-filter-best-day]')).toContainText('28/07/2026');
+  await expect(page.locator('[data-store-sales-filter-best-day]')).toContainText('234 unidade(s)');
+  await expect(page.locator('[data-store-sales-day-ranking]')).toContainText('Mais vendeu');
   await expect(page.locator('[data-store-sales-comparison]')).toContainText(
     'Comparação de combos com o mês anterior'
   );
   await expect(page.locator('[data-store-sales-comparison]')).toContainText('+37');
+  await page.screenshot({
+    path: testInfo.outputPath('store-sales-combo-summary.png'),
+    fullPage: true,
+  });
 
   await filterForm.locator('select[name="saleType"]').selectOption('unit');
   await filterForm.getByRole('button', { name: 'Aplicar', exact: true }).click();
 
   await expect(rows).toHaveCount(1);
-  await expect(page.locator('[data-store-sales-filter-total]')).toHaveText(
-    /Unidades avulsas no período\s*31/
+  await expect(page.locator('[data-store-sales-filter-standalone-units]')).toHaveText(
+    /Unidades avulsas\s*31/
   );
-  await expect(page.locator('[data-store-sales-filter-units]')).toHaveCount(0);
+  await expect(page.locator('[data-store-sales-filter-combos]')).toContainText('0');
+  await expect(page.locator('[data-store-sales-filter-total]')).toHaveText(
+    /Total de unidades\s*31/
+  );
+
+  await filterForm.locator('select[name="saleType"]').selectOption('all');
+  await filterForm.locator('select[name="productId"]').selectOption('product-b');
+  await filterForm.getByRole('button', { name: 'Aplicar', exact: true }).click();
+
+  await expect(rows).toHaveCount(2);
+  await expect(page.locator('[data-store-sales-filter-combos]')).toContainText('39');
+  await expect(page.locator('[data-store-sales-filter-standalone-units]')).toContainText('31');
+  await expect(page.locator('[data-store-sales-filter-total]')).toContainText('265');
+  await expect(page.locator('[data-store-sales-filter-best-day]')).toContainText('265 unidade(s)');
 });
 
 test('store products receive individual monthly quantities', async ({ page }, testInfo) => {

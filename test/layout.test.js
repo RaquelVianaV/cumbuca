@@ -13,6 +13,15 @@ const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /financeViewTab/);
   assert.match(app, /Contas a pagar e receber/);
+  assert.match(app, /Funcionários da Cumbuca/);
+  assert.match(app, /financialEmployeesPanel/);
+  assert.match(app, /financialEmployeeForEntry/);
+  assert.match(app, /financial-employee-form/);
+  assert.match(app, /cash-employee-field/);
+  assert.match(app, /today-expense-employee-field/);
+  assert.match(app, /financial-account-employee/);
+  assert.match(app, /employeeId/);
+  assert.match(server, /employees: \[\]/);
   assert.match(app, /finance-pending-dashboard/);
   assert.match(app, /financeMonthCommandPanel/);
   assert.match(app, /financialPlanVsActualPanel/);
@@ -72,6 +81,13 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /storeSalesMonthComparison/);
   assert.match(app, /id="store-sales-filter-form"/);
   assert.match(app, /id="store-sales-filter-type"/);
+  assert.match(app, /id="store-sales-filter-product"/);
+  assert.match(app, /storeSalesSummary/);
+  assert.match(app, /data-store-sales-filter-combos/);
+  assert.match(app, /data-store-sales-filter-standalone-units/);
+  assert.match(app, /data-store-sales-filter-combo-units/);
+  assert.match(app, /data-store-sales-filter-best-day/);
+  assert.match(app, /data-store-sales-day-ranking/);
   assert.match(app, /Combos no período/);
   assert.match(app, /Unidades nos combos/);
   assert.match(app, /data-store-sales-comparison/);
@@ -188,6 +204,8 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(css, /\.account-balance-metric/);
   assert.match(css, /\.cash-forecast-metric/);
   assert.match(css, /\.store-sales-filter/);
+  assert.match(css, /\.store-sales-summary/);
+  assert.match(css, /\.store-sales-day-ranking/);
   assert.match(css, /\.store-sales-comparison/);
   assert.match(css, /\.daily-closing-guide/);
   assert.match(css, /\.closing-check/);

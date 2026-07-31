@@ -102,6 +102,7 @@ const defaultState = {
     openingSavings: '',
     cycleNote: '',
     accounts: [],
+    employees: [],
     reconciliationHistory: [],
     dailyClosings: {},
     monthlyBudgets: {},

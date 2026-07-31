@@ -613,6 +613,7 @@ const state = {
   pricingViewTab: localValue("pricingViewTab", "dashboard"),
   editPricingIngredientId: null,
   editPricingRecipeId: null,
+  editFinancialEmployeeId: null,
   cashFilter: localValue("cashFilter", { period: "month" }),
   financialPlanning: localValue("financialPlanning", {
     savings: "",
@@ -627,6 +628,7 @@ const state = {
     openingSavings: "",
     cycleNote: "",
     accounts: [],
+    employees: [],
     reconciliationHistory: [],
     dailyClosings: {},
     monthlyBudgets: {}
@@ -754,6 +756,7 @@ function applyPayloadToState(saved = {}) {
     openingSavings: "",
     cycleNote: "",
     accounts: [],
+    employees: [],
     reconciliationHistory: [],
     dailyClosings: {},
     monthlyBudgets: {},
@@ -4581,6 +4584,12 @@ function renderToday() {
               ${cashCategoryOptions("expense", "outros")}
             </select>
           </label>
+          <label id="today-expense-employee-field">
+            Funcionário
+            <select name="employeeId" id="today-expense-employee">
+              ${financialEmployeeOptionsHtml()}
+            </select>
+          </label>
           <label>Conta
             <select name="cashAccount">
               ${cashAccountOptionsHtml(quickCashAccount, "expense")}
@@ -4800,6 +4809,11 @@ function bindTodayForms(today) {
       if (blockClosedPeriod(values.date, "lançar saída rápida")) {
         return;
       }
+      const isEmployeeExpense = isFinancialEmployeeCategory(values.category);
+      if (isEmployeeExpense && financialEmployees().some(employee => employee.active) && !values.employeeId) {
+        showToast("Selecione o funcionário que recebeu esse pagamento.", "error");
+        return;
+      }
       const entry = {
         id: Date.now(),
         date: values.date,
@@ -4809,6 +4823,9 @@ function bindTodayForms(today) {
         cashAccount: normalizedCashAccount(values.cashAccount),
         amount: amount.toFixed(2)
       };
+      if (isEmployeeExpense) {
+        entry.employeeId = String(values.employeeId || "");
+      }
       if (isBillCategory(entry.category)) {
         entry.dueDate = values.dueDate || values.date;
         if (values.paid === "yes") {
@@ -4833,6 +4850,8 @@ function bindTodayForms(today) {
   const todayExpensePaidField = document.querySelector("#today-expense-paid-field");
   const todayExpensePaidDateField = document.querySelector("#today-expense-paid-date-field");
   const todayExpensePaidCheckbox = todayExpensePaidField?.querySelector("input");
+  const todayExpenseEmployeeField = document.querySelector("#today-expense-employee-field");
+  const todayExpenseEmployeeSelect = document.querySelector("#today-expense-employee");
   if (todayExpenseCategory && todayExpenseDueDateField && todayExpensePaidField && todayExpensePaidDateField && todayExpensePaidCheckbox) {
     const updateTodayExpenseBillFields = () => {
       const shouldShowBill = isBillCategory(todayExpenseCategory.value);
@@ -4846,9 +4865,25 @@ function bindTodayForms(today) {
         todayExpenseDueDateField.querySelector("input").value = "";
         todayExpensePaidCheckbox.checked = false;
       }
+      if (todayExpenseEmployeeField && todayExpenseEmployeeSelect) {
+        const shouldShowEmployee = isFinancialEmployeeCategory(todayExpenseCategory.value);
+        todayExpenseEmployeeField.hidden = !shouldShowEmployee;
+        todayExpenseEmployeeSelect.required = shouldShowEmployee
+          && financialEmployees().some(employee => employee.active);
+        if (!shouldShowEmployee) {
+          todayExpenseEmployeeSelect.value = "";
+        }
+      }
     };
     todayExpenseCategory.addEventListener("change", updateTodayExpenseBillFields);
     todayExpensePaidCheckbox.addEventListener("change", updateTodayExpenseBillFields);
+    todayExpenseEmployeeSelect?.addEventListener("change", event => {
+      const employee = financialEmployeeById(event.currentTarget.value);
+      const description = document.querySelector("#today-expense-form [name='description']");
+      if (employee && description && !description.value.trim()) {
+        description.value = `Pagamento - ${employee.name}`;
+      }
+    });
     updateTodayExpenseBillFields();
   }
 
@@ -4880,6 +4915,8 @@ async function renderCash() {
   setActive("fluxo-de-caixa");
   const cashParams = new URLSearchParams(location.search);
   const requestedCashPanel = cashParams.get("panel");
+  const requestedEmployeeId = cashParams.get("employee");
+  const requestedEmployee = financialEmployeeById(requestedEmployeeId);
   if (requestedCashPanel === "channels") {
     state.storeViewTab = "channels";
     location.replace("/loja?view=channels");
@@ -4899,15 +4936,25 @@ async function renderCash() {
   if (requestedEditCashId && state.cash.some(entry => String(entry.id) === String(requestedEditCashId))) {
     state.editCashId = requestedEditCashId;
     state.cashPanelTab = "entry";
+  } else if (requestedEmployee) {
+    state.editCashId = null;
+    state.cashPanelTab = "entry";
   }
   const editing = state.editCashId !== null
     ? state.cash.find(entry => String(entry.id) === String(state.editCashId))
     : null;
   const cashEntryDate = editing?.date || state.cashEntryDraft.date || today;
-  const cashEntryType = editing?.type || state.cashEntryDraft.type || "income";
+  const cashEntryType = editing?.type
+    || (requestedEmployee ? "expense" : "")
+    || state.cashEntryDraft.type
+    || "income";
   const cashEntryCategory = editing?.category
+    || (requestedEmployee ? "funcionarios" : "")
     || state.cashEntryDraft.category
     || (cashEntryType === "expense" ? "outros" : "venda");
+  const cashEntryEmployeeId = String(editing?.employeeId || requestedEmployee?.id || "");
+  const cashEntryDescription = editing?.description
+    || (requestedEmployee ? `Pagamento - ${requestedEmployee.name}` : "");
   const cashEntryAccount = normalizedCashAccount(editing?.cashAccount || state.cashEntryDraft.cashAccount);
   const editingWithdrawal = state.editWithdrawalGroup
     ? withdrawalHistoryGroups(state.cash).find(group => group.key === state.editWithdrawalGroup)
@@ -5087,7 +5134,7 @@ async function renderCash() {
           <h2>${editing ? "Editar lançamento" : "Novo lançamento"}</h2>
         <form id="cash-form" class="form-grid single">
           <label>Descrição
-            <input name="description" placeholder="Venda, iFood, supermercado, entregador" value="${editing?.description || ""}" required>
+            <input name="description" placeholder="Venda, iFood, supermercado, entregador" value="${escapeHtml(cashEntryDescription)}" required>
           </label>
           <div class="cash-date-control">
             <label>Data
@@ -5110,6 +5157,13 @@ async function renderCash() {
             <select name="category" id="cash-category">
               ${cashCategoryOptions(cashEntryType, cashEntryCategory)}
             </select>
+          </label>
+          <label id="cash-employee-field">
+            Funcionário
+            <select name="employeeId" id="cash-employee">
+              ${financialEmployeeOptionsHtml(cashEntryEmployeeId)}
+            </select>
+            <small>O pagamento será somado automaticamente na ficha do funcionário.</small>
           </label>
           <label>Conta
             <select name="cashAccount" id="cash-account">
@@ -5934,10 +5988,17 @@ async function renderCash() {
         if (editing && editing.date !== values.date && blockClosedPeriod(editing.date, "mover lançamentos")) {
           return;
         }
+        const isEmployeeExpense = values.type === "expense"
+          && isFinancialEmployeeCategory(values.category);
+        if (isEmployeeExpense && financialEmployees().some(employee => employee.active) && !values.employeeId) {
+          showToast("Selecione o funcionário que recebeu esse pagamento.", "error");
+          return;
+        }
         const isDuplicate = !editing && state.cash.some(item =>
           String(item.date || "") === String(values.date || "")
           && String(item.type || "") === String(values.type || "")
           && normalizedCategory(item.category) === normalizedCategory(values.category)
+          && String(item.employeeId || "") === String(isEmployeeExpense ? values.employeeId || "" : "")
           && String(item.description || "").trim().toLowerCase() === String(values.description || "").trim().toLowerCase()
           && Number(item.amount || 0) === amount
         );
@@ -5951,6 +6012,11 @@ async function renderCash() {
           cashAccount: normalizedCashAccount(values.cashAccount),
           amount: amount.toFixed(2)
         };
+        if (isEmployeeExpense) {
+          entry.employeeId = String(values.employeeId || "");
+        } else {
+          delete entry.employeeId;
+        }
         const shouldTrackBillPayment = entry.type === "expense" && isBillCategory(entry.category);
         delete entry.paid;
         if (shouldTrackBillPayment && values.paid === "yes") {
@@ -6006,6 +6072,8 @@ async function renderCash() {
 
   const cashTypeField = document.querySelector("#cash-type");
   const cashCategoryField = document.querySelector("#cash-category");
+  const cashEmployeeField = document.querySelector("#cash-employee-field");
+  const cashEmployeeSelect = document.querySelector("#cash-employee");
   const cashAccountField = document.querySelector("#cash-account");
   const cashEntryDateField = document.querySelector("#cash-entry-date");
   const cashDueDateField = document.querySelector("#cash-due-date-field");
@@ -6021,6 +6089,18 @@ async function renderCash() {
         cashPaidField.querySelector("input").checked = false;
       }
     };
+    const updateCashEmployeeFieldVisibility = () => {
+      if (!cashEmployeeField || !cashEmployeeSelect) {
+        return;
+      }
+      const shouldShow = cashTypeField.value === "expense"
+        && isFinancialEmployeeCategory(cashCategoryField.value);
+      cashEmployeeField.hidden = !shouldShow;
+      cashEmployeeSelect.required = shouldShow && financialEmployees().some(employee => employee.active);
+      if (!shouldShow) {
+        cashEmployeeSelect.value = "";
+      }
+    };
     cashTypeField.addEventListener("change", event => {
       const type = event.currentTarget.value;
       cashCategoryField.innerHTML = cashCategoryOptions(type, type === "expense" ? "outros" : "venda");
@@ -6032,6 +6112,7 @@ async function renderCash() {
         state.cashEntryDraft.category = cashCategoryField.value;
       }
       updateCashBillFieldsVisibility();
+      updateCashEmployeeFieldVisibility();
     });
     cashAccountField?.addEventListener("change", () => {
       if (!editing) {
@@ -6043,8 +6124,17 @@ async function renderCash() {
         state.cashEntryDraft.category = cashCategoryField.value;
       }
       updateCashBillFieldsVisibility();
+      updateCashEmployeeFieldVisibility();
+    });
+    cashEmployeeSelect?.addEventListener("change", event => {
+      const employee = financialEmployeeById(event.currentTarget.value);
+      const description = cashForm?.elements?.description;
+      if (employee && description && !description.value.trim()) {
+        description.value = `Pagamento - ${employee.name}`;
+      }
     });
     updateCashBillFieldsVisibility();
+    updateCashEmployeeFieldVisibility();
   }
 
   if (!editing && cashEntryDateField) {
@@ -6833,6 +6923,7 @@ async function renderCash() {
         date: reversalDate,
         type: original.type === "expense" ? "income" : "expense",
         category: original.category,
+        employeeId: String(original.employeeId || ""),
         cashAccount: normalizedCashAccount(original.cashAccount),
         amount: Number(original.amount || 0).toFixed(2),
         reversalOf: original.id
@@ -6966,10 +7057,14 @@ function cashTable(entries) {
           ${sortedEntries.map(item => {
             const accountAdjustment = isAccountAdjustmentEntry(item);
             const automaticCoverage = isCashSavingsCoverageEntry(item) || item.automaticSavingsCoverageReversal;
+            const employee = financialEmployeeForEntry(item);
             return `
             <tr class="cash-row ${item.type === "income" ? "income-row" : "expense-row"} ${accountAdjustment ? "account-adjustment-row" : ""}">
               <td>${formatIsoDateBr(item.date)}</td>
-              <td>${item.description}</td>
+              <td>
+                ${item.description}
+                ${employee ? `<br><small>Funcionário: ${escapeHtml(employee.name)}</small>` : ""}
+              </td>
               <td><span class="cash-type-badge ${item.type === "income" ? "income" : "expense"}">${item.type === "income" ? "Entrada" : "Saída"}</span></td>
               <td><span class="cash-category-badge ${accountAdjustment ? "account-adjustment" : ""}">${cashDisplayCategoryName(item)}</span></td>
               <td>${cashAccountLabel(item.cashAccount, item.type)}</td>
@@ -12219,9 +12314,43 @@ function normalizedStoreSalesTypeFilter(value) {
   return ["combo", "unit"].includes(value) ? value : "all";
 }
 
+function normalizedStoreSalesProductFilter(value) {
+  const selected = String(value || "all");
+  if (selected === "unassigned") {
+    return selected;
+  }
+  return state.storeProducts.some(product => String(product.id) === selected)
+    ? selected
+    : "all";
+}
+
 function storeSaleMatchesTypeFilter(entry = {}, saleType = "all") {
   const normalizedFilter = normalizedStoreSalesTypeFilter(saleType);
   return normalizedFilter === "all" || normalizedStoreSaleType(entry) === normalizedFilter;
+}
+
+function storeSaleMatchesProductFilter(entry = {}, productId = "all") {
+  const selected = normalizedStoreSalesProductFilter(productId);
+  if (selected === "all") {
+    return true;
+  }
+  if (selected === "unassigned") {
+    return !entry.productId;
+  }
+  return String(entry.productId || "") === selected;
+}
+
+function storeSalesProductFilterOptions(selectedProductId = "all") {
+  const selected = normalizedStoreSalesProductFilter(selectedProductId);
+  return `
+    <option value="all" ${selected === "all" ? "selected" : ""}>Todos os produtos</option>
+    <option value="unassigned" ${selected === "unassigned" ? "selected" : ""}>Sem produto informado</option>
+    ${sortedStoreProducts().map(product => `
+      <option value="${escapeHtml(product.id)}" ${String(product.id) === selected ? "selected" : ""}>
+        ${escapeHtml(product.name || "Produto sem nome")}
+      </option>
+    `).join("")}
+  `;
 }
 
 function storeSalesFilteredQuantity(entry = {}, saleType = "all") {
@@ -12250,6 +12379,55 @@ function storeSalesComparisonTitle(saleType = "all") {
     return "Comparação de unidades avulsas com o mês anterior";
   }
   return "Comparação com o mês anterior";
+}
+
+function storeSalesSummary(entries = []) {
+  const byDay = new Map();
+  const summary = entries.reduce((totals, entry) => {
+    const combo = normalizedStoreSaleType(entry) === "combo";
+    const quantity = Math.max(0, Number(entry.quantity || 0));
+    const units = storeSaleUnitQuantity(entry);
+    if (combo) {
+      totals.combos += quantity;
+      totals.comboUnits += units;
+    } else {
+      totals.standaloneUnits += units;
+    }
+    totals.totalUnits += units;
+
+    const date = String(entry.date || "");
+    if (date) {
+      const day = byDay.get(date) || {
+        date,
+        combos: 0,
+        comboUnits: 0,
+        standaloneUnits: 0,
+        totalUnits: 0
+      };
+      if (combo) {
+        day.combos += quantity;
+        day.comboUnits += units;
+      } else {
+        day.standaloneUnits += units;
+      }
+      day.totalUnits += units;
+      byDay.set(date, day);
+    }
+    return totals;
+  }, {
+    combos: 0,
+    comboUnits: 0,
+    standaloneUnits: 0,
+    totalUnits: 0
+  });
+
+  summary.days = [...byDay.values()].sort((a, b) => {
+    return b.totalUnits - a.totalUnits
+      || b.combos - a.combos
+      || String(b.date).localeCompare(String(a.date));
+  });
+  summary.bestDay = summary.days[0] || null;
+  return summary;
 }
 
 function storeSaleReportRow(entry = {}) {
@@ -12598,6 +12776,7 @@ function storeSalesFilterDefaults() {
   return {
     period,
     saleType: normalizedStoreSalesTypeFilter(saved.saleType),
+    productId: normalizedStoreSalesProductFilter(saved.productId),
     date: saved.date || today,
     month: saved.month || today.slice(0, 7)
   };
@@ -12607,6 +12786,9 @@ function filteredStoreSales(filter = storeSalesFilterDefaults()) {
   return [...state.storeSales]
     .filter(entry => {
       if (!storeSaleMatchesTypeFilter(entry, filter.saleType)) {
+        return false;
+      }
+      if (!storeSaleMatchesProductFilter(entry, filter.productId)) {
         return false;
       }
       const date = String(entry.date || "");
@@ -12644,7 +12826,8 @@ function storeSalesMonthComparison(filter = storeSalesFilterDefaults()) {
   const totalForMonth = month => state.storeSales
     .filter(entry => {
       return String(entry.date || "").startsWith(month)
-        && storeSaleMatchesTypeFilter(entry, filter.saleType);
+        && storeSaleMatchesTypeFilter(entry, filter.saleType)
+        && storeSaleMatchesProductFilter(entry, filter.productId);
     })
     .reduce((sum, entry) => sum + storeSalesFilteredQuantity(entry, filter.saleType), 0);
   const currentTotal = totalForMonth(currentMonth);
@@ -12927,12 +13110,7 @@ function renderStoreSales() {
     : null;
   const filter = storeSalesFilterDefaults();
   const filteredEntries = filteredStoreSales(filter);
-  const filteredTotal = filteredEntries.reduce((sum, entry) => {
-    return sum + storeSalesFilteredQuantity(entry, filter.saleType);
-  }, 0);
-  const filteredUnitTotal = filteredEntries.reduce((sum, entry) => {
-    return sum + storeSaleUnitQuantity(entry);
-  }, 0);
+  const salesSummary = storeSalesSummary(filteredEntries);
   const comparison = storeSalesMonthComparison(filter);
 
   app.innerHTML = `
@@ -13001,22 +13179,52 @@ function renderStoreSales() {
               <option value="unit" ${filter.saleType === "unit" ? "selected" : ""}>Unidades</option>
             </select>
           </label>
+          <label>Produto
+            <select name="productId" id="store-sales-filter-product">
+              ${storeSalesProductFilterOptions(filter.productId)}
+            </select>
+          </label>
           <label class="store-sales-filter-date">Data / semana
             <input name="date" type="date" value="${filter.date}">
           </label>
           <label class="store-sales-filter-month">Mês
             <input name="month" type="month" value="${filter.month}">
           </label>
-          <button type="submit">Aplicar</button>
+          <div class="store-sales-filter-actions">
+            <button type="submit">Aplicar</button>
+            <button class="secondary" type="button" id="clear-store-sales-filter">Limpar</button>
+          </div>
         </form>
         <h2>${storeSalesFilterTitle(filter)}</h2>
-        <div class="summary">
-          <div class="metric" data-store-sales-filter-total><span>${storeSalesFilteredMetricLabel(filter.saleType)}</span><strong>${filteredTotal}</strong></div>
-          ${filter.saleType === "combo"
-            ? `<div class="metric" data-store-sales-filter-units><span>Unidades nos combos</span><strong>${filteredUnitTotal}</strong></div>`
-            : ""}
-          <div class="metric"><span>Lançamentos</span><strong>${filteredEntries.length}</strong></div>
+        <div class="summary store-sales-summary" data-store-sales-summary>
+          <div class="metric" data-store-sales-filter-combos><span>Combos vendidos</span><strong>${salesSummary.combos}</strong></div>
+          <div class="metric" data-store-sales-filter-standalone-units><span>Unidades avulsas</span><strong>${salesSummary.standaloneUnits}</strong></div>
+          <div class="metric" data-store-sales-filter-combo-units><span>Unidades nos combos</span><strong>${salesSummary.comboUnits}</strong></div>
+          <div class="metric" data-store-sales-filter-total><span>Total de unidades</span><strong>${salesSummary.totalUnits}</strong></div>
+          <div class="metric" data-store-sales-filter-best-day>
+            <span>Melhor dia</span>
+            <strong>${salesSummary.bestDay ? formatIsoDateBr(salesSummary.bestDay.date) : "—"}</strong>
+            <small>${salesSummary.bestDay ? `${salesSummary.bestDay.totalUnits} unidade(s)` : "Sem vendas no filtro"}</small>
+          </div>
+          <div class="metric" data-store-sales-filter-launches><span>Lançamentos</span><strong>${filteredEntries.length}</strong></div>
         </div>
+        ${salesSummary.days.length ? `
+          <div class="store-sales-day-ranking" data-store-sales-day-ranking>
+            <div>
+              <h3>Vendas por dia</h3>
+              <small>Ordenado pelo maior total de unidades vendidas.</small>
+            </div>
+            <div class="store-sales-day-list">
+              ${salesSummary.days.slice(0, 5).map((day, index) => `
+                <span class="${index === 0 ? "is-best" : ""}">
+                  <b>${index === 0 ? "Mais vendeu" : formatIsoDateBr(day.date)}</b>
+                  <small>${index === 0 ? `${formatIsoDateBr(day.date)} · ` : ""}${day.combos} combo(s) · ${day.standaloneUnits} avulsa(s)</small>
+                  <strong>${day.totalUnits} un.</strong>
+                </span>
+              `).join("")}
+            </div>
+          </div>
+        ` : ""}
         ${storeSalesTable(filteredEntries)}
         <div class="store-sales-comparison" data-store-sales-comparison>
           <h2>${storeSalesComparisonTitle(filter.saleType)}</h2>
@@ -13255,6 +13463,7 @@ function renderStoreSales() {
       state.storeSalesFilter = {
         period: values.period || "month",
         saleType: normalizedStoreSalesTypeFilter(values.saleType),
+        productId: normalizedStoreSalesProductFilter(values.productId),
         date: selectedDate,
         month: values.period === "month"
           ? (values.month || today.slice(0, 7))
@@ -13264,6 +13473,18 @@ function renderStoreSales() {
       renderStoreSales();
     });
   }
+
+  on("#clear-store-sales-filter", "click", () => {
+    state.storeSalesFilter = {
+      period: "month",
+      saleType: "all",
+      productId: "all",
+      date: today,
+      month: today.slice(0, 7)
+    };
+    localStorage.setItem("storeSalesFilter", JSON.stringify(state.storeSalesFilter));
+    renderStoreSales();
+  });
 
   on("#store-sale-form", "submit", event => {
     event.preventDefault();
@@ -13427,6 +13648,90 @@ function upcomingBills(limit = 6, { includeOverdue = true } = {}) {
     .slice(0, limit);
 }
 
+function financialEmployees() {
+  const employees = state.financialPlanning?.employees;
+  return Array.isArray(employees)
+    ? employees.map(employee => ({
+      ...employee,
+      id: String(employee.id || ""),
+      name: String(employee.name || "").trim(),
+      role: String(employee.role || "").trim(),
+      monthlySalary: Math.max(0, Number(employee.monthlySalary || 0)).toFixed(2),
+      startDate: String(employee.startDate || ""),
+      active: employee.active !== false,
+      notes: String(employee.notes || "").trim()
+    })).filter(employee => employee.id && employee.name)
+    : [];
+}
+
+function financialEmployeeById(id) {
+  return financialEmployees().find(employee => String(employee.id) === String(id || "")) || null;
+}
+
+function normalizedEmployeeSearch(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function isFinancialEmployeeCategory(value) {
+  return slugifyCategory(value) === "funcionarios"
+    || slugifyCategory(categoryName(value)) === "funcionarios";
+}
+
+function financialEmployeeForEntry(entry = {}) {
+  const explicit = financialEmployeeById(entry.employeeId);
+  if (explicit) {
+    return explicit;
+  }
+  if (!isFinancialEmployeeCategory(entry.category)) {
+    return null;
+  }
+  const description = normalizedEmployeeSearch(entry.description);
+  return [...financialEmployees()]
+    .sort((a, b) => b.name.length - a.name.length)
+    .find(employee => description.includes(normalizedEmployeeSearch(employee.name))) || null;
+}
+
+function isEmployeeExpenseEntry(entry = {}) {
+  return entry.type === "expense"
+    && isFinancialEmployeeCategory(entry.category)
+    && !entry.reversedBy
+    && !entry.reversalOf;
+}
+
+function employeeExpenseEntries(entries = state.cash) {
+  return accountingCashEntries(entries).filter(isEmployeeExpenseEntry);
+}
+
+function financialEmployeeOptionsHtml(selectedId = "", { includeBlank = true } = {}) {
+  const selected = String(selectedId || "");
+  const employees = financialEmployees()
+    .filter(employee => employee.active || employee.id === selected)
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  return `
+    ${includeBlank ? `<option value="">Selecione o funcionário</option>` : ""}
+    ${employees.map(employee => `
+      <option value="${escapeHtml(employee.id)}" ${employee.id === selected ? "selected" : ""}>
+        ${escapeHtml(employee.name)}${employee.active ? "" : " (inativo)"}
+      </option>
+    `).join("")}
+  `;
+}
+
+function financialEmployeePaymentSummary(employee, entries = state.cash) {
+  const linkedEntries = employeeExpenseEntries(entries).filter(entry => {
+    return String(financialEmployeeForEntry(entry)?.id || "") === String(employee.id);
+  });
+  return {
+    entries: linkedEntries,
+    paid: linkedEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0),
+    last: [...linkedEntries].sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))[0] || null
+  };
+}
+
 function financialAccounts() {
   return Array.isArray(state.financialPlanning?.accounts)
     ? state.financialPlanning.accounts
@@ -13466,7 +13771,10 @@ function accountSeriesFromValues(values = {}) {
     description: String(values.description || "").trim(),
     dueDate: addMonthsClamped(values.dueDate, index),
     amount: scheduledAmount,
-    category: String(values.category || "").trim(),
+    category: values.kind !== "receivable" && values.employeeId
+      ? "funcionarios"
+      : String(values.category || "").trim(),
+    employeeId: values.kind !== "receivable" ? String(values.employeeId || "") : "",
     cashAccount: normalizedCashAccount(values.cashAccount),
     notes: String(values.notes || "").trim(),
     payments: [],
@@ -13561,11 +13869,159 @@ function accountMatchesFinancialFilter(account, filter = financialAccountFilterS
   return [
     account.description,
     account.category,
+    financialEmployeeById(account.employeeId)?.name,
     cashAccountLabel(account.cashAccount, account.kind === "receivable" ? "income" : "expense"),
     account.notes,
     account.dueDate,
     account.kind === "receivable" ? "receber recebimento cliente" : "pagar pagamento fornecedor"
   ].some(value => normalizeAccountSearch(value).includes(query));
+}
+
+function financialEmployeesPanel(data = reportData()) {
+  const editing = financialEmployeeById(state.editFinancialEmployeeId);
+  const employees = financialEmployees()
+    .sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name, "pt-BR"));
+  const monthKey = data.periodKey || currentMonthKey();
+  const monthEntries = employeeExpenseEntries(state.cash)
+    .filter(entry => cashAccountingDate(entry).startsWith(monthKey));
+  const unassignedEntries = monthEntries.filter(entry => !financialEmployeeForEntry(entry));
+  const activeEmployees = employees.filter(employee => employee.active);
+  const totalSalary = activeEmployees.reduce(
+    (sum, employee) => sum + Number(employee.monthlySalary || 0),
+    0
+  );
+  const totalPaid = monthEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const linkedPaid = monthEntries
+    .filter(entry => financialEmployeeForEntry(entry))
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const remaining = Math.max(0, totalSalary - linkedPaid);
+
+  return `
+    <section class="panel report-section employees-panel">
+      <div class="section-heading">
+        <div>
+          <h2>${editing ? "Editar funcionário" : "Funcionários da Cumbuca"}</h2>
+          <p class="muted-inline">Cadastre salário e função. Saídas do caixa na categoria Funcionários são contabilizadas automaticamente aqui.</p>
+        </div>
+      </div>
+      <div class="summary">
+        <div class="metric"><span>Funcionários ativos</span><strong>${activeEmployees.length}</strong></div>
+        <div class="metric"><span>Salários mensais</span><strong>${money(totalSalary)}</strong></div>
+        <div class="metric"><span>Pago em ${formatMonthKeyBr(monthKey)}</span><strong>${money(totalPaid)}</strong></div>
+        <div class="metric"><span>Falta pagar no mês</span><strong class="${remaining > 0 ? "negative" : "positive"}">${money(remaining)}</strong></div>
+      </div>
+      <form id="financial-employee-form" class="form-grid">
+        <input name="id" type="hidden" value="${escapeHtml(editing?.id || "")}">
+        <label>Nome do funcionário
+          <input name="name" value="${escapeHtml(editing?.name || "")}" placeholder="Nome completo" required>
+        </label>
+        <label>Função
+          <input name="role" value="${escapeHtml(editing?.role || "")}" placeholder="Ex.: cozinheira, auxiliar">
+        </label>
+        <label>Salário mensal
+          <input name="monthlySalary" type="text" inputmode="decimal" value="${editing ? moneyInputValue(editing.monthlySalary) : ""}" placeholder="0,00" required>
+        </label>
+        <label>Data de admissão
+          <input name="startDate" type="date" value="${editing?.startDate || isoDate(new Date())}">
+        </label>
+        <label>Status
+          <select name="active">
+            <option value="yes" ${editing?.active !== false ? "selected" : ""}>Ativo</option>
+            <option value="no" ${editing?.active === false ? "selected" : ""}>Inativo</option>
+          </select>
+        </label>
+        <label>Observação
+          <input name="notes" value="${escapeHtml(editing?.notes || "")}" placeholder="Ex.: forma de pagamento, jornada">
+        </label>
+        <div class="actions">
+          <button type="submit" ${canUser("editFinancial") ? "" : "disabled"}>${editing ? "Salvar funcionário" : "Cadastrar funcionário"}</button>
+          ${editing ? `<button class="secondary" type="button" id="cancel-financial-employee-edit">Cancelar</button>` : ""}
+        </div>
+      </form>
+    </section>
+    <section class="panel report-section">
+      <div class="section-heading">
+        <div>
+          <h2>Folha de ${formatMonthKeyBr(monthKey)}</h2>
+          <p class="muted-inline">O pago considera somente saídas efetivas e não estornadas na categoria Funcionários.</p>
+        </div>
+      </div>
+      ${employees.length ? `
+        <div class="employee-grid">
+          ${employees.map(employee => {
+            const summary = financialEmployeePaymentSummary(employee, monthEntries);
+            const salary = Number(employee.monthlySalary || 0);
+            const balance = salary - summary.paid;
+            return `
+              <article class="employee-card ${employee.active ? "" : "inactive"}">
+                <div class="employee-card-heading">
+                  <div>
+                    <span>${employee.active ? "Ativo" : "Inativo"}</span>
+                    <strong>${escapeHtml(employee.name)}</strong>
+                    <small>${escapeHtml(employee.role || "Função não informada")}</small>
+                  </div>
+                  <a class="secondary table-action" href="/fluxo-de-caixa?panel=entry&employee=${encodeURIComponent(employee.id)}">Lançar pagamento</a>
+                </div>
+                <div class="employee-card-values">
+                  <span>Salário mensal<b>${money(salary)}</b></span>
+                  <span>Pago no mês<b>${money(summary.paid)}</b></span>
+                  <span>${balance >= 0 ? "Falta pagar" : "Pago a mais"}<b class="${balance > 0 ? "negative" : "positive"}">${money(Math.abs(balance))}</b></span>
+                  <span>Último pagamento<b>${summary.last ? `${formatIsoDateBr(summary.last.date)} · ${money(summary.last.amount)}` : "Nenhum"}</b></span>
+                </div>
+                <div class="actions">
+                  <button class="secondary table-action" type="button" data-edit-financial-employee="${escapeHtml(employee.id)}">Editar</button>
+                  <button class="secondary table-action" type="button" data-toggle-financial-employee="${escapeHtml(employee.id)}">${employee.active ? "Inativar" : "Ativar"}</button>
+                </div>
+              </article>
+            `;
+          }).join("")}
+        </div>
+      ` : `<p class="muted">Nenhum funcionário cadastrado.</p>`}
+      ${unassignedEntries.length ? `
+        <div class="employee-unassigned">
+          <h3>Pagamentos sem funcionário informado</h3>
+          <p class="muted-inline">Esses valores entram no total da categoria, mas precisam ser vinculados para aparecer na ficha individual.</p>
+          <div class="recent-list">
+            ${unassignedEntries.map(entry => `
+              <span>
+                <b>${money(entry.amount)}</b>
+                ${escapeHtml(entry.description || "Pagamento de funcionário")}
+                <small>${formatIsoDateBr(entry.date)} · ${cashAccountLabel(entry.cashAccount, "expense")}</small>
+                <span class="today-order-actions">
+                  <a class="secondary table-action" href="/fluxo-de-caixa?edit=${encodeURIComponent(entry.id)}">Vincular funcionário</a>
+                </span>
+              </span>
+            `).join("")}
+          </div>
+        </div>
+      ` : ""}
+    </section>
+    <section class="panel report-section">
+      <h2>Pagamentos de funcionários no mês</h2>
+      ${monthEntries.length ? `
+        <div class="table-wrap report-table">
+          <table>
+            <thead><tr><th>Data</th><th>Funcionário</th><th>Descrição</th><th>Conta</th><th>Valor</th><th></th></tr></thead>
+            <tbody>
+              ${[...monthEntries].sort((a, b) => String(b.date).localeCompare(String(a.date))).map(entry => {
+                const employee = financialEmployeeForEntry(entry);
+                return `
+                  <tr>
+                    <td>${formatIsoDateBr(entry.date)}</td>
+                    <td>${employee ? escapeHtml(employee.name) : "Sem funcionário informado"}</td>
+                    <td>${escapeHtml(entry.description || "")}</td>
+                    <td>${cashAccountLabel(entry.cashAccount, "expense")}</td>
+                    <td><strong>${money(entry.amount)}</strong></td>
+                    <td><a class="secondary table-action" href="/fluxo-de-caixa?edit=${encodeURIComponent(entry.id)}">Editar</a></td>
+                  </tr>
+                `;
+              }).join("")}
+            </tbody>
+          </table>
+        </div>
+      ` : `<p class="muted">Nenhum pagamento de funcionário lançado em ${formatMonthKeyBr(monthKey)}.</p>`}
+    </section>
+  `;
 }
 
 function accountsManagementPanel() {
@@ -13635,7 +14091,7 @@ function accountsManagementPanel() {
           </select>
         </label>
         <label>Descrição
-          <input name="description" value="${escapeHtml(editing?.description || "")}" placeholder="Fornecedor, cliente ou compromisso" required>
+          <input name="description" id="financial-account-description" value="${escapeHtml(editing?.description || "")}" placeholder="Fornecedor, cliente ou compromisso" required>
         </label>
         <label>Vencimento
           <input name="dueDate" type="date" value="${editing?.dueDate || isoDate(new Date())}" required>
@@ -13644,7 +14100,14 @@ function accountsManagementPanel() {
           <input name="amount" type="text" inputmode="decimal" value="${editing ? moneyInputValue(editing.amount) : ""}" placeholder="0,00" required>
         </label>
         <label>Categoria
-          <input name="category" value="${escapeHtml(editing?.category || "")}" placeholder="Ex.: fornecedor, venda futura">
+          <input name="category" id="financial-account-category" value="${escapeHtml(editing?.category || "")}" placeholder="Ex.: fornecedor, venda futura">
+        </label>
+        <label id="financial-account-employee-field">
+          Funcionário
+          <select name="employeeId" id="financial-account-employee">
+            ${financialEmployeeOptionsHtml(editing?.employeeId || "")}
+          </select>
+          <small>Ao baixar esta conta, o valor será contabilizado na ficha do funcionário.</small>
         </label>
         <label>Conta padrao
           <select name="cashAccount" id="financial-account-cash-account">
@@ -13685,7 +14148,7 @@ function accountsManagementPanel() {
                 <div class="account-main">
                   <span class="status-label">${account.kind === "receivable" ? "A receber" : "A pagar"} · ${status === "paid" ? "Quitada" : status === "overdue" ? "Atrasada" : "Pendente"}</span>
                   <strong>${escapeHtml(account.description || "Conta")}</strong>
-                  <small>Vencimento ${formatIsoDateBr(account.dueDate)}${account.seriesCount > 1 ? ` · ${account.seriesNumber}/${account.seriesCount}` : ""}${account.category ? ` · ${escapeHtml(account.category)}` : ""} · ${cashAccountLabel(account.cashAccount, account.kind === "receivable" ? "income" : "expense")}</small>
+                  <small>Vencimento ${formatIsoDateBr(account.dueDate)}${account.seriesCount > 1 ? ` · ${account.seriesNumber}/${account.seriesCount}` : ""}${account.category ? ` · ${escapeHtml(account.category)}` : ""}${financialEmployeeById(account.employeeId) ? ` · ${escapeHtml(financialEmployeeById(account.employeeId).name)}` : ""} · ${cashAccountLabel(account.cashAccount, account.kind === "receivable" ? "income" : "expense")}</small>
                 </div>
                 <div class="account-values">
                   <span>Total <b>${money(account.amount)}</b></span>
@@ -14216,6 +14679,102 @@ function financialPlanningPanel() {
   `;
 }
 
+function bindFinancialEmployees() {
+  const form = document.querySelector("#financial-employee-form");
+  if (form) {
+    form.addEventListener("submit", async event => {
+      event.preventDefault();
+      const values = readForm(event.currentTarget);
+      const name = String(values.name || "").trim();
+      const monthlySalary = parseMoneyInput(values.monthlySalary);
+      if (!name || monthlySalary <= 0) {
+        showToast("Informe o nome e um salário mensal maior que zero.", "error");
+        return;
+      }
+      const employees = financialEmployees();
+      const current = employees.find(employee => String(employee.id) === String(values.id));
+      const duplicate = employees.find(employee =>
+        String(employee.id) !== String(values.id)
+        && normalizedEmployeeSearch(employee.name) === normalizedEmployeeSearch(name)
+      );
+      if (duplicate) {
+        showToast("Já existe um funcionário com esse nome.", "warning");
+        return;
+      }
+      const employee = {
+        id: current?.id || `employee-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        name,
+        role: String(values.role || "").trim(),
+        monthlySalary: monthlySalary.toFixed(2),
+        startDate: values.startDate || "",
+        active: values.active !== "no",
+        notes: String(values.notes || "").trim(),
+        createdAt: current?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      state.financialPlanning = {
+        ...(state.financialPlanning || {}),
+        employees: current
+          ? employees.map(item => String(item.id) === String(current.id) ? employee : item)
+          : [employee, ...employees]
+      };
+      state.editFinancialEmployeeId = null;
+      recordAudit(
+        current ? "Funcionário atualizado" : "Funcionário cadastrado",
+        `${employee.name} - ${employee.role || "sem função"} - salário ${money(employee.monthlySalary)}`,
+        { entityId: employee.id, before: current || null, after: employee }
+      );
+      if (await persistState()) {
+        showToast(current ? "Funcionário atualizado." : "Funcionário cadastrado.", "success");
+        renderFinance();
+      }
+    });
+  }
+
+  document.querySelectorAll("[data-edit-financial-employee]").forEach(button => {
+    button.addEventListener("click", () => {
+      state.editFinancialEmployeeId = button.dataset.editFinancialEmployee;
+      renderFinance();
+    });
+  });
+
+  on("#cancel-financial-employee-edit", "click", () => {
+    state.editFinancialEmployeeId = null;
+    renderFinance();
+  });
+
+  document.querySelectorAll("[data-toggle-financial-employee]").forEach(button => {
+    button.addEventListener("click", async () => {
+      const id = button.dataset.toggleFinancialEmployee;
+      const employee = financialEmployeeById(id);
+      if (!employee) {
+        return;
+      }
+      const nextActive = !employee.active;
+      if (!confirm(`${nextActive ? "Ativar" : "Inativar"} ${employee.name}? O histórico de pagamentos será preservado.`)) {
+        return;
+      }
+      const updated = {
+        ...employee,
+        active: nextActive,
+        updatedAt: new Date().toISOString()
+      };
+      state.financialPlanning = {
+        ...(state.financialPlanning || {}),
+        employees: financialEmployees().map(item => String(item.id) === String(id) ? updated : item)
+      };
+      recordAudit(
+        nextActive ? "Funcionário ativado" : "Funcionário inativado",
+        employee.name,
+        { entityId: employee.id, before: employee, after: updated }
+      );
+      if (await persistState()) {
+        renderFinance();
+      }
+    });
+  });
+}
+
 function bindFinancialAccounts() {
   const filterForm = document.querySelector("#financial-account-filter-form");
   if (filterForm) {
@@ -14269,7 +14828,10 @@ function bindFinancialAccounts() {
         description: String(values.description || "").trim(),
         dueDate: values.dueDate,
         amount: amount.toFixed(2),
-        category: String(values.category || "").trim(),
+        category: values.kind !== "receivable" && values.employeeId
+          ? "funcionarios"
+          : String(values.category || "").trim(),
+        employeeId: values.kind !== "receivable" ? String(values.employeeId || "") : "",
         cashAccount: normalizedCashAccount(values.cashAccount),
         notes: String(values.notes || "").trim(),
         updatedAt: new Date().toISOString()
@@ -14299,6 +14861,10 @@ function bindFinancialAccounts() {
   const scheduleCountField = document.querySelector("#financial-account-count-field");
   const accountKindField = document.querySelector("#financial-account-kind");
   const accountCashAccountField = document.querySelector("#financial-account-cash-account");
+  const accountEmployeeField = document.querySelector("#financial-account-employee-field");
+  const accountEmployeeSelect = document.querySelector("#financial-account-employee");
+  const accountCategoryField = document.querySelector("#financial-account-category");
+  const accountDescriptionField = document.querySelector("#financial-account-description");
   if (scheduleField && scheduleCountField) {
     const updateScheduleFields = () => {
       scheduleCountField.hidden = scheduleField.value === "single";
@@ -14307,12 +14873,36 @@ function bindFinancialAccounts() {
     updateScheduleFields();
   }
   if (accountKindField && accountCashAccountField) {
+    const updateAccountEmployeeField = () => {
+      if (!accountEmployeeField || !accountEmployeeSelect) {
+        return;
+      }
+      const shouldShow = accountKindField.value === "payable";
+      accountEmployeeField.hidden = !shouldShow;
+      if (!shouldShow) {
+        accountEmployeeSelect.value = "";
+      }
+    };
     accountKindField.addEventListener("change", () => {
       accountCashAccountField.innerHTML = cashAccountOptionsHtml(
         accountCashAccountField.value,
         accountKindField.value === "receivable" ? "income" : "expense"
       );
+      updateAccountEmployeeField();
     });
+    accountEmployeeSelect?.addEventListener("change", event => {
+      const employee = financialEmployeeById(event.currentTarget.value);
+      if (!employee) {
+        return;
+      }
+      if (accountCategoryField) {
+        accountCategoryField.value = "funcionarios";
+      }
+      if (accountDescriptionField && !accountDescriptionField.value.trim()) {
+        accountDescriptionField.value = `Salário - ${employee.name}`;
+      }
+    });
+    updateAccountEmployeeField();
   }
 
   document.querySelectorAll("[data-edit-financial-account]").forEach(button => {
@@ -14389,6 +14979,7 @@ function bindFinancialAccounts() {
         date: values.date,
         type: account.kind === "receivable" ? "income" : "expense",
         category: account.category || (account.kind === "receivable" ? "outros" : "reason:outros"),
+        employeeId: account.kind === "payable" ? String(account.employeeId || "") : "",
         cashAccount: payment.cashAccount,
         amount: amount.toFixed(2),
         financialAccountId: account.id,
@@ -14457,6 +15048,7 @@ function bindFinancialAccounts() {
         date: reversalDate,
         type: account.kind === "receivable" ? "expense" : "income",
         category: account.category || (account.kind === "receivable" ? "reason:outros" : "outros"),
+        employeeId: account.kind === "payable" ? String(account.employeeId || "") : "",
         cashAccount: normalizedCashAccount(payment.cashAccount || account.cashAccount),
         amount: Number(payment.amount || 0).toFixed(2),
         financialAccountId: account.id,
@@ -15319,6 +15911,7 @@ function renderFinance() {
     ["summary", "Resumo"],
     ["pending", "Pendências"],
     ["accounts", "Contas"],
+    ["employees", "Funcionários"],
     ["cash", "Fluxo"],
     ["planning", "Planejamento"],
     ["withdrawals", "Retiradas"],
@@ -15387,6 +15980,7 @@ function renderFinance() {
       ${billsStatusPanel()}
       ${upcomingBillsPanel()}
     `)}
+    ${viewPaneHtml("employees", activeTab, financialEmployeesPanel(data))}
     ${viewPaneHtml("cash", activeTab, `
       ${cashForecastPanel(data)}
       <section class="panel report-section">
@@ -15424,6 +16018,7 @@ function renderFinance() {
   bindFinanceMonthCommand(renderFinance);
   loadFinancialIntegrity();
   loadPendingDashboard();
+  bindFinancialEmployees();
   bindFinancialAccounts();
   bindFinancialPlanning();
   bindMonthlyBudget();
