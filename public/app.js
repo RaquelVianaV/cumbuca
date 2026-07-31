@@ -2488,6 +2488,51 @@ function withdrawalSplit(amount) {
   return { total, savings, remaining, vanessa, raquel };
 }
 
+function roundedMoneyValue(value) {
+  return Math.round(Number(value || 0) * 100) / 100;
+}
+
+function withdrawalDistributionCalculation(accountBalance, priorVanessa = 0, priorRaquel = 0) {
+  const physicalBalance = Math.max(0, roundedMoneyValue(parseMoneyInput(accountBalance)));
+  const withdrawnBeforeVanessa = Math.max(0, roundedMoneyValue(parseMoneyInput(priorVanessa)));
+  const withdrawnBeforeRaquel = Math.max(0, roundedMoneyValue(parseMoneyInput(priorRaquel)));
+  const distributionBase = roundedMoneyValue(
+    physicalBalance + withdrawnBeforeVanessa + withdrawnBeforeRaquel
+  );
+  const suggested = withdrawalSplit(distributionBase);
+  const expectedSavings = roundedMoneyValue(suggested.savings);
+  const expectedVanessa = roundedMoneyValue(suggested.vanessa);
+  const expectedRaquel = roundedMoneyValue(
+    distributionBase - expectedSavings - expectedVanessa
+  );
+  const paidToCashVanessa = Math.min(expectedVanessa, withdrawnBeforeVanessa);
+  const paidToCashRaquel = Math.min(expectedRaquel, withdrawnBeforeRaquel);
+  const vanessa = roundedMoneyValue(expectedVanessa - paidToCashVanessa);
+  const raquel = roundedMoneyValue(expectedRaquel - paidToCashRaquel);
+  const savings = expectedSavings;
+  const total = roundedMoneyValue(savings + vanessa + raquel);
+
+  return {
+    physicalBalance,
+    distributionBase,
+    expectedTotal: roundedMoneyValue(expectedSavings + expectedVanessa + expectedRaquel),
+    expectedSavings,
+    expectedVanessa,
+    expectedRaquel,
+    priorVanessa: withdrawnBeforeVanessa,
+    priorRaquel: withdrawnBeforeRaquel,
+    paidToCashVanessa,
+    paidToCashRaquel,
+    remainingDebtVanessa: roundedMoneyValue(withdrawnBeforeVanessa - paidToCashVanessa),
+    remainingDebtRaquel: roundedMoneyValue(withdrawnBeforeRaquel - paidToCashRaquel),
+    savings,
+    vanessa,
+    raquel,
+    total,
+    accountAfterWithdrawal: roundedMoneyValue(physicalBalance - total)
+  };
+}
+
 function withdrawalSplitFromRaquel(raquelAmount) {
   const raquel = Math.max(0, parseMoneyInput(raquelAmount));
   const config = {
@@ -2958,6 +3003,17 @@ function withdrawalSavingsLoanEntry(group = {}) {
   return accountingCashEntries(state.cash).find(entry => String(entry.id || "") === loanId) || null;
 }
 
+function withdrawalBalanceAdjustmentId(groupKey = "") {
+  return `${String(groupKey || "")}-balance-adjustment`;
+}
+
+function withdrawalBalanceAdjustmentEntry(group = {}) {
+  const adjustmentId = withdrawalBalanceAdjustmentId(group.key || "");
+  return accountingCashEntries(state.cash).find(
+    entry => String(entry.id || "") === adjustmentId
+  ) || null;
+}
+
 function cashSavingsCoverageHistoryId(entryId = "") {
   return `savings-coverage-${String(entryId || "")}`;
 }
@@ -3170,6 +3226,12 @@ function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
       hasExpectedSavings: false,
       hasExpectedVanessa: false,
       hasExpectedRaquel: false,
+      accountBalanceBefore: 0,
+      hasAccountBalanceBefore: false,
+      priorVanessa: 0,
+      priorRaquel: 0,
+      hasPriorVanessa: false,
+      hasPriorRaquel: false,
       cashAccount: "",
       mixedCashAccounts: false,
       entries: []
@@ -3184,12 +3246,24 @@ function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
     group[target] += Number(entry.amount || 0);
     group.total += Number(entry.amount || 0);
     group.distributionBase = Math.max(group.distributionBase, Number(entry.distributionBase || 0));
+    const accountBalanceBefore = Number(entry.accountBalanceBefore);
+    if (Number.isFinite(accountBalanceBefore)) {
+      group.accountBalanceBefore = Math.max(group.accountBalanceBefore, accountBalanceBefore);
+      group.hasAccountBalanceBefore = true;
+    }
     const expectedAmount = Number(entry.expectedAmount);
     if (Number.isFinite(expectedAmount) && ["savings", "vanessa", "raquel"].includes(target)) {
       const expectedKey = `expected${target[0].toUpperCase()}${target.slice(1)}`;
       const expectedFlag = `hasExpected${target[0].toUpperCase()}${target.slice(1)}`;
       group[expectedKey] += expectedAmount;
       group[expectedFlag] = true;
+    }
+    const priorWithdrawalAmount = Number(entry.priorWithdrawalAmount);
+    if (Number.isFinite(priorWithdrawalAmount) && ["vanessa", "raquel"].includes(target)) {
+      const priorKey = `prior${target[0].toUpperCase()}${target.slice(1)}`;
+      const priorFlag = `hasPrior${target[0].toUpperCase()}${target.slice(1)}`;
+      group[priorKey] += priorWithdrawalAmount;
+      group[priorFlag] = true;
     }
     group.entries.push(entry);
     groups.set(key, group);
@@ -3200,19 +3274,46 @@ function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
     const expectedVanessa = group.hasExpectedVanessa ? group.expectedVanessa : legacyExpected.vanessa;
     const expectedRaquel = group.hasExpectedRaquel ? group.expectedRaquel : legacyExpected.raquel;
     const expectedTotal = expectedSavings + expectedVanessa + expectedRaquel;
-    const pendingVanessa = Math.max(0, expectedVanessa - group.vanessa);
-    const pendingRaquel = Math.max(0, expectedRaquel - group.raquel);
+    const inferredPriorVanessa = Math.max(0, expectedVanessa - group.vanessa);
+    const inferredPriorRaquel = Math.max(0, expectedRaquel - group.raquel);
+    const priorVanessa = group.hasPriorVanessa ? group.priorVanessa : inferredPriorVanessa;
+    const priorRaquel = group.hasPriorRaquel ? group.priorRaquel : inferredPriorRaquel;
+    const paidToCashVanessa = Math.min(expectedVanessa, priorVanessa);
+    const paidToCashRaquel = Math.min(expectedRaquel, priorRaquel);
+    const netDueVanessa = Math.max(0, expectedVanessa - paidToCashVanessa);
+    const netDueRaquel = Math.max(0, expectedRaquel - paidToCashRaquel);
+    const pendingVanessa = Math.max(0, netDueVanessa - group.vanessa);
+    const pendingRaquel = Math.max(0, netDueRaquel - group.raquel);
+    const extraVanessa = Math.max(0, group.vanessa - netDueVanessa);
+    const extraRaquel = Math.max(0, group.raquel - netDueRaquel);
+    const remainingDebtVanessa = Math.max(0, priorVanessa - paidToCashVanessa);
+    const remainingDebtRaquel = Math.max(0, priorRaquel - paidToCashRaquel);
+    const distributionBase = expectedTotal || group.distributionBase || group.total;
+    const accountBalanceBefore = group.hasAccountBalanceBefore
+      ? group.accountBalanceBefore
+      : Math.max(0, distributionBase - priorVanessa - priorRaquel);
     return {
       ...group,
-      distributionBase: expectedTotal || group.distributionBase || group.total,
+      distributionBase,
+      accountBalanceBefore,
       expectedTotal,
       expectedSavings,
       expectedVanessa,
       expectedRaquel,
+      priorVanessa,
+      priorRaquel,
+      paidToCashVanessa,
+      paidToCashRaquel,
+      netDueVanessa,
+      netDueRaquel,
       pendingVanessa,
       pendingRaquel,
-      differenceVanessa: pendingVanessa,
-      differenceRaquel: pendingRaquel
+      extraVanessa,
+      extraRaquel,
+      remainingDebtVanessa,
+      remainingDebtRaquel,
+      differenceVanessa: paidToCashVanessa,
+      differenceRaquel: paidToCashRaquel
     };
   }).sort((a, b) => String(b.date).localeCompare(String(a.date)));
 }
@@ -3229,7 +3330,15 @@ function partnerPendingLabel(value) {
   if (amount < 0.01) {
     return "Quitado";
   }
-  return `Pagou ${money(amount)}`;
+  return `Ainda não retirou ${money(amount)}`;
+}
+
+function partnerCashOffsetLabel(value) {
+  const amount = Math.max(0, Number(value || 0));
+  if (amount < 0.01) {
+    return "Sem compensação";
+  }
+  return `Pagou ao caixa ${money(amount)}`;
 }
 
 function withdrawalGroupsBetween(start, end) {
@@ -3244,10 +3353,16 @@ function partnerPeriodTotals(groups = []) {
     totals.expectedSavings += Number(group.expectedSavings || 0);
     totals.expectedVanessa += Number(group.expectedVanessa || 0);
     totals.expectedRaquel += Number(group.expectedRaquel || 0);
+    totals.priorVanessa += Number(group.priorVanessa || 0);
+    totals.priorRaquel += Number(group.priorRaquel || 0);
+    totals.paidToCashVanessa += Number(group.paidToCashVanessa || 0);
+    totals.paidToCashRaquel += Number(group.paidToCashRaquel || 0);
     totals.pendingVanessa += Number(group.pendingVanessa || 0);
     totals.pendingRaquel += Number(group.pendingRaquel || 0);
-    totals.differenceVanessa = totals.pendingVanessa;
-    totals.differenceRaquel = totals.pendingRaquel;
+    totals.remainingDebtVanessa += Number(group.remainingDebtVanessa || 0);
+    totals.remainingDebtRaquel += Number(group.remainingDebtRaquel || 0);
+    totals.differenceVanessa = totals.paidToCashVanessa;
+    totals.differenceRaquel = totals.paidToCashRaquel;
     return totals;
   }, {
     savings: 0,
@@ -3256,8 +3371,14 @@ function partnerPeriodTotals(groups = []) {
     expectedSavings: 0,
     expectedVanessa: 0,
     expectedRaquel: 0,
+    priorVanessa: 0,
+    priorRaquel: 0,
+    paidToCashVanessa: 0,
+    paidToCashRaquel: 0,
     pendingVanessa: 0,
     pendingRaquel: 0,
+    remainingDebtVanessa: 0,
+    remainingDebtRaquel: 0,
     differenceVanessa: 0,
     differenceRaquel: 0
   });
@@ -3305,18 +3426,20 @@ function withdrawalHistoryHtml(monthKey = currentMonthKey()) {
   return `
     <div class="table-wrap report-table">
       <table>
-        <thead><tr><th>Data</th><th>Conta</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Saldo pendente</th><th>Total retirado</th><th></th></tr></thead>
+        <thead><tr><th>Data</th><th>Conta</th><th>Saldo real usado</th><th>Base da divisão</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Compensado ao caixa</th><th>Retirado agora</th><th></th></tr></thead>
         <tbody>
           ${groups.map(group => `
             <tr>
               <td>${formatIsoDateBr(group.date)}</td>
               <td>${group.mixedCashAccounts ? "Mais de uma conta" : cashAccountLabel(group.cashAccount)}</td>
-              <td>${money(group.savings)}<br><small>Deveria ${money(group.expectedSavings)}</small></td>
-              <td>${money(group.vanessa)}<br><small>Deveria ${money(group.expectedVanessa)}</small></td>
-              <td>${money(group.raquel)}<br><small>Deveria ${money(group.expectedRaquel)}</small></td>
+              <td>${money(group.accountBalanceBefore)}</td>
+              <td>${money(group.distributionBase)}<br><small>Saldo + retirado antes</small></td>
+              <td>${money(group.savings)}<br><small>Direito ${money(group.expectedSavings)}</small></td>
+              <td>${money(group.vanessa)}<br><small>Direito ${money(group.expectedVanessa)} · antes ${money(group.priorVanessa)}</small></td>
+              <td>${money(group.raquel)}<br><small>Direito ${money(group.expectedRaquel)} · antes ${money(group.priorRaquel)}</small></td>
               <td>
-                <small>Vanessa: ${partnerPendingLabel(group.pendingVanessa)}</small><br>
-                <small>Raquel: ${partnerPendingLabel(group.pendingRaquel)}</small>
+                <small>Vanessa: ${partnerCashOffsetLabel(group.paidToCashVanessa)}</small><br>
+                <small>Raquel: ${partnerCashOffsetLabel(group.paidToCashRaquel)}</small>
               </td>
               <td><strong>${money(group.total)}</strong></td>
               <td><button class="secondary table-action" type="button" data-edit-withdrawal="${escapeHtml(group.key)}">Editar</button></td>
@@ -3520,6 +3643,8 @@ function withdrawalBreakdownAmounts(withdrawals = {}, control = {}) {
     vanessa: Number(withdrawals.vanessa || 0),
     savings: Number(withdrawals.savings || 0),
     raquel: Number(withdrawals.raquel || 0),
+    paidToCashVanessa: Number(control?.paidToCashVanessa ?? control?.differenceVanessa ?? 0),
+    paidToCashRaquel: Number(control?.paidToCashRaquel ?? control?.differenceRaquel ?? 0),
     pendingVanessa: Number(control?.pendingVanessa ?? control?.differenceVanessa ?? 0),
     pendingRaquel: Number(control?.pendingRaquel ?? control?.differenceRaquel ?? 0)
   };
@@ -4839,24 +4964,44 @@ async function renderCash() {
   const latestUnassignedCashEntry = latestCashEntryForAccount("", accountBalanceDate);
   const balanceLabel = "Saldo acumulado geral";
   const editingWithdrawalLoan = editingWithdrawal ? withdrawalSavingsLoanEntry(editingWithdrawal) : null;
-  const availableForWithdrawal = displayedCashBalance
-    + Number(editingWithdrawal?.total || 0)
-    - Number(editingWithdrawalLoan?.amount || 0);
-  const previewWithdrawal = withdrawalSplitFromRaquel(0);
-  const withdrawalFormValues = editingWithdrawal || {
-    ...previewWithdrawal,
-    expectedTotal: previewWithdrawal.total,
-    expectedSavings: previewWithdrawal.savings,
-    expectedVanessa: previewWithdrawal.vanessa,
-    expectedRaquel: previewWithdrawal.raquel,
-    pendingVanessa: 0,
-    pendingRaquel: 0
-  };
+  const editingWithdrawalAdjustment = editingWithdrawal
+    ? withdrawalBalanceAdjustmentEntry(editingWithdrawal)
+    : null;
   const withdrawalCashAccount = normalizedCashAccount(
     editingWithdrawal?.cashAccount || state.cashEntryDraft.cashAccount
   );
-  const previewSavingsLoan = Math.max(0, Number(withdrawalFormValues.total || 0) - availableForWithdrawal);
-  const previewAccountAfterWithdrawal = availableForWithdrawal + previewSavingsLoan - Number(withdrawalFormValues.total || 0);
+  const withdrawalDate = editingWithdrawal?.date || today;
+  const editingWithdrawalIds = editingWithdrawal
+    ? [
+      ...editingWithdrawal.entries.map(entry => String(entry.id)),
+      editingWithdrawalLoan?.id,
+      editingWithdrawalAdjustment?.id
+    ].filter(Boolean)
+    : [];
+  const calculatedWithdrawalAccountBalance = accountBalanceUntilDate(
+    withdrawalDate,
+    editingWithdrawalIds,
+    withdrawalCashAccount
+  );
+  const withdrawalAccountBalance = editingWithdrawal
+    ? Number(editingWithdrawal.accountBalanceBefore || calculatedWithdrawalAccountBalance)
+    : calculatedWithdrawalAccountBalance;
+  const withdrawalBalanceDifference = roundedMoneyValue(
+    withdrawalAccountBalance - calculatedWithdrawalAccountBalance
+  );
+  const automaticWithdrawal = withdrawalDistributionCalculation(
+    withdrawalAccountBalance,
+    editingWithdrawal?.priorVanessa || 0,
+    editingWithdrawal?.priorRaquel || 0
+  );
+  const withdrawalFormValues = editingWithdrawal || automaticWithdrawal;
+  const previewSavingsLoan = Math.max(
+    0,
+    Number(withdrawalFormValues.total || 0) - withdrawalAccountBalance
+  );
+  const previewAccountAfterWithdrawal = withdrawalAccountBalance
+    + previewSavingsLoan
+    - Number(withdrawalFormValues.total || 0);
   const savingsPlanning = state.financialPlanning || {};
   const savingsCurrent = savingsBalance();
   const savingsExpected = savingsExpectedBalance();
@@ -5129,32 +5274,32 @@ async function renderCash() {
         ${activeCashPanel === "withdrawals" ? `
         <div class="cash-tab-section withdrawal-panel">
         <h2>${editingWithdrawal ? "Editar retirada" : "Retiradas"}</h2>
-        <p class="muted-inline">Registre quanto cada pessoa deveria receber e quanto realmente retirou. A diferença fica como saldo pendente da própria pessoa.</p>
+        <p class="muted-inline">O saldo real mostra somente o dinheiro que existe na conta. Valores já retirados durante a semana entram separadamente na base da divisão e são compensados da parte de Vanessa ou Raquel.</p>
         <div class="partners-dashboard">
           <section>
-            <h3>Saldo pendente acumulado</h3>
+            <h3>Valores compensados ao caixa</h3>
             <div class="summary">
-              <div class="metric"><span>Vanessa</span><strong>${partnerPendingLabel(partnersDashboard.accumulated.pendingVanessa)}</strong></div>
-              <div class="metric"><span>Raquel</span><strong>${partnerPendingLabel(partnersDashboard.accumulated.pendingRaquel)}</strong></div>
+              <div class="metric"><span>Vanessa</span><strong>${partnerCashOffsetLabel(partnersDashboard.accumulated.paidToCashVanessa)}</strong></div>
+              <div class="metric"><span>Raquel</span><strong>${partnerCashOffsetLabel(partnersDashboard.accumulated.paidToCashRaquel)}</strong></div>
             </div>
           </section>
           <section>
             <h3>Semana de ${formatIsoDateBr(partnersDashboard.weekStart)} a ${formatIsoDateBr(partnersDashboard.weekEnd)}</h3>
             <div class="summary">
-              <div class="metric"><span>Vanessa recebeu</span><strong>${money(partnersDashboard.week.vanessa)}</strong></div>
-              <div class="metric"><span>Vanessa pendente</span><strong>${partnerPendingLabel(partnersDashboard.week.pendingVanessa)}</strong></div>
-              <div class="metric"><span>Raquel recebeu</span><strong>${money(partnersDashboard.week.raquel)}</strong></div>
-              <div class="metric"><span>Raquel pendente</span><strong>${partnerPendingLabel(partnersDashboard.week.pendingRaquel)}</strong></div>
+              <div class="metric"><span>Vanessa retirou agora</span><strong>${money(partnersDashboard.week.vanessa)}</strong></div>
+              <div class="metric"><span>Vanessa pagou ao caixa</span><strong>${money(partnersDashboard.week.paidToCashVanessa)}</strong></div>
+              <div class="metric"><span>Raquel retirou agora</span><strong>${money(partnersDashboard.week.raquel)}</strong></div>
+              <div class="metric"><span>Raquel pagou ao caixa</span><strong>${money(partnersDashboard.week.paidToCashRaquel)}</strong></div>
               <div class="metric"><span>Cofrinho</span><strong>${money(partnersDashboard.week.savings)}</strong></div>
             </div>
           </section>
           <section>
             <h3>${formatMonthKeyBr(partnersPeriod)}</h3>
             <div class="summary">
-              <div class="metric"><span>Vanessa recebeu</span><strong>${money(partnersDashboard.month.vanessa)}</strong></div>
-              <div class="metric"><span>Vanessa pendente</span><strong>${partnerPendingLabel(partnersDashboard.month.pendingVanessa)}</strong></div>
-              <div class="metric"><span>Raquel recebeu</span><strong>${money(partnersDashboard.month.raquel)}</strong></div>
-              <div class="metric"><span>Raquel pendente</span><strong>${partnerPendingLabel(partnersDashboard.month.pendingRaquel)}</strong></div>
+              <div class="metric"><span>Vanessa retirou agora</span><strong>${money(partnersDashboard.month.vanessa)}</strong></div>
+              <div class="metric"><span>Vanessa pagou ao caixa</span><strong>${money(partnersDashboard.month.paidToCashVanessa)}</strong></div>
+              <div class="metric"><span>Raquel retirou agora</span><strong>${money(partnersDashboard.month.raquel)}</strong></div>
+              <div class="metric"><span>Raquel pagou ao caixa</span><strong>${money(partnersDashboard.month.paidToCashRaquel)}</strong></div>
               <div class="metric"><span>Cofrinho no mês</span><strong>${money(partnersDashboard.month.savings)}</strong></div>
             </div>
           </section>
@@ -5179,42 +5324,61 @@ async function renderCash() {
             </select>
           </label>
           <div class="withdrawal-value-group">
-            <strong>Quanto deveria ter sido retirado</strong>
-            <p class="muted-inline">Informe a parte calculada para cada destino. Ao preencher a parte da Raquel, o sistema sugere automaticamente a divisão padrão.</p>
+            <strong>1. Dinheiro que não está mais na conta</strong>
+            <p class="muted-inline">Confira o saldo real no banco e informe o que Vanessa ou Raquel já retiraram antes desta divisão. Se o saldo real estiver diferente do sistema, a diferença será registrada como ajuste da conta. O valor já retirado entra na base, mas não será retirado novamente.</p>
             <div class="withdrawal-fields">
-              <label>Cofrinho deveria
-                <input name="expectedSavings" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.expectedSavings)}">
+              <label>Saldo real da conta agora
+                <input name="accountBalanceBefore" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalAccountBalance)}">
               </label>
-              <label>Vanessa deveria
-                <input name="expectedVanessa" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.expectedVanessa)}">
+              <label>Vanessa já retirou antes
+                <input name="priorVanessa" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.priorVanessa)}">
               </label>
-              <label>Raquel deveria
-                <input name="expectedRaquel" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.expectedRaquel)}">
+              <label>Raquel já retirou antes
+                <input name="priorRaquel" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.priorRaquel)}">
               </label>
             </div>
           </div>
           <div class="withdrawal-value-group">
-            <strong>Quanto realmente foi retirado</strong>
+            <strong>2. Divisão automática</strong>
+            <p class="muted-inline">Base = saldo real da conta + valores já retirados. O sistema separa 10% para o cofrinho e divide o restante em 70% para Vanessa e 30% para Raquel.</p>
             <div class="withdrawal-fields">
-              <label>Cofrinho recebeu
+              <label>Cofrinho - direito
+                <input name="expectedSavings" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.expectedSavings)}" readonly>
+              </label>
+              <label>Vanessa - direito
+                <input name="expectedVanessa" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.expectedVanessa)}" readonly>
+              </label>
+              <label>Raquel - direito
+                <input name="expectedRaquel" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.expectedRaquel)}" readonly>
+              </label>
+            </div>
+          </div>
+          <div class="withdrawal-value-group">
+            <strong>3. Quanto realmente sairá da conta agora</strong>
+            <p class="muted-inline">Os valores já retirados são descontados da parte da pessoa. Se o valor real for diferente da sugestão, o sistema mostrará essa diferença separadamente.</p>
+            <div class="withdrawal-fields">
+              <label>Cofrinho agora
                 <input name="savings" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.savings)}">
               </label>
-              <label>Vanessa recebeu
+              <label>Vanessa agora
                 <input name="vanessa" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.vanessa)}">
               </label>
-              <label>Raquel recebeu
+              <label>Raquel agora
                 <input name="raquel" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.raquel)}">
               </label>
             </div>
           </div>
           <div class="withdrawal-preview" aria-live="polite">
-            <span><b>Caixa disponível</b>${money(availableForWithdrawal)}</span>
-            <span><b>Total devido</b>${money(withdrawalFormValues.expectedTotal)}</span>
-            <span><b>Total retirado</b>${money(withdrawalFormValues.total)}</span>
+            <span><b>Saldo calculado pelo sistema</b>${money(calculatedWithdrawalAccountBalance)}</span>
+            <span><b>Saldo real da conta</b>${money(withdrawalAccountBalance)}</span>
+            <span><b>Ajuste para igualar ao banco</b>${money(withdrawalBalanceDifference)}</span>
+            <span><b>Retirado antes da divisão</b>${money(Number(withdrawalFormValues.priorVanessa || 0) + Number(withdrawalFormValues.priorRaquel || 0))}</span>
+            <span><b>Base da divisão</b>${money(withdrawalFormValues.distributionBase)}</span>
+            <span><b>Total que sai agora</b>${money(withdrawalFormValues.total)}</span>
             <span><b>Empréstimo do cofrinho</b>${money(previewSavingsLoan)}</span>
             <span><b>Saldo da conta depois</b>${money(Math.max(0, previewAccountAfterWithdrawal))}</span>
-            <span><b>Vanessa</b>${partnerPendingLabel(withdrawalFormValues.pendingVanessa)}</span>
-            <span><b>Raquel</b>${partnerPendingLabel(withdrawalFormValues.pendingRaquel)}</span>
+            <span><b>Vanessa compensou</b>${money(withdrawalFormValues.paidToCashVanessa)}</span>
+            <span><b>Raquel compensou</b>${money(withdrawalFormValues.paidToCashRaquel)}</span>
           </div>
           <div class="actions">
             <button type="submit">${editingWithdrawal ? "Salvar retirada" : "Registrar retiradas"}</button>
@@ -5225,7 +5389,7 @@ async function renderCash() {
         ${withdrawalHistoryHtml(selectedMonth)}
         <details class="partners-manual-adjustment">
           <summary>Registro manual antigo do mês</summary>
-          <p class="muted-inline">Use somente para consultar ou corrigir controles antigos. Nas novas retiradas, o saldo pendente é calculado automaticamente por pessoa.</p>
+          <p class="muted-inline">Use somente para consultar ou corrigir controles antigos. Nas novas retiradas, valores já retirados e valores compensados ao caixa ficam separados.</p>
           <form id="partners-form" class="form-grid single">
             <label>Mês do registro
               <input name="periodKey" type="month" value="${partnersRecord.periodKey}" required>
@@ -5236,7 +5400,7 @@ async function renderCash() {
             <label>Raquel - valor informado
               <input name="raquel" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(partnersRecord.raquel)}">
             </label>
-            <label>Saldo pendente anterior
+            <label>Compensação antiga informada
               <input name="difference" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(partnersRecord.difference)}">
             </label>
             <label>Observação
@@ -5252,7 +5416,7 @@ async function renderCash() {
               <span>
                 <b>${formatMonthKeyBr(entry.periodKey)}</b>
                 Vanessa ${money(entry.vanessa)} / Raquel ${money(entry.raquel)}
-                <small>Saldo pendente informado ${money(entry.difference)}${entry.notes ? ` - ${escapeHtml(entry.notes)}` : ""}</small>
+                <small>Compensação informada ${money(entry.difference)}${entry.notes ? ` - ${escapeHtml(entry.notes)}` : ""}</small>
               </span>
             `).join("")}
           </div>
@@ -6242,7 +6406,7 @@ async function renderCash() {
       };
 
       upsertPartnersRecord(record);
-      recordAudit("Registro manual de retirada atualizado", `${formatMonthKeyBr(periodKey)} - Vanessa ${money(record.vanessa)}, Raquel ${money(record.raquel)}, saldo pendente ${money(record.difference)}`);
+      recordAudit("Registro manual de retirada atualizado", `${formatMonthKeyBr(periodKey)} - Vanessa ${money(record.vanessa)}, Raquel ${money(record.raquel)}, compensação antiga ${money(record.difference)}`);
       persistState();
       renderCash();
     });
@@ -6250,63 +6414,98 @@ async function renderCash() {
 
   const withdrawalForm = document.querySelector("#withdrawal-form");
   if (withdrawalForm) {
-    const withdrawalExpectedValues = () => {
-      const expected = {
-        savings: Math.max(0, parseMoneyInput(withdrawalForm.elements.expectedSavings.value)),
-        vanessa: Math.max(0, parseMoneyInput(withdrawalForm.elements.expectedVanessa.value)),
-        raquel: Math.max(0, parseMoneyInput(withdrawalForm.elements.expectedRaquel.value))
-      };
-      expected.total = expected.savings + expected.vanessa + expected.raquel;
-      return expected;
+    const withdrawalCalculatedBalanceForForm = () => {
+      const date = withdrawalForm.elements.date.value || today;
+      const cashAccount = normalizedCashAccount(withdrawalForm.elements.cashAccount.value);
+      return accountBalanceUntilDate(date, editingWithdrawalIds, cashAccount);
     };
-    let lastExpectedValues = withdrawalExpectedValues();
+
+    let lastAutomaticValues = withdrawalDistributionCalculation(
+      withdrawalForm.elements.accountBalanceBefore.value,
+      withdrawalForm.elements.priorVanessa.value,
+      withdrawalForm.elements.priorRaquel.value
+    );
+
+    const automaticWithdrawalValues = (
+      forceActualValues = false,
+      syncPhysicalBalance = false
+    ) => {
+      const previousSuggested = lastAutomaticValues;
+      if (syncPhysicalBalance) {
+        withdrawalForm.elements.accountBalanceBefore.value = moneyInputValue(
+          withdrawalCalculatedBalanceForForm()
+        );
+      }
+      const calculation = withdrawalDistributionCalculation(
+        withdrawalForm.elements.accountBalanceBefore.value,
+        withdrawalForm.elements.priorVanessa.value,
+        withdrawalForm.elements.priorRaquel.value
+      );
+      withdrawalForm.elements.expectedSavings.value = moneyInputValue(calculation.expectedSavings);
+      withdrawalForm.elements.expectedVanessa.value = moneyInputValue(calculation.expectedVanessa);
+      withdrawalForm.elements.expectedRaquel.value = moneyInputValue(calculation.expectedRaquel);
+      const actualFields = [
+        ["savings", "savings"],
+        ["vanessa", "vanessa"],
+        ["raquel", "raquel"]
+      ];
+      actualFields.forEach(([fieldName, valueKey]) => {
+        const field = withdrawalForm.elements[fieldName];
+        const keptSuggestedValue = Math.abs(
+          parseMoneyInput(field.value) - Number(previousSuggested[valueKey] || 0)
+        ) < 0.01;
+        if (forceActualValues || keptSuggestedValue) {
+          field.value = moneyInputValue(calculation[valueKey]);
+        }
+      });
+      lastAutomaticValues = calculation;
+      return calculation;
+    };
 
     const updateWithdrawalPreview = () => {
-      const expected = withdrawalExpectedValues();
-      const split = {
+      const calculation = automaticWithdrawalValues(false);
+      const calculatedBalance = withdrawalCalculatedBalanceForForm();
+      const balanceDifference = roundedMoneyValue(
+        calculation.physicalBalance - calculatedBalance
+      );
+      const actual = {
         savings: Math.max(0, parseMoneyInput(withdrawalForm.elements.savings.value)),
         vanessa: Math.max(0, parseMoneyInput(withdrawalForm.elements.vanessa.value)),
         raquel: Math.max(0, parseMoneyInput(withdrawalForm.elements.raquel.value))
       };
-      split.total = split.savings + split.vanessa + split.raquel;
-      const pendingVanessa = expected.vanessa - split.vanessa;
-      const pendingRaquel = expected.raquel - split.raquel;
-      const savingsLoan = Math.max(0, split.total - availableForWithdrawal);
-      const accountAfterWithdrawal = availableForWithdrawal + savingsLoan - split.total;
+      actual.total = roundedMoneyValue(actual.savings + actual.vanessa + actual.raquel);
+      const pendingVanessa = Math.max(
+        0,
+        calculation.expectedVanessa - calculation.paidToCashVanessa - actual.vanessa
+      );
+      const pendingRaquel = Math.max(
+        0,
+        calculation.expectedRaquel - calculation.paidToCashRaquel - actual.raquel
+      );
+      const savingsLoan = Math.max(0, actual.total - calculation.physicalBalance);
+      const accountAfterWithdrawal = calculation.physicalBalance + savingsLoan - actual.total;
       const preview = withdrawalForm.querySelector(".withdrawal-preview");
       preview.innerHTML = `
-        <span><b>Caixa disponível</b>${money(availableForWithdrawal)}</span>
-        <span><b>Total devido</b>${money(expected.total)}</span>
-        <span><b>Total retirado</b>${money(split.total)}</span>
+        <span><b>Saldo calculado pelo sistema</b>${money(calculatedBalance)}</span>
+        <span><b>Saldo real da conta</b>${money(calculation.physicalBalance)}</span>
+        <span><b>Ajuste para igualar ao banco</b>${money(balanceDifference)}</span>
+        <span><b>Retirado antes da divisão</b>${money(calculation.priorVanessa + calculation.priorRaquel)}</span>
+        <span><b>Base da divisão</b>${money(calculation.distributionBase)}</span>
+        <span><b>Total que sai agora</b>${money(actual.total)}</span>
         <span><b>Empréstimo do cofrinho</b>${money(savingsLoan)}</span>
         <span><b>Saldo da conta depois</b>${money(Math.max(0, accountAfterWithdrawal))}</span>
-        <span><b>Vanessa</b>${partnerPendingLabel(pendingVanessa)}</span>
-        <span><b>Raquel</b>${partnerPendingLabel(pendingRaquel)}</span>
+        <span><b>Vanessa compensou</b>${partnerCashOffsetLabel(calculation.paidToCashVanessa)}<small>${partnerPendingLabel(pendingVanessa)}</small></span>
+        <span><b>Raquel compensou</b>${partnerCashOffsetLabel(calculation.paidToCashRaquel)}<small>${partnerPendingLabel(pendingRaquel)}</small></span>
       `;
     };
 
     withdrawalForm.addEventListener("input", event => {
       const fieldName = event.target.name;
-      if (fieldName === "expectedRaquel") {
-        const previousExpected = lastExpectedValues;
-        const split = withdrawalSplitFromRaquel(event.target.value);
-        const actualSavingsWasSuggested = Math.abs(parseMoneyInput(withdrawalForm.elements.savings.value) - previousExpected.savings) < 0.01;
-        const actualVanessaWasSuggested = Math.abs(parseMoneyInput(withdrawalForm.elements.vanessa.value) - previousExpected.vanessa) < 0.01;
-        const actualRaquelWasSuggested = Math.abs(parseMoneyInput(withdrawalForm.elements.raquel.value) - previousExpected.raquel) < 0.01;
-        withdrawalForm.elements.expectedSavings.value = moneyInputValue(split.savings);
-        withdrawalForm.elements.expectedVanessa.value = moneyInputValue(split.vanessa);
-        if (actualSavingsWasSuggested) {
-          withdrawalForm.elements.savings.value = moneyInputValue(split.savings);
-        }
-        if (actualVanessaWasSuggested) {
-          withdrawalForm.elements.vanessa.value = moneyInputValue(split.vanessa);
-        }
-        if (actualRaquelWasSuggested) {
-          withdrawalForm.elements.raquel.value = moneyInputValue(split.raquel);
-        }
+      if (["date", "cashAccount"].includes(fieldName)) {
+        automaticWithdrawalValues(true, true);
+      } else if (["accountBalanceBefore", "priorVanessa", "priorRaquel"].includes(fieldName)) {
+        automaticWithdrawalValues(true, false);
       }
-
-      lastExpectedValues = withdrawalExpectedValues();
       updateWithdrawalPreview();
     });
 
@@ -6317,24 +6516,38 @@ async function renderCash() {
       ? withdrawalHistoryGroups(state.cash).find(group => group.key === state.editWithdrawalGroup)
       : null;
     const previousSavingsLoan = previousWithdrawal ? withdrawalSavingsLoanEntry(previousWithdrawal) : null;
+    const previousBalanceAdjustment = previousWithdrawal
+      ? withdrawalBalanceAdjustmentEntry(previousWithdrawal)
+      : null;
     const previousSavingsLoanAmount = Number(previousSavingsLoan?.amount || 0);
-    const available = displayedCashBalance + Number(previousWithdrawal?.total || 0) - previousSavingsLoanAmount;
+    const cashAccount = normalizedCashAccount(values.cashAccount);
+    const calculatedBalanceBefore = withdrawalCalculatedBalanceForForm();
+    const calculation = withdrawalDistributionCalculation(
+      values.accountBalanceBefore,
+      values.priorVanessa,
+      values.priorRaquel
+    );
+    const available = calculation.physicalBalance;
+    const balanceDifference = roundedMoneyValue(available - calculatedBalanceBefore);
     const expected = {
-      savings: Math.max(0, parseMoneyInput(values.expectedSavings)),
-      vanessa: Math.max(0, parseMoneyInput(values.expectedVanessa)),
-      raquel: Math.max(0, parseMoneyInput(values.expectedRaquel))
+      savings: calculation.expectedSavings,
+      vanessa: calculation.expectedVanessa,
+      raquel: calculation.expectedRaquel
     };
-    expected.total = expected.savings + expected.vanessa + expected.raquel;
+    expected.total = calculation.expectedTotal;
     const split = {
-      distributionBase: expected.total,
+      distributionBase: calculation.distributionBase,
       total: Math.max(0, parseMoneyInput(values.savings)) + Math.max(0, parseMoneyInput(values.vanessa)) + Math.max(0, parseMoneyInput(values.raquel)),
       savings: Math.max(0, parseMoneyInput(values.savings)),
       vanessa: Math.max(0, parseMoneyInput(values.vanessa)),
       raquel: Math.max(0, parseMoneyInput(values.raquel))
     };
-    const cashAccount = normalizedCashAccount(values.cashAccount);
+    const prior = {
+      vanessa: calculation.priorVanessa,
+      raquel: calculation.priorRaquel
+    };
     if (expected.total <= 0) {
-      showToast("Informe quanto deveria ter sido retirado.", "error");
+      showToast("Não há saldo ou retirada anterior para formar a base da divisão.", "error");
       return;
     }
 
@@ -6358,6 +6571,19 @@ async function renderCash() {
     const idBase = previousWithdrawal
       ? previousWithdrawal.key.replace(/^withdrawal-/, "")
       : Date.now();
+    const balanceAdjustmentEntry = Math.abs(balanceDifference) > 0.009
+      ? {
+        id: `withdrawal-${idBase}-balance-adjustment`,
+        description: "Ajuste do saldo real antes da divisão",
+        date: values.date,
+        type: balanceDifference > 0 ? "income" : "expense",
+        category: "ajuste-conta",
+        cashAccount,
+        amount: Math.abs(balanceDifference).toFixed(2),
+        withdrawalBalanceAdjustment: true,
+        withdrawalGroup: `withdrawal-${idBase}`
+      }
+      : null;
     const savingsLoanEntry = savingsLoan > 0.009
       ? {
         id: `withdrawal-${idBase}-savings-loan`,
@@ -6371,6 +6597,7 @@ async function renderCash() {
       }
       : null;
     const withdrawalEntries = [
+      balanceAdjustmentEntry,
       savingsLoanEntry,
       {
         id: `withdrawal-${idBase}-savings`,
@@ -6381,6 +6608,7 @@ async function renderCash() {
         cashAccount,
         amount: split.savings.toFixed(2),
         distributionBase: split.distributionBase.toFixed(2),
+        accountBalanceBefore: available.toFixed(2),
         expectedAmount: expected.savings.toFixed(2)
       },
       {
@@ -6392,6 +6620,8 @@ async function renderCash() {
         cashAccount,
         amount: split.vanessa.toFixed(2),
         distributionBase: split.distributionBase.toFixed(2),
+        accountBalanceBefore: available.toFixed(2),
+        priorWithdrawalAmount: prior.vanessa.toFixed(2),
         expectedAmount: expected.vanessa.toFixed(2)
       },
       {
@@ -6403,13 +6633,16 @@ async function renderCash() {
         cashAccount,
         amount: split.raquel.toFixed(2),
         distributionBase: split.distributionBase.toFixed(2),
+        accountBalanceBefore: available.toFixed(2),
+        priorWithdrawalAmount: prior.raquel.toFixed(2),
         expectedAmount: expected.raquel.toFixed(2)
       }
     ].filter(entry => entry && (Number(entry.amount || 0) > 0 || Number(entry.expectedAmount || 0) > 0));
     if (previousWithdrawal) {
       const previousIds = new Set([
         ...previousWithdrawal.entries.map(entry => String(entry.id)),
-        previousSavingsLoan?.id
+        previousSavingsLoan?.id,
+        previousBalanceAdjustment?.id
       ].filter(Boolean).map(String));
       state.cash = state.cash.filter(entry => !previousIds.has(String(entry.id)));
     }
@@ -6434,7 +6667,9 @@ async function renderCash() {
           : "Devolução ao cofrinho por ajuste de retirada"
       });
     }
-    const auditDetail = `${cashAccountLabel(cashAccount)} - devido ${money(expected.total)} - retirado ${money(split.total)} - cofrinho devido/recebido ${money(expected.savings)} / ${money(split.savings)}, Vanessa devido/recebido ${money(expected.vanessa)} / ${money(split.vanessa)} (${partnerPendingLabel(expected.vanessa - split.vanessa)}), Raquel devido/recebido ${money(expected.raquel)} / ${money(split.raquel)} (${partnerPendingLabel(expected.raquel - split.raquel)})${savingsLoan > 0 ? ` - empréstimo do cofrinho ${money(savingsLoan)}` : ""}`;
+    const pendingVanessa = Math.max(0, expected.vanessa - calculation.paidToCashVanessa - split.vanessa);
+    const pendingRaquel = Math.max(0, expected.raquel - calculation.paidToCashRaquel - split.raquel);
+    const auditDetail = `${cashAccountLabel(cashAccount)} - saldo calculado ${money(calculatedBalanceBefore)} - saldo real ${money(available)}${Math.abs(balanceDifference) > 0.009 ? ` - ajuste da conta ${money(balanceDifference)}` : ""} - retirado antes Vanessa/Raquel ${money(prior.vanessa)} / ${money(prior.raquel)} - base ${money(expected.total)} - retirado agora ${money(split.total)} - cofrinho direito/agora ${money(expected.savings)} / ${money(split.savings)}, Vanessa direito/agora ${money(expected.vanessa)} / ${money(split.vanessa)} (${partnerCashOffsetLabel(calculation.paidToCashVanessa)}; ${partnerPendingLabel(pendingVanessa)}), Raquel direito/agora ${money(expected.raquel)} / ${money(split.raquel)} (${partnerCashOffsetLabel(calculation.paidToCashRaquel)}; ${partnerPendingLabel(pendingRaquel)})${savingsLoan > 0 ? ` - empréstimo do cofrinho ${money(savingsLoan)}` : ""}`;
     recordAudit(previousWithdrawal ? "Retirada editada" : "Retirada registrada", auditDetail);
     state.editWithdrawalGroup = null;
     if (await persistState()) {
@@ -6745,7 +6980,7 @@ function cashTable(entries) {
               <td class="${item.type === "income" ? "positive" : "negative"}">${money(item.amount)}</td>
               <td>
                 <div class="table-actions">
-                  ${automaticCoverage ? `<small>Cobertura automÃ¡tica</small>` : `
+                  ${automaticCoverage ? `<small>Cobertura automática</small>` : `
                     ${isPendingBill(item) ? `<button class="secondary table-action" type="button" data-pay-bill="${item.id || ""}">Marcar pago</button>` : ""}
                     <button class="secondary table-action" type="button" data-edit-cash="${item.id || ""}">Editar</button>
                     ${!item.reversedBy && !item.reversalOf ? `<button class="secondary table-action" type="button" data-reverse-cash="${item.id || ""}">Estornar</button>` : ""}
@@ -10318,12 +10553,14 @@ function reportPdfWithdrawalRows(data) {
   const differenceTotal = Number(partners.difference || 0) || automaticDifferenceTotal;
   const rows = [
     ["Cofrinho recebeu", money(data.financial.withdrawals.savings)],
-    ["Vanessa deveria receber", money(data.partnerWithdrawalControl?.expectedVanessa)],
-    ["Vanessa recebeu", money(data.financial.withdrawals.vanessa)],
-    ["Saldo pendente Vanessa", partnerPendingLabel(data.partnerWithdrawalControl?.pendingVanessa)],
-    ["Raquel deveria receber", money(data.partnerWithdrawalControl?.expectedRaquel)],
-    ["Raquel recebeu", money(data.financial.withdrawals.raquel)],
-    ["Saldo pendente Raquel", partnerPendingLabel(data.partnerWithdrawalControl?.pendingRaquel)]
+    ["Vanessa - direito na divisão", money(data.partnerWithdrawalControl?.expectedVanessa)],
+    ["Vanessa - retirou agora", money(data.financial.withdrawals.vanessa)],
+    ["Vanessa - pagou ao caixa", money(data.partnerWithdrawalControl?.paidToCashVanessa)],
+    ["Vanessa - ainda não retirou", money(data.partnerWithdrawalControl?.pendingVanessa)],
+    ["Raquel - direito na divisão", money(data.partnerWithdrawalControl?.expectedRaquel)],
+    ["Raquel - retirou agora", money(data.financial.withdrawals.raquel)],
+    ["Raquel - pagou ao caixa", money(data.partnerWithdrawalControl?.paidToCashRaquel)],
+    ["Raquel - ainda não retirou", money(data.partnerWithdrawalControl?.pendingRaquel)]
   ];
 
   if (informedVanessa > 0 || informedRaquel > 0) {
@@ -10332,7 +10569,7 @@ function reportPdfWithdrawalRows(data) {
   }
 
   if (differenceTotal > 0) {
-    rows.push([partners.difference ? "Saldo pendente manual informado" : "Saldo pendente manual", money(differenceTotal)]);
+    rows.push([partners.difference ? "Compensação manual informada" : "Compensação manual", money(differenceTotal)]);
   }
 
   return rows;
@@ -10738,13 +10975,15 @@ function reportCsvRows(kind, data) {
       { seção: "retiradas", data: "", descrição: "Cofrinho", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.savings },
       { seção: "retiradas", data: "", descrição: "Vanessa", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.vanessa },
       { seção: "retiradas", data: "", descrição: "Raquel", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.raquel },
-      { seção: "retiradas", data: "", descrição: "Vanessa deveria receber", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.expectedVanessa || 0 },
-      { seção: "retiradas", data: "", descrição: "Saldo pendente Vanessa", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.pendingVanessa || 0 },
-      { seção: "retiradas", data: "", descrição: "Raquel deveria receber", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.expectedRaquel || 0 },
-      { seção: "retiradas", data: "", descrição: "Saldo pendente Raquel", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.pendingRaquel || 0 },
+      { seção: "retiradas", data: "", descrição: "Vanessa - direito na divisão", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.expectedVanessa || 0 },
+      { seção: "retiradas", data: "", descrição: "Vanessa - pagou ao caixa", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.paidToCashVanessa || 0 },
+      { seção: "retiradas", data: "", descrição: "Vanessa - ainda não retirou", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.pendingVanessa || 0 },
+      { seção: "retiradas", data: "", descrição: "Raquel - direito na divisão", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.expectedRaquel || 0 },
+      { seção: "retiradas", data: "", descrição: "Raquel - pagou ao caixa", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.paidToCashRaquel || 0 },
+      { seção: "retiradas", data: "", descrição: "Raquel - ainda não retirou", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.pendingRaquel || 0 },
       { seção: "retiradas", data: data.partnersRecord?.periodKey || "", descrição: "Vanessa informada", tipo: "controle", categoria: "retirada", valor: data.partnersRecord?.vanessa || 0 },
       { seção: "retiradas", data: data.partnersRecord?.periodKey || "", descrição: "Raquel informada", tipo: "controle", categoria: "retirada", valor: data.partnersRecord?.raquel || 0 },
-      { seção: "retiradas", data: data.partnersRecord?.periodKey || "", descrição: "Saldo pendente manual", tipo: "controle", categoria: "retirada", valor: data.partnersRecord?.difference || 0 }
+      { seção: "retiradas", data: data.partnersRecord?.periodKey || "", descrição: "Compensação manual antiga", tipo: "controle", categoria: "retirada", valor: data.partnersRecord?.difference || 0 }
     ];
 
     return rows.concat(data.cashEntries.map(entry => ({
@@ -11180,15 +11419,17 @@ async function downloadReportXlsx(options = {}) {
       withdrawalRaquel: withdrawalAmounts.raquel,
       withdrawalRows: [
         ["Cofrinho recebeu", Number(data.financial.withdrawals.savings || 0)],
-        ["Vanessa deveria receber", Number(data.partnerWithdrawalControl?.expectedVanessa || 0)],
-        ["Vanessa recebeu", Number(data.financial.withdrawals.vanessa || 0)],
-        ["Saldo pendente Vanessa", Number(data.partnerWithdrawalControl?.pendingVanessa || 0)],
-        ["Raquel deveria receber", Number(data.partnerWithdrawalControl?.expectedRaquel || 0)],
-        ["Raquel recebeu", Number(data.financial.withdrawals.raquel || 0)],
-        ["Saldo pendente Raquel", Number(data.partnerWithdrawalControl?.pendingRaquel || 0)],
+        ["Vanessa - direito na divisão", Number(data.partnerWithdrawalControl?.expectedVanessa || 0)],
+        ["Vanessa - retirou agora", Number(data.financial.withdrawals.vanessa || 0)],
+        ["Vanessa - pagou ao caixa", Number(data.partnerWithdrawalControl?.paidToCashVanessa || 0)],
+        ["Vanessa - ainda não retirou", Number(data.partnerWithdrawalControl?.pendingVanessa || 0)],
+        ["Raquel - direito na divisão", Number(data.partnerWithdrawalControl?.expectedRaquel || 0)],
+        ["Raquel - retirou agora", Number(data.financial.withdrawals.raquel || 0)],
+        ["Raquel - pagou ao caixa", Number(data.partnerWithdrawalControl?.paidToCashRaquel || 0)],
+        ["Raquel - ainda não retirou", Number(data.partnerWithdrawalControl?.pendingRaquel || 0)],
         ["Vanessa informada", Number(data.partnersRecord?.vanessa || 0)],
         ["Raquel informada", Number(data.partnersRecord?.raquel || 0)],
-        ["Saldo pendente manual", Number(data.partnersRecord?.difference || 0)]
+        ["Compensação manual antiga", Number(data.partnersRecord?.difference || 0)]
       ],
       totalSoldQuantity: data.totalSoldQuantity,
       weeklyCashQuantity: data.weeklyCashQuantity,
@@ -12075,17 +12316,29 @@ function withdrawalReportTable(data) {
   return `
     <div class="table-wrap report-table">
       <table>
-        <thead><tr><th>Data</th><th>Destino</th><th>Descrição</th><th>Deveria receber</th><th>Recebeu</th></tr></thead>
+        <thead><tr><th>Data</th><th>Destino</th><th>Descrição</th><th>Direito na divisão</th><th>Retirado antes</th><th>Retirado agora</th><th>Pago ao caixa</th></tr></thead>
         <tbody>
-          ${data.financial.withdrawalEntries.map(entry => `
-            <tr>
-              <td>${formatIsoDateBr(entry.date)}</td>
-              <td>${withdrawalTarget(entry) === "savings" ? "Cofrinho" : withdrawalTarget(entry) === "vanessa" ? "Vanessa" : withdrawalTarget(entry) === "raquel" ? "Raquel" : "Outras"}</td>
-              <td>${entry.description || ""}</td>
-              <td>${money(entry.expectedAmount ?? entry.amount)}</td>
-              <td>${money(entry.amount)}</td>
-            </tr>
-          `).join("")}
+          ${data.financial.withdrawalEntries.map(entry => {
+            const target = withdrawalTarget(entry);
+            const expected = Number(entry.expectedAmount ?? entry.amount);
+            const storedPrior = Number(entry.priorWithdrawalAmount);
+            const prior = Number.isFinite(storedPrior)
+              ? storedPrior
+              : ["vanessa", "raquel"].includes(target)
+                ? Math.max(0, expected - Number(entry.amount || 0))
+                : 0;
+            return `
+              <tr>
+                <td>${formatIsoDateBr(entry.date)}</td>
+                <td>${target === "savings" ? "Cofrinho" : target === "vanessa" ? "Vanessa" : target === "raquel" ? "Raquel" : "Outras"}</td>
+                <td>${entry.description || ""}</td>
+                <td>${money(expected)}</td>
+                <td>${money(prior)}</td>
+                <td>${money(entry.amount)}</td>
+                <td>${target === "savings" ? "-" : money(Math.min(expected, prior))}</td>
+              </tr>
+            `;
+          }).join("")}
         </tbody>
       </table>
     </div>
@@ -12107,9 +12360,11 @@ function withdrawalPersonRows(data) {
       label: "Cofrinho",
       expectedWeek: weekTotals.expectedSavings,
       receivedWeek: weekTotals.savings,
+      paidToCashWeek: 0,
       pendingWeek: 0,
       expectedMonth: monthTotals.expectedSavings,
       receivedMonth: monthTotals.savings,
+      paidToCashMonth: 0,
       pendingMonth: 0
     },
     {
@@ -12117,9 +12372,11 @@ function withdrawalPersonRows(data) {
       label: "Vanessa",
       expectedWeek: weekTotals.expectedVanessa,
       receivedWeek: weekTotals.vanessa,
+      paidToCashWeek: weekTotals.paidToCashVanessa,
       pendingWeek: weekTotals.pendingVanessa,
       expectedMonth: monthTotals.expectedVanessa,
       receivedMonth: monthTotals.vanessa,
+      paidToCashMonth: monthTotals.paidToCashVanessa,
       pendingMonth: monthTotals.pendingVanessa
     },
     {
@@ -12127,9 +12384,11 @@ function withdrawalPersonRows(data) {
       label: "Raquel",
       expectedWeek: weekTotals.expectedRaquel,
       receivedWeek: weekTotals.raquel,
+      paidToCashWeek: weekTotals.paidToCashRaquel,
       pendingWeek: weekTotals.pendingRaquel,
       expectedMonth: monthTotals.expectedRaquel,
       receivedMonth: monthTotals.raquel,
+      paidToCashMonth: monthTotals.paidToCashRaquel,
       pendingMonth: monthTotals.pendingRaquel
     }
   ];
@@ -12146,16 +12405,18 @@ function withdrawalPersonReportPanel(data) {
       </div>
       <div class="table-wrap report-table">
         <table>
-          <thead><tr><th>Destino</th><th>Deveria na semana</th><th>Recebeu na semana</th><th>Pendente na semana</th><th>Deveria no mês</th><th>Recebeu no mês</th><th>Pendente no mês</th></tr></thead>
+          <thead><tr><th>Destino</th><th>Direito na semana</th><th>Retirou agora</th><th>Pagou ao caixa</th><th>Ainda não retirou</th><th>Direito no mês</th><th>Retirou no mês</th><th>Pagou ao caixa no mês</th><th>Ainda não retirou no mês</th></tr></thead>
           <tbody>
             ${rows.map(row => `
               <tr>
                 <td><strong>${row.label}</strong></td>
                 <td>${money(row.expectedWeek)}</td>
                 <td>${money(row.receivedWeek)}</td>
+                <td>${row.key === "savings" ? "-" : money(row.paidToCashWeek)}</td>
                 <td>${row.key === "savings" ? "-" : partnerPendingLabel(row.pendingWeek)}</td>
                 <td>${money(row.expectedMonth)}</td>
                 <td>${money(row.receivedMonth)}</td>
+                <td>${row.key === "savings" ? "-" : money(row.paidToCashMonth)}</td>
                 <td>${row.key === "savings" ? "-" : partnerPendingLabel(row.pendingMonth)}</td>
               </tr>
             `).join("")}
@@ -12166,15 +12427,17 @@ function withdrawalPersonReportPanel(data) {
       ${groups.length ? `
         <div class="table-wrap report-table">
           <table>
-            <thead><tr><th>Data</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Saldo pendente</th><th>Total retirado</th></tr></thead>
+            <thead><tr><th>Data</th><th>Saldo real</th><th>Base da divisão</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Pago ao caixa</th><th>Retirado agora</th></tr></thead>
             <tbody>
               ${groups.map(group => `
                 <tr>
                   <td>${formatIsoDateBr(group.date)}</td>
-                  <td>${money(group.savings)}<br><small>Deveria ${money(group.expectedSavings)}</small></td>
-                  <td>${money(group.vanessa)}<br><small>Deveria ${money(group.expectedVanessa)}</small></td>
-                  <td>${money(group.raquel)}<br><small>Deveria ${money(group.expectedRaquel)}</small></td>
-                  <td><small>Vanessa: ${partnerPendingLabel(group.pendingVanessa)}</small><br><small>Raquel: ${partnerPendingLabel(group.pendingRaquel)}</small></td>
+                  <td>${money(group.accountBalanceBefore)}</td>
+                  <td>${money(group.distributionBase)}</td>
+                  <td>${money(group.savings)}<br><small>Direito ${money(group.expectedSavings)}</small></td>
+                  <td>${money(group.vanessa)}<br><small>Direito ${money(group.expectedVanessa)} · antes ${money(group.priorVanessa)}</small></td>
+                  <td>${money(group.raquel)}<br><small>Direito ${money(group.expectedRaquel)} · antes ${money(group.priorRaquel)}</small></td>
+                  <td><small>Vanessa: ${partnerCashOffsetLabel(group.paidToCashVanessa)}</small><br><small>Raquel: ${partnerCashOffsetLabel(group.paidToCashRaquel)}</small></td>
                   <td><strong>${money(group.total)}</strong></td>
                 </tr>
               `).join("")}
@@ -12189,16 +12452,23 @@ function withdrawalPersonReportPanel(data) {
 function exportWithdrawalReport(data = reportData()) {
   const rows = withdrawalHistoryGroups(data.financial.withdrawalEntries).map(group => ({
     data: group.date,
+    conta: group.cashAccount,
+    saldo_real_usado: group.accountBalanceBefore,
+    base_da_divisao: group.distributionBase,
     cofrinho_deveria: group.expectedSavings,
-    cofrinho_recebeu: group.savings,
-    vanessa_deveria: group.expectedVanessa,
-    vanessa_recebeu: group.vanessa,
-    saldo_pendente_vanessa: group.pendingVanessa,
-    raquel_deveria: group.expectedRaquel,
-    raquel_recebeu: group.raquel,
-    saldo_pendente_raquel: group.pendingRaquel,
-    total_devido: group.expectedTotal,
-    total_retirado: group.total
+    cofrinho_retirado_agora: group.savings,
+    vanessa_direito: group.expectedVanessa,
+    vanessa_retirado_antes: group.priorVanessa,
+    vanessa_pago_ao_caixa: group.paidToCashVanessa,
+    vanessa_retirado_agora: group.vanessa,
+    vanessa_ainda_nao_retirou: group.pendingVanessa,
+    raquel_direito: group.expectedRaquel,
+    raquel_retirado_antes: group.priorRaquel,
+    raquel_pago_ao_caixa: group.paidToCashRaquel,
+    raquel_retirado_agora: group.raquel,
+    raquel_ainda_nao_retirou: group.pendingRaquel,
+    total_direitos: group.expectedTotal,
+    total_retirado_agora: group.total
   }));
   const suffix = data.type === "day" ? data.date : data.type === "week" ? data.weekKey : data.periodKey;
   downloadTextFile(`cumbuca-retiradas-${suffix}.csv`, toCsv(rows), "text/csv;charset=utf-8");

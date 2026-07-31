@@ -334,9 +334,9 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
   });
 });
 
-test('withdrawals keep expected, received and independent pending balances per person', async ({
+test('withdrawals separate account balance, prior withdrawals and cash compensation', async ({
   page,
-}) => {
+}, testInfo) => {
   const database = await mockOnlineDatabase(page);
   const today = localDateKey();
   database.state = {
@@ -361,20 +361,59 @@ test('withdrawals keep expected, received and independent pending balances per p
   await page.goto('/fluxo-de-caixa?panel=withdrawals');
   const form = page.locator('#withdrawal-form');
   await form.locator('select[name="cashAccount"]').selectOption('pj');
-  await form.locator('input[name="expectedRaquel"]').fill('450,00');
-  await expect(form.locator('input[name="expectedSavings"]')).toHaveValue('150,00');
-  await expect(form.locator('input[name="expectedVanessa"]')).toHaveValue('1.050,00');
-  await expect(form.locator('input[name="vanessa"]')).toHaveValue('1.050,00');
-  await form.locator('input[name="vanessa"]').fill('946,89');
+  await expect(form.locator('input[name="accountBalanceBefore"]')).toHaveValue('5.000,00');
+  await form.locator('input[name="accountBalanceBefore"]').fill('4.750,00');
+  await form.locator('input[name="priorVanessa"]').fill('200,00');
+  await form.locator('input[name="priorRaquel"]').fill('50,00');
+  await expect(form.locator('input[name="expectedSavings"]')).toHaveValue('500,00');
+  await expect(form.locator('input[name="expectedVanessa"]')).toHaveValue('3.150,00');
+  await expect(form.locator('input[name="expectedRaquel"]')).toHaveValue('1.350,00');
+  await expect(form.locator('input[name="savings"]')).toHaveValue('500,00');
+  await expect(form.locator('input[name="vanessa"]')).toHaveValue('2.950,00');
+  await expect(form.locator('input[name="raquel"]')).toHaveValue('1.300,00');
+  await expect(form.locator('.withdrawal-preview')).toContainText('Ajuste para igualar ao banco');
+  await expect(form.locator('.withdrawal-preview')).toContainText('-R$ 250,00');
+  await expect(form.locator('.withdrawal-preview')).toContainText('Base da divisão');
+  await expect(form.locator('.withdrawal-preview')).toContainText('R$ 5.000,00');
+  await form.locator('input[name="vanessa"]').fill('2.800,00');
+  await expect(form.locator('.withdrawal-preview')).toContainText('Pagou ao caixa R$ 200,00');
+  await expect(form.locator('.withdrawal-preview')).toContainText('Ainda não retirou R$ 150,00');
+  await form.locator('input[name="vanessa"]').fill('2.950,00');
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath('withdrawal-cash-compensation.png'),
+    fullPage: true,
+  });
   await form.getByRole('button', { name: 'Registrar retiradas', exact: true }).click();
 
-  await expect.poll(() => database.state.cashEntries?.length).toBe(4);
+  await expect.poll(() => database.state.cashEntries?.length).toBe(5);
+  const balanceAdjustment = database.state.cashEntries.find(
+    (entry) => entry.withdrawalBalanceAdjustment
+  );
+  expect(balanceAdjustment).toMatchObject({
+    type: 'expense',
+    category: 'ajuste-conta',
+    cashAccount: 'pj',
+    amount: '250.00',
+  });
   const firstVanessa = database.state.cashEntries.find(
     (entry) => entry.description === 'Retirada - Vanessa'
   );
   expect(firstVanessa).toMatchObject({
-    amount: '946.89',
-    expectedAmount: '1050.00',
+    amount: '2950.00',
+    expectedAmount: '3150.00',
+    priorWithdrawalAmount: '200.00',
+    accountBalanceBefore: '4750.00',
+    cashAccount: 'pj',
+  });
+  const firstRaquel = database.state.cashEntries.find(
+    (entry) => entry.description === 'Retirada - Raquel'
+  );
+  expect(firstRaquel).toMatchObject({
+    amount: '1300.00',
+    expectedAmount: '1350.00',
+    priorWithdrawalAmount: '50.00',
+    accountBalanceBefore: '4750.00',
     cashAccount: 'pj',
   });
   expect(
@@ -384,27 +423,13 @@ test('withdrawals keep expected, received and independent pending balances per p
   ).toBe(true);
   const accumulated = page
     .locator('.partners-dashboard section')
-    .filter({ hasText: 'Saldo pendente acumulado' });
+    .filter({ hasText: 'Valores compensados ao caixa' });
   await expect(accumulated).toContainText('Vanessa');
-  await expect(accumulated).toContainText('Pagou R$ 103,11');
+  await expect(accumulated).toContainText('Pagou ao caixa R$ 200,00');
+  await expect(accumulated).toContainText('Pagou ao caixa R$ 50,00');
   expect(
     await page.evaluate((dateKey) => window.accountBalanceUntilDate(dateKey), today)
-  ).toBeCloseTo(3453.11, 2);
-
-  await form.locator('input[name="expectedRaquel"]').fill('300,00');
-  await expect(form.locator('input[name="expectedVanessa"]')).toHaveValue('700,00');
-  await form.locator('input[name="vanessa"]').fill('803,11');
-  await form.locator('select[name="cashAccount"]').selectOption('pj');
-  await form.getByRole('button', { name: 'Registrar retiradas', exact: true }).click();
-
-  await expect.poll(() => database.state.cashEntries?.length).toBe(7);
-  await expect(accumulated).toContainText('Vanessa');
-  await expect(accumulated).toContainText('Pagou R$ 103,11');
-  expect(
-    database.state.cashEntries
-      .filter((entry) => String(entry.id || '').startsWith('withdrawal-'))
-      .every((entry) => entry.cashAccount === 'pj')
-  ).toBe(true);
+  ).toBeCloseTo(0, 2);
 });
 
 test('store sales filter by day, week and month with previous month comparison', async ({

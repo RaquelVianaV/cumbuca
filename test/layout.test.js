@@ -172,8 +172,12 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /name="expectedRaquel"/);
   assert.match(app, /Conta de onde saiu o dinheiro/);
   assert.match(app, /value="unassigned"/);
-  assert.match(app, /Quanto realmente foi retirado/);
-  assert.match(app, /Saldo pendente acumulado/);
+  assert.match(app, /Quanto realmente sairá da conta agora/);
+  assert.match(app, /Valores compensados ao caixa/);
+  assert.match(app, /name="priorVanessa"/);
+  assert.match(app, /name="priorRaquel"/);
+  assert.match(app, /Base da divisão/);
+  assert.match(app, /partnerCashOffsetLabel/);
   assert.match(app, /partnerPendingLabel/);
   assert.doesNotMatch(app, /Antecipado|Acima do calculado/);
   assert.match(css, /\.budget-progress/);
