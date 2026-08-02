@@ -330,3 +330,30 @@ test('responsive layout adapts to viewport size', async ({ page }, testInfo) => 
     await expect(mainContent).toBeVisible();
   }
 });
+
+test('narrow desktop window keeps lateral scrolling enabled', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 760, height: 844 });
+  await page.goto('/fluxo-de-caixa?panel=ledger');
+
+  const overflow = await page.evaluate(() => ({
+    html: getComputedStyle(document.documentElement).overflowX,
+    body: getComputedStyle(document.body).overflowX,
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  expect(overflow.html).toBe('auto');
+  expect(overflow.body).toBe('visible');
+  expect(overflow.scrollWidth).toBeGreaterThan(overflow.clientWidth);
+
+  await page.mouse.move(380, 420);
+  await page.mouse.wheel(320, 0);
+  await expect
+    .poll(() => page.evaluate(() => document.scrollingElement.scrollLeft))
+    .toBeGreaterThan(0);
+  await page.evaluate(() => window.scrollTo(0, 0));
+
+  await page.screenshot({
+    path: testInfo.outputPath('narrow-desktop-horizontal-scroll.png'),
+    fullPage: true,
+  });
+});

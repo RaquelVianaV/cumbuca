@@ -53,7 +53,7 @@ html.dark-mode {
 }
 
 html {
-  overflow-x: hidden;
+  overflow-x: auto;
 }
 
 body {
@@ -65,7 +65,7 @@ body {
     linear-gradient(180deg, #fffdf8 0, #f7f7f2 420px, #f4f6f2 100%),
     var(--bg);
   color: var(--ink);
-  overflow-x: hidden;
+  overflow-x: visible;
 }
 
 h1,

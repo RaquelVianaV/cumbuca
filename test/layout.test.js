@@ -10,6 +10,12 @@ const html = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8');
 const serviceWorker = fs.readFileSync(path.join(root, 'public', 'sw.js'), 'utf8');
 const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 
+test('narrow browser windows keep horizontal page scrolling available', () => {
+  assert.match(css, /html \{\s*overflow-x: auto;/);
+  assert.match(css, /body \{[\s\S]*?overflow-x: visible;/);
+  assert.doesNotMatch(css, /html \{\s*overflow-x: hidden;/);
+});
+
 test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /financeViewTab/);
   assert.match(app, /Contas a pagar e receber/);
