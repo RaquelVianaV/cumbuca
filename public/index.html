@@ -12,10 +12,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/logo-cumbuca-original.png">
-    <link rel="preload" href="/app.js?v=20260803-20" as="script">
+    <link rel="preload" href="/app.js?v=20260803-21" as="script">
     <link rel="preload" href="/logo-cumbuca-original.png" as="image">
     <link rel="preload" href="/mapa-cumbuca.png" as="image">
-    <link rel="stylesheet" href="/styles.css?v=20260803-20">
+    <link rel="stylesheet" href="/styles.css?v=20260803-21">
     <script>
       (function () {
         const storedTheme = localStorage.getItem('cumbuca-theme');
@@ -85,21 +85,21 @@
       </aside>
 
       <main class="shell">
-        <section class="hero quote-mode">
+        <section class="hero quote-mode hero-loading">
           <p class="eyebrow">Operação Cumbuca</p>
           <div class="hero-brand-art" aria-label="Identidade visual Cumbuca">
             <img class="hero-logo hero-map" src="/mapa-cumbuca.png" alt="Mapa Cumbuca">
             <img class="hero-bowl-logo" src="/logo-cumbuca-original.png" alt="Cumbuca comida saudável">
           </div>
-          <h1 id="page-title">“Mulher, você vai gostar, tô levando uns amigos pra conversar.”</h1>
-          <p class="hero-motto"><span aria-hidden="true">&#10022;</span><span id="hero-motto">Chico Buarque · Feijoada completa</span></p>
+          <h1 id="page-title"></h1>
+          <p class="hero-motto"><span aria-hidden="true">&#10022;</span><span id="hero-motto"></span></p>
         </section>
 
         <section id="app" class="workspace" aria-live="polite"></section>
       </main>
     </div>
 
-    <script src="/app.js?v=20260803-20" defer></script>
+    <script src="/app.js?v=20260803-21" defer></script>
     <script src="/sw-register.js" defer></script>
   </body>
 </html>

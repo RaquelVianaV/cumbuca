@@ -478,7 +478,6 @@ const dailyHeroMessages = [
 ];
 
 const HOME_HERO_LAST_INDEX_KEY = "cumbuca-last-home-quote";
-const HOME_HERO_TEXT = "Mulher, você vai gostar, tô levando uns amigos pra conversar.";
 
 function dayOfYearIndex(date = new Date()) {
   const currentDay = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
@@ -519,6 +518,7 @@ function randomHeroMessage() {
 
 function showStandardHero(pageTitle, date = new Date()) {
   title.textContent = pageTitle;
+  hero?.classList.remove("hero-loading");
   hero?.classList.remove("quote-mode", "quote-compact");
   if (heroMotto) {
     heroMotto.textContent = pageTitle === "Fluxo de Caixa"
@@ -528,9 +528,9 @@ function showStandardHero(pageTitle, date = new Date()) {
 }
 
 function showHomeHero() {
-  const message = dailyHeroMessages.find(item => item.text === HOME_HERO_TEXT)
-    || randomHeroMessage();
+  const message = randomHeroMessage();
   title.textContent = `“${message.text}”`;
+  hero?.classList.remove("hero-loading");
   hero?.classList.add("quote-mode");
   hero?.classList.toggle(
     "quote-compact",

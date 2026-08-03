@@ -20,12 +20,9 @@ test('narrow browser windows keep horizontal page scrolling available', () => {
   assert.match(app, /advancedCashFilterActive/);
   assert.match(css, /cash-ledger-panel > \.summary/);
   assert.match(html, /id="hero-motto"/);
-  assert.match(html, /class="hero quote-mode"/);
-  assert.match(
-    html,
-    /<h1 id="page-title">“Mulher, você vai gostar, tô levando uns amigos pra conversar\.”<\/h1>/
-  );
-  assert.match(html, /<span id="hero-motto">Chico Buarque · Feijoada completa<\/span>/);
+  assert.match(html, /class="hero quote-mode hero-loading"/);
+  assert.match(html, /<h1 id="page-title"><\/h1>/);
+  assert.match(html, /<span id="hero-motto"><\/span>/);
   assert.doesNotMatch(app, /title\.textContent = "Visão Geral"/);
   assert.match(app, /dailyHeroMottos/);
   assert.match(app, /dailyHeroMessages/);
@@ -38,7 +35,6 @@ test('narrow browser windows keep horizontal page scrolling available', () => {
   assert.match(app, /cashMottoForDate/);
   assert.match(app, /pageTitle === "Fluxo de Caixa"/);
   assert.match(app, /HOME_HERO_LAST_INDEX_KEY/);
-  assert.match(app, /HOME_HERO_TEXT/);
   assert.match(app, /Math\.random\(\)/);
   assert.match(app, /window\.sessionStorage\.setItem/);
   assert.match(app, /Carlos Drummond de Andrade/);
@@ -81,6 +77,7 @@ test('narrow browser windows keep horizontal page scrolling available', () => {
   assert.equal((cashMottos[1].match(/"Pitada do dia:/g) || []).length, 30);
   assert.match(css, /\.hero-motto/);
   assert.match(css, /\.hero\.quote-mode h1/);
+  assert.match(css, /\.hero\.hero-loading h1/);
   assert.match(html, /class="hero-logo hero-map"/);
   assert.match(html, /class="hero-brand-art"/);
   assert.match(html, /class="hero-bowl-logo"/);
