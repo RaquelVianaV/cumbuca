@@ -5,16 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Cumbuca | Ferramentas</title>
     <meta name="description" content="Ferramentas online para fluxo de caixa, menu semanal e precificação da Cumbuca." />
-    <meta name="theme-color" content="#087f5b">
+    <meta name="theme-color" content="#0b6f53">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Cumbuca">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="manifest" href="/manifest.json">
-    <link rel="apple-touch-icon" href="/logo-cumbuca.svg">
-    <link rel="preload" href="/app.js?v=20260802-01" as="script">
-    <link rel="preload" href="/logo-cumbuca.svg" as="image">
-    <link rel="stylesheet" href="/styles.css?v=20260802-01">
+    <link rel="apple-touch-icon" href="/logo-cumbuca-original.png">
+    <link rel="preload" href="/app.js?v=20260802-08" as="script">
+    <link rel="preload" href="/logo-cumbuca-original.png" as="image">
+    <link rel="preload" href="/mapa-cumbuca.png" as="image">
+    <link rel="stylesheet" href="/styles.css?v=20260802-08">
     <script>
       (function () {
         const storedTheme = localStorage.getItem('cumbuca-theme');
@@ -34,8 +35,10 @@
   <body>
     <header class="app-header">
       <a class="brand" href="/" aria-label="Cumbuca">
-        <span class="brand-mark">C</span>
-        <span>Cumbuca</span>
+        <span class="brand-mark" aria-hidden="true">
+          <img src="/logo-cumbuca-original.png" alt="">
+        </span>
+        <span class="brand-copy"><strong>Cumbuca</strong><small>Gestão que alimenta</small></span>
       </a>
       <div class="header-tools">
         <details class="status-group" id="system-status-details">
@@ -84,15 +87,19 @@
       <main class="shell">
         <section class="hero">
           <p class="eyebrow">Operação Cumbuca</p>
-          <img class="hero-logo" src="/logo-cumbuca.svg" alt="Cumbuca comida saudável">
+          <div class="hero-brand-art" aria-label="Identidade visual Cumbuca">
+            <img class="hero-logo hero-map" src="/mapa-cumbuca.png" alt="Mapa Cumbuca">
+            <img class="hero-bowl-logo" src="/logo-cumbuca-original.png" alt="Cumbuca comida saudável">
+          </div>
           <h1 id="page-title">Cumbuca</h1>
+          <p class="hero-motto"><span aria-hidden="true">&#10022;</span><span id="hero-motto">Pitada do dia: caixa organizado, cabeça leve e cumbuca cheia.</span></p>
         </section>
 
         <section id="app" class="workspace" aria-live="polite"></section>
       </main>
     </div>
 
-    <script src="/app.js?v=20260802-01" defer></script>
+    <script src="/app.js?v=20260802-08" defer></script>
     <script src="/sw-register.js" defer></script>
   </body>
 </html>

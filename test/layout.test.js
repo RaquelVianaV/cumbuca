@@ -14,6 +14,23 @@ test('narrow browser windows keep horizontal page scrolling available', () => {
   assert.match(css, /html \{\s*overflow-x: auto;/);
   assert.match(css, /body \{[\s\S]*?overflow-x: visible;/);
   assert.doesNotMatch(css, /html \{\s*overflow-x: hidden;/);
+  assert.match(css, /@media \(min-width: 561px\) and \(max-width: 1100px\)/);
+  assert.match(css, /grid-template-columns: repeat\(5, minmax\(0, 1fr\)\)/);
+  assert.match(app, /cash-filter-disclosure/);
+  assert.match(app, /advancedCashFilterActive/);
+  assert.match(css, /cash-ledger-panel > \.summary/);
+  assert.match(html, /id="hero-motto"/);
+  assert.match(app, /dailyHeroMottos/);
+  assert.match(css, /\.hero-motto/);
+  assert.match(html, /class="hero-logo hero-map"/);
+  assert.match(html, /class="hero-brand-art"/);
+  assert.match(html, /class="hero-bowl-logo"/);
+  assert.match(html, /class="brand-copy"/);
+  assert.match(html, /class="brand-mark"[\s\S]*?<img src="\/logo-cumbuca-original\.png"/);
+  assert.equal(fs.existsSync(path.join(root, 'public', 'logo-cumbuca-original.png')), true);
+  assert.match(html, /src="\/mapa-cumbuca\.png"/);
+  assert.match(serviceWorker, /\/mapa-cumbuca\.png/);
+  assert.equal(fs.existsSync(path.join(root, 'public', 'mapa-cumbuca.png')), true);
 });
 
 test('finance, reports and maintenance expose the expected view tabs', () => {

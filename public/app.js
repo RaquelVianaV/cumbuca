@@ -1,6 +1,7 @@
 const app = document.querySelector('#app');
 const title = document.querySelector('#page-title');
 const todayDate = document.querySelector('#today-date');
+const heroMotto = document.querySelector('#hero-motto');
 const systemStatusSummary = document.querySelector('#system-status-summary');
 const serverStatus = document.querySelector('#server-status');
 const databaseStatus = document.querySelector('#database-status');
@@ -108,10 +109,23 @@ const monthYear = new Intl.DateTimeFormat("pt-BR", {
   year: "numeric"
 });
 
+const dailyHeroMottos = [
+  "Pitada do dia: domingo também combina com organização, mas sem esquecer o café.",
+  "Pitada do dia: segunda organizada e metade do drama financeiro já foi embora.",
+  "Pitada do dia: cada lançamento certo é um boleto a menos fazendo mistério.",
+  "Pitada do dia: respira, confere e lança; o caixa também gosta de carinho.",
+  "Pitada do dia: planilha em dia, cabeça leve e cumbuca cheia.",
+  "Pitada do dia: sextou melhor quando o caixa também fecha bonito.",
+  "Pitada do dia: organização hoje, tranquilidade amanhã e café sempre."
+];
+
 if (todayDate) {
   const now = new Date();
   todayDate.dateTime = isoDate(now);
   todayDate.textContent = fullDate.format(now);
+  if (heroMotto) {
+    heroMotto.textContent = dailyHeroMottos[now.getDay()];
+  }
 }
 
 async function updateServerStatus() {
@@ -4982,6 +4996,10 @@ async function renderCash() {
   const selectedFilterCategory = currentCashFilter.category || "all";
   const selectedFilterAccount = currentCashFilter.cashAccount || "all";
   const selectedQuickFilter = currentCashFilter.quick || "";
+  const advancedCashFilterActive = selectedFilterType !== "all"
+    || selectedFilterCategory !== "all"
+    || selectedFilterAccount !== "all"
+    || Boolean(String(currentCashFilter.search || "").trim());
   const periodAdjustmentTotals = accountAdjustmentTotals(cashEntriesForSelectedPeriod());
   const filteredAdjustmentTotals = accountAdjustmentTotals(accountedEntries);
   const reconciliationDate = editingReconciliation?.date || selectedDate;
@@ -5486,6 +5504,14 @@ async function renderCash() {
             <p class="muted-inline">Filtre, confira categorias e edite lançamentos.</p>
           </div>
         </div>
+        <details class="cash-filter-disclosure" ${advancedCashFilterActive ? "open" : ""}>
+          <summary>
+            <span>
+              <b>Filtros avançados</b>
+              <small>Período, tipo, categoria, conta e busca</small>
+            </span>
+            <span class="cash-filter-disclosure-state" aria-hidden="true">${advancedCashFilterActive ? "Filtros ativos" : "Mostrar filtros"}</span>
+          </summary>
         <form id="cash-filter-form" class="filter-bar">
           <label>Filtrar
             <select name="period" id="cash-period">
@@ -5528,6 +5554,7 @@ async function renderCash() {
           <button type="submit">Aplicar</button>
           <button class="secondary" type="button" id="clear-cash-filter">Limpar filtros</button>
         </form>
+        </details>
         <div class="quick-filter-bar">
           <button class="secondary ${currentCashFilter.period === "day" && selectedDate === today && !selectedQuickFilter ? "active" : ""}" type="button" data-cash-quick="today">Hoje</button>
           <button class="secondary ${currentCashFilter.period === "day" && selectedDate === yesterdayDate && !selectedQuickFilter ? "active" : ""}" type="button" data-cash-quick="yesterday">Ontem</button>

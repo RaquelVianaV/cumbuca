@@ -407,6 +407,9 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
     ]);
   }
 
+  const filterDisclosure = page.locator('.cash-filter-disclosure');
+  await expect(filterDisclosure).toBeVisible();
+  await filterDisclosure.locator('summary').click();
   const filterFormBeforeSummaryReview = page.locator('#cash-filter-form');
   await filterFormBeforeSummaryReview.locator('#cash-filter-type').selectOption('income');
   await filterFormBeforeSummaryReview.getByRole('button', { name: 'Aplicar', exact: true }).click();

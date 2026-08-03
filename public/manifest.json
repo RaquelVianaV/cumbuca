@@ -5,7 +5,7 @@
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#fffdf8",
-  "theme_color": "#087f5b",
+  "theme_color": "#0b6f53",
   "shortcuts": [
     {
       "name": "Hoje",
@@ -28,15 +28,15 @@
   ],
   "icons": [
     {
-      "src": "/logo-cumbuca.svg",
-      "sizes": "192x192",
-      "type": "image/svg+xml",
+      "src": "/logo-cumbuca-original.png",
+      "sizes": "196x197",
+      "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/logo-cumbuca.svg",
-      "sizes": "512x512",
-      "type": "image/svg+xml",
+      "src": "/logo-cumbuca-original.png",
+      "sizes": "196x197",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]

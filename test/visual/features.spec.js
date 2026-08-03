@@ -38,7 +38,7 @@ test('dark mode toggle switches theme and persists in localStorage', async ({ pa
   const bgColor = await page.evaluate(() =>
     getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()
   );
-  expect(bgColor).toMatch(/0f0e0c|#0f0e0c/);
+  expect(bgColor).toMatch(/0f0e0c|101411|#0f0e0c|#101411/);
 
   // Verify localStorage persistence
   const storedTheme = await page.evaluate(() => localStorage.getItem('cumbuca-theme'));
@@ -310,6 +310,12 @@ test('zero account action is available only in maintenance cleanup', async ({ pa
 test('responsive layout adapts to viewport size', async ({ page }, testInfo) => {
   await page.goto('/');
 
+  expect(
+    await page
+      .locator('.brand-mark img')
+      .evaluate((image) => image.complete && image.naturalWidth > 0)
+  ).toBe(true);
+
   if (testInfo.project.name === 'mobile') {
     // Mobile viewport
     const viewportWidth = await page.evaluate(() => window.innerWidth);
@@ -328,32 +334,80 @@ test('responsive layout adapts to viewport size', async ({ page }, testInfo) => 
     // Verify desktop layout
     const mainContent = page.locator('main, .main, [role="main"]').first();
     await expect(mainContent).toBeVisible();
+    await page.screenshot({
+      path: testInfo.outputPath('wide-desktop-polish.png'),
+      fullPage: true,
+    });
   }
 });
 
-test('narrow desktop window keeps lateral scrolling enabled', async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 760, height: 844 });
+test('narrow desktop window activates compact mode', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 820, height: 900 });
   await page.goto('/fluxo-de-caixa?panel=ledger');
 
-  const overflow = await page.evaluate(() => ({
-    html: getComputedStyle(document.documentElement).overflowX,
-    body: getComputedStyle(document.body).overflowX,
+  const compactLayout = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
     clientWidth: document.documentElement.clientWidth,
+    navDisplay: getComputedStyle(document.querySelector('.nav')).display,
+    navColumns: getComputedStyle(document.querySelector('.nav')).gridTemplateColumns,
+    headerWrap: getComputedStyle(document.querySelector('.header-actions')).flexWrap,
   }));
-  expect(overflow.html).toBe('auto');
-  expect(overflow.body).toBe('visible');
-  expect(overflow.scrollWidth).toBeGreaterThan(overflow.clientWidth);
-
-  await page.mouse.move(380, 420);
-  await page.mouse.wheel(320, 0);
-  await expect
-    .poll(() => page.evaluate(() => document.scrollingElement.scrollLeft))
-    .toBeGreaterThan(0);
-  await page.evaluate(() => window.scrollTo(0, 0));
+  expect(compactLayout.scrollWidth).toBeLessThanOrEqual(compactLayout.clientWidth + 1);
+  expect(compactLayout.navDisplay).toBe('grid');
+  expect(compactLayout.navColumns.split(' ')).toHaveLength(5);
+  expect(compactLayout.headerWrap).toBe('wrap');
+  await expect(page.locator('.nav > a:visible')).toHaveCount(5);
+  await expect(page.locator('.nav-extra:visible')).toHaveCount(0);
+  await expect(page.locator('.nav-more')).toBeVisible();
+  await expect(page.locator('.hero-motto')).toContainText('Pitada do dia:');
+  expect(
+    await page.locator('.hero-map').evaluate((image) => image.complete && image.naturalWidth > 0)
+  ).toBe(true);
+  expect(
+    await page
+      .locator('.hero-bowl-logo')
+      .evaluate((image) => image.complete && image.naturalWidth > 0)
+  ).toBe(true);
+  await expect(page.locator('.cash-filter-disclosure')).not.toHaveAttribute('open', '');
+  await expect(page.locator('[data-cash-quick="today"]')).toBeVisible();
 
   await page.screenshot({
-    path: testInfo.outputPath('narrow-desktop-horizontal-scroll.png'),
+    path: testInfo.outputPath('compact-desktop-mode.png'),
+    fullPage: true,
+  });
+
+  const filterSummary = page.locator('.cash-filter-disclosure summary');
+  await filterSummary.click();
+  await expect(page.locator('.cash-filter-disclosure')).toHaveAttribute('open', '');
+  await page.screenshot({
+    path: testInfo.outputPath('compact-desktop-filters.png'),
+    fullPage: true,
+  });
+  await filterSummary.click();
+
+  await page.locator('.nav-more').click();
+  await expect(page).toHaveURL(/\/mais$/);
+  await expect(page.getByRole('heading', { name: 'Mais ferramentas' })).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath('compact-desktop-more.png'),
+    fullPage: true,
+  });
+});
+
+test('mobile cash view keeps shortcuts compact', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile', 'Mobile-only visual check');
+  await page.goto('/fluxo-de-caixa?panel=ledger');
+
+  const quickFilterColumns = await page.evaluate(
+    () => getComputedStyle(document.querySelector('.quick-filter-bar')).gridTemplateColumns
+  );
+  expect(quickFilterColumns.split(' ')).toHaveLength(2);
+  await expect(page.locator('.hero-motto')).toContainText('Pitada do dia:');
+  await expect(page.locator('.cash-filter-disclosure')).not.toHaveAttribute('open', '');
+  await expect(page.locator('[data-cash-quick="withdrawals"]')).toBeVisible();
+
+  await page.screenshot({
+    path: testInfo.outputPath('mobile-cash-polish.png'),
     fullPage: true,
   });
 });

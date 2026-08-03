@@ -2891,7 +2891,7 @@ async function handleRequest(req, res) {
     const publicFiles = [
       '/styles.css',
       '/login.js',
-      '/logo-cumbuca.svg',
+      '/logo-cumbuca-original.png',
       '/manifest.json',
       '/sw.js',
     ];
