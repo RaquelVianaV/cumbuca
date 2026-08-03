@@ -311,12 +311,13 @@ test('responsive layout adapts to viewport size', async ({ page }, testInfo) => 
   await page.goto('/');
 
   await expect(page.locator('.hero')).toHaveClass(/quote-mode/);
-  await expect(page.locator('#page-title')).not.toHaveText('Visão Geral');
-  await expect(page.locator('#page-title')).toContainText(/“.+”/);
-  await expect(page.locator('#hero-motto')).not.toContainText('Pitada do dia:');
+  await expect(page.locator('#page-title')).toHaveText(
+    '“Mulher, você vai gostar, tô levando uns amigos pra conversar.”'
+  );
+  await expect(page.locator('#hero-motto')).toHaveText('Chico Buarque · Feijoada completa');
   const firstHomeQuote = await page.locator('#page-title').textContent();
   await page.reload();
-  await expect(page.locator('#page-title')).not.toHaveText(firstHomeQuote);
+  await expect(page.locator('#page-title')).toHaveText(firstHomeQuote);
 
   expect(
     await page
@@ -353,18 +354,16 @@ test('responsive layout adapts to viewport size', async ({ page }, testInfo) => 
   }
 });
 
-test('long home poem uses compact type without horizontal overflow', async ({ page }, testInfo) => {
-  await page.addInitScript(() => {
-    window.sessionStorage.removeItem('cumbuca-last-home-quote');
-    Math.random = () => 0.04;
-  });
+test('fixed home quote fits without horizontal overflow', async ({ page }, testInfo) => {
   await page.goto('/');
 
   const hero = page.locator('.hero');
-  await expect(hero).toHaveClass(/quote-compact/);
-  await expect(page.locator('#page-title')).toContainText('J. Pinto Fernandes');
+  await expect(hero).not.toHaveClass(/quote-compact/);
+  await expect(page.locator('#page-title')).toHaveText(
+    '“Mulher, você vai gostar, tô levando uns amigos pra conversar.”'
+  );
   await page.screenshot({
-    path: testInfo.outputPath('long-home-poem-compact.png'),
+    path: testInfo.outputPath('fixed-home-quote.png'),
     fullPage: true,
   });
   const dimensions = await page.evaluate(() => {
@@ -378,27 +377,16 @@ test('long home poem uses compact type without horizontal overflow', async ({ pa
     };
   });
   expect(dimensions.titleScrollWidth).toBeLessThanOrEqual(dimensions.titleClientWidth + 1);
-  expect(dimensions.titleFontSize).toBeLessThanOrEqual(
-    testInfo.project.name === 'mobile' ? 16 : 24
-  );
+  expect(dimensions.titleFontSize).toBeGreaterThan(0);
   expect(dimensions.heroHeight).toBeLessThanOrEqual(testInfo.project.name === 'mobile' ? 420 : 340);
 });
 
-test('Dialetica excerpt uses the requested compact type', async ({ page }, testInfo) => {
-  await page.addInitScript(() => {
-    window.sessionStorage.removeItem('cumbuca-last-home-quote');
-    Math.random = () => 0.14;
-  });
+test('fixed home quote keeps its credit after reload', async ({ page }) => {
   await page.goto('/');
 
-  const hero = page.locator('.hero');
-  await expect(hero).toHaveClass(/quote-compact/);
-  await expect(page.locator('#hero-motto')).toContainText('Dialética');
-  await expect(page.locator('#page-title')).toContainText('Mas acontece que eu sou triste...');
-  const fontSize = await page
-    .locator('#page-title')
-    .evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
-  expect(fontSize).toBeLessThanOrEqual(testInfo.project.name === 'mobile' ? 16 : 24);
+  await expect(page.locator('#hero-motto')).toHaveText('Chico Buarque · Feijoada completa');
+  await page.reload();
+  await expect(page.locator('#hero-motto')).toHaveText('Chico Buarque · Feijoada completa');
 });
 
 test('narrow desktop window activates compact mode', async ({ page }, testInfo) => {

@@ -478,6 +478,7 @@ const dailyHeroMessages = [
 ];
 
 const HOME_HERO_LAST_INDEX_KEY = "cumbuca-last-home-quote";
+const HOME_HERO_TEXT = "Mulher, você vai gostar, tô levando uns amigos pra conversar.";
 
 function dayOfYearIndex(date = new Date()) {
   const currentDay = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
@@ -527,7 +528,8 @@ function showStandardHero(pageTitle, date = new Date()) {
 }
 
 function showHomeHero() {
-  const message = randomHeroMessage();
+  const message = dailyHeroMessages.find(item => item.text === HOME_HERO_TEXT)
+    || randomHeroMessage();
   title.textContent = `“${message.text}”`;
   hero?.classList.add("quote-mode");
   hero?.classList.toggle(

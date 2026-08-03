@@ -23,8 +23,9 @@ test('narrow browser windows keep horizontal page scrolling available', () => {
   assert.match(html, /class="hero quote-mode"/);
   assert.match(
     html,
-    /<h1 id="page-title">“É claro que a vida é boa[\s\S]*?Mas acontece que eu sou triste[\s\S]*?<\/h1>/
+    /<h1 id="page-title">“Mulher, você vai gostar, tô levando uns amigos pra conversar\.”<\/h1>/
   );
+  assert.match(html, /<span id="hero-motto">Chico Buarque · Feijoada completa<\/span>/);
   assert.doesNotMatch(app, /title\.textContent = "Visão Geral"/);
   assert.match(app, /dailyHeroMottos/);
   assert.match(app, /dailyHeroMessages/);
@@ -37,6 +38,7 @@ test('narrow browser windows keep horizontal page scrolling available', () => {
   assert.match(app, /cashMottoForDate/);
   assert.match(app, /pageTitle === "Fluxo de Caixa"/);
   assert.match(app, /HOME_HERO_LAST_INDEX_KEY/);
+  assert.match(app, /HOME_HERO_TEXT/);
   assert.match(app, /Math\.random\(\)/);
   assert.match(app, /window\.sessionStorage\.setItem/);
   assert.match(app, /Carlos Drummond de Andrade/);
