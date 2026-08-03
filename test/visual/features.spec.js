@@ -310,6 +310,14 @@ test('zero account action is available only in maintenance cleanup', async ({ pa
 test('responsive layout adapts to viewport size', async ({ page }, testInfo) => {
   await page.goto('/');
 
+  await expect(page.locator('.hero')).toHaveClass(/quote-mode/);
+  await expect(page.locator('#page-title')).not.toHaveText('Visão Geral');
+  await expect(page.locator('#page-title')).toContainText(/“.+”/);
+  await expect(page.locator('#hero-motto')).not.toContainText('Pitada do dia:');
+  const firstHomeQuote = await page.locator('#page-title').textContent();
+  await page.reload();
+  await expect(page.locator('#page-title')).not.toHaveText(firstHomeQuote);
+
   expect(
     await page
       .locator('.brand-mark img')
@@ -326,6 +334,10 @@ test('responsive layout adapts to viewport size', async ({ page }, testInfo) => 
     const isSidebarVisible = await sidebar.isVisible().catch(() => false);
     // On mobile, sidebar might be hidden or in a drawer
     console.log('Mobile sidebar visible:', isSidebarVisible);
+    await page.screenshot({
+      path: testInfo.outputPath('mobile-home-quote.png'),
+      fullPage: true,
+    });
   } else {
     // Desktop viewport
     const viewportWidth = await page.evaluate(() => window.innerWidth);
@@ -339,6 +351,54 @@ test('responsive layout adapts to viewport size', async ({ page }, testInfo) => 
       fullPage: true,
     });
   }
+});
+
+test('long home poem uses compact type without horizontal overflow', async ({ page }, testInfo) => {
+  await page.addInitScript(() => {
+    window.sessionStorage.removeItem('cumbuca-last-home-quote');
+    Math.random = () => 0.04;
+  });
+  await page.goto('/');
+
+  const hero = page.locator('.hero');
+  await expect(hero).toHaveClass(/quote-compact/);
+  await expect(page.locator('#page-title')).toContainText('J. Pinto Fernandes');
+  await page.screenshot({
+    path: testInfo.outputPath('long-home-poem-compact.png'),
+    fullPage: true,
+  });
+  const dimensions = await page.evaluate(() => {
+    const heroElement = document.querySelector('.hero');
+    const titleElement = document.querySelector('#page-title');
+    return {
+      heroHeight: heroElement.getBoundingClientRect().height,
+      titleClientWidth: titleElement.clientWidth,
+      titleScrollWidth: titleElement.scrollWidth,
+      titleFontSize: Number.parseFloat(getComputedStyle(titleElement).fontSize),
+    };
+  });
+  expect(dimensions.titleScrollWidth).toBeLessThanOrEqual(dimensions.titleClientWidth + 1);
+  expect(dimensions.titleFontSize).toBeLessThanOrEqual(
+    testInfo.project.name === 'mobile' ? 16 : 24
+  );
+  expect(dimensions.heroHeight).toBeLessThanOrEqual(testInfo.project.name === 'mobile' ? 420 : 340);
+});
+
+test('Dialetica excerpt uses the requested compact type', async ({ page }, testInfo) => {
+  await page.addInitScript(() => {
+    window.sessionStorage.removeItem('cumbuca-last-home-quote');
+    Math.random = () => 0.14;
+  });
+  await page.goto('/');
+
+  const hero = page.locator('.hero');
+  await expect(hero).toHaveClass(/quote-compact/);
+  await expect(page.locator('#hero-motto')).toContainText('Dialética');
+  await expect(page.locator('#page-title')).toContainText('Mas acontece que eu sou triste...');
+  const fontSize = await page
+    .locator('#page-title')
+    .evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
+  expect(fontSize).toBeLessThanOrEqual(testInfo.project.name === 'mobile' ? 16 : 24);
 });
 
 test('narrow desktop window activates compact mode', async ({ page }, testInfo) => {
@@ -360,6 +420,9 @@ test('narrow desktop window activates compact mode', async ({ page }, testInfo) 
   await expect(page.locator('.nav-extra:visible')).toHaveCount(0);
   await expect(page.locator('.nav-more')).toBeVisible();
   await expect(page.locator('.hero-motto')).toContainText('Pitada do dia:');
+  const dailyCashMotto = await page.locator('#hero-motto').textContent();
+  await page.reload();
+  await expect(page.locator('#hero-motto')).toHaveText(dailyCashMotto);
   expect(
     await page.locator('.hero-map').evaluate((image) => image.complete && image.naturalWidth > 0)
   ).toBe(true);

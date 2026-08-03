@@ -8907,6 +8907,84 @@ html.dark-mode tbody tr:hover {
   }
 }
 
+/* Na página inicial, a mensagem do dia assume o lugar do título tradicional. */
+.hero.quote-mode {
+  min-height: 250px;
+}
+
+.hero.quote-mode h1 {
+  max-width: 960px;
+  font-size: clamp(1.45rem, 2.45vw, 2.25rem);
+  line-height: 1.18;
+  letter-spacing: -0.026em;
+  text-wrap: balance;
+  white-space: pre-line;
+}
+
+.hero.quote-mode.quote-compact h1 {
+  max-width: 1040px;
+  font-size: clamp(1.02rem, 1.65vw, 1.45rem);
+  line-height: 1.16;
+  letter-spacing: -0.014em;
+}
+
+.hero.quote-mode .hero-motto {
+  margin-top: 15px;
+  padding: 7px 11px;
+  background: rgba(1, 42, 31, 0.24);
+  font-size: 0.75rem;
+  letter-spacing: 0.025em;
+}
+
+@media (min-width: 760px) and (max-width: 1100px) {
+  .hero.quote-mode {
+    min-height: 190px;
+  }
+
+  .hero.quote-mode h1 {
+    font-size: clamp(1.3rem, 3vw, 1.9rem);
+  }
+}
+
+@media (max-width: 759px) {
+  .hero.quote-mode {
+    min-height: 174px;
+  }
+
+  .hero.quote-mode h1 {
+    font-size: clamp(1.12rem, 4.6vw, 1.55rem);
+    line-height: 1.17;
+  }
+
+  .hero.quote-mode.quote-compact {
+    min-height: 190px;
+  }
+
+  .hero.quote-mode.quote-compact h1 {
+    font-size: clamp(0.82rem, 3.7vw, 1rem);
+    line-height: 1.14;
+    letter-spacing: -0.008em;
+  }
+}
+
+@media (max-width: 560px) {
+  .hero.quote-mode {
+    min-height: 164px;
+  }
+
+  .hero.quote-mode h1 {
+    font-size: clamp(0.98rem, 4.6vw, 1.28rem);
+    letter-spacing: -0.016em;
+  }
+
+  .hero.quote-mode .hero-motto {
+    max-width: 100%;
+    margin-top: 7px;
+    padding: 4px 7px;
+    font-size: 0.58rem;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

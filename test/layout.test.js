@@ -20,8 +20,65 @@ test('narrow browser windows keep horizontal page scrolling available', () => {
   assert.match(app, /advancedCashFilterActive/);
   assert.match(css, /cash-ledger-panel > \.summary/);
   assert.match(html, /id="hero-motto"/);
+  assert.match(html, /class="hero quote-mode"/);
+  assert.match(
+    html,
+    /<h1 id="page-title">“É claro que a vida é boa[\s\S]*?Mas acontece que eu sou triste[\s\S]*?<\/h1>/
+  );
+  assert.doesNotMatch(app, /title\.textContent = "Visão Geral"/);
   assert.match(app, /dailyHeroMottos/);
+  assert.match(app, /dailyHeroMessages/);
+  assert.match(app, /showHomeHero/);
+  assert.match(app, /quote-compact/);
+  assert.match(app, /Boolean\(message\.compact\)/);
+  assert.match(app, /message\.text\.length > 180 \|\| message\.text\.includes/);
+  assert.match(app, /showStandardHero/);
+  assert.match(app, /dailyCashMottos/);
+  assert.match(app, /cashMottoForDate/);
+  assert.match(app, /pageTitle === "Fluxo de Caixa"/);
+  assert.match(app, /HOME_HERO_LAST_INDEX_KEY/);
+  assert.match(app, /Math\.random\(\)/);
+  assert.match(app, /window\.sessionStorage\.setItem/);
+  assert.match(app, /Carlos Drummond de Andrade/);
+  assert.match(app, /Vinicius de Moraes/);
+  assert.match(app, /Chico Buarque/);
+  assert.match(app, /Jorge Vercillo/);
+  assert.match(app, /Los Hermanos/);
+  assert.match(app, /Luis Fernando Verissimo/);
+  assert.match(app, /Clarice Lispector/);
+  assert.doesNotMatch(app, /ANAVITÓRIA/);
+  const heroMessages = app.match(
+    /const dailyHeroMessages = \[([\s\S]*?)\n\];\n\nconst HOME_HERO_LAST_INDEX_KEY/
+  );
+  assert.ok(heroMessages);
+  assert.equal((heroMessages[1].match(/credit:/g) || []).length, 80);
+  assert.equal((heroMessages[1].match(/credit: "Carlos Drummond de Andrade/g) || []).length, 16);
+  assert.equal((heroMessages[1].match(/credit: "Vinicius de Moraes/g) || []).length, 16);
+  assert.equal((heroMessages[1].match(/credit: "Chico Buarque/g) || []).length, 16);
+  assert.equal((heroMessages[1].match(/credit: "Jorge Vercillo/g) || []).length, 10);
+  assert.equal((heroMessages[1].match(/credit: "Los Hermanos/g) || []).length, 10);
+  assert.equal((heroMessages[1].match(/credit: "Luis Fernando Verissimo/g) || []).length, 6);
+  assert.equal((heroMessages[1].match(/credit: "Clarice Lispector/g) || []).length, 6);
+  assert.match(
+    heroMessages[1],
+    /text: "E agora, José\?[\s\S]*?a noite esfriou\."[\s\S]*?Carlos Drummond de Andrade · José/
+  );
+  assert.match(
+    heroMessages[1],
+    /João amava Teresa[\s\S]*?J\. Pinto Fernandes\\nque não tinha entrado na história\./
+  );
+  assert.match(
+    heroMessages[1],
+    /text: "É claro que a vida é boa[\s\S]*?Mas acontece que eu sou triste\.\.\."[\s\S]*?Vinicius de Moraes · Dialética/
+  );
+  assert.match(heroMessages[1], /Vinicius de Moraes · Dialética",[\s\S]*?compact: true/);
+  const cashMottos = app.match(
+    /const dailyCashMottos = \[([\s\S]*?)\n\];\n\nconst dailyHeroMessages/
+  );
+  assert.ok(cashMottos);
+  assert.equal((cashMottos[1].match(/"Pitada do dia:/g) || []).length, 30);
   assert.match(css, /\.hero-motto/);
+  assert.match(css, /\.hero\.quote-mode h1/);
   assert.match(html, /class="hero-logo hero-map"/);
   assert.match(html, /class="hero-brand-art"/);
   assert.match(html, /class="hero-bowl-logo"/);

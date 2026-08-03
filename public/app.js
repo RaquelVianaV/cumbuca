@@ -1,6 +1,7 @@
 const app = document.querySelector('#app');
 const title = document.querySelector('#page-title');
 const todayDate = document.querySelector('#today-date');
+const hero = document.querySelector('.hero');
 const heroMotto = document.querySelector('#hero-motto');
 const systemStatusSummary = document.querySelector('#system-status-summary');
 const serverStatus = document.querySelector('#server-status');
@@ -118,6 +119,425 @@ const dailyHeroMottos = [
   "Pitada do dia: sextou melhor quando o caixa também fecha bonito.",
   "Pitada do dia: organização hoje, tranquilidade amanhã e café sempre."
 ];
+
+const dailyCashMottos = [
+  "Pitada do dia: lançar depois é o primo elegante de esquecer.",
+  "Pitada do dia: o caixa não julga, mas guarda todos os recibos.",
+  "Pitada do dia: saldo certo, café forte e ninguém surta antes do almoço.",
+  "Pitada do dia: se não lançou, o dinheiro virou lenda urbana.",
+  "Pitada do dia: conciliar é fazer as contas pararem de discutir.",
+  "Pitada do dia: boleto pago é quase terapia, só que com comprovante.",
+  "Pitada do dia: organização não faz milagre, mas evita vários sustos.",
+  "Pitada do dia: o extrato sabe de coisas que a memória esqueceu.",
+  "Pitada do dia: conferir duas vezes custa menos que procurar depois.",
+  "Pitada do dia: conta sem categoria é meia perdida na lavanderia.",
+  "Pitada do dia: dinheiro não aceita 'eu achei que tinha lançado'.",
+  "Pitada do dia: hoje tem fechamento; respira e pega o café.",
+  "Pitada do dia: planilha arrumada, coração com menos parcelas.",
+  "Pitada do dia: o caixa fechou bonito e já pode sextar em paz.",
+  "Pitada do dia: toda saída merece destino, até a do cafezinho.",
+  "Pitada do dia: não é fofoca financeira, é conciliação.",
+  "Pitada do dia: um comprovante por vez e o mistério desaparece.",
+  "Pitada do dia: saldo negativo não é personalidade, dá para corrigir.",
+  "Pitada do dia: se a conta não bate, ela está pedindo conversa.",
+  "Pitada do dia: lançar na hora é carinho com você de amanhã.",
+  "Pitada do dia: débito pequeno também cresce quando ganha liberdade.",
+  "Pitada do dia: café primeiro, conferência logo depois.",
+  "Pitada do dia: dinheiro contado dorme mais tranquilo.",
+  "Pitada do dia: o mês vira, mas a pendência tenta ficar.",
+  "Pitada do dia: recibo guardado é paz em formato de papel.",
+  "Pitada do dia: até o Pix precisa de nome e categoria.",
+  "Pitada do dia: não brigue com o saldo; investigue com educação.",
+  "Pitada do dia: fechar o caixa também conta como exercício mental.",
+  "Pitada do dia: cada lançamento certo é um mini 'ufa'.",
+  "Pitada do dia: cumbuca cheia e conta conferida — equilíbrio perfeito."
+];
+
+const dailyHeroMessages = [
+  {
+    text: "No meio do caminho tinha uma pedra, tinha uma pedra no meio do caminho.",
+    credit: "Carlos Drummond de Andrade · No meio do caminho"
+  },
+  {
+    text: "E agora, José? A festa acabou, a luz apagou, o povo sumiu, a noite esfriou.",
+    credit: "Carlos Drummond de Andrade · José"
+  },
+  {
+    text: "Quando nasci, um anjo torto, desses que vivem na sombra, disse: Vai, Carlos! ser gauche na vida.",
+    credit: "Carlos Drummond de Andrade · Poema de sete faces"
+  },
+  {
+    text: "João amava Teresa que amava Raimundo\nque amava Maria que amava Joaquim que amava Lili\nque não amava ninguém.\nJoão foi para os Estados Unidos, Teresa para o convento,\nRaimundo morreu de desastre, Maria ficou para tia,\nJoaquim suicidou-se e Lili casou com J. Pinto Fernandes\nque não tinha entrado na história.",
+    credit: "Carlos Drummond de Andrade · Quadrilha"
+  },
+  {
+    text: "Penetra surdamente no reino das palavras. Lá estão os poemas que esperam ser escritos.",
+    credit: "Carlos Drummond de Andrade · Procura da poesia"
+  },
+  {
+    text: "Tenho apenas duas mãos e o sentimento do mundo, mas estou cheio de escravos, minhas lembranças escorrem.",
+    credit: "Carlos Drummond de Andrade · Sentimento do mundo"
+  },
+  {
+    text: "Amar o perdido deixa confundido este coração. Mas as coisas findas, muito mais que lindas, essas ficarão.",
+    credit: "Carlos Drummond de Andrade · Memória"
+  },
+  {
+    text: "A porta da verdade estava aberta, mas só deixava passar meia pessoa de cada vez.",
+    credit: "Carlos Drummond de Andrade · Verdade"
+  },
+  {
+    text: "Não serei o poeta de um mundo caduco. Também não cantarei o mundo futuro.",
+    credit: "Carlos Drummond de Andrade · Mãos dadas"
+  },
+  {
+    text: "Casas entre bananeiras, mulheres entre laranjeiras, pomar amor cantar. Um homem vai devagar.",
+    credit: "Carlos Drummond de Andrade · Cidadezinha qualquer"
+  },
+  {
+    text: "Que não seja imortal, posto que é chama, mas que seja infinito enquanto dure.",
+    credit: "Vinicius de Moraes · Soneto de fidelidade"
+  },
+  {
+    text: "É claro que a vida é boa\nE a alegria, a única indizível emoção\nÉ claro que te acho linda\nE em ti bendigo o amor das coisas simples\nÉ claro que te amo\nE tenho tudo para ser feliz\n\nMas acontece que eu sou triste...",
+    credit: "Vinicius de Moraes · Dialética",
+    compact: true
+  },
+  {
+    text: "Em cada despedida eu vou te amar desesperadamente.",
+    credit: "Vinicius de Moraes · Eu sei que vou te amar"
+  },
+  {
+    text: "É melhor ser alegre que ser triste.",
+    credit: "Vinicius de Moraes · Samba da bênção"
+  },
+  {
+    text: "A felicidade é como a gota de orvalho numa pétala.",
+    credit: "Vinicius de Moraes · A felicidade"
+  },
+  {
+    text: "Onde anda você, em que sol, em que distante manhã?",
+    credit: "Vinicius de Moraes · Onde anda você"
+  },
+  {
+    text: "Um velho calção de banho, o dia pra vadiar.",
+    credit: "Vinicius de Moraes · Tarde em Itapuã"
+  },
+  {
+    text: "Vai tua vida, teu caminho é de paz e amor.",
+    credit: "Vinicius de Moraes · Se todos fossem iguais a você"
+  },
+  {
+    text: "Chega de saudade, a realidade é que sem ela.",
+    credit: "Vinicius de Moraes · Chega de saudade"
+  },
+  {
+    text: "Maior amor nem mais estranho existe que o meu, que não sossega a coisa amada.",
+    credit: "Vinicius de Moraes · Soneto do maior amor"
+  },
+  {
+    text: "Amanhã há de ser outro dia, eu pergunto a você.",
+    credit: "Chico Buarque · Apesar de você"
+  },
+  {
+    text: "Vai passar nessa avenida um samba popular.",
+    credit: "Chico Buarque · Vai passar"
+  },
+  {
+    text: "O tempo rodou num instante, nas voltas do meu coração.",
+    credit: "Chico Buarque · Roda viva"
+  },
+  {
+    text: "Que a gente vai levando de teimoso e de pirraça.",
+    credit: "Chico Buarque · Meu caro amigo"
+  },
+  {
+    text: "Oh, pedaço de mim, oh, metade arrancada de mim.",
+    credit: "Chico Buarque · Pedaço de mim"
+  },
+  {
+    text: "A noiva do cowboy era você, além das outras três.",
+    credit: "Chico Buarque · João e Maria"
+  },
+  {
+    text: "Todo dia ela faz tudo sempre igual.",
+    credit: "Chico Buarque · Cotidiano"
+  },
+  {
+    text: "Corre, Maria, que a vida não espera, é uma primavera.",
+    credit: "Chico Buarque · Olha Maria"
+  },
+  {
+    text: "Eu faço samba e amor até mais tarde.",
+    credit: "Chico Buarque · Samba e amor"
+  },
+  {
+    text: "Pra ver a banda passar cantando coisas de amor.",
+    credit: "Chico Buarque · A banda"
+  },
+  {
+    text: "Pode parecer fraqueza, pois que seja fraqueza então.",
+    credit: "Jorge Vercillo · Final feliz"
+  },
+  {
+    text: "Nada vai me fazer desistir do amor.",
+    credit: "Jorge Vercillo · Que nem maré"
+  },
+  {
+    text: "Hoje tudo faz sentido, e ainda há tanto a aprender.",
+    credit: "Jorge Vercillo · Monalisa"
+  },
+  {
+    text: "Ela une todas as coisas como eu poderia explicar.",
+    credit: "Jorge Vercillo · Ela une todas as coisas"
+  },
+  {
+    text: "Hoje o herói aguenta o peso das compras do mês.",
+    credit: "Jorge Vercillo · Homem-Aranha"
+  },
+  {
+    text: "Quando a noite faz nascer a luz da escuridão.",
+    credit: "Jorge Vercillo · Fênix"
+  },
+  {
+    text: "Nesse abraço se fez um ciclo que não tem fim.",
+    credit: "Jorge Vercillo · Ciclo"
+  },
+  {
+    text: "E quando vejo, a vida espera mais de mim.",
+    credit: "Jorge Vercillo · Eu e a vida"
+  },
+  {
+    text: "Eu queria não sentir essa saudade.",
+    credit: "Jorge Vercillo · Penso em ti"
+  },
+  {
+    text: "Aprendi com a dor nada mais é o amor.",
+    credit: "Jorge Vercillo · Encontro das águas"
+  },
+  {
+    text: "Deixa eu brincar de ser feliz.",
+    credit: "Los Hermanos · Todo Carnaval Tem Seu Fim"
+  },
+  {
+    text: "Levo a vida devagar pra não faltar amor.",
+    credit: "Los Hermanos · O vencedor"
+  },
+  {
+    text: "Quem é mais sentimental que eu?",
+    credit: "Los Hermanos · Sentimental"
+  },
+  {
+    text: "Eu encontrei-a quando não quis mais procurar.",
+    credit: "Los Hermanos · Último romance"
+  },
+  {
+    text: "É preciso força pra sonhar e perceber.",
+    credit: "Los Hermanos · Além do que se vê"
+  },
+  {
+    text: "Deixa o verão pra mais tarde.",
+    credit: "Los Hermanos · Deixa o verão"
+  },
+  {
+    text: "Abre a janela agora, deixa que o sol te veja.",
+    credit: "Los Hermanos · Conversa de botas batidas"
+  },
+  {
+    text: "Eu que nunca amei a ninguém pude, enfim, amar.",
+    credit: "Los Hermanos · A flor"
+  },
+  {
+    text: "Abre essa janela, primavera quer entrar.",
+    credit: "Los Hermanos · Casa pré-fabricada"
+  },
+  {
+    text: "Deus vai dar aval, sim, o mal vai ter fim.",
+    credit: "Los Hermanos · De onde vem a calma"
+  },
+  {
+    text: "E como ficou chato ser moderno. Agora serei eterno. Eterno! Eterno! O Padre Eterno, a vida eterna, o fogo eterno.",
+    credit: "Carlos Drummond de Andrade · Eterno"
+  },
+  {
+    text: "Vamos, não chores. A infância está perdida. A mocidade está perdida. Mas a vida não se perdeu.",
+    credit: "Carlos Drummond de Andrade · Consolo na praia"
+  },
+  {
+    text: "Minha vida, nossas vidas formam um só diamante. Aprendi novas palavras e tornei outras mais belas.",
+    credit: "Carlos Drummond de Andrade · Canção amiga"
+  },
+  {
+    text: "Carlos, sossegue, o amor é isso que você está vendo: hoje beija, amanhã não beija, depois de amanhã é domingo.",
+    credit: "Carlos Drummond de Andrade · Não se mate"
+  },
+  {
+    text: "Lutar com palavras é a luta mais vã. Entanto lutamos mal rompe a manhã. Palavra, palavra, se me desafias, aceito o combate.",
+    credit: "Carlos Drummond de Andrade · O lutador"
+  },
+  {
+    text: "O amor pulou o muro, o amor subiu na árvore em tempo de se estrepar. Pronto, o amor se estrepou.",
+    credit: "Carlos Drummond de Andrade · O amor bate na aorta"
+  },
+  {
+    text: "Para isso fomos feitos: para lembrar e ser lembrados, para chorar e fazer chorar, para enterrar os nossos mortos.",
+    credit: "Vinicius de Moraes · Poema de Natal"
+  },
+  {
+    text: "Eu te peço perdão por te amar de repente, embora o meu amor seja uma velha canção nos teus ouvidos.",
+    credit: "Vinicius de Moraes · Ternura"
+  },
+  {
+    text: "De manhã escureço, de dia tardo, de tarde anoiteço, de noite ardo. Eu morro ontem, nasço amanhã. Meu tempo é quando.",
+    credit: "Vinicius de Moraes · Poética"
+  },
+  {
+    text: "Enfim, depois de tanto erro passado, tantas retaliações, tanto perigo, eis que ressurge noutro o velho amigo, nunca perdido, sempre reencontrado.",
+    credit: "Vinicius de Moraes · Soneto do amigo"
+  },
+  {
+    text: "De repente do riso fez-se o pranto, silencioso e branco como a bruma, e das bocas unidas fez-se a espuma.",
+    credit: "Vinicius de Moraes · Soneto de separação"
+  },
+  {
+    text: "Resta, acima de tudo, essa capacidade de ternura, essa intimidade perfeita com o silêncio, essa voz íntima pedindo perdão por tudo.",
+    credit: "Vinicius de Moraes · O haver"
+  },
+  {
+    text: "E ali dançaram tanta dança que a vizinhança toda despertou.",
+    credit: "Chico Buarque · Valsinha"
+  },
+  {
+    text: "Amou daquela vez como se fosse a última.",
+    credit: "Chico Buarque · Construção"
+  },
+  {
+    text: "Mulher, você vai gostar, tô levando uns amigos pra conversar.",
+    credit: "Chico Buarque · Feijoada completa"
+  },
+  {
+    text: "Todo sentimento precisa de um passado pra existir.",
+    credit: "Chico Buarque · Todo o sentimento"
+  },
+  {
+    text: "Parece que dizes: te amo, Maria. Na fotografia, estamos felizes.",
+    credit: "Chico Buarque · Anos dourados"
+  },
+  {
+    text: "O amor não tem pressa, ele pode esperar em silêncio.",
+    credit: "Chico Buarque · Futuros amantes"
+  },
+  {
+    text: "Fizemos muita bobagem, é verdade — guerras, filhos demais, sacanagem com os outros, carros com rabo de peixe, Brasília —, mas também fizemos coisas admiráveis.",
+    credit: "Luis Fernando Verissimo · Ver!ssimas"
+  },
+  {
+    text: "O cérebro humano é uma coisa tão complexa que nem o cérebro humano é complexo o bastante para entendê-lo.",
+    credit: "Luis Fernando Verissimo · Ver!ssimas"
+  },
+  {
+    text: "O Brasil é governado por minoria esmagadora.",
+    credit: "Luis Fernando Verissimo · Ver!ssimas"
+  },
+  {
+    text: "A sintaxe é uma questão de uso, não de princípios. Escrever bem é escrever claro, não necessariamente certo.",
+    credit: "Luis Fernando Verissimo · Comédias para se ler na escola"
+  },
+  {
+    text: "Vida não interessa: haverá comida e bebida depois da morte?",
+    credit: "Luis Fernando Verissimo · Ver!ssimas"
+  },
+  {
+    text: "Eu acho que na cama vale tudo, menos legumes. Já perdi a namorada porque disse que o meu limite era o pepino.",
+    credit: "Luis Fernando Verissimo · Ver!ssimas"
+  },
+  {
+    text: "Liberdade é pouco. O que eu desejo ainda não tem nome.",
+    credit: "Clarice Lispector · Perto do coração selvagem"
+  },
+  {
+    text: "Minha voz é o modo como vou buscar a realidade; a realidade, antes de minha linguagem, existe como um pensamento que não se pensa.",
+    credit: "Clarice Lispector · Água viva"
+  },
+  {
+    text: "Por que escrevo sobre uma jovem que nem pobreza enfeitada tem? Talvez porque nela haja um recolhimento.",
+    credit: "Clarice Lispector · A hora da estrela"
+  },
+  {
+    text: "Desde que me conheço, o fato social teve em mim importância maior que qualquer outro.",
+    credit: "Clarice Lispector · Literatura e justiça"
+  },
+  {
+    text: "Vamos falar a verdade: isto aqui não é crônica coisa nenhuma. Isto é apenas. Não entra em gênero. Gêneros não me interessam mais.",
+    credit: "Clarice Lispector · Todas as crônicas"
+  },
+  {
+    text: "Se eu tivesse que dar um título à minha vida seria: à procura da própria coisa.",
+    credit: "Clarice Lispector · Aproximação gradativa"
+  }
+];
+
+const HOME_HERO_LAST_INDEX_KEY = "cumbuca-last-home-quote";
+
+function dayOfYearIndex(date = new Date()) {
+  const currentDay = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+  const firstDay = Date.UTC(date.getFullYear(), 0, 1);
+  return Math.floor((currentDay - firstDay) / 86400000);
+}
+
+function cashMottoForDate(date = new Date()) {
+  return dailyCashMottos[dayOfYearIndex(date) % dailyCashMottos.length];
+}
+
+function randomHeroMessage() {
+  let previousIndex = -1;
+
+  try {
+    const storedIndex = Number.parseInt(window.sessionStorage.getItem(HOME_HERO_LAST_INDEX_KEY), 10);
+    if (Number.isInteger(storedIndex) && storedIndex >= 0 && storedIndex < dailyHeroMessages.length) {
+      previousIndex = storedIndex;
+    }
+  } catch (error) {
+    previousIndex = -1;
+  }
+
+  const availableCount = dailyHeroMessages.length - (previousIndex >= 0 ? 1 : 0);
+  let selectedIndex = Math.floor(Math.random() * availableCount);
+  if (previousIndex >= 0 && selectedIndex >= previousIndex) {
+    selectedIndex += 1;
+  }
+
+  try {
+    window.sessionStorage.setItem(HOME_HERO_LAST_INDEX_KEY, String(selectedIndex));
+  } catch (error) {
+    // A frase continua funcionando mesmo se o navegador bloquear o armazenamento.
+  }
+
+  return dailyHeroMessages[selectedIndex];
+}
+
+function showStandardHero(pageTitle, date = new Date()) {
+  title.textContent = pageTitle;
+  hero?.classList.remove("quote-mode", "quote-compact");
+  if (heroMotto) {
+    heroMotto.textContent = pageTitle === "Fluxo de Caixa"
+      ? cashMottoForDate(date)
+      : dailyHeroMottos[date.getDay()];
+  }
+}
+
+function showHomeHero() {
+  const message = randomHeroMessage();
+  title.textContent = `“${message.text}”`;
+  hero?.classList.add("quote-mode");
+  hero?.classList.toggle(
+    "quote-compact",
+    Boolean(message.compact) || message.text.length > 180 || message.text.includes("\n")
+  );
+  if (heroMotto) {
+    heroMotto.textContent = message.credit;
+  }
+}
 
 if (todayDate) {
   const now = new Date();
@@ -4288,7 +4708,7 @@ function dashboardAccountBreakdown(values = {}) {
 }
 
 function home() {
-  title.textContent = "Cumbuca";
+  showHomeHero();
   setActive("");
   const metrics = homeMetricData();
   const weeklyOrders = state.orders.filter(order => order.menuKey === menuKey(state.menuWeek || 1)).length;
@@ -4514,7 +4934,7 @@ function operationAgendaItems(data = todayOperationData()) {
 }
 
 function renderToday() {
-  title.textContent = "Operação";
+  showStandardHero("Operação");
   setActive("hoje");
   ensureCashEntryIds();
   const data = todayOperationData();
@@ -4925,7 +5345,7 @@ function bindTodayForms(today) {
 }
 
 async function renderCash() {
-  title.textContent = "Fluxo de Caixa";
+  showStandardHero("Fluxo de Caixa");
   setActive("fluxo-de-caixa");
   const cashParams = new URLSearchParams(location.search);
   const requestedCashPanel = cashParams.get("panel");
@@ -7157,7 +7577,7 @@ function planningIngredientTotal(ingredients) {
 }
 
 async function renderMenu() {
-  title.textContent = "Menu Semanal";
+  showStandardHero("Menu Semanal");
   setActive("menu-semanal");
   const currentWeek = state.menuWeek || 1;
   const currentKey = menuKey(currentWeek);
@@ -8500,7 +8920,7 @@ async function renderQuickOrders() {
     state.orderTab = "orders";
   }
   await renderMenu();
-  title.textContent = "Pedidos";
+  showStandardHero("Pedidos");
   setActive("pedidos");
 }
 
@@ -9774,7 +10194,7 @@ function updatePricingSharedCostPreview(form) {
 }
 
 async function renderPricingLegacy() {
-  title.textContent = "Precificação";
+  showStandardHero("Precificação");
   setActive("precificacao");
   const savedConfig = state.pricingConfig;
   const result = await postJson("/api/precificacao", {
@@ -9871,7 +10291,7 @@ async function renderPricingLegacy() {
 }
 
 async function renderPricing() {
-  title.textContent = "Precificação";
+  showStandardHero("Precificação");
   setActive("precificacao");
   const pricingTabs = [
     ["dashboard", "Visão geral"],
@@ -13106,7 +13526,7 @@ function storeProductsPanel(month, editingProduct = null) {
 }
 
 function renderStoreSales() {
-  title.textContent = "Loja";
+  showStandardHero("Loja");
   setActive("loja");
   const today = isoDate(new Date());
   const storeTabs = [
@@ -15931,7 +16351,7 @@ function financeDashboardPanel(data) {
 }
 
 function renderFinance() {
-  title.textContent = "Financeiro";
+  showStandardHero("Financeiro");
   setActive("financeiro");
   const data = reportData();
   const reportType = state.reportPeriod.type || "month";
@@ -16058,7 +16478,7 @@ function renderFinance() {
 }
 
 function renderReports() {
-  title.textContent = "Relatórios";
+  showStandardHero("Relatórios");
   setActive("relatorios");
   const data = reportData();
   const reportType = state.reportPeriod.type || "month";
@@ -16205,7 +16625,7 @@ function renderReports() {
 }
 
 async function renderBackups() {
-  title.textContent = "Manutenção";
+  showStandardHero("Manutenção");
   setActive("backups");
   const requestedTab = new URLSearchParams(location.search).get("tab");
   if (requestedTab && canAccessMaintenanceTab(requestedTab)) {
@@ -16944,7 +17364,7 @@ function actionableManagementAlerts(metrics = homeMetricData(), today = todayOpe
 }
 
 function renderAlerts() {
-  title.textContent = "Alertas";
+  showStandardHero("Alertas");
   setActive("alertas");
   const metrics = homeMetricData();
   const today = todayOperationData();
@@ -17010,7 +17430,7 @@ function renderAlerts() {
 }
 
 function renderSettings() {
-  title.textContent = "Configurações";
+  showStandardHero("Configurações");
   setActive("configuracoes");
   const config = {
     ...defaultAppConfig,
@@ -17110,7 +17530,7 @@ function renderSettings() {
 }
 
 function renderMore() {
-  title.textContent = "Mais";
+  showStandardHero("Mais");
   setActive("mais");
   const links = [
     ["menu-semanal", "Menu", "Cardápio, produção e pedidos"],
@@ -17518,7 +17938,7 @@ async function loadTechnicalEvents() {
 }
 
 function renderAccount() {
-  title.textContent = "Minha conta";
+  showStandardHero("Minha conta");
   setActive("minha-conta");
   const user = state.currentUser || {};
   app.innerHTML = `
