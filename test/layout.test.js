@@ -118,8 +118,9 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /today-expense-employee-field/);
   assert.match(app, /financial-account-employee/);
   assert.match(app, /financial-account-cash-account-field/);
-  assert.match(app, /Conta escolhida no pagamento/);
-  assert.match(app, /cashAccount: kind === "payable" \? ""/);
+  assert.match(app, /Definir conta no pagamento/);
+  assert.doesNotMatch(app, /cashAccount: kind === "payable" \? ""/);
+  assert.match(app, /Definir quando pagar/);
   assert.match(app, /today-expense-cash-account-field/);
   assert.match(app, /cash-account-field/);
   assert.match(app, /Definir ao pagar/);

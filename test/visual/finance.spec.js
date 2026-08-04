@@ -315,13 +315,20 @@ test('future bills choose the cash account only when paid', async ({ page }) => 
   await page.goto('/hoje');
   const quickExpenseForm = page.locator('#today-expense-form');
   await quickExpenseForm.locator('#today-expense-category').selectOption('boleto');
-  await expect(quickExpenseForm.locator('#today-expense-cash-account-field')).toBeHidden();
+  await expect(quickExpenseForm.locator('#today-expense-cash-account-field')).toBeVisible();
+  await expect(quickExpenseForm.locator('#today-expense-cash-account')).toHaveValue('');
+  await expect(quickExpenseForm.locator('#today-expense-cash-account')).not.toHaveAttribute(
+    'required',
+    ''
+  );
 
   await page.goto('/fluxo-de-caixa');
   const cashForm = page.locator('#cash-form');
   await cashForm.locator('#cash-type').selectOption('expense');
   await cashForm.locator('#cash-category').selectOption('boleto');
-  await expect(cashForm.locator('#cash-account-field')).toBeHidden();
+  await expect(cashForm.locator('#cash-account-field')).toBeVisible();
+  await expect(cashForm.locator('#cash-account')).toHaveValue('');
+  await expect(cashForm.locator('#cash-account')).not.toHaveAttribute('required', '');
   await cashForm.getByLabel('Descrição', { exact: true }).fill('Boleto futuro sem conta');
   await cashForm.getByLabel('Vencimento', { exact: true }).fill(tomorrow);
   await cashForm.getByLabel('Valor', { exact: true }).fill('125,00');
@@ -1552,7 +1559,11 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
   await expect(
     page.getByRole('heading', { name: 'Contas a pagar e receber', exact: true })
   ).toBeVisible();
-  await expect(page.locator('#financial-account-cash-account-field')).toBeHidden();
+  await expect(page.locator('#financial-account-cash-account-field')).toBeVisible();
+  await expect(page.locator('#financial-account-cash-account')).toHaveValue('');
+  await expect(page.locator('#financial-account-cash-account-help')).toContainText(
+    'escolha a conta somente ao registrar o pagamento'
+  );
 
   await page.getByLabel('Descrição', { exact: true }).fill('Teste fornecedor');
   await page.getByLabel('Vencimento', { exact: true }).fill(today);
@@ -1583,7 +1594,7 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
   ).toEqual(['25.00', '25.00']);
 
   let firstAccount = page.locator('.account-row').filter({ hasText: 'Teste fornecedor' }).first();
-  await expect(firstAccount).toContainText('Conta escolhida no pagamento');
+  await expect(firstAccount).toContainText('Definir conta no pagamento');
   await firstAccount
     .locator('form[data-account-settlement] select[name="cashAccount"]')
     .selectOption('pj');

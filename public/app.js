@@ -5043,10 +5043,11 @@ function renderToday() {
               ${financialEmployeeOptionsHtml()}
             </select>
           </label>
-          <label id="today-expense-cash-account-field">Conta
+          <label id="today-expense-cash-account-field">Conta corrente
             <select name="cashAccount" id="today-expense-cash-account">
-              ${cashAccountOptionsHtml(quickCashAccount, "expense")}
+              ${cashAccountOptionsHtml(quickCashAccount, "expense", false, "Definir quando pagar")}
             </select>
+            <small id="today-expense-cash-account-help">Em boleto pendente, deixe para definir no pagamento.</small>
           </label>
           <label id="today-expense-due-date-field">Vencimento
             <input name="dueDate" type="date">
@@ -5282,9 +5283,7 @@ function bindTodayForms(today) {
       const shouldTrackBillPayment = isBillCategory(values.category);
       const billIsPaid = shouldTrackBillPayment && values.paid === "yes";
       const paidDate = billIsPaid ? (values.paidDate || values.date) : "";
-      const cashAccount = shouldTrackBillPayment && !billIsPaid
-        ? ""
-        : normalizedCashAccount(values.cashAccount, "");
+      const cashAccount = normalizedCashAccount(values.cashAccount, "");
       if (!cashAccount && (!shouldTrackBillPayment || billIsPaid)) {
         showToast("Selecione a conta usada na saída.", "error");
         return;
@@ -5338,8 +5337,13 @@ function bindTodayForms(today) {
       todayExpensePaidDateField.hidden = !shouldShowPaidDate;
       todayExpensePaidDateField.querySelector("input").required = shouldShowPaidDate;
       if (todayExpenseCashAccountField && todayExpenseCashAccountSelect) {
-        todayExpenseCashAccountField.hidden = shouldShowBill && !shouldShowPaidDate;
-        todayExpenseCashAccountSelect.required = !todayExpenseCashAccountField.hidden;
+        todayExpenseCashAccountField.hidden = false;
+        todayExpenseCashAccountSelect.required = !shouldShowBill || shouldShowPaidDate;
+        if (shouldShowBill && !shouldShowPaidDate) {
+          todayExpenseCashAccountSelect.value = "";
+        } else if (!todayExpenseCashAccountSelect.value) {
+          todayExpenseCashAccountSelect.value = normalizedCashAccount(quickCashAccount);
+        }
       }
       if (!shouldShowBill) {
         todayExpenseDueDateField.querySelector("input").value = "";
@@ -5435,7 +5439,12 @@ async function renderCash() {
   const cashEntryEmployeeId = String(editing?.employeeId || requestedEmployee?.id || "");
   const cashEntryDescription = editing?.description
     || (requestedEmployee ? `Pagamento - ${requestedEmployee.name}` : "");
-  const cashEntryAccount = normalizedCashAccount(editing?.cashAccount || state.cashEntryDraft.cashAccount);
+  const cashEntryIsPendingBill = cashEntryType === "expense"
+    && isBillCategory(cashEntryCategory)
+    && !editing?.paidAt;
+  const cashEntryAccount = cashEntryIsPendingBill
+    ? normalizedCashAccount(editing?.cashAccount, "")
+    : normalizedCashAccount(editing?.cashAccount || state.cashEntryDraft.cashAccount);
   const editingWithdrawal = state.editWithdrawalGroup
     ? withdrawalHistoryGroups(state.cash).find(group => group.key === state.editWithdrawalGroup)
     : null;
@@ -5656,10 +5665,11 @@ async function renderCash() {
             </select>
             <small>O pagamento será somado automaticamente na ficha do funcionário.</small>
           </label>
-          <label id="cash-account-field">Conta
+          <label id="cash-account-field">Conta corrente
             <select name="cashAccount" id="cash-account">
-              ${cashAccountOptionsHtml(cashEntryAccount, cashEntryType)}
+              ${cashAccountOptionsHtml(cashEntryAccount, cashEntryType, false, "Definir quando pagar")}
             </select>
+            <small>Em boleto pendente, deixe para definir no pagamento.</small>
           </label>
           <label id="cash-due-date-field">Vencimento
             <input name="dueDate" type="date" value="${editing?.dueDate || ""}">
@@ -6529,9 +6539,7 @@ async function renderCash() {
         }
         const shouldTrackBillPayment = values.type === "expense" && isBillCategory(values.category);
         const billIsPaid = shouldTrackBillPayment && values.paid === "yes";
-        const cashAccount = shouldTrackBillPayment && !billIsPaid
-          ? ""
-          : normalizedCashAccount(values.cashAccount, "");
+        const cashAccount = normalizedCashAccount(values.cashAccount, "");
         if (!cashAccount && (!shouldTrackBillPayment || billIsPaid)) {
           showToast("Selecione a conta usada no lançamento.", "error");
           return;
@@ -6579,7 +6587,7 @@ async function renderCash() {
               date: values.date || today,
               type: values.type || "income",
               category: values.category || (values.type === "expense" ? "outros" : "venda"),
-              cashAccount: normalizedCashAccount(values.cashAccount)
+              cashAccount: normalizedCashAccount(values.cashAccount, "")
             };
             state.cashEntryDraft = savedCashEntryDraft;
             localStorage.setItem("cashEntryDraft", JSON.stringify(savedCashEntryDraft));
@@ -6617,8 +6625,11 @@ async function renderCash() {
       cashPaidField.hidden = !shouldShow;
       if (cashAccountFieldContainer && cashAccountField) {
         const billIsPaid = shouldShow && cashPaidField.querySelector("input").checked;
-        cashAccountFieldContainer.hidden = shouldShow && !billIsPaid;
-        cashAccountField.required = !cashAccountFieldContainer.hidden;
+        cashAccountFieldContainer.hidden = false;
+        cashAccountField.required = !shouldShow || billIsPaid;
+        if (!shouldShow && !cashAccountField.value) {
+          cashAccountField.value = normalizedCashAccount(state.cashEntryDraft.cashAccount);
+        }
       }
       if (!shouldShow) {
         cashDueDateField.querySelector("input").value = "";
@@ -6641,7 +6652,12 @@ async function renderCash() {
       const type = event.currentTarget.value;
       cashCategoryField.innerHTML = cashCategoryOptions(type, type === "expense" ? "outros" : "venda");
       if (cashAccountField) {
-        cashAccountField.innerHTML = cashAccountOptionsHtml(cashAccountField.value, type);
+        cashAccountField.innerHTML = cashAccountOptionsHtml(
+          cashAccountField.value,
+          type,
+          false,
+          "Definir quando pagar"
+        );
       }
       if (!editing) {
         state.cashEntryDraft.type = type;
@@ -6659,10 +6675,18 @@ async function renderCash() {
       if (!editing) {
         state.cashEntryDraft.category = cashCategoryField.value;
       }
+      if (cashAccountField && cashTypeField.value === "expense" && isBillCategory(cashCategoryField.value)) {
+        cashAccountField.value = "";
+      }
       updateCashBillFieldsVisibility();
       updateCashEmployeeFieldVisibility();
     });
-    cashPaidField.querySelector("input").addEventListener("change", updateCashBillFieldsVisibility);
+    cashPaidField.querySelector("input").addEventListener("change", event => {
+      if (!event.currentTarget.checked && cashAccountField) {
+        cashAccountField.value = "";
+      }
+      updateCashBillFieldsVisibility();
+    });
     cashEmployeeSelect?.addEventListener("change", event => {
       const employee = financialEmployeeById(event.currentTarget.value);
       const description = cashForm?.elements?.description;
@@ -14377,7 +14401,7 @@ function accountSeriesFromValues(values = {}) {
       ? "funcionarios"
       : String(values.category || "").trim(),
     employeeId: values.kind !== "receivable" ? String(values.employeeId || "") : "",
-    cashAccount: kind === "payable" ? "" : normalizedCashAccount(values.cashAccount, ""),
+    cashAccount: normalizedCashAccount(values.cashAccount, ""),
     notes: String(values.notes || "").trim(),
     payments: [],
     createdAt: new Date().toISOString(),
@@ -14711,10 +14735,17 @@ function accountsManagementPanel() {
           </select>
           <small>Ao baixar esta conta, o valor será contabilizado na ficha do funcionário.</small>
         </label>
-        <label id="financial-account-cash-account-field" ${editing?.kind === "receivable" ? "" : "hidden"}>Conta prevista para recebimento
+        <label id="financial-account-cash-account-field">
+          <span id="financial-account-cash-account-label">${editing?.kind === "receivable" ? "Conta prevista para recebimento" : "Conta corrente (opcional)"}</span>
           <select name="cashAccount" id="financial-account-cash-account">
-            ${cashAccountOptionsHtml(normalizedCashAccount(editing?.cashAccount), accountFormCashType)}
+            ${cashAccountOptionsHtml(
+              normalizedCashAccount(editing?.cashAccount, editing?.kind === "receivable" ? "pf" : ""),
+              accountFormCashType,
+              false,
+              editing?.kind === "receivable" ? "" : "Definir quando pagar"
+            )}
           </select>
+          <small id="financial-account-cash-account-help">${editing?.kind === "receivable" ? "Conta em que o valor deve entrar." : "Deixe em branco e escolha a conta somente ao registrar o pagamento."}</small>
         </label>
         <label>Observação
           <input name="notes" value="${escapeHtml(editing?.notes || "")}" placeholder="Parcela, referência ou contato">
@@ -14750,7 +14781,7 @@ function accountsManagementPanel() {
                 <div class="account-main">
                   <span class="status-label">${account.kind === "receivable" ? "A receber" : "A pagar"} · ${status === "paid" ? "Quitada" : status === "overdue" ? "Atrasada" : "Pendente"}</span>
                   <strong>${escapeHtml(account.description || "Conta")}</strong>
-                  <small>Vencimento ${formatIsoDateBr(account.dueDate)}${account.seriesCount > 1 ? ` · ${account.seriesNumber}/${account.seriesCount}` : ""}${account.category ? ` · ${escapeHtml(account.category)}` : ""}${financialEmployeeById(account.employeeId) ? ` · ${escapeHtml(financialEmployeeById(account.employeeId).name)}` : ""} · ${account.kind === "payable" ? "Conta escolhida no pagamento" : cashAccountLabel(account.cashAccount)}</small>
+                  <small>Vencimento ${formatIsoDateBr(account.dueDate)}${account.seriesCount > 1 ? ` · ${account.seriesNumber}/${account.seriesCount}` : ""}${account.category ? ` · ${escapeHtml(account.category)}` : ""}${financialEmployeeById(account.employeeId) ? ` · ${escapeHtml(financialEmployeeById(account.employeeId).name)}` : ""} · ${account.kind === "payable" ? (account.cashAccount ? `${cashAccountLabel(account.cashAccount)} prevista` : "Definir conta no pagamento") : cashAccountLabel(account.cashAccount)}</small>
                 </div>
                 <div class="account-values">
                   <span>Total <b>${money(account.amount)}</b></span>
@@ -15435,7 +15466,7 @@ function bindFinancialAccounts() {
           ? "funcionarios"
           : String(values.category || "").trim(),
         employeeId: values.kind !== "receivable" ? String(values.employeeId || "") : "",
-        cashAccount: kind === "payable" ? "" : normalizedCashAccount(values.cashAccount, ""),
+        cashAccount: normalizedCashAccount(values.cashAccount, ""),
         notes: String(values.notes || "").trim(),
         updatedAt: new Date().toISOString()
       } : series[0];
@@ -15465,6 +15496,8 @@ function bindFinancialAccounts() {
   const accountKindField = document.querySelector("#financial-account-kind");
   const accountCashAccountFieldContainer = document.querySelector("#financial-account-cash-account-field");
   const accountCashAccountField = document.querySelector("#financial-account-cash-account");
+  const accountCashAccountLabel = document.querySelector("#financial-account-cash-account-label");
+  const accountCashAccountHelp = document.querySelector("#financial-account-cash-account-help");
   const accountEmployeeField = document.querySelector("#financial-account-employee-field");
   const accountEmployeeSelect = document.querySelector("#financial-account-employee");
   const accountCategoryField = document.querySelector("#financial-account-category");
@@ -15487,13 +15520,26 @@ function bindFinancialAccounts() {
         accountEmployeeSelect.value = "";
       }
       if (accountCashAccountFieldContainer) {
-        accountCashAccountFieldContainer.hidden = shouldShow;
+        accountCashAccountFieldContainer.hidden = false;
+      }
+      if (accountCashAccountLabel) {
+        accountCashAccountLabel.textContent = shouldShow
+          ? "Conta corrente (opcional)"
+          : "Conta prevista para recebimento";
+      }
+      if (accountCashAccountHelp) {
+        accountCashAccountHelp.textContent = shouldShow
+          ? "Deixe em branco e escolha a conta somente ao registrar o pagamento."
+          : "Conta em que o valor deve entrar.";
       }
     };
     accountKindField.addEventListener("change", () => {
+      const isPayable = accountKindField.value === "payable";
       accountCashAccountField.innerHTML = cashAccountOptionsHtml(
-        accountCashAccountField.value,
-        accountKindField.value === "receivable" ? "income" : "expense"
+        isPayable ? "" : normalizedCashAccount(accountCashAccountField.value),
+        isPayable ? "expense" : "income",
+        false,
+        isPayable ? "Definir quando pagar" : ""
       );
       updateAccountEmployeeField();
     });
