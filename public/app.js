@@ -43,7 +43,7 @@ const defaultAppConfig = {
 const configRouteOptions = [
   ["home", "Painel"],
   ["hoje", "Operação"],
-  ["pedidos", "Pedidos"],
+  ["menu-semanal", "Menu"],
   ["fluxo-de-caixa", "Caixa"],
   ["financeiro", "Financeiro"],
   ["alertas", "Alertas"]
@@ -927,11 +927,14 @@ function cashAccountLabel(value) {
   return `Conta ${suffix}`;
 }
 
-function cashAccountOptionsHtml(selected = "pf", type = "income", includeAll = false) {
-  const normalized = includeAll ? String(selected || "all") : normalizedCashAccount(selected);
+function cashAccountOptionsHtml(selected = "pf", type = "income", includeAll = false, emptyLabel = "") {
+  const normalized = includeAll
+    ? String(selected || "all")
+    : normalizedCashAccount(selected, emptyLabel ? "" : "pf");
   return `
     ${includeAll ? `<option value="all" ${normalized === "all" ? "selected" : ""}>Unificado PF + PJ</option>` : ""}
     ${includeAll ? `<option value="unassigned" ${normalized === "unassigned" ? "selected" : ""}>Lançamentos sem conta</option>` : ""}
+    ${emptyLabel ? `<option value="" ${normalized ? "" : "selected"}>${escapeHtml(emptyLabel)}</option>` : ""}
     ${cashAccountOptions.map(([value]) => `
       <option value="${value}" ${normalized === value ? "selected" : ""}>${cashAccountLabel(value, type)}</option>
     `).join("")}
@@ -1203,6 +1206,9 @@ function applyPayloadToState(saved = {}) {
     ...defaultAppConfig,
     ...savedAppConfig
   };
+  if (state.appConfig.defaultRoute === "pedidos") {
+    state.appConfig.defaultRoute = "menu-semanal";
+  }
   if (savedAppConfig.homeDashboardVersion !== defaultAppConfig.homeDashboardVersion) {
     state.appConfig.defaultRoute = "home";
     state.appConfig.homeDashboardVersion = defaultAppConfig.homeDashboardVersion;
@@ -2180,8 +2186,8 @@ function getCashFilter() {
   return filter;
 }
 
-function filterCashEntries(entries) {
-  const currentFilter = getCashFilter();
+function filterCashEntries(entries, filterOverrides = {}) {
+  const currentFilter = { ...getCashFilter(), ...filterOverrides };
   const { period, date, month, year, search, type, category, cashAccount, quick } = currentFilter;
   const query = String(search || "").trim().toLowerCase();
   const searchedEntries = query
@@ -2373,19 +2379,22 @@ function cashFilterCategoryOptions(selected = "all", type = "all") {
   `;
 }
 
-function cashCategorySummary(entries = []) {
+function cashCategorySummary(entries = [], selectedCategory = "all") {
   const rows = Object.entries(entries.reduce((acc, entry) => {
     const displayCategory = cashDisplayCategory(entry);
     const key = normalizedCategory(displayCategory) || "outros";
     if (!acc[key]) {
       acc[key] = {
+        key: displayCategory || "outros",
         label: cashDisplayCategoryName(entry),
         income: 0,
-        expenses: 0
+        expenses: 0,
+        count: 0
       };
     }
 
     const amount = Number(entry.amount || 0);
+    acc[key].count += 1;
     if (entry.type === "expense") {
       acc[key].expenses += amount;
     } else {
@@ -2405,14 +2414,24 @@ function cashCategorySummary(entries = []) {
   }
 
   return `
-    <div class="category-summary">
-      ${rows.map(row => `
-        <span>
+    <div class="category-summary" aria-label="Filtrar extrato por categoria">
+      ${rows.map(row => {
+        const active = normalizedCategory(selectedCategory) === normalizedCategory(row.key);
+        const transactionLabel = `${row.count} ${row.count === 1 ? "transação" : "transações"}`;
+        return `
+        <button
+          class="cash-category-summary-card ${active ? "active" : ""}"
+          type="button"
+          data-cash-summary-category="${escapeHtml(row.key)}"
+          aria-pressed="${active}"
+          aria-label="${active ? "Remover filtro" : "Ver todas as transações"} de ${escapeHtml(row.label)} (${transactionLabel})"
+        >
           <b>${escapeHtml(row.label)}</b>
           <small>Entradas ${money(row.income)} - Saídas ${money(row.expenses)}</small>
           <strong class="${row.balance < 0 ? "negative" : "positive"}">${money(row.balance)}</strong>
-        </span>
-      `).join("")}
+          <span class="cash-category-summary-action">${active ? "Mostrando transações" : "Ver transações"}<i aria-hidden="true">→</i></span>
+        </button>
+      `; }).join("")}
     </div>
   `;
 }
@@ -4717,10 +4736,7 @@ function home() {
   const alerts = dashboardAlerts(metrics, weeklyOrders);
   const notifications = notificationRows(metrics, weeklyOrders);
   const priorityCount = notifications.length;
-  const nextAccounts = financialAccounts()
-    .filter(account => accountOpenAmount(account) >= 0.01)
-    .sort((a, b) => String(a.dueDate || "").localeCompare(String(b.dueDate || "")))
-    .slice(0, 5);
+  const nextAccounts = upcomingBills(5, { includeOverdue: true });
 
   app.innerHTML = `
     <section class="dashboard-band home-priority-band">
@@ -4786,19 +4802,20 @@ function home() {
       <div class="panel dashboard-panel">
         <div class="section-heading">
           <h2>Próximos vencimentos</h2>
-          <a class="secondary table-action" href="/financeiro?view=accounts">Ver contas</a>
+          <a class="secondary table-action" href="/financeiro?view=accounts">Ver todos</a>
         </div>
         ${nextAccounts.length ? `
           <div class="recent-list compact">
             ${nextAccounts.map(account => `
               <span>
-                <b>${money(accountOpenAmount(account))}</b>
-                ${escapeHtml(account.description)}
-                <small>${formatIsoDateBr(account.dueDate)} · ${account.kind === "receivable" ? "a receber" : "a pagar"}</small>
+                <b>${money(account.amount)}</b>
+                ${escapeHtml(account.description || categoryName(account.category))}
+                <small>${formatIsoDateBr(account.reminderDate)} · ${upcomingBillSourceLabel(account)} · ${dueDateDistanceLabel(account.reminderDate)}</small>
+                <a class="secondary table-action" href="${upcomingBillHref(account)}">Abrir</a>
               </span>
             `).join("")}
           </div>
-        ` : `<p class="muted">Nenhuma conta em aberto.</p>`}
+        ` : `<p class="muted">Nenhum boleto ou conta em aberto nos próximos 30 dias.</p>`}
       </div>
     </section>
 
@@ -5026,8 +5043,8 @@ function renderToday() {
               ${financialEmployeeOptionsHtml()}
             </select>
           </label>
-          <label>Conta
-            <select name="cashAccount">
+          <label id="today-expense-cash-account-field">Conta
+            <select name="cashAccount" id="today-expense-cash-account">
               ${cashAccountOptionsHtml(quickCashAccount, "expense")}
             </select>
           </label>
@@ -5174,14 +5191,26 @@ function bindBillPaymentButtons(afterPay = renderCurrentRoute) {
       if (blockClosedPeriod(paidDate, "pagar conta")) {
         return;
       }
-      if (!confirm(`Marcar ${bill.description || categoryName(bill.category)} como pago em ${formatIsoDateBr(paidDate)}?`)) {
+      const informedAccount = prompt(
+        "Conta usada no pagamento (digite PF ou PJ):",
+        normalizedCashAccount(bill.cashAccount, "").toUpperCase()
+      );
+      if (informedAccount === null) {
+        return;
+      }
+      const cashAccount = normalizedCashAccount(String(informedAccount).trim().toLowerCase(), "");
+      if (!cashAccount) {
+        showToast("Informe PF ou PJ para registrar a saída.", "error");
+        return;
+      }
+      if (!confirm(`Marcar ${bill.description || categoryName(bill.category)} como pago em ${formatIsoDateBr(paidDate)} pela ${cashAccountLabel(cashAccount)}?`)) {
         return;
       }
 
       state.cash = state.cash.map(entry => String(entry.id) === String(id)
-        ? { ...entry, paidAt: `${paidDate}T12:00:00.000Z` }
+        ? { ...entry, date: paidDate, cashAccount, paidAt: `${paidDate}T12:00:00.000Z` }
         : entry);
-      recordAudit("Conta paga", `${bill.description || categoryName(bill.category)} - ${money(bill.amount)} - ${formatIsoDateBr(paidDate)}`);
+      recordAudit("Conta paga", `${bill.description || categoryName(bill.category)} - ${money(bill.amount)} - ${formatIsoDateBr(paidDate)} - ${cashAccountLabel(cashAccount)}`);
       if (await persistState()) {
         showToast("Conta marcada como paga.", "success");
         afterPay();
@@ -5250,22 +5279,31 @@ function bindTodayForms(today) {
         showToast("Selecione o funcionário que recebeu esse pagamento.", "error");
         return;
       }
+      const shouldTrackBillPayment = isBillCategory(values.category);
+      const billIsPaid = shouldTrackBillPayment && values.paid === "yes";
+      const paidDate = billIsPaid ? (values.paidDate || values.date) : "";
+      const cashAccount = shouldTrackBillPayment && !billIsPaid
+        ? ""
+        : normalizedCashAccount(values.cashAccount, "");
+      if (!cashAccount && (!shouldTrackBillPayment || billIsPaid)) {
+        showToast("Selecione a conta usada na saída.", "error");
+        return;
+      }
       const entry = {
         id: Date.now(),
-        date: values.date,
+        date: paidDate || values.date,
         type: "expense",
         category: values.category || "outros",
         description: values.description,
-        cashAccount: normalizedCashAccount(values.cashAccount),
+        cashAccount,
         amount: amount.toFixed(2)
       };
       if (isEmployeeExpense) {
         entry.employeeId = String(values.employeeId || "");
       }
-      if (isBillCategory(entry.category)) {
+      if (shouldTrackBillPayment) {
         entry.dueDate = values.dueDate || values.date;
-        if (values.paid === "yes") {
-          const paidDate = values.paidDate || values.date;
+        if (billIsPaid) {
           if (blockClosedPeriod(paidDate, "pagar boleto")) {
             return;
           }
@@ -5286,6 +5324,8 @@ function bindTodayForms(today) {
   const todayExpensePaidField = document.querySelector("#today-expense-paid-field");
   const todayExpensePaidDateField = document.querySelector("#today-expense-paid-date-field");
   const todayExpensePaidCheckbox = todayExpensePaidField?.querySelector("input");
+  const todayExpenseCashAccountField = document.querySelector("#today-expense-cash-account-field");
+  const todayExpenseCashAccountSelect = document.querySelector("#today-expense-cash-account");
   const todayExpenseEmployeeField = document.querySelector("#today-expense-employee-field");
   const todayExpenseEmployeeSelect = document.querySelector("#today-expense-employee");
   if (todayExpenseCategory && todayExpenseDueDateField && todayExpensePaidField && todayExpensePaidDateField && todayExpensePaidCheckbox) {
@@ -5297,6 +5337,10 @@ function bindTodayForms(today) {
       todayExpensePaidField.hidden = !shouldShowBill;
       todayExpensePaidDateField.hidden = !shouldShowPaidDate;
       todayExpensePaidDateField.querySelector("input").required = shouldShowPaidDate;
+      if (todayExpenseCashAccountField && todayExpenseCashAccountSelect) {
+        todayExpenseCashAccountField.hidden = shouldShowBill && !shouldShowPaidDate;
+        todayExpenseCashAccountSelect.required = !todayExpenseCashAccountField.hidden;
+      }
       if (!shouldShowBill) {
         todayExpenseDueDateField.querySelector("input").value = "";
         todayExpensePaidCheckbox.checked = false;
@@ -5396,7 +5440,14 @@ async function renderCash() {
     ? withdrawalHistoryGroups(state.cash).find(group => group.key === state.editWithdrawalGroup)
     : null;
   const filteredEntries = filterCashEntries(state.cash);
+  const categoryMenuEntries = filterCashEntries(state.cash, {
+    search: "",
+    type: "all",
+    category: "all",
+    quick: ""
+  });
   const accountedEntries = accountingCashEntries(filteredEntries);
+  const categoryMenuAccountedEntries = accountingCashEntries(categoryMenuEntries);
   const filteredTotals = cashTotals(accountedEntries);
   const operationalTotals = cashTotals(businessCashEntries(accountedEntries));
   const currentCashFilter = getCashFilter();
@@ -5605,7 +5656,7 @@ async function renderCash() {
             </select>
             <small>O pagamento será somado automaticamente na ficha do funcionário.</small>
           </label>
-          <label>Conta
+          <label id="cash-account-field">Conta
             <select name="cashAccount" id="cash-account">
               ${cashAccountOptionsHtml(cashEntryAccount, cashEntryType)}
             </select>
@@ -5993,7 +6044,7 @@ async function renderCash() {
           <div class="metric"><span>${balanceLabel}</span><strong class="${displayedCashBalance < 0 ? "negative" : "positive"}">${money(displayedCashBalance)}</strong></div>
         </div>
         ${cashAccountSummary(businessCashEntries(accountedEntries))}
-        ${cashCategorySummary(businessCashEntries(accountedEntries))}
+        ${cashCategorySummary(businessCashEntries(categoryMenuAccountedEntries), selectedFilterCategory)}
         ${cashTable(filteredEntries)}
         </div>
         ` : ""}
@@ -6017,6 +6068,28 @@ async function renderCash() {
     };
     persistState();
     renderCash();
+  });
+
+  document.querySelectorAll("[data-cash-summary-category]").forEach(button => {
+    button.addEventListener("click", event => {
+      const category = event.currentTarget.dataset.cashSummaryCategory;
+      const currentFilter = getCashFilter();
+      const active = normalizedCategory(currentFilter.category) === normalizedCategory(category);
+      state.cashFilter = {
+        ...currentFilter,
+        type: "all",
+        category: active ? "all" : category,
+        quick: "",
+        search: "",
+        manualAll: currentFilter.period === "all"
+      };
+      state.cashSort = { key: "date", direction: "desc" };
+      persistState();
+      renderCash();
+      requestAnimationFrame(() => {
+        document.querySelector("[data-cash-ledger-results]")?.scrollIntoView({ block: "start" });
+      });
+    });
   });
 
   document.querySelectorAll("[data-cash-panel]").forEach(button => {
@@ -6454,11 +6527,20 @@ async function renderCash() {
         if (isDuplicate && !confirm("Já existe um lançamento igual. Salvar mesmo assim?")) {
           return;
         }
+        const shouldTrackBillPayment = values.type === "expense" && isBillCategory(values.category);
+        const billIsPaid = shouldTrackBillPayment && values.paid === "yes";
+        const cashAccount = shouldTrackBillPayment && !billIsPaid
+          ? ""
+          : normalizedCashAccount(values.cashAccount, "");
+        if (!cashAccount && (!shouldTrackBillPayment || billIsPaid)) {
+          showToast("Selecione a conta usada no lançamento.", "error");
+          return;
+        }
         const entryId = editing?.id || Date.now();
         const entry = {
           id: entryId,
           ...values,
-          cashAccount: normalizedCashAccount(values.cashAccount),
+          cashAccount,
           amount: amount.toFixed(2)
         };
         if (isEmployeeExpense) {
@@ -6466,9 +6548,8 @@ async function renderCash() {
         } else {
           delete entry.employeeId;
         }
-        const shouldTrackBillPayment = entry.type === "expense" && isBillCategory(entry.category);
         delete entry.paid;
-        if (shouldTrackBillPayment && values.paid === "yes") {
+        if (billIsPaid) {
           entry.paidAt = editing?.paidAt || `${values.date}T12:00:00.000Z`;
         } else {
           delete entry.paidAt;
@@ -6523,6 +6604,7 @@ async function renderCash() {
   const cashCategoryField = document.querySelector("#cash-category");
   const cashEmployeeField = document.querySelector("#cash-employee-field");
   const cashEmployeeSelect = document.querySelector("#cash-employee");
+  const cashAccountFieldContainer = document.querySelector("#cash-account-field");
   const cashAccountField = document.querySelector("#cash-account");
   const cashEntryDateField = document.querySelector("#cash-entry-date");
   const cashDueDateField = document.querySelector("#cash-due-date-field");
@@ -6533,6 +6615,11 @@ async function renderCash() {
       cashDueDateField.hidden = !shouldShow;
       cashDueDateField.querySelector("input").required = shouldShow;
       cashPaidField.hidden = !shouldShow;
+      if (cashAccountFieldContainer && cashAccountField) {
+        const billIsPaid = shouldShow && cashPaidField.querySelector("input").checked;
+        cashAccountFieldContainer.hidden = shouldShow && !billIsPaid;
+        cashAccountField.required = !cashAccountFieldContainer.hidden;
+      }
       if (!shouldShow) {
         cashDueDateField.querySelector("input").value = "";
         cashPaidField.querySelector("input").checked = false;
@@ -6575,6 +6662,7 @@ async function renderCash() {
       updateCashBillFieldsVisibility();
       updateCashEmployeeFieldVisibility();
     });
+    cashPaidField.querySelector("input").addEventListener("change", updateCashBillFieldsVisibility);
     cashEmployeeSelect?.addEventListener("change", event => {
       const employee = financialEmployeeById(event.currentTarget.value);
       const description = cashForm?.elements?.description;
@@ -7496,12 +7584,12 @@ function cashSortHeader(key, label) {
 
 function cashTable(entries) {
   if (!entries.length) {
-    return `<p class="muted">Nenhum lançamento ainda.</p>`;
+    return `<p class="muted" data-cash-ledger-results>Nenhum lançamento ainda.</p>`;
   }
   const sortedEntries = sortedCashEntries(entries);
 
   return `
-    <div class="table-wrap cash-ledger-table">
+    <div class="table-wrap cash-ledger-table" data-cash-ledger-results>
       <table>
         <thead><tr><th>${cashSortHeader("date", "Data")}</th><th>${cashSortHeader("description", "Descrição")}</th><th>${cashSortHeader("type", "Tipo")}</th><th>${cashSortHeader("category", "Categoria")}</th><th>Conta</th><th>${cashSortHeader("dueDate", "Vencimento")}</th><th>${cashSortHeader("amount", "Valor")}</th><th></th></tr></thead>
         <tbody>
@@ -7518,7 +7606,7 @@ function cashTable(entries) {
               </td>
               <td><span class="cash-type-badge ${item.type === "income" ? "income" : "expense"}">${item.type === "income" ? "Entrada" : "Saída"}</span></td>
               <td><span class="cash-category-badge ${accountAdjustment ? "account-adjustment" : ""}">${cashDisplayCategoryName(item)}</span></td>
-              <td>${cashAccountLabel(item.cashAccount, item.type)}</td>
+              <td>${isPendingBill(item) ? "Definir ao pagar" : cashAccountLabel(item.cashAccount)}</td>
               <td>
                 ${item.dueDate ? formatIsoDateBr(item.dueDate) : "-"}
                 ${isBillEntry(item) ? `<br><small>${item.paidAt ? `Pago em ${formatIsoDateBr(String(item.paidAt).slice(0, 10))}` : "A pagar"}</small>` : ""}
@@ -7638,6 +7726,13 @@ async function renderMenu() {
       ${state.showOrders ? orderPanel(result.plan, currentKey) : ""}
       ${state.showPlanning ? `
         <section class="planning-panel">
+          <div class="pricing-workflow-context menu-pricing-source">
+            <div>
+              <strong>Receitas, custos e preços vêm de Preços</strong>
+              <span>Escolha abaixo as receitas da semana. Qualquer atualização feita em Precificação passa automaticamente para o Menu e para a Rentabilidade.</span>
+            </div>
+            <a class="secondary table-action" href="/precificacao?view=recipes">Gerenciar receitas em Preços</a>
+          </div>
           <div class="summary planning-summary">
             <div class="metric"><span>Custo semanal</span><strong>${money(result.totalCost)}</strong></div>
             <div class="metric"><span>Lista de compras</span><strong>${planningStats.shopping}</strong></div>
@@ -7646,25 +7741,30 @@ async function renderMenu() {
           </div>
           <form id="menu-form">
             <div class="planning-board">
-              ${result.plan.map((item, index) => `
+              ${result.plan.map((item, index) => {
+                const linkedRecipe = pricingRecipeForMenuItem(item);
+                const linkedCost = menuRecipeUnitCost(linkedRecipe);
+                return `
                 <article class="planning-card" data-status="${item.status}">
                   <div class="planning-card-top">
                     <span>Cumbuca ${item.slot}</span>
                     <strong>${item.status === "pronto" ? "Pronto" : item.status === "preparo" ? "Preparo" : item.status === "compras" ? "Compras" : "Planejado"}</strong>
                   </div>
-                  <label>Receita vinculada
+                  <label>Receita cadastrada em Preços
                     <select name="recipe-${index}" data-menu-recipe-select="${index}">
-                      ${menuRecipeOptions(pricingRecipeForMenuItem(item)?.id || item.recipeId || "")}
+                      ${menuRecipeOptions(linkedRecipe?.id || item.recipeId || "")}
                     </select>
                   </label>
                   <div class="menu-recipe-summary" data-menu-recipe-summary="${index}">
-                    ${menuRecipeSummaryHtml(pricingRecipeForMenuItem(item))}
+                    ${menuRecipeSummaryHtml(linkedRecipe)}
                   </div>
-                  <label>Prato
-                    <input name="dish-${index}" data-menu-dish="${index}" value="${item.dish}" placeholder="Nome da cumbuca">
+                  <label>Nome da receita
+                    <input name="dish-${index}" data-menu-dish="${index}" value="${escapeHtml(linkedRecipe?.name || item.dish || "")}" placeholder="Selecione uma receita em Preços" readonly>
+                    <small>Preenchido automaticamente pelo cadastro de Preços.</small>
                   </label>
-                  <label>Custo por prato
-                    <input name="cost-${index}" data-menu-cost="${index}" type="text" inputmode="decimal" value="${moneyInputValue(item.cost)}" placeholder="Calculado ou manual">
+                  <label>Custo atual por prato
+                    <input name="cost-${index}" data-menu-cost="${index}" type="text" inputmode="decimal" value="${moneyInputValue(linkedRecipe ? linkedCost : item.cost)}" placeholder="Calculado em Preços" readonly>
+                    <small>Ingredientes, embalagem, rateios e taxas vêm de Preços.</small>
                   </label>
                   <div class="ingredient-list">
                     <div class="ingredient-list-title">
@@ -7689,7 +7789,7 @@ async function renderMenu() {
                     <textarea name="notes-${index}" placeholder="Compra, preparo, entrega">${item.notes}</textarea>
                   </label>
                 </article>
-              `).join("")}
+              `; }).join("")}
             </div>
             <div class="actions">
               <button type="submit">Salvar menu</button>
@@ -7925,7 +8025,11 @@ async function renderMenu() {
 
   document.querySelectorAll("[data-order-tab]").forEach(button => {
     button.addEventListener("click", event => {
-      state.orderTab = event.currentTarget.dataset.orderTab;
+      const nextTab = event.currentTarget.dataset.orderTab;
+      if (state.orderTab === nextTab) {
+        return;
+      }
+      state.orderTab = nextTab;
       if (state.orderTab !== "form") {
         state.editOrderId = null;
       }
@@ -7978,8 +8082,13 @@ async function renderMenu() {
     });
     updateOrderTotal();
 
-    orderForm.addEventListener("submit", event => {
+    orderForm.addEventListener("submit", async event => {
       event.preventDefault();
+      const releaseSubmission = lockFormSubmission(event.currentTarget);
+      if (!releaseSubmission) {
+        return;
+      }
+      try {
       const data = new FormData(event.currentTarget);
       const dishes = [1, 2, 3, 4, 5]
         .map(slot => ({
@@ -8026,6 +8135,10 @@ async function renderMenu() {
         remainingAfterOrder = Math.max(0, capacityAfterOrder - orderedBefore - requested);
       }
 
+      const editingOrder = state.editOrderId
+        ? state.orders.find(order => Number(order.id) === Number(state.editOrderId))
+        : null;
+
       const savedOrder = {
         id: state.editOrderId || Date.now(),
         menuKey: currentKey,
@@ -8034,9 +8147,9 @@ async function renderMenu() {
         amount: client.plan === "mensalista" ? monthlyValue : weeklyValue,
         deliveryFee,
         paid,
-        paidAmount: editing?.paidAmount || (paid ? weeklyValue : 0),
-        delivered: editing?.delivered || false,
-        deliveredAt: editing?.deliveredAt || "",
+        paidAmount: editingOrder?.paidAmount || (paid ? weeklyValue : 0),
+        delivered: editingOrder?.delivered || false,
+        deliveredAt: editingOrder?.deliveredAt || "",
         totalQuantity: undefined,
         notes: String(data.get("notes") || "").trim(),
         createdAt: state.editOrderId
@@ -8049,13 +8162,18 @@ async function renderMenu() {
       } else {
         state.orders.push(savedOrder);
       }
-      persistState();
+      if (!await persistState()) {
+        return;
+      }
       state.editOrderId = null;
       state.orderTab = "orders";
       if (remainingAfterOrder !== null && remainingAfterOrder <= LOW_MONTHLY_QUANTITY) {
         alert(monthlyQuantityWarningText(client, remainingAfterOrder));
       }
-      renderMenu();
+      await renderMenu();
+      } finally {
+        releaseSubmission();
+      }
     });
     updateWeeklyFields();
 
@@ -8314,18 +8432,25 @@ async function renderMenu() {
     menuForm.addEventListener("submit", event => {
       event.preventDefault();
       const data = readForm(event.currentTarget);
+      const unlinkedSlots = result.plan.filter((item, index) => {
+        const hasExistingDish = Boolean(String(item.dish || "").trim());
+        return hasExistingDish && !pricingRecipeById(data[`recipe-${index}`]);
+      });
+      if (unlinkedSlots.length) {
+        showToast("Selecione uma receita cadastrada em Preços para cada prato do Menu.", "error");
+        return;
+      }
       state.menus[currentKey] = result.plan.map((item, index) => {
         const ingredients = readPlanningIngredients(event.currentTarget, index);
-        const ingredientTotal = planningIngredientTotal(ingredients);
         const recipeId = data[`recipe-${index}`] || "";
         const recipe = pricingRecipeById(recipeId);
         const linkedCost = menuRecipeUnitCost(recipe);
         return {
           slot: index + 1,
           recipeId,
-          dish: recipe?.name || data[`dish-${index}`],
+          dish: recipe?.name || "",
           ingredients,
-          cost: (linkedCost || ingredientTotal || parseMoneyInput(data[`cost-${index}`])).toFixed(2),
+          cost: (recipe ? linkedCost : 0).toFixed(2),
           status: data[`status-${index}`],
           notes: data[`notes-${index}`]
         };
@@ -8921,9 +9046,8 @@ async function renderQuickOrders() {
   if (!["orders", "production", "delivery", "form"].includes(state.orderTab)) {
     state.orderTab = "orders";
   }
+  history.replaceState(null, "", `/menu-semanal${location.search}`);
   await renderMenu();
-  showStandardHero("Pedidos");
-  setActive("pedidos");
 }
 
 function isOrderPaid(order = {}) {
@@ -9486,12 +9610,20 @@ function menuRecipeUnitCost(recipe) {
   return metrics.practicedPrice > 0 ? metrics.realTotalCost : metrics.totalCost;
 }
 
+function pricingRecipeReferencePrice(recipe) {
+  if (!recipe || !pricingRecipeIsComplete(recipe)) {
+    return 0;
+  }
+  const metrics = pricingRecipeMetrics(recipe);
+  return metrics.practicedPrice > 0 ? metrics.practicedPrice : metrics.suggestedPrice;
+}
+
 function menuRecipeOptions(selectedRecipeId = "") {
   const recipes = [...(state.pricingRecipes || [])].sort((a, b) => {
     return String(a.name || "").localeCompare(String(b.name || ""), "pt-BR");
   });
   return `
-    <option value="">Prato manual, sem receita vinculada</option>
+    <option value="">Selecione uma receita cadastrada em Preços</option>
     ${recipes.map(recipe => `
       <option value="${escapeHtml(recipe.id)}" ${String(recipe.id) === String(selectedRecipeId) ? "selected" : ""}>
         ${escapeHtml(recipe.name || "Receita sem nome")}${pricingRecipeIsComplete(recipe) ? "" : " — ingredientes pendentes"}
@@ -12364,7 +12496,7 @@ function weeklyRecipeProfitabilityRows(data) {
       unallocatedUnits += totalOrderQuantity;
       return;
     }
-    const unitRevenue = totalOrderQuantity > 0
+    const fallbackUnitRevenue = totalOrderQuantity > 0
       ? Number(order.amount || 0) / totalOrderQuantity
       : 0;
     (order.dishes || []).forEach(dish => {
@@ -12374,6 +12506,7 @@ function weeklyRecipeProfitabilityRows(data) {
       }
       const menuItem = (state.menus[order.menuKey] || []).find(item => Number(item.slot) === Number(dish.slot)) || {};
       const recipe = pricingRecipeForMenuItem(menuItem);
+      const referencePrice = recipe ? pricingRecipeReferencePrice(recipe) : fallbackUnitRevenue;
       const key = recipe
         ? `recipe:${recipe.id}`
         : `menu:${order.menuKey || "sem-menu"}:${dish.slot}`;
@@ -12386,12 +12519,13 @@ function weeklyRecipeProfitabilityRows(data) {
           quantity: 0,
           revenue: 0,
           cost: 0,
+          referencePrice,
           desiredMargin: Number(metrics?.desiredMarginPercent || 0)
         });
       }
       const row = rows.get(key);
       row.quantity += quantity;
-      row.revenue += unitRevenue * quantity;
+      row.revenue += referencePrice * quantity;
       row.cost += menuRecipeUnitCost(recipe) * quantity;
     });
   });
@@ -12429,9 +12563,9 @@ function businessProfitabilityPanel(data) {
       <div class="section-heading">
         <div>
           <h2>Rentabilidade por prato ${reportTitleSuffix(data)}</h2>
-          <p class="muted-inline">Pedidos usam o valor realmente registrado. Loja usa o preço atual da receita vinculada.</p>
+          <p class="muted-inline">Pedidos e Loja usam o preço atual cadastrado em Preços para cada receita do Menu.</p>
         </div>
-        <a class="secondary table-action" href="/menu-semanal">Vincular receitas no menu</a>
+        <a class="secondary table-action" href="/precificacao?view=recipes">Abrir receitas em Preços</a>
       </div>
       <div class="summary">
         <div class="metric report-metric"><span>Receita considerada</span><strong>${money(totalRevenue)}</strong></div>
@@ -12454,7 +12588,8 @@ function businessProfitabilityPanel(data) {
                 <th>Prato</th>
                 <th>Receita</th>
                 <th>Quantidade</th>
-                <th>Receita de pedidos</th>
+                <th>Preço de Preços</th>
+                <th>Receita calculada</th>
                 <th>Custo estimado</th>
                 <th>Lucro estimado</th>
                 <th>Margem</th>
@@ -12467,6 +12602,7 @@ function businessProfitabilityPanel(data) {
                   <td><strong>${escapeHtml(row.name)}</strong></td>
                   <td>${row.recipe ? "Vinculada" : "Sem vínculo"}</td>
                   <td>${row.quantity}</td>
+                  <td>${row.recipe ? money(row.referencePrice) : "—"}</td>
                   <td>${money(row.revenue)}</td>
                   <td>${row.recipe ? money(row.cost) : "—"}</td>
                   <td class="${row.profit < 0 ? "negative" : row.recipe ? "positive" : ""}">${row.recipe ? money(row.profit) : "—"}</td>
@@ -14099,6 +14235,20 @@ function upcomingBills(limit = 6, { includeOverdue = true } = {}) {
     .slice(0, limit);
 }
 
+function upcomingBillSourceLabel(entry = {}) {
+  if (!entry.plannedAccount) {
+    return "Boleto do Fluxo de Caixa";
+  }
+  return entry.kind === "receivable" ? "Conta a receber" : "Conta a pagar";
+}
+
+function upcomingBillHref(entry = {}) {
+  if (entry.plannedAccount) {
+    return `/financeiro?view=accounts&account=${encodeURIComponent(entry.id || "")}`;
+  }
+  return `/fluxo-de-caixa?edit=${encodeURIComponent(entry.id || "")}`;
+}
+
 function financialEmployees() {
   const employees = state.financialPlanning?.employees;
   return Array.isArray(employees)
@@ -14207,6 +14357,7 @@ function accountSeriesFromValues(values = {}) {
   const mode = ["installments", "monthly"].includes(values.scheduleMode) ? values.scheduleMode : "single";
   const count = mode === "single" ? 1 : Math.max(2, Math.min(36, Number(values.scheduleCount || 2)));
   const amount = parseMoneyInput(values.amount);
+  const kind = values.kind === "receivable" ? "receivable" : "payable";
   const amounts = mode === "installments"
     ? splitMoneyAcrossInstallments(amount, count)
     : Array.from({ length: count }, () => amount.toFixed(2));
@@ -14218,7 +14369,7 @@ function accountSeriesFromValues(values = {}) {
     seriesType: mode,
     seriesNumber: index + 1,
     seriesCount: count,
-    kind: values.kind === "receivable" ? "receivable" : "payable",
+    kind,
     description: String(values.description || "").trim(),
     dueDate: addMonthsClamped(values.dueDate, index),
     amount: scheduledAmount,
@@ -14226,7 +14377,7 @@ function accountSeriesFromValues(values = {}) {
       ? "funcionarios"
       : String(values.category || "").trim(),
     employeeId: values.kind !== "receivable" ? String(values.employeeId || "") : "",
-    cashAccount: normalizedCashAccount(values.cashAccount),
+    cashAccount: kind === "payable" ? "" : normalizedCashAccount(values.cashAccount, ""),
     notes: String(values.notes || "").trim(),
     payments: [],
     createdAt: new Date().toISOString(),
@@ -14560,7 +14711,7 @@ function accountsManagementPanel() {
           </select>
           <small>Ao baixar esta conta, o valor será contabilizado na ficha do funcionário.</small>
         </label>
-        <label>Conta padrao
+        <label id="financial-account-cash-account-field" ${editing?.kind === "receivable" ? "" : "hidden"}>Conta prevista para recebimento
           <select name="cashAccount" id="financial-account-cash-account">
             ${cashAccountOptionsHtml(normalizedCashAccount(editing?.cashAccount), accountFormCashType)}
           </select>
@@ -14599,7 +14750,7 @@ function accountsManagementPanel() {
                 <div class="account-main">
                   <span class="status-label">${account.kind === "receivable" ? "A receber" : "A pagar"} · ${status === "paid" ? "Quitada" : status === "overdue" ? "Atrasada" : "Pendente"}</span>
                   <strong>${escapeHtml(account.description || "Conta")}</strong>
-                  <small>Vencimento ${formatIsoDateBr(account.dueDate)}${account.seriesCount > 1 ? ` · ${account.seriesNumber}/${account.seriesCount}` : ""}${account.category ? ` · ${escapeHtml(account.category)}` : ""}${financialEmployeeById(account.employeeId) ? ` · ${escapeHtml(financialEmployeeById(account.employeeId).name)}` : ""} · ${cashAccountLabel(account.cashAccount, account.kind === "receivable" ? "income" : "expense")}</small>
+                  <small>Vencimento ${formatIsoDateBr(account.dueDate)}${account.seriesCount > 1 ? ` · ${account.seriesNumber}/${account.seriesCount}` : ""}${account.category ? ` · ${escapeHtml(account.category)}` : ""}${financialEmployeeById(account.employeeId) ? ` · ${escapeHtml(financialEmployeeById(account.employeeId).name)}` : ""} · ${account.kind === "payable" ? "Conta escolhida no pagamento" : cashAccountLabel(account.cashAccount)}</small>
                 </div>
                 <div class="account-values">
                   <span>Total <b>${money(account.amount)}</b></span>
@@ -14609,7 +14760,7 @@ function accountsManagementPanel() {
                 ${open >= 0.01 ? `
                   <form class="account-settlement-form" data-account-settlement="${escapeHtml(account.id)}">
                     <label>Data<input name="date" type="date" value="${isoDate(new Date())}" required></label>
-                    <label>Conta<select name="cashAccount">${cashAccountOptionsHtml(normalizedCashAccount(account.cashAccount), account.kind === "receivable" ? "income" : "expense")}</select></label>
+                    <label>Conta<select name="cashAccount" required>${cashAccountOptionsHtml(normalizedCashAccount(account.cashAccount, ""), account.kind === "receivable" ? "income" : "expense", false, account.kind === "receivable" ? "Escolha a conta do recebimento" : "Escolha a conta do pagamento")}</select></label>
                     <label>${account.kind === "receivable" ? "Valor recebido" : "Valor pago"}<input name="amount" type="text" inputmode="decimal" value="${moneyInputValue(open)}" required></label>
                     <button type="submit">${account.kind === "receivable" ? "Registrar recebimento" : "Registrar pagamento"}</button>
                   </form>
@@ -14622,7 +14773,7 @@ function accountsManagementPanel() {
                         <span class="${payment.reversedAt ? "reversed" : ""}">
                           <b>${money(payment.amount)}</b>
                           ${payment.reversedAt ? "Estornado" : account.kind === "receivable" ? "Recebido" : "Pago"} em ${formatIsoDateBr(payment.date)}
-                          <small>${escapeHtml(payment.user || "Sistema")}${payment.reversedAt ? ` · estorno em ${formatIsoDateBr(payment.reversalDate)} · ${escapeHtml(payment.reversalReason || "")}` : ""}</small>
+                          <small>${escapeHtml(payment.user || "Sistema")} · ${cashAccountLabel(payment.cashAccount)}${payment.reversedAt ? ` · estorno em ${formatIsoDateBr(payment.reversalDate)} · ${escapeHtml(payment.reversalReason || "")}` : ""}</small>
                           ${payment.reversedAt ? "" : `<button class="danger table-action" type="button" data-reverse-account="${escapeHtml(account.id)}" data-reverse-payment="${escapeHtml(payment.id)}">Estornar</button>`}
                         </span>
                       `).join("")}
@@ -14642,7 +14793,7 @@ function accountsManagementPanel() {
   `;
 }
 
-function upcomingBillsPanel({ title = "Próximas contas", limit = 6, showSummary = false, includeOverdue = true } = {}) {
+function upcomingBillsPanel({ title = "Próximos vencimentos", limit = 6, showSummary = false, includeOverdue = true } = {}) {
   const bills = upcomingBills(limit, { includeOverdue });
   const total = bills.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
 
@@ -14661,8 +14812,8 @@ function upcomingBillsPanel({ title = "Próximas contas", limit = 6, showSummary
             <span>
               <b>${money(entry.amount)}</b>
               ${entry.description || categoryName(entry.category)}
-              <small>${formatIsoDateBr(entry.reminderDate)} - ${entry.dueDate ? dueDateDistanceLabel(entry.dueDate) : "Despesa programada"}</small>
-              ${entry.id ? `<span class="today-order-actions"><a class="secondary table-action" href="/fluxo-de-caixa?edit=${encodeURIComponent(entry.id)}">Editar</a></span>` : ""}
+              <small>${formatIsoDateBr(entry.reminderDate)} - ${upcomingBillSourceLabel(entry)} - ${dueDateDistanceLabel(entry.reminderDate)}</small>
+              ${entry.id ? `<span class="today-order-actions"><a class="secondary table-action" href="${upcomingBillHref(entry)}">Abrir</a></span>` : ""}
             </span>
           `).join("")}
         </div>
@@ -15273,9 +15424,10 @@ function bindFinancialAccounts() {
         return;
       }
       const series = current ? [] : accountSeriesFromValues(values);
+      const kind = values.kind === "receivable" ? "receivable" : "payable";
       const account = current ? {
         ...current,
-        kind: values.kind === "receivable" ? "receivable" : "payable",
+        kind,
         description: String(values.description || "").trim(),
         dueDate: values.dueDate,
         amount: amount.toFixed(2),
@@ -15283,7 +15435,7 @@ function bindFinancialAccounts() {
           ? "funcionarios"
           : String(values.category || "").trim(),
         employeeId: values.kind !== "receivable" ? String(values.employeeId || "") : "",
-        cashAccount: normalizedCashAccount(values.cashAccount),
+        cashAccount: kind === "payable" ? "" : normalizedCashAccount(values.cashAccount, ""),
         notes: String(values.notes || "").trim(),
         updatedAt: new Date().toISOString()
       } : series[0];
@@ -15311,6 +15463,7 @@ function bindFinancialAccounts() {
   const scheduleField = document.querySelector("#financial-account-schedule");
   const scheduleCountField = document.querySelector("#financial-account-count-field");
   const accountKindField = document.querySelector("#financial-account-kind");
+  const accountCashAccountFieldContainer = document.querySelector("#financial-account-cash-account-field");
   const accountCashAccountField = document.querySelector("#financial-account-cash-account");
   const accountEmployeeField = document.querySelector("#financial-account-employee-field");
   const accountEmployeeSelect = document.querySelector("#financial-account-employee");
@@ -15332,6 +15485,9 @@ function bindFinancialAccounts() {
       accountEmployeeField.hidden = !shouldShow;
       if (!shouldShow) {
         accountEmployeeSelect.value = "";
+      }
+      if (accountCashAccountFieldContainer) {
+        accountCashAccountFieldContainer.hidden = shouldShow;
       }
     };
     accountKindField.addEventListener("change", () => {
@@ -15401,6 +15557,11 @@ function bindFinancialAccounts() {
         showToast("Informe data e valor maior que zero.", "error");
         return;
       }
+      const cashAccount = normalizedCashAccount(values.cashAccount, "");
+      if (!cashAccount) {
+        showToast(account.kind === "receivable" ? "Selecione a conta do recebimento." : "Selecione a conta usada no pagamento.", "error");
+        return;
+      }
       if (blockClosedPeriod(values.date, account.kind === "receivable" ? "registrar recebimento" : "registrar pagamento")) {
         return;
       }
@@ -15408,7 +15569,7 @@ function bindFinancialAccounts() {
         id: `settlement-${Date.now()}-${Math.random().toString(16).slice(2)}`,
         date: values.date,
         amount: amount.toFixed(2),
-        cashAccount: normalizedCashAccount(values.cashAccount || account.cashAccount),
+        cashAccount,
         user: state.currentUser?.name || state.currentUser?.username || "Sistema",
           createdAt: new Date().toISOString()
       };
@@ -16382,6 +16543,7 @@ function renderFinance() {
   const activeTab = tabs.some(([key]) => key === state.financeViewTab) ? state.financeViewTab : "summary";
 
   app.innerHTML = `
+    ${viewTabsHtml("financeViewTab", activeTab, tabs)}
     ${financeMonthCommandPanel(data, reportType, weekRange)}
     ${financeDashboardPanel(data)}
     <section class="panel report-section">
@@ -16407,7 +16569,6 @@ function renderFinance() {
       </div>
       <div class="metric report-metric"><span>Ajustes</span><strong class="${data.accountAdjustmentTotals.balance < 0 ? "negative" : "positive"}">${money(data.accountAdjustmentTotals.balance)}</strong></div>
     </section>
-    ${viewTabsHtml("financeViewTab", activeTab, tabs)}
     ${viewPaneHtml("summary", activeTab, `
       ${financialPlanVsActualPanel(data)}
       ${["month", "week"].includes(reportType) ? monthlyOriginCategoryPanel(data) : ""}
@@ -16586,7 +16747,7 @@ function renderReports() {
       </section>
     `)}
     ${viewPaneHtml("expenses", activeTab, `
-      ${upcomingBillsPanel({ title: "Boletos pendentes", limit: 12, showSummary: true, includeOverdue: false })}
+      ${upcomingBillsPanel({ title: "Boletos e contas pendentes", limit: 12, showSummary: true, includeOverdue: false })}
       ${billsStatusPanel()}
       <section class="panel report-section">
         <h2>O que saiu em saídas ${reportTitleSuffix(data)}</h2>

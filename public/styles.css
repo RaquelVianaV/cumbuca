@@ -2169,7 +2169,8 @@ textarea {
   margin: 0 0 16px;
 }
 
-.category-summary span {
+.category-summary > span,
+.category-summary > button {
   display: grid;
   gap: 4px;
   padding: 12px;
@@ -2178,14 +2179,74 @@ textarea {
   background: #ffffff;
 }
 
-.category-summary b,
-.category-summary strong {
+.category-summary > span b,
+.category-summary > span strong,
+.category-summary > button b,
+.category-summary > button strong {
   font-size: 0.92rem;
 }
 
-.category-summary small {
+.category-summary > span small,
+.category-summary > button small {
   color: var(--muted);
   font-size: 0.78rem;
+}
+
+.cash-category-summary-card {
+  width: 100%;
+  min-height: 132px;
+  position: relative;
+  align-content: start;
+  align-items: stretch;
+  justify-content: initial;
+  justify-items: stretch;
+  appearance: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.cash-category-summary-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(11, 119, 89, 0.35);
+  box-shadow: 0 12px 24px rgba(42, 60, 51, 0.09), inset 0 1px 0 #ffffff;
+}
+
+.cash-category-summary-card:focus-visible {
+  outline: 3px solid rgba(11, 119, 89, 0.24);
+  outline-offset: 2px;
+}
+
+.cash-category-summary-card.active {
+  border-color: var(--forest);
+  box-shadow: 0 12px 24px rgba(11, 119, 89, 0.13), inset 0 0 0 1px var(--forest);
+}
+
+.cash-category-summary-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  color: var(--forest);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.cash-category-summary-action i {
+  font-size: 1rem;
+  font-style: normal;
+  transition: transform 160ms ease;
+}
+
+.cash-category-summary-card:hover .cash-category-summary-action i {
+  transform: translateX(3px);
+}
+
+html.dark-mode .cash-category-summary-action {
+  color: #7dd3b0;
 }
 
 .summary {
@@ -4765,6 +4826,23 @@ html.dark-mode .cash-hero > div:first-child {
 .pricing-workflow-context span {
   color: var(--muted);
   line-height: 1.4;
+}
+
+.menu-pricing-source {
+  margin-bottom: 14px;
+}
+
+.planning-card input[readonly] {
+  border-color: rgba(8, 127, 91, 0.16);
+  background: #f3f8f5;
+  color: var(--ink);
+  cursor: default;
+}
+
+.planning-card label > small {
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.35;
 }
 
 .pricing-add-ingredient {
@@ -8523,7 +8601,8 @@ body {
 }
 
 .metric,
-.category-summary span,
+.category-summary > span,
+.category-summary > button,
 .mini-metrics span,
 .backup-preview-grid span,
 .cash-hero-metrics span,
@@ -8773,7 +8852,8 @@ html.dark-mode .report-table {
 }
 
 html.dark-mode .metric,
-html.dark-mode .category-summary span,
+html.dark-mode .category-summary > span,
+html.dark-mode .category-summary > button,
 html.dark-mode .mini-metrics span,
 html.dark-mode .backup-preview-grid span {
   border-color: rgba(244, 241, 233, 0.09);
@@ -8987,6 +9067,31 @@ html.dark-mode tbody tr:hover {
     margin-top: 7px;
     padding: 4px 7px;
     font-size: 0.58rem;
+  }
+
+  .view-tabs-panel {
+    overflow: hidden;
+  }
+
+  .view-tabs {
+    width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+  }
+
+  .header-tools,
+  .header-actions,
+  .today-date {
+    min-width: 0;
+  }
+
+  .today-date {
+    height: auto;
+    padding-block: 6px;
+    line-height: 1.15;
+    text-align: center;
+    white-space: normal;
   }
 }
 

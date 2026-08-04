@@ -70,6 +70,203 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Financeiro', exact: true })).toBeVisible();
 });
 
+test('finance menu stays between the hero and period filters', async ({ page }, testInfo) => {
+  const hero = page.locator('.hero');
+  const menu = page.locator('.view-tabs-panel');
+  const filters = page.locator('.finance-month-command');
+  await expect(menu).toBeVisible();
+
+  const [heroBox, menuBox, filtersBox] = await Promise.all([
+    hero.boundingBox(),
+    menu.boundingBox(),
+    filters.boundingBox(),
+  ]);
+  expect(heroBox).not.toBeNull();
+  expect(menuBox).not.toBeNull();
+  expect(filtersBox).not.toBeNull();
+  expect(menuBox.y).toBeGreaterThanOrEqual(heroBox.y + heroBox.height);
+  expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(filtersBox.y);
+  await expectNoHorizontalOverflow(page);
+
+  const screenshotPath = testInfo.outputPath(`finance-menu-top-${testInfo.project.name}.png`);
+  await page.screenshot({ path: screenshotPath, fullPage: false });
+  await testInfo.attach(`finance-menu-top-${testInfo.project.name}.png`, {
+    path: screenshotPath,
+    contentType: 'image/png',
+  });
+
+  await page.getByRole('button', { name: 'Contas', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Contas a pagar e receber', exact: true })
+  ).toBeVisible();
+});
+
+test('menu is the single navigation entry and saves new orders', async ({ page }, testInfo) => {
+  const database = await mockOnlineDatabase(page);
+  const pageErrors = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+  database.state = {
+    weeklyMenusByPeriod: {
+      '2026-08-semana-1': [
+        {
+          slot: 1,
+          dish: 'Cumbuca teste',
+          cost: '10.00',
+          ingredients: [],
+          status: 'planejado',
+          notes: '',
+        },
+      ],
+    },
+    menuWeek: 1,
+    menuPeriod: { year: 2026, month: 8 },
+    menuDatesByPeriod: {},
+    clients: [
+      {
+        name: 'Cliente teste',
+        phone: '85999999999',
+        plan: 'semanal',
+        weeklyDeliveryFee: '5.00',
+      },
+    ],
+    orders: [],
+  };
+
+  await page.goto('/menu-semanal?ano=2026&mes=8&semana=1');
+  const navigation = page.locator('nav.nav');
+  await expect(navigation.getByRole('link', { name: 'Menu', exact: true })).toHaveCount(1);
+  await expect(navigation.getByRole('link', { name: 'Pedidos', exact: true })).toHaveCount(0);
+  await expect(navigation.getByRole('link', { name: 'Menu', exact: true })).toHaveClass(/active/);
+
+  await page.locator('#order-toggle').click();
+  await page.locator('[data-order-tab="form"]').click();
+  const orderForm = page.locator('#order-form');
+  await orderForm.locator('select[name="clientPhone"]').selectOption('85999999999');
+  await orderForm.locator('input[name="dish-1"]').fill('2');
+  await orderForm.locator('input[name="weeklyValue"]').fill('40,00');
+  await orderForm.getByRole('button', { name: 'Salvar pedido', exact: true }).click();
+
+  await expect.poll(() => database.state.orders?.length || 0).toBe(1);
+  expect(database.state.orders[0]).toMatchObject({
+    menuKey: '2026-08-semana-1',
+    clientPhone: '85999999999',
+    dishes: [{ slot: 1, quantity: 2 }],
+    amount: 40,
+  });
+  await expect(page.locator('[data-order-tab="orders"]')).toHaveClass(/active/);
+  await expect(page.getByText('Cliente teste', { exact: true }).first()).toBeVisible();
+  expect(pageErrors).toEqual([]);
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath(`menu-order-saved-${testInfo.project.name}.png`),
+    fullPage: true,
+  });
+
+  await page.goto('/pedidos?ano=2026&mes=8&semana=1');
+  await expect(page).toHaveURL(/\/menu-semanal\?ano=2026&mes=8&semana=1$/);
+  await expect(navigation.getByRole('link', { name: 'Menu', exact: true })).toHaveClass(/active/);
+});
+
+test('pricing recipes are the source for menu values and profitability', async ({
+  page,
+}, testInfo) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    pricingIngredients: [
+      {
+        id: 'ingredient-1',
+        name: 'Ingrediente teste',
+        unit: 'kg',
+        purchaseQuantity: 1,
+        purchaseCost: 10,
+      },
+    ],
+    pricingRecipes: [
+      {
+        id: 'recipe-1',
+        name: 'Receita oficial de Preços',
+        category: 'Cumbuca',
+        weightGrams: 320,
+        packagingCost: 1,
+        fixedFee: 0,
+        variableFeePercent: 0,
+        desiredMarginPercent: 30,
+        practicedPrice: 25,
+        ingredientBatchSize: 50,
+        ingredients: [{ ingredientId: 'ingredient-1', quantity: 5 }],
+      },
+    ],
+    pricingConfig: { sharedCosts: {} },
+    weeklyMenusByPeriod: {
+      '2026-08-semana-1': [
+        {
+          slot: 1,
+          recipeId: 'recipe-1',
+          dish: 'Nome antigo do menu',
+          cost: 999,
+          ingredients: [],
+          status: 'planejado',
+          notes: '',
+        },
+      ],
+    },
+    menuWeek: 1,
+    menuPeriod: { year: 2026, month: 8 },
+    menuDatesByPeriod: {},
+    clients: [{ name: 'Cliente teste', phone: '85999999999', plan: 'semanal' }],
+    orders: [
+      {
+        id: 'order-pricing-source',
+        menuKey: '2026-08-semana-1',
+        clientPhone: '85999999999',
+        dishes: [{ slot: 1, quantity: 2 }],
+        amount: 1,
+        deliveryFee: 0,
+        paid: true,
+        createdAt: '2026-08-03T12:00:00.000Z',
+      },
+    ],
+  };
+
+  await page.goto('/menu-semanal?ano=2026&mes=8&semana=1');
+  await page.locator('#planning-toggle').click();
+  await expect(page.locator('.menu-pricing-source')).toContainText(
+    'Receitas, custos e preços vêm de Preços'
+  );
+  const recipeSelect = page.locator('[data-menu-recipe-select="0"]');
+  await expect(recipeSelect).toHaveValue('recipe-1');
+  await expect(recipeSelect).not.toContainText('Prato manual');
+  await expect(page.locator('[data-menu-dish="0"]')).toHaveValue('Receita oficial de Preços');
+  await expect(page.locator('[data-menu-dish="0"]')).toHaveAttribute('readonly', '');
+  await expect(page.locator('[data-menu-cost="0"]')).toHaveValue('2,00');
+  await expect(page.locator('[data-menu-cost="0"]')).toHaveAttribute('readonly', '');
+
+  await page.goto('/relatorios?ano=2026&mes=8');
+  await page.getByRole('button', { name: 'Rentabilidade', exact: true }).click();
+  const profitability = page.locator('[data-profitability-panel]');
+  await expect(profitability).toContainText(
+    'Pedidos e Loja usam o preço atual cadastrado em Preços'
+  );
+  await expect(
+    profitability.getByRole('link', { name: 'Abrir receitas em Preços', exact: true })
+  ).toHaveAttribute('href', '/precificacao?view=recipes');
+  await expect(
+    profitability.locator('.metric').filter({ hasText: 'Receita considerada' })
+  ).toContainText('R$ 50,00');
+  await expect(
+    profitability.locator('.metric').filter({ hasText: 'Custo estimado' })
+  ).toContainText('R$ 4,00');
+  await expect(profitability.locator('tbody tr').first()).toContainText(
+    'Receita oficial de Preços'
+  );
+  await expect(profitability.locator('tbody tr').first()).toContainText('R$ 25,00');
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath(`profitability-pricing-source-${testInfo.project.name}.png`),
+    fullPage: true,
+  });
+});
+
 test('finance summary and pending dashboard fit the viewport', async ({ page }, testInfo) => {
   await expectNoHorizontalOverflow(page);
   await page.getByRole('button', { name: 'Pendências', exact: true }).click();
@@ -105,6 +302,60 @@ test('accounts workflow is visible and responsive', async ({ page }, testInfo) =
     path: screenshotPath,
     contentType: 'image/png',
   });
+});
+
+test('future bills choose the cash account only when paid', async ({ page }) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = { cashEntries: [] };
+  const today = localDateKey();
+  const tomorrowDate = new Date();
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  const tomorrow = localDateKey(tomorrowDate);
+
+  await page.goto('/hoje');
+  const quickExpenseForm = page.locator('#today-expense-form');
+  await quickExpenseForm.locator('#today-expense-category').selectOption('boleto');
+  await expect(quickExpenseForm.locator('#today-expense-cash-account-field')).toBeHidden();
+
+  await page.goto('/fluxo-de-caixa');
+  const cashForm = page.locator('#cash-form');
+  await cashForm.locator('#cash-type').selectOption('expense');
+  await cashForm.locator('#cash-category').selectOption('boleto');
+  await expect(cashForm.locator('#cash-account-field')).toBeHidden();
+  await cashForm.getByLabel('Descrição', { exact: true }).fill('Boleto futuro sem conta');
+  await cashForm.getByLabel('Vencimento', { exact: true }).fill(tomorrow);
+  await cashForm.getByLabel('Valor', { exact: true }).fill('125,00');
+  await cashForm.getByRole('button', { name: 'Adicionar', exact: true }).click();
+
+  await expect.poll(() => database.state.cashEntries).toHaveLength(1);
+  expect(database.state.cashEntries[0]).toMatchObject({
+    category: 'boleto',
+    dueDate: tomorrow,
+    cashAccount: '',
+    amount: '125.00',
+  });
+  expect(database.state.cashEntries[0].paidAt).toBeUndefined();
+  expect(await page.evaluate((date) => window.accountBalanceUntilDate(date), today)).toBe(0);
+
+  await page.getByRole('button', { name: 'Extrato', exact: true }).click();
+  const promptAnswers = [today, 'pj'];
+  const paymentDialogs = async (dialog) => {
+    if (dialog.type() === 'prompt') {
+      await dialog.accept(promptAnswers.shift());
+      return;
+    }
+    await dialog.accept();
+  };
+  page.on('dialog', paymentDialogs);
+  await page.getByRole('button', { name: 'Marcar pago', exact: true }).click();
+  page.off('dialog', paymentDialogs);
+
+  await expect.poll(() => database.state.cashEntries[0]?.paidAt).toBeTruthy();
+  expect(database.state.cashEntries[0]).toMatchObject({
+    date: today,
+    cashAccount: 'pj',
+  });
+  expect(await page.evaluate((date) => window.accountBalanceUntilDate(date), today)).toBe(-125);
 });
 
 test('employee registry links employee expenses automatically', async ({ page }, testInfo) => {
@@ -185,16 +436,18 @@ test('employee registry links employee expenses automatically', async ({ page },
   await accountForm.getByLabel('Valor total', { exact: true }).fill('200,00');
   await accountForm.getByRole('button', { name: 'Adicionar conta', exact: true }).click();
   await expect(page.locator('.account-row')).toHaveCount(1);
-  await page
-    .locator('.account-row')
-    .getByRole('button', { name: 'Registrar pagamento', exact: true })
-    .click();
+  const employeeAccount = page.locator('.account-row');
+  await employeeAccount
+    .locator('form[data-account-settlement] select[name="cashAccount"]')
+    .selectOption('pj');
+  await employeeAccount.getByRole('button', { name: 'Registrar pagamento', exact: true }).click();
 
   await expect.poll(() => database.state.cashEntries?.length).toBe(2);
   expect(database.state.cashEntries[1]).toMatchObject({
     type: 'expense',
     category: 'funcionarios',
     employeeId: employee.id,
+    cashAccount: 'pj',
     amount: '200.00',
   });
   await page.goto('/financeiro?view=employees');
@@ -421,6 +674,30 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
   ]);
   await filterFormBeforeSummaryReview.locator('#cash-filter-type').selectOption('all');
   await filterFormBeforeSummaryReview.getByRole('button', { name: 'Aplicar', exact: true }).click();
+
+  const saleCategoryMenu = page.locator('[data-cash-summary-category="venda"]');
+  const otherCategoryMenu = page.locator('[data-cash-summary-category="outros"]');
+  await expect(saleCategoryMenu).toBeVisible();
+  await expect(otherCategoryMenu).toBeVisible();
+  await expect(saleCategoryMenu).toHaveAttribute('aria-pressed', 'false');
+  await saleCategoryMenu.click();
+  await expect(saleCategoryMenu).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#cash-filter-category')).toHaveValue('venda');
+  expect(await ledgerDescriptions()).toEqual([
+    'Último lançamento',
+    'Segundo lançamento',
+    'Primeiro lançamento',
+  ]);
+  await expect(otherCategoryMenu).toBeVisible();
+  await saleCategoryMenu.click();
+  await expect(saleCategoryMenu).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#cash-filter-category')).toHaveValue('all');
+  expect(await ledgerDescriptions()).toEqual([
+    'Saída sem conta',
+    'Último lançamento',
+    'Segundo lançamento',
+    'Primeiro lançamento',
+  ]);
 
   const formattedToday = today.split('-').reverse().join('/');
   const pfAccountSummary = page.locator('[data-cash-account-summary="pf"]');
@@ -1275,6 +1552,7 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
   await expect(
     page.getByRole('heading', { name: 'Contas a pagar e receber', exact: true })
   ).toBeVisible();
+  await expect(page.locator('#financial-account-cash-account-field')).toBeHidden();
 
   await page.getByLabel('Descrição', { exact: true }).fill('Teste fornecedor');
   await page.getByLabel('Vencimento', { exact: true }).fill(today);
@@ -1283,6 +1561,9 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
   await page.locator('#financial-account-count-field input[name="scheduleCount"]').fill('3');
   await page.getByRole('button', { name: 'Adicionar conta', exact: true }).click();
   await expect(page.locator('.account-row')).toHaveCount(3);
+  expect(
+    database.state.financialPlanning.accounts.every((account) => account.cashAccount === '')
+  ).toBe(true);
   expect(database.state.financialPlanning.accounts.map((account) => account.amount)).toEqual([
     '33.34',
     '33.33',
@@ -1302,11 +1583,16 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
   ).toEqual(['25.00', '25.00']);
 
   let firstAccount = page.locator('.account-row').filter({ hasText: 'Teste fornecedor' }).first();
+  await expect(firstAccount).toContainText('Conta escolhida no pagamento');
+  await firstAccount
+    .locator('form[data-account-settlement] select[name="cashAccount"]')
+    .selectOption('pj');
   await firstAccount.locator('form[data-account-settlement] input[name="amount"]').fill('30,00');
   await firstAccount.getByRole('button', { name: 'Registrar pagamento', exact: true }).click();
   firstAccount = page.locator('.account-row').filter({ hasText: 'Teste fornecedor' }).first();
   await expect(firstAccount).toContainText('R$ 30,00');
   await firstAccount.locator('details').click();
+  await expect(firstAccount).toContainText('Conta PJ');
 
   const reversalDialogs = async (dialog) => {
     if (dialog.type() === 'prompt' && dialog.message().includes('Data do estorno')) {
@@ -1328,6 +1614,9 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
     .locator('.account-row')
     .filter({ hasText: 'Assinatura mensal' })
     .first();
+  await adjustedAccount
+    .locator('form[data-account-settlement] select[name="cashAccount"]')
+    .selectOption('pf');
   await adjustedAccount.locator('form[data-account-settlement] input[name="amount"]').fill('28,50');
   await adjustedAccount.getByRole('button', { name: 'Registrar pagamento', exact: true }).click();
   adjustedAccount = page
@@ -1372,16 +1661,34 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
       (entry) => entry.description === 'Pagamento - Assinatura mensal' && entry.amount === '28.50'
     )
   ).toBe(true);
+  expect(
+    database.state.cashEntries?.find(
+      (entry) => entry.description === 'Pagamento - Assinatura mensal'
+    )?.cashAccount
+  ).toBe('pf');
 });
 
 test('home dashboard prioritizes projected balance and actions', async ({ page }, testInfo) => {
   const database = await mockOnlineDatabase(page);
   const today = localDateKey();
+  const tomorrowDate = new Date();
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  const tomorrow = localDateKey(tomorrowDate);
   database.state = {
     cashEntries: [
       { id: 'home-pf-income', date: today, type: 'income', cashAccount: 'pf', amount: '100.00' },
       { id: 'home-pj-income', date: today, type: 'income', cashAccount: 'pj', amount: '50.00' },
       { id: 'home-pj-expense', date: today, type: 'expense', cashAccount: 'pj', amount: '10.00' },
+      {
+        id: 'home-cash-bill',
+        date: tomorrow,
+        dueDate: tomorrow,
+        description: 'Boleto futuro do caixa',
+        type: 'expense',
+        category: 'boleto',
+        cashAccount: '',
+        amount: '25.00',
+      },
     ],
     financialPlanning: {
       accounts: [
@@ -1426,6 +1733,22 @@ test('home dashboard prioritizes projected balance and actions', async ({ page }
   await expect(page.getByRole('heading', { name: 'Prioridades', exact: true })).toBeVisible();
   await expect(
     page.getByRole('heading', { name: 'Próximos vencimentos', exact: true })
+  ).toBeVisible();
+  const upcomingPanel = page
+    .getByRole('heading', { name: 'Próximos vencimentos', exact: true })
+    .locator('..')
+    .locator('..');
+  await expect(upcomingPanel).toContainText('Fornecedor PF');
+  await expect(upcomingPanel).toContainText('Cliente PJ');
+  await expect(upcomingPanel).toContainText('Boleto futuro do caixa');
+  await expect(upcomingPanel).toContainText('Conta a pagar');
+  await expect(upcomingPanel).toContainText('Conta a receber');
+  await expect(upcomingPanel).toContainText('Boleto do Fluxo de Caixa');
+  await expect(
+    upcomingPanel.locator('a[href="/financeiro?view=accounts&account=home-pf-payable"]')
+  ).toBeVisible();
+  await expect(
+    upcomingPanel.locator('a[href="/fluxo-de-caixa?edit=home-cash-bill"]')
   ).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Ações principais', exact: true })).toBeVisible();
   await expectNoHorizontalOverflow(page);

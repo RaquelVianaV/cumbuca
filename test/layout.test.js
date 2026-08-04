@@ -90,6 +90,24 @@ test('narrow browser windows keep horizontal page scrolling available', () => {
 });
 
 test('finance, reports and maintenance expose the expected view tabs', () => {
+  const mainNavigation = html.match(/<nav class="nav">([\s\S]*?)<\/nav>/)?.[1] || '';
+  assert.match(mainNavigation, /href="\/menu-semanal"[^>]*>Menu<\/a>/);
+  assert.doesNotMatch(mainNavigation, /href="\/pedidos"/);
+  assert.equal((mainNavigation.match(/href="\/menu-semanal"/g) || []).length, 1);
+  assert.match(app, /const editingOrder = state\.editOrderId/);
+  assert.doesNotMatch(app, /paidAmount: editing\?\.paidAmount/);
+  assert.match(app, /history\.replaceState\(null, "", `\/menu-semanal\$\{location\.search\}`\)/);
+  assert.match(app, /Receitas, custos e preços vêm de Preços/);
+  assert.match(app, /Selecione uma receita cadastrada em Preços/);
+  assert.doesNotMatch(app, /Prato manual, sem receita vinculada/);
+  assert.match(app, /function pricingRecipeReferencePrice/);
+  assert.match(app, /Pedidos e Loja usam o preço atual cadastrado em Preços/);
+  assert.match(app, /href="\/precificacao\?view=recipes">Abrir receitas em Preços/);
+  assert.match(css, /\.planning-card input\[readonly\]/);
+  assert.match(app, /const nextAccounts = upcomingBills\(5, \{ includeOverdue: true \}\)/);
+  assert.match(app, /function upcomingBillSourceLabel/);
+  assert.match(app, /function upcomingBillHref/);
+  assert.match(app, /Nenhum boleto ou conta em aberto nos próximos 30 dias/);
   assert.match(app, /financeViewTab/);
   assert.match(app, /Contas a pagar e receber/);
   assert.match(app, /Funcionários da Cumbuca/);
@@ -99,10 +117,21 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /cash-employee-field/);
   assert.match(app, /today-expense-employee-field/);
   assert.match(app, /financial-account-employee/);
+  assert.match(app, /financial-account-cash-account-field/);
+  assert.match(app, /Conta escolhida no pagamento/);
+  assert.match(app, /cashAccount: kind === "payable" \? ""/);
+  assert.match(app, /today-expense-cash-account-field/);
+  assert.match(app, /cash-account-field/);
+  assert.match(app, /Definir ao pagar/);
+  assert.match(app, /Conta usada no pagamento \(digite PF ou PJ\)/);
   assert.match(app, /employeeId/);
   assert.match(server, /employees: \[\]/);
   assert.match(app, /finance-pending-dashboard/);
   assert.match(app, /financeMonthCommandPanel/);
+  assert.match(
+    app,
+    /function renderFinance\(\)[\s\S]*?app\.innerHTML = `\s*\$\{viewTabsHtml\("financeViewTab", activeTab, tabs\)\}\s*\$\{financeMonthCommandPanel/
+  );
   assert.match(app, /financialPlanVsActualPanel/);
   assert.match(app, /plan-vs-actual-panel/);
   assert.match(app, /finance-month-command/);
@@ -279,6 +308,11 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(css, /\.budget-progress/);
   assert.match(css, /\.cash-date-shortcuts/);
   assert.match(css, /\.cash-account-summary/);
+  assert.match(app, /data-cash-summary-category/);
+  assert.match(app, /aria-pressed="\$\{active\}"/);
+  assert.match(app, /data-cash-ledger-results/);
+  assert.match(css, /\.cash-category-summary-card\.active/);
+  assert.match(css, /\.cash-category-summary-card:focus-visible/);
   assert.match(css, /\.cash-account-metric/);
   assert.match(css, /\.dashboard-account-breakdown/);
   assert.match(css, /\.account-balance-metric/);
