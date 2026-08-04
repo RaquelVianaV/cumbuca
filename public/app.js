@@ -8065,8 +8065,12 @@ async function renderMenu() {
   if (orderForm) {
     const totalField = document.querySelector("#order-total");
     const clientField = orderForm.querySelector("[name='clientPhone']");
-    const weeklyFields = document.querySelector("#weekly-order-fields");
+    const orderValueFields = document.querySelector("#order-value-fields");
+    const orderValueField = orderForm.querySelector("[name='orderValue']");
+    const deliveryFeeFieldContainer = document.querySelector("#order-delivery-fee-field");
+    const paidFieldContainer = document.querySelector("#order-paid-field");
     const deliveryFeeField = orderForm.querySelector("[name='orderDeliveryFee']");
+    const paidField = orderForm.querySelector("[name='paid']");
     const quantityFields = [...orderForm.querySelectorAll("[data-dish-quantity]")];
 
     function selectedOrderClient() {
@@ -8083,21 +8087,24 @@ async function renderMenu() {
       });
     }
 
-    function updateWeeklyFields() {
+    function updateOrderValueFields() {
       const client = selectedOrderClient();
+      const hasClient = Boolean(client.phone);
       const isWeekly = client.plan === "semanal";
-      weeklyFields.hidden = !isWeekly;
+      orderValueFields.hidden = !hasClient;
+      orderValueField.disabled = !hasClient;
+      orderValueField.required = hasClient;
+      deliveryFeeFieldContainer.hidden = !isWeekly;
+      paidFieldContainer.hidden = !isWeekly;
+      deliveryFeeField.disabled = !isWeekly;
+      paidField.disabled = !isWeekly;
       if (isWeekly && deliveryFeeField && !state.editOrderId) {
         deliveryFeeField.value = moneyInputValue(client.weeklyDeliveryFee || client.deliveryFee);
       }
-      weeklyFields.querySelectorAll("input").forEach(field => {
-        field.disabled = !isWeekly;
-        field.required = isWeekly && field.name === "weeklyValue";
-      });
       updateOrderTotal();
     }
 
-    clientField.addEventListener("change", updateWeeklyFields);
+    clientField.addEventListener("change", updateOrderValueFields);
     quantityFields.forEach(field => {
       field.addEventListener("input", updateOrderTotal);
     });
@@ -8122,7 +8129,7 @@ async function renderMenu() {
         .filter(item => item.quantity > 0);
       const clientPhone = data.get("clientPhone");
       const client = clientByPhone(clientPhone);
-      const weeklyValue = client.plan === "semanal" ? parseMoneyInput(data.get("weeklyValue")) : 0;
+      const orderValue = parseMoneyInput(data.get("orderValue"));
       const deliveryFee = client.plan === "semanal" ? parseMoneyInput(data.get("orderDeliveryFee")) : 0;
       const paid = client.plan === "semanal" && data.get("paid") === "on";
 
@@ -8134,6 +8141,10 @@ async function renderMenu() {
         showToast("Selecione um cliente para o pedido.", "error");
         return;
       }
+      if (orderValue <= 0) {
+        showToast("Informe o valor deste pedido.", "error");
+        return;
+      }
       const duplicateOrder = !state.editOrderId && state.orders.some(order =>
         order.menuKey === currentKey
         && String(order.clientPhone || "") === String(clientPhone || "")
@@ -8143,7 +8154,7 @@ async function renderMenu() {
       }
 
       let remainingAfterOrder = null;
-      let monthlyValue = 0;
+      let monthlyPackageCount = 0;
       if (client.plan === "mensalista") {
         const requested = dishes.reduce((sum, dish) => sum + Number(dish.quantity || 0), 0);
         const packageQuantity = clientMonthlyQuantity(client, currentKey);
@@ -8152,10 +8163,11 @@ async function renderMenu() {
           alert("Informe o valor e a quantidade do pacote mensal no cadastro deste cliente.");
           return;
         }
-        monthlyValue = monthlyChargeForOrder(client, currentKey, requested, state.editOrderId);
+        const packageCharge = monthlyChargeForOrder(client, currentKey, requested, state.editOrderId);
+        monthlyPackageCount = Math.max(0, Math.round(packageCharge / packageValue));
         const orderedBefore = clientOrderedQuantity(client, currentKey, state.editOrderId);
         const capacityAfterOrder = clientMonthlyCapacity(client, currentKey, state.editOrderId)
-          + (monthlyValue > 0 ? (monthlyValue / packageValue) * packageQuantity : 0);
+          + (monthlyPackageCount * packageQuantity);
         remainingAfterOrder = Math.max(0, capacityAfterOrder - orderedBefore - requested);
       }
 
@@ -8168,10 +8180,11 @@ async function renderMenu() {
         menuKey: currentKey,
         clientPhone,
         dishes,
-        amount: client.plan === "mensalista" ? monthlyValue : weeklyValue,
+        amount: orderValue,
         deliveryFee,
         paid,
-        paidAmount: editingOrder?.paidAmount || (paid ? weeklyValue : 0),
+        paidAmount: editingOrder?.paidAmount || (paid ? orderValue : 0),
+        monthlyPackageCount: client.plan === "mensalista" ? monthlyPackageCount : undefined,
         delivered: editingOrder?.delivered || false,
         deliveredAt: editingOrder?.deliveredAt || "",
         totalQuantity: undefined,
@@ -8199,7 +8212,7 @@ async function renderMenu() {
         releaseSubmission();
       }
     });
-    updateWeeklyFields();
+    updateOrderValueFields();
 
     document.querySelectorAll("[data-edit-order]").forEach(button => {
       button.addEventListener("click", event => {
@@ -8671,7 +8684,12 @@ function clientChargedPackageCount(client, currentKey, ignoredOrderId = null) {
   return monthlyOrders(currentKey)
     .filter(order => order.clientPhone === client.phone)
     .filter(order => Number(order.id) !== Number(ignoredOrderId))
-    .reduce((sum, order) => sum + Math.ceil(Number(order.amount || 0) / packageValue), 0);
+    .reduce((sum, order) => {
+      if (Object.prototype.hasOwnProperty.call(order, "monthlyPackageCount")) {
+        return sum + Math.max(0, Number(order.monthlyPackageCount || 0));
+      }
+      return sum + Math.ceil(Number(order.amount || 0) / packageValue);
+    }, 0);
 }
 
 function clientMonthlyCapacity(client, currentKey, ignoredOrderId = null) {
@@ -8720,7 +8738,7 @@ function isLowMonthlyQuantity(client, currentKey) {
 
 function monthlyQuantityWarningText(client, remaining) {
   if (remaining <= 0) {
-    return `O pacote de ${client.name || "mensalista"} acabou. O próximo pedido mensal renova um novo pacote automaticamente.`;
+    return `O pacote de ${client.name || "mensalista"} acabou. O próximo pedido libera um novo pacote, mas o valor continuará sendo informado manualmente.`;
   }
 
   return `Atenção: ${client.name || "mensalista"} está com apenas ${remaining} cumbuca(s) restante(s) neste mês.`;
@@ -9036,14 +9054,14 @@ function orderFormPanel(plan, currentKey, editing, availableClients) {
             </label>
           `).join("")}
         </div>
-        <div class="weekly-order-fields" id="weekly-order-fields" hidden>
+        <div class="weekly-order-fields" id="order-value-fields" hidden>
           <label>Valor em real deste pedido
-            <input name="weeklyValue" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(editing?.amount)}" disabled>
+            <input name="orderValue" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(editing?.amount)}" disabled>
           </label>
-          <label>Valor em frete
+          <label id="order-delivery-fee-field">Valor em frete
             <input name="orderDeliveryFee" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(editing?.deliveryFee)}" disabled>
           </label>
-          <label class="checkbox-field">
+          <label class="checkbox-field" id="order-paid-field">
             <input name="paid" type="checkbox" ${editing?.paid ? "checked" : ""} disabled>
             <span>Pago</span>
           </label>

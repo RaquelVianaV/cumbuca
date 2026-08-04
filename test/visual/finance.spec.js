@@ -143,7 +143,7 @@ test('menu is the single navigation entry and saves new orders', async ({ page }
   const orderForm = page.locator('#order-form');
   await orderForm.locator('select[name="clientPhone"]').selectOption('85999999999');
   await orderForm.locator('input[name="dish-1"]').fill('2');
-  await orderForm.locator('input[name="weeklyValue"]').fill('40,00');
+  await orderForm.locator('input[name="orderValue"]').fill('40,00');
   await orderForm.getByRole('button', { name: 'Salvar pedido', exact: true }).click();
 
   await expect.poll(() => database.state.orders?.length || 0).toBe(1);
@@ -165,6 +165,60 @@ test('menu is the single navigation entry and saves new orders', async ({ page }
   await page.goto('/pedidos?ano=2026&mes=8&semana=1');
   await expect(page).toHaveURL(/\/menu-semanal\?ano=2026&mes=8&semana=1$/);
   await expect(navigation.getByRole('link', { name: 'Menu', exact: true })).toHaveClass(/active/);
+});
+
+test('monthly clients only record revenue after the order value is entered', async ({ page }) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    weeklyMenusByPeriod: {
+      '2026-08-semana-1': [
+        {
+          slot: 1,
+          dish: 'Cumbuca mensal',
+          cost: '10.00',
+          ingredients: [],
+          status: 'planejado',
+          notes: '',
+        },
+      ],
+    },
+    menuWeek: 1,
+    menuPeriod: { year: 2026, month: 8 },
+    menuDatesByPeriod: {},
+    clients: [
+      {
+        name: 'Cliente mensalista',
+        phone: '85888888888',
+        plan: 'mensalista',
+        planValue: '120.00',
+        monthlyQuantity: '10',
+      },
+    ],
+    orders: [],
+  };
+
+  await page.goto('/menu-semanal?ano=2026&mes=8&semana=1');
+  await page.locator('#order-toggle').click();
+  await page.locator('[data-order-tab="form"]').click();
+  const orderForm = page.locator('#order-form');
+  await orderForm.locator('select[name="clientPhone"]').selectOption('85888888888');
+  await expect(orderForm.locator('#order-value-fields')).toBeVisible();
+  await expect(orderForm.locator('input[name="orderValue"]')).toBeEnabled();
+  await expect(orderForm.locator('input[name="orderValue"]')).toHaveAttribute('required', '');
+  await expect(orderForm.locator('#order-delivery-fee-field')).toBeHidden();
+  await orderForm.locator('input[name="dish-1"]').fill('2');
+  await orderForm.getByRole('button', { name: 'Salvar pedido', exact: true }).click();
+  await expect.poll(() => database.state.orders?.length || 0).toBe(0);
+  await orderForm.locator('input[name="orderValue"]').fill('37,50');
+  await orderForm.getByRole('button', { name: 'Salvar pedido', exact: true }).click();
+
+  await expect.poll(() => database.state.orders?.length || 0).toBe(1);
+  expect(database.state.orders[0]).toMatchObject({
+    clientPhone: '85888888888',
+    amount: 37.5,
+    monthlyPackageCount: 1,
+  });
+  await expect(page.getByText('R$ 37,50', { exact: true }).first()).toBeVisible();
 });
 
 test('pricing recipes are the source for menu values and profitability', async ({

@@ -96,6 +96,10 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.equal((mainNavigation.match(/href="\/menu-semanal"/g) || []).length, 1);
   assert.match(app, /const editingOrder = state\.editOrderId/);
   assert.doesNotMatch(app, /paidAmount: editing\?\.paidAmount/);
+  assert.match(app, /const orderValue = parseMoneyInput\(data\.get\("orderValue"\)\)/);
+  assert.match(app, /amount: orderValue/);
+  assert.match(app, /monthlyPackageCount/);
+  assert.doesNotMatch(app, /amount: client\.plan === "mensalista"/);
   assert.match(app, /history\.replaceState\(null, "", `\/menu-semanal\$\{location\.search\}`\)/);
   assert.match(app, /Receitas, custos e preços vêm de Preços/);
   assert.match(app, /Selecione uma receita cadastrada em Preços/);
