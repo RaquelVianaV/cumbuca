@@ -237,7 +237,7 @@ test('monthly orders allow manual fees and only account for entered values', asy
   await expect(page.getByText('R$ 37,50', { exact: true }).first()).toBeVisible();
 });
 
-test('menu planning combines manual ingredient costs with automatic allocated costs', async ({
+test('menu planning combines manual costs, packaging, allocated costs and profit', async ({
   page,
 }, testInfo) => {
   const database = await mockOnlineDatabase(page);
@@ -282,6 +282,8 @@ test('menu planning combines manual ingredient costs with automatic allocated co
   await expect(
     page.getByRole('link', { name: 'Configurar custos rateados', exact: true })
   ).toHaveAttribute('href', '/precificacao?view=costs');
+  await expect(page.locator('[data-menu-packaging="0"]')).toHaveValue('1,60');
+  await expect(page.locator('[data-menu-profit-percent="0"]')).toHaveValue('30,00');
 
   await page.locator('[data-menu-dish="0"]').fill('Cumbuca manual da semana');
   const firstIngredient = page.locator('[data-ingredient-row][data-menu-index="0"]').first();
@@ -295,8 +297,18 @@ test('menu planning combines manual ingredient costs with automatic allocated co
   const breakdown = page.locator('[data-menu-cost-breakdown="0"]');
   await expect(breakdown.locator('[data-menu-ingredient-cost]')).toHaveText('R$ 10,00');
   await expect(breakdown.locator('[data-menu-shared-cost]')).toHaveText('R$ 10,00');
-  await expect(breakdown.locator('[data-menu-total-cost]')).toHaveText('R$ 20,00');
-  await expect(page.locator('[data-menu-weekly-cost]')).toHaveText('R$ 20,00');
+  await expect(breakdown.locator('[data-menu-packaging-cost]')).toHaveText('R$ 1,60');
+  await expect(breakdown.locator('[data-menu-total-cost]')).toHaveText('R$ 21,60');
+  await expect(breakdown.locator('[data-menu-profit-label]')).toHaveText('Lucro (30%)');
+  await expect(breakdown.locator('[data-menu-profit]')).toHaveText('R$ 6,48');
+  await expect(breakdown.locator('[data-menu-suggested-price]')).toHaveText('R$ 28,08');
+  await expect(page.locator('[data-menu-weekly-cost]')).toHaveText('R$ 43,20');
+  await expect(page.locator('[data-menu-weekly-quantity]')).toHaveText('2 cumbuca(s) pedida(s)');
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath(`menu-planning-profit-${testInfo.project.name}.png`),
+    fullPage: true,
+  });
   await page.getByRole('button', { name: 'Salvar menu', exact: true }).click();
 
   await expect
@@ -306,7 +318,11 @@ test('menu planning combines manual ingredient costs with automatic allocated co
     dish: 'Cumbuca manual da semana',
     ingredientCost: '10.00',
     sharedCost: '10.00',
-    cost: '20.00',
+    packagingCost: '1.60',
+    profitPercent: '30.00',
+    cost: '21.60',
+    profit: '6.48',
+    suggestedPrice: '28.08',
     ingredients: [
       { name: 'Arroz', value: '3.00' },
       { name: 'Frango', value: '7.00' },
@@ -327,13 +343,75 @@ test('menu planning combines manual ingredient costs with automatic allocated co
   ).toContainText('R$ 50,00');
   await expect(
     profitability.locator('.metric').filter({ hasText: 'Custo estimado' })
-  ).toContainText('R$ 40,00');
+  ).toContainText('R$ 43,20');
   await expect(profitability.locator('tbody tr').first()).toContainText('Cumbuca manual da semana');
   await expect(profitability.locator('tbody tr').first()).toContainText('Planejamento');
-  await expect(profitability.locator('tbody tr').first()).toContainText('R$ 40,00');
+  await expect(profitability.locator('tbody tr').first()).toContainText('R$ 43,20');
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
     path: testInfo.outputPath(`profitability-planning-cost-${testInfo.project.name}.png`),
+    fullPage: true,
+  });
+});
+
+test('monthly menu summary multiplies unit cost by ordered quantities and shows the result', async ({
+  page,
+}, testInfo) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    pricingConfig: { sharedCosts: { averageMonthlyUnits: 1 } },
+    weeklyMenusByPeriod: {
+      '2026-08-semana-1': [
+        {
+          slot: 1,
+          dish: 'Moqueca de peixe',
+          ingredients: [{ name: 'Ingredientes', value: '13.76' }],
+          ingredientCost: '13.76',
+          sharedCost: '0.00',
+          packagingCost: '1.60',
+          profitPercent: '30.00',
+          cost: '15.36',
+          status: 'pronto',
+          notes: '',
+        },
+      ],
+    },
+    menuWeek: 1,
+    menuPeriod: { year: 2026, month: 8 },
+    menuDatesByPeriod: {},
+    clients: [],
+    orders: [
+      {
+        id: 'weekly-summary-order-1',
+        menuKey: '2026-08-semana-1',
+        clientPhone: '85111111111',
+        dishes: [{ slot: 1, quantity: 100 }],
+        amount: 2500,
+      },
+      {
+        id: 'weekly-summary-order-2',
+        menuKey: '2026-08-semana-1',
+        clientPhone: '85222222222',
+        dishes: [{ slot: 1, quantity: 75 }],
+        amount: 1875,
+      },
+    ],
+  };
+
+  await page.goto('/menu-semanal?ano=2026&mes=8&resumo=mes');
+  const week = page.locator('[data-week-summary="1"]');
+  await expect(week).toContainText('Semana 1');
+  await expect(week).toContainText('Moqueca de peixe');
+  await expect(week).toContainText('175');
+  await expect(week).toContainText('R$ 2.688,00');
+  await expect(week).toContainText('R$ 4.375,00');
+  await expect(week).toContainText('R$ 1.687,00');
+  await expect(page.locator('.month-summary-note')).toContainText(
+    'custo unitário de cada prato multiplicado pela quantidade pedida'
+  );
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath(`monthly-menu-week-result-${testInfo.project.name}.png`),
     fullPage: true,
   });
 });
@@ -360,7 +438,9 @@ test('monthly menu catalog filters offered dishes and shows recorded costs', asy
           ],
           ingredientCost: '9.00',
           sharedCost: '1.00',
-          cost: '10.00',
+          packagingCost: '1.60',
+          profitPercent: '30.00',
+          cost: '11.60',
           status: 'pronto',
           notes: '',
         },
@@ -372,7 +452,9 @@ test('monthly menu catalog filters offered dishes and shows recorded costs', asy
           ingredients: [{ name: 'Legumes', value: '8.00' }],
           ingredientCost: '8.00',
           sharedCost: '4.00',
-          cost: '12.00',
+          packagingCost: '1.60',
+          profitPercent: '30.00',
+          cost: '13.60',
           status: 'planejado',
           notes: '',
         },
@@ -384,7 +466,9 @@ test('monthly menu catalog filters offered dishes and shows recorded costs', asy
           ingredients: [{ name: 'Frango', value: '10.00' }],
           ingredientCost: '10.00',
           sharedCost: '1.00',
-          cost: '11.00',
+          packagingCost: '1.60',
+          profitPercent: '30.00',
+          cost: '12.60',
           status: 'preparo',
           notes: 'Versão especial',
         },
@@ -396,7 +480,9 @@ test('monthly menu catalog filters offered dishes and shows recorded costs', asy
           ingredients: [{ name: 'Insumo antigo', value: '6.00' }],
           ingredientCost: '6.00',
           sharedCost: '2.00',
-          cost: '8.00',
+          packagingCost: '1.60',
+          profitPercent: '30.00',
+          cost: '9.60',
           status: 'pronto',
           notes: '',
         },
@@ -415,7 +501,8 @@ test('monthly menu catalog filters offered dishes and shows recorded costs', asy
   await expect(page.locator('[data-menu-catalog-card]')).toHaveCount(3);
   await expect(page.locator('.menu-catalog-summary')).toContainText('Disponibilizações3');
   await expect(page.locator('.menu-catalog-summary')).toContainText('Cumbucas diferentes2');
-  await expect(page.locator('.menu-catalog-summary')).toContainText('R$ 11,00');
+  await expect(page.locator('.menu-catalog-summary')).toContainText('R$ 12,60');
+  await expect(page.locator('.menu-catalog-summary')).toContainText('R$ 3,78');
   await expect(page.getByText('Prato de julho', { exact: true })).toHaveCount(0);
 
   const filter = page.locator('#menu-catalog-filter');
@@ -429,7 +516,10 @@ test('monthly menu catalog filters offered dishes and shows recorded costs', asy
   await expect(result).toContainText('Frango cremoso');
   await expect(result).toContainText('R$ 10,00');
   await expect(result).toContainText('R$ 1,00');
-  await expect(result).toContainText('R$ 11,00');
+  await expect(result).toContainText('R$ 1,60');
+  await expect(result).toContainText('R$ 12,60');
+  await expect(result).toContainText('R$ 3,78');
+  await expect(result).toContainText('R$ 16,38');
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
     path: testInfo.outputPath(`monthly-menu-catalog-${testInfo.project.name}.png`),

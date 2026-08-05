@@ -4832,6 +4832,34 @@ html.dark-mode .cash-hero > div:first-child {
   margin-bottom: 14px;
 }
 
+.menu-profit-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(8, 127, 91, 0.16);
+  border-radius: 8px;
+  background: rgba(8, 127, 91, 0.035);
+}
+
+.percentage-input {
+  position: relative;
+}
+
+.percentage-input input {
+  padding-right: 34px;
+}
+
+.percentage-input span {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  color: var(--muted);
+  font-weight: 800;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
 .menu-cost-breakdown {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -4862,6 +4890,11 @@ html.dark-mode .cash-hero > div:first-child {
 .menu-cost-breakdown .total {
   padding-left: 8px;
   border-left: 1px solid rgba(8, 127, 91, 0.18);
+}
+
+.menu-cost-breakdown .profit strong,
+.menu-cost-breakdown .suggested-price strong {
+  color: var(--green);
 }
 
 .planning-card input[readonly] {
@@ -5446,7 +5479,12 @@ html.dark-mode .cash-hero > div:first-child {
 }
 
 .month-summary-table table {
-  min-width: 760px;
+  min-width: 980px;
+}
+
+.month-summary-note {
+  margin: 0 0 12px;
+  white-space: normal;
 }
 
 .menu-catalog-panel {
@@ -6102,6 +6140,7 @@ html.dark-mode .order-card,
 html.dark-mode .alert-card,
 html.dark-mode .partners-dashboard > section,
 html.dark-mode .planning-card,
+html.dark-mode .menu-profit-controls,
 html.dark-mode .menu-cost-breakdown,
 html.dark-mode .menu-catalog-card,
 html.dark-mode .week-range-card,
@@ -7891,6 +7930,7 @@ a.secondary.table-action,
 @media (max-width: 700px) {
   .operation-priority-list,
   .menu-recipe-summary,
+  .menu-profit-controls,
   .menu-cost-breakdown,
   .plan-vs-actual-grid,
   .maintenance-health-grid,

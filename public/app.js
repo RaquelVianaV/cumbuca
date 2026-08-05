@@ -7691,6 +7691,9 @@ function planningIngredientTotal(ingredients) {
   return ingredients.reduce((sum, item) => sum + Number(item.value || 0), 0);
 }
 
+const MENU_DEFAULT_PACKAGING_COST = 1.6;
+const MENU_DEFAULT_PROFIT_PERCENT = 30;
+
 function menuItemHasPlanningContent(item = {}) {
   return Boolean(
     String(item.dish || "").trim()
@@ -7715,13 +7718,36 @@ function menuItemHasManualCost(item = {}) {
   return Object.prototype.hasOwnProperty.call(item, "ingredientCost") || !item.recipeId;
 }
 
+function menuItemPackagingCost(item = {}) {
+  if (!menuItemHasPlanningContent(item)) {
+    return 0;
+  }
+  return Object.prototype.hasOwnProperty.call(item, "packagingCost")
+    ? Math.max(0, Number(item.packagingCost || 0))
+    : MENU_DEFAULT_PACKAGING_COST;
+}
+
+function menuItemProfitPercent(item = {}) {
+  return Object.prototype.hasOwnProperty.call(item, "profitPercent")
+    ? Math.max(0, Number(item.profitPercent || 0))
+    : MENU_DEFAULT_PROFIT_PERCENT;
+}
+
 function menuPlanningCosts(item = {}, sharedPerUnit = pricingSharedCosts().totalPerUnit) {
   const ingredientCost = menuItemIngredientCost(item);
   const sharedCost = menuItemHasPlanningContent(item) ? Math.max(0, sharedPerUnit) : 0;
+  const packagingCost = menuItemPackagingCost(item);
+  const profitPercent = menuItemProfitPercent(item);
+  const totalCost = ingredientCost + sharedCost + packagingCost;
+  const profit = totalCost * (profitPercent / 100);
   return {
     ingredientCost,
     sharedCost,
-    totalCost: ingredientCost + sharedCost
+    packagingCost,
+    profitPercent,
+    totalCost,
+    profit,
+    suggestedPrice: totalCost + profit
   };
 }
 
@@ -7741,10 +7767,27 @@ function menuCatalogRecordedCosts(item = {}) {
     : item.recipeId
       ? 0
       : Math.max(0, storedTotal - ingredientCost);
+  const hasStoredPackaging = Object.prototype.hasOwnProperty.call(item, "packagingCost");
+  const packagingCost = item.recipeId && !hasStoredPackaging
+    ? 0
+    : menuItemPackagingCost(item);
+  const profitPercent = menuItemProfitPercent(item);
+  const calculatedTotal = ingredientCost + storedShared + packagingCost;
+  const totalCost = hasStoredPackaging
+    ? (storedTotal > 0 ? storedTotal : calculatedTotal)
+    : calculatedTotal > 0
+      ? calculatedTotal
+      : storedTotal;
+  const profit = totalCost * (profitPercent / 100);
   return {
     ingredientCost,
     sharedCost: storedShared,
-    totalCost: storedTotal > 0 ? storedTotal : ingredientCost + storedShared
+    packagingCost,
+    profitPercent,
+    totalCost,
+    profit,
+    suggestedPrice: totalCost + profit,
+    costConfigured: ingredientCost > 0 || Boolean(item.recipeId && storedTotal > 0)
   };
 }
 
@@ -7780,10 +7823,10 @@ function filteredMenuCatalogRows(rows = menuCatalogRows()) {
     if (filter.week !== "all" && Number(filter.week) !== row.week) {
       return false;
     }
-    if (filter.cost === "configured" && row.costs.totalCost <= 0) {
+    if (filter.cost === "configured" && !row.costs.costConfigured) {
       return false;
     }
-    if (filter.cost === "missing" && row.costs.totalCost > 0) {
+    if (filter.cost === "missing" && row.costs.costConfigured) {
       return false;
     }
     if (!query) {
@@ -7801,9 +7844,12 @@ function menuCatalogPanel() {
   const uniqueDishes = new Set(
     rows.map(row => String(row.item.dish || "").trim().toLowerCase()).filter(Boolean)
   ).size;
-  const configuredRows = rows.filter(row => row.costs.totalCost > 0);
+  const configuredRows = rows.filter(row => row.costs.costConfigured);
   const averageCost = configuredRows.length
     ? configuredRows.reduce((sum, row) => sum + row.costs.totalCost, 0) / configuredRows.length
+    : 0;
+  const averageProfit = configuredRows.length
+    ? configuredRows.reduce((sum, row) => sum + row.costs.profit, 0) / configuredRows.length
     : 0;
   const periodLabel = formatMonthKeyBr(currentMenuPeriodKey());
 
@@ -7812,7 +7858,7 @@ function menuCatalogPanel() {
       <div class="section-heading">
         <div>
           <h2>Cumbucas disponibilizadas em ${periodLabel}</h2>
-          <p class="muted-inline">Confira tudo o que entrou no cardápio do mês e o custo registrado em cada semana.</p>
+          <p class="muted-inline">Confira tudo o que entrou no cardápio do mês, o custo completo e o lucro calculado por prato.</p>
         </div>
         <a class="secondary table-action" href="/menu-semanal?ano=${state.menuPeriod.year}&mes=${state.menuPeriod.month}&semana=${state.menuWeek}">Cadastrar no Planejamento</a>
       </div>
@@ -7840,7 +7886,7 @@ function menuCatalogPanel() {
         <div class="metric"><span>Disponibilizações</span><strong>${rows.length}</strong></div>
         <div class="metric"><span>Cumbucas diferentes</span><strong>${uniqueDishes}</strong></div>
         <div class="metric"><span>Custo médio</span><strong>${money(averageCost)}</strong></div>
-        <div class="metric"><span>Sem custo</span><strong>${rows.length - configuredRows.length}</strong></div>
+        <div class="metric"><span>Lucro médio por prato</span><strong>${money(averageProfit)}</strong></div>
       </div>
       ${rows.length ? `
         <div class="menu-catalog-grid">
@@ -7848,14 +7894,17 @@ function menuCatalogPanel() {
             <article class="menu-catalog-card" data-menu-catalog-card data-catalog-week="${row.week}">
               <div class="menu-catalog-card-head">
                 <span>Semana ${row.week}</span>
-                <span class="pricing-status ${row.costs.totalCost > 0 ? "profitable" : "pending"}">${row.costs.totalCost > 0 ? menuCatalogStatusLabel(row.item.status) : "Custo pendente"}</span>
+                <span class="pricing-status ${row.costs.costConfigured ? "profitable" : "pending"}">${row.costs.costConfigured ? menuCatalogStatusLabel(row.item.status) : "Custo pendente"}</span>
               </div>
               <h3>${escapeHtml(row.item.dish || `Cumbuca ${row.item.slot || ""}`)}</h3>
               <p>${row.ingredients.length ? escapeHtml(row.ingredients.join(", ")) : "Nenhum insumo detalhado."}</p>
               <div class="menu-cost-breakdown">
                 <span><small>Insumos</small><strong>${money(row.costs.ingredientCost)}</strong></span>
                 <span><small>Rateio registrado</small><strong>${money(row.costs.sharedCost)}</strong></span>
-                <span class="total"><small>Custo por cumbuca</small><strong>${row.costs.totalCost > 0 ? money(row.costs.totalCost) : "Pendente"}</strong></span>
+                <span><small>Embalagem</small><strong>${money(row.costs.packagingCost)}</strong></span>
+                <span class="total"><small>Custo por cumbuca</small><strong>${row.costs.costConfigured ? money(row.costs.totalCost) : "Pendente"}</strong></span>
+                <span class="profit"><small>Lucro (${row.costs.profitPercent.toLocaleString("pt-BR")}%)</small><strong>${row.costs.costConfigured ? money(row.costs.profit) : "Pendente"}</strong></span>
+                <span class="suggested-price"><small>Preço sugerido</small><strong>${row.costs.costConfigured ? money(row.costs.suggestedPrice) : "Pendente"}</strong></span>
               </div>
               <a class="secondary table-action" href="/menu-semanal?ano=${state.menuPeriod.year}&mes=${state.menuPeriod.month}&semana=${row.week}">Abrir semana ${row.week}</a>
             </article>
@@ -7877,15 +7926,30 @@ async function renderMenu() {
   result.plan = result.plan.map((item, index) => {
     const savedItem = savedMenu[index] || item;
     const ingredientCost = menuItemIngredientCost(savedItem);
-    const normalizedItem = { ...item, ingredientCost };
+    const normalizedItem = {
+      ...item,
+      ingredientCost,
+      packagingCost: Object.prototype.hasOwnProperty.call(savedItem, "packagingCost")
+        ? Math.max(0, Number(savedItem.packagingCost || 0))
+        : MENU_DEFAULT_PACKAGING_COST,
+      profitPercent: menuItemProfitPercent(savedItem)
+    };
     const costs = menuPlanningCosts(normalizedItem, sharedCosts.totalPerUnit);
     return {
       ...normalizedItem,
       sharedCost: costs.sharedCost,
-      cost: costs.totalCost
+      cost: costs.totalCost,
+      profit: costs.profit,
+      suggestedPrice: costs.suggestedPrice
     };
   });
-  result.totalCost = result.plan.reduce((sum, item) => sum + Number(item.cost || 0), 0);
+  result.totalCost = weeklyMenuProductionCost(
+    result.plan,
+    weeklyOrders(currentKey),
+    item => Number(item.cost || 0)
+  );
+  const weeklyOrderedQuantity = weeklyOrders(currentKey)
+    .reduce((sum, order) => sum + orderQuantity(order), 0);
   const planningStats = {
     shopping: result.plan.filter(item => item.status === "compras").length,
     prep: result.plan.filter(item => item.status === "preparo").length,
@@ -7944,12 +8008,12 @@ async function renderMenu() {
           <div class="pricing-workflow-context menu-pricing-source">
             <div>
               <strong>Cadastre as cumbucas diretamente no Planejamento</strong>
-              <span>Digite os ingredientes e os custos de insumos. O sistema acrescenta automaticamente ${money(sharedCosts.totalPerUnit)} de custos rateados por cumbuca, com base em ${sharedCosts.averageMonthlyUnits || 0} unidade(s) por mês.</span>
+              <span>Digite os ingredientes e os custos de insumos. O sistema acrescenta o rateio, a embalagem e calcula o lucro de cada prato. Os valores iniciais são ${money(MENU_DEFAULT_PACKAGING_COST)} de embalagem e ${MENU_DEFAULT_PROFIT_PERCENT}% de lucro sobre o custo total.</span>
             </div>
             <a class="secondary table-action" href="/precificacao?view=costs">Configurar custos rateados</a>
           </div>
           <div class="summary planning-summary">
-            <div class="metric"><span>Custo semanal</span><strong data-menu-weekly-cost>${money(result.totalCost)}</strong></div>
+            <div class="metric"><span>Custo total da semana</span><strong data-menu-weekly-cost>${money(result.totalCost)}</strong><small data-menu-weekly-quantity>${weeklyOrderedQuantity} cumbuca(s) pedida(s)</small></div>
             <div class="metric"><span>Lista de compras</span><strong>${planningStats.shopping}</strong></div>
             <div class="metric"><span>Em preparo</span><strong>${planningStats.prep}</strong></div>
             <div class="metric"><span>Pratos prontos</span><strong>${planningStats.ready}/5</strong></div>
@@ -7979,10 +8043,25 @@ async function renderMenu() {
                     </div>
                     <button class="ingredient-add" type="button" data-add-ingredient="${index}">+ Ingrediente</button>
                   </div>
+                  <div class="menu-profit-controls">
+                    <label>Valor da embalagem
+                      <input name="packaging-${index}" data-menu-packaging="${index}" type="text" inputmode="decimal" value="${moneyInputValue(item.packagingCost)}" placeholder="R$ 1,60">
+                    </label>
+                    <label>Porcentagem de lucro
+                      <div class="percentage-input">
+                        <input name="profit-percent-${index}" data-menu-profit-percent="${index}" type="text" inputmode="decimal" value="${moneyInputValue(item.profitPercent)}" placeholder="30">
+                        <span>%</span>
+                      </div>
+                      <small>Aplicada sobre o custo total da cumbuca.</small>
+                    </label>
+                  </div>
                   <div class="menu-cost-breakdown" data-menu-cost-breakdown="${index}">
                     <span><small>Insumos digitados</small><strong data-menu-ingredient-cost>${money(costs.ingredientCost)}</strong></span>
                     <span><small>Rateio automático</small><strong data-menu-shared-cost>${money(costs.sharedCost)}</strong></span>
+                    <span><small>Embalagem</small><strong data-menu-packaging-cost>${money(costs.packagingCost)}</strong></span>
                     <span class="total"><small>Custo total por cumbuca</small><strong data-menu-total-cost>${money(costs.totalCost)}</strong></span>
+                    <span class="profit"><small data-menu-profit-label>Lucro (${costs.profitPercent.toLocaleString("pt-BR")}%)</small><strong data-menu-profit>${money(costs.profit)}</strong></span>
+                    <span class="suggested-price"><small>Preço sugerido</small><strong data-menu-suggested-price>${money(costs.suggestedPrice)}</strong></span>
                   </div>
                   <label>Status
                     <select name="status-${index}">
@@ -8009,6 +8088,8 @@ async function renderMenu() {
       `}
     </section>
   `;
+
+  enhanceResponsiveTables(app);
 
   document.querySelectorAll("[data-week]").forEach(link => {
     link.addEventListener("click", event => {
@@ -8640,23 +8721,44 @@ async function renderMenu() {
     function updateMenuCostPreview(menuIndex) {
       const dish = menuForm.querySelector(`[data-menu-dish="${menuIndex}"]`)?.value || "";
       const ingredients = readPlanningIngredients(menuForm, menuIndex);
+      const packagingCost = Math.max(
+        0,
+        parseMoneyInput(menuForm.querySelector(`[data-menu-packaging="${menuIndex}"]`)?.value)
+      );
+      const profitPercent = Math.max(
+        0,
+        parseMoneyInput(menuForm.querySelector(`[data-menu-profit-percent="${menuIndex}"]`)?.value)
+      );
       const costs = menuPlanningCosts(
-        { dish, ingredients, ingredientCost: planningIngredientTotal(ingredients) },
+        {
+          dish,
+          ingredients,
+          ingredientCost: planningIngredientTotal(ingredients),
+          packagingCost,
+          profitPercent
+        },
         sharedCosts.totalPerUnit
       );
       const breakdown = menuForm.querySelector(`[data-menu-cost-breakdown="${menuIndex}"]`);
       if (breakdown) {
         breakdown.querySelector("[data-menu-ingredient-cost]").textContent = money(costs.ingredientCost);
         breakdown.querySelector("[data-menu-shared-cost]").textContent = money(costs.sharedCost);
+        breakdown.querySelector("[data-menu-packaging-cost]").textContent = money(costs.packagingCost);
         breakdown.querySelector("[data-menu-total-cost]").textContent = money(costs.totalCost);
+        breakdown.querySelector("[data-menu-profit-label]").textContent = `Lucro (${costs.profitPercent.toLocaleString("pt-BR")}%)`;
+        breakdown.querySelector("[data-menu-profit]").textContent = money(costs.profit);
+        breakdown.querySelector("[data-menu-suggested-price]").textContent = money(costs.suggestedPrice);
       }
       return costs.totalCost;
     }
 
     function updateMenuWeeklyCostPreview() {
-      const total = result.plan.reduce((sum, item, index) => {
-        return sum + updateMenuCostPreview(index);
-      }, 0);
+      const unitCosts = result.plan.map((item, index) => updateMenuCostPreview(index));
+      const total = weeklyMenuProductionCost(
+        result.plan,
+        weeklyOrders(currentKey),
+        (item, index) => unitCosts[index]
+      );
       const weeklyCost = menuForm
         .closest(".planning-panel")
         ?.querySelector("[data-menu-weekly-cost]");
@@ -8677,7 +8779,9 @@ async function renderMenu() {
 
     menuForm.addEventListener("input", event => {
       const menuIndex = event.target.closest("[data-ingredient-row]")?.dataset.menuIndex
-        ?? event.target.dataset.menuDish;
+        ?? event.target.dataset.menuDish
+        ?? event.target.dataset.menuPackaging
+        ?? event.target.dataset.menuProfitPercent;
       if (menuIndex !== undefined) {
         updateMenuWeeklyCostPreview();
       }
@@ -8710,8 +8814,10 @@ async function renderMenu() {
         const ingredients = readPlanningIngredients(event.currentTarget, index);
         const dish = String(data[`dish-${index}`] || "").trim();
         const ingredientCost = planningIngredientTotal(ingredients);
+        const packagingCost = Math.max(0, parseMoneyInput(data[`packaging-${index}`]));
+        const profitPercent = Math.max(0, parseMoneyInput(data[`profit-percent-${index}`]));
         const costs = menuPlanningCosts(
-          { dish, ingredients, ingredientCost },
+          { dish, ingredients, ingredientCost, packagingCost, profitPercent },
           sharedCosts.totalPerUnit
         );
         return {
@@ -8720,7 +8826,11 @@ async function renderMenu() {
           ingredients,
           ingredientCost: costs.ingredientCost.toFixed(2),
           sharedCost: costs.sharedCost.toFixed(2),
+          packagingCost: packagingCost.toFixed(2),
+          profitPercent: profitPercent.toFixed(2),
           cost: costs.totalCost.toFixed(2),
+          profit: costs.profit.toFixed(2),
+          suggestedPrice: costs.suggestedPrice.toFixed(2),
           status: data[`status-${index}`],
           notes: data[`notes-${index}`]
         };
@@ -9023,6 +9133,35 @@ function weeklyOrders(currentKey) {
   return state.orders.filter(order => order.menuKey === currentKey);
 }
 
+function weeklyMenuProductionCost(dishes = [], orders = [], unitCostFor = null) {
+  const unitCosts = dishes.map((item, index) => {
+    const recordedCosts = menuCatalogRecordedCosts(item);
+    const defaultUnitCost = recordedCosts.costConfigured ? recordedCosts.totalCost : 0;
+    return {
+      slot: Number(item.slot || index + 1),
+      unitCost: Math.max(
+        0,
+        Number(unitCostFor ? unitCostFor(item, index) : defaultUnitCost) || 0
+      )
+    };
+  });
+  const costBySlot = new Map(unitCosts.map(item => [item.slot, item.unitCost]));
+  const configuredCosts = unitCosts.filter(item => item.unitCost > 0);
+  const averageUnitCost = configuredCosts.length
+    ? configuredCosts.reduce((sum, item) => sum + item.unitCost, 0) / configuredCosts.length
+    : 0;
+
+  return orders.reduce((sum, order) => {
+    if ((order.dishes || []).length) {
+      return sum + order.dishes.reduce((orderCost, dish) => {
+        const unitCost = costBySlot.get(Number(dish.slot)) || 0;
+        return orderCost + unitCost * Number(dish.quantity || 0);
+      }, 0);
+    }
+    return sum + averageUnitCost * orderQuantity(order);
+  }, 0);
+}
+
 function monthlyOrders(currentKey) {
   const periodKey = menuPeriodKeyFromKey(currentKey);
   return state.orders.filter(order => menuPeriodKeyFromKey(order.menuKey) === periodKey);
@@ -9037,13 +9176,16 @@ function monthSummaryPanel(currentKey) {
     const key = `${periodKey}-semana-${week}`;
     const dishes = state.menus[key] || [];
     const weekOrders = weeklyOrders(key);
+    const menuCost = weeklyMenuProductionCost(dishes, weekOrders);
+    const orderAmount = weekOrders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
 
     return {
       week,
       dishes: dishes.map(item => item.dish).filter(Boolean).join(", "),
-      menuCost: dishes.reduce((sum, item) => sum + Number(item.cost || 0), 0),
-      orderAmount: weekOrders.reduce((sum, order) => sum + Number(order.amount || 0), 0),
-      orderCount: weekOrders.length
+      quantity: weekOrders.reduce((sum, order) => sum + orderQuantity(order), 0),
+      menuCost,
+      orderAmount,
+      result: orderAmount - menuCost
     };
   });
 
@@ -9055,16 +9197,18 @@ function monthSummaryPanel(currentKey) {
         <div class="metric"><span>Frete arrecadado</span><strong>${money(totalDeliveryFee)}</strong></div>
       </div>
       <div class="table-wrap month-summary-table">
+        <p class="muted-inline month-summary-note">O custo total soma o custo unitário de cada prato multiplicado pela quantidade pedida. O valor que sobra é o total dos pedidos menos esse custo.</p>
         <table>
-          <thead><tr><th>Semana</th><th>Prato feito no mês</th><th>Custo total da semana</th><th>Valor total em pedidos da semana</th><th>Pedidos</th></tr></thead>
+          <thead><tr><th>Semana</th><th>Prato feito no mês</th><th>Cumbucas pedidas</th><th>Custo total da semana</th><th>Valor total dos pedidos</th><th>Valor que sobra na semana</th></tr></thead>
           <tbody>
             ${weeklySummary.map(item => `
-              <tr>
+              <tr data-week-summary="${item.week}">
                 <td>Semana ${item.week}</td>
                 <td>${item.dishes || "Nenhum prato registrado."}</td>
+                <td>${item.quantity}</td>
                 <td>${money(item.menuCost)}</td>
                 <td>${money(item.orderAmount)}</td>
-                <td>${item.orderCount}</td>
+                <td class="${item.result < 0 ? "negative" : "positive"}">${money(item.result)}</td>
               </tr>
             `).join("")}
           </tbody>
@@ -11268,7 +11412,7 @@ function reportData() {
       key,
       dishes,
       orders: weekOrders,
-      menuCost: dishes.reduce((sum, item) => sum + Number(item.cost || 0), 0),
+      menuCost: weeklyMenuProductionCost(dishes, weekOrders),
       orderAmount: weekOrders.reduce((sum, order) => sum + Number(order.amount || 0), 0),
       deliveryFee: weekOrders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0),
       quantity: weekOrders.reduce((sum, order) => sum + orderQuantity(order), 0)
