@@ -4832,6 +4832,38 @@ html.dark-mode .cash-hero > div:first-child {
   margin-bottom: 14px;
 }
 
+.menu-cost-breakdown {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(8, 127, 91, 0.2);
+  border-radius: 8px;
+  background: #f3f8f5;
+}
+
+.menu-cost-breakdown > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.menu-cost-breakdown small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.25;
+}
+
+.menu-cost-breakdown strong {
+  color: var(--green-dark);
+  font-size: 0.9rem;
+}
+
+.menu-cost-breakdown .total {
+  padding-left: 8px;
+  border-left: 1px solid rgba(8, 127, 91, 0.18);
+}
+
 .planning-card input[readonly] {
   border-color: rgba(8, 127, 91, 0.16);
   background: #f3f8f5;
@@ -5417,6 +5449,75 @@ html.dark-mode .cash-hero > div:first-child {
   min-width: 760px;
 }
 
+.menu-catalog-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.menu-catalog-filter {
+  grid-template-columns: minmax(220px, 1.5fr) minmax(140px, 0.6fr) minmax(150px, 0.7fr) auto auto;
+}
+
+.menu-catalog-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.menu-catalog-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+.menu-catalog-card {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--green);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+}
+
+.menu-catalog-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.menu-catalog-card-head > span:first-child {
+  color: var(--green-dark);
+  font-size: 0.76rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.menu-catalog-card h3,
+.menu-catalog-card p {
+  margin: 0;
+}
+
+.menu-catalog-card p {
+  min-height: 38px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.menu-catalog-card > .table-action {
+  justify-self: start;
+}
+
+.menu-catalog-empty {
+  padding: 20px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  text-align: center;
+}
+
 .client-panel {
   display: grid;
   gap: 14px;
@@ -5795,14 +5896,8 @@ button.danger:hover {
   font-weight: 800;
 }
 
-.client-form[data-plan="semanal"] .plan-value-field,
 .client-form[data-plan="semanal"] .monthly-quantity,
 .client-form[data-plan="mensalista"] .weekly-freight-value {
-  display: none;
-}
-
-.client-form[data-plan="semanal"] .monthly-value,
-.client-form[data-plan="mensalista"] .weekly-value {
   display: none;
 }
 
@@ -6007,6 +6102,8 @@ html.dark-mode .order-card,
 html.dark-mode .alert-card,
 html.dark-mode .partners-dashboard > section,
 html.dark-mode .planning-card,
+html.dark-mode .menu-cost-breakdown,
+html.dark-mode .menu-catalog-card,
 html.dark-mode .week-range-card,
 html.dark-mode .client-panel,
 html.dark-mode .order-tab-panel,
@@ -7794,6 +7891,7 @@ a.secondary.table-action,
 @media (max-width: 700px) {
   .operation-priority-list,
   .menu-recipe-summary,
+  .menu-cost-breakdown,
   .plan-vs-actual-grid,
   .maintenance-health-grid,
   .profitability-panel .summary {

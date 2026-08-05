@@ -10,6 +10,7 @@ node_modules/
 backups/
 playwright-report/
 test-results/
+npm-audit.json
 
 .env*.local
 tmp-reset-token.txt

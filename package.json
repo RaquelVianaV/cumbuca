@@ -13,7 +13,9 @@
     "e2e": "npm run test:visual",
     "verify": "npm run lint && npm run check && npm test && npm run test:visual",
     "deploy": "npm run verify && npx vercel --prod --yes",
-    "format": "prettier --write \"**/*.{js,css,md,json}\""
+    "format": "prettier --write \"**/*.{js,css,md,json}\"",
+    "audit": "npm audit --audit-level=moderate || true",
+    "audit:json": "npm audit --json > npm-audit.json || true"
   },
   "dependencies": {
     "jszip": "^3.10.1",

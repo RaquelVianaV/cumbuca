@@ -1026,6 +1026,12 @@ const state = {
   showOrders: false,
   showPlanning: false,
   showMonthSummary: false,
+  showMenuCatalog: false,
+  menuCatalogFilter: {
+    search: "",
+    week: "all",
+    cost: "all"
+  },
   clientTab: "form",
   orderTab: "form",
   clientSearch: "",
@@ -4371,7 +4377,9 @@ function dashboardClientsWithoutAddress() {
 }
 
 function dashboardMenuWithoutCost(menuItems) {
-  return menuItems.filter(item => String(item.dish || "").trim() && Number(item.cost || 0) <= 0);
+  return menuItems.filter(item => {
+    return String(item.dish || "").trim() && menuItemIngredientCost(item) <= 0;
+  });
 }
 
 function homeMetricData() {
@@ -4505,9 +4513,6 @@ function dashboardAlerts(metrics, weeklyOrders) {
     const recipeMetrics = pricingRecipeMetrics(recipe);
     return recipeMetrics.practicedPrice > 0 && recipeMetrics.realProfit < 0;
   });
-  const unlinkedMenuItems = (state.menus[menuKey(state.menuWeek || 1)] || []).filter(item => {
-    return String(item.dish || "").trim() && !pricingRecipeForMenuItem(item);
-  });
 
   if (metrics.weekBalance < 0) {
     alerts.push(["Saldo da semana negativo", money(metrics.weekBalance)]);
@@ -4535,10 +4540,6 @@ function dashboardAlerts(metrics, weeklyOrders) {
 
   if (metrics.menuWithoutCost.length) {
     alerts.push(["Menu sem custo", `${metrics.menuWithoutCost.length} cumbuca(s)`]);
-  }
-
-  if (unlinkedMenuItems.length) {
-    alerts.push(["Menu sem receita vinculada", `${unlinkedMenuItems.length} prato(s)`]);
   }
 
   if (incompleteRecipes.length) {
@@ -4612,7 +4613,7 @@ function monthlyClientRows(currentKey = menuKey(state.menuWeek || 1)) {
         capacity,
         used,
         remaining,
-        value: clientMonthlyValue(client, currentKey),
+        value: clientMonthlyRecordedValue(client, currentKey),
         packages: clientChargedPackageCount(client, currentKey)
       };
     })
@@ -4630,7 +4631,7 @@ function monthlyClientsPanel(currentKey = menuKey(state.menuWeek || 1)) {
             <span>
               <b>${row.remaining}/${row.capacity}</b>
               ${row.client.name || row.client.phone}
-              <small>${money(row.value)} - usados ${row.used}${row.packages > 1 ? ` - ${row.packages} pacotes` : ""}</small>
+              <small>${row.value > 0 ? `${money(row.value)} lançado` : "Mensalidade não lançada"} - usados ${row.used}${row.packages > 1 ? ` - ${row.packages} pacotes` : ""}</small>
               ${row.client.phone ? `<a class="secondary table-action" href="${monthlyRenewalWhatsAppUrl(row.client, currentKey)}" target="_blank" rel="noopener">WhatsApp</a>` : ""}
             </span>
           `).join("")}
@@ -4884,8 +4885,8 @@ function todayOperationData() {
 
 function operationAgendaItems(data = todayOperationData()) {
   const currentMenu = state.menus[data.currentKey] || [];
-  const unlinkedMenuItems = currentMenu.filter(item => {
-    return String(item.dish || "").trim() && !pricingRecipeForMenuItem(item);
+  const menuWithoutIngredientCosts = currentMenu.filter(item => {
+    return String(item.dish || "").trim() && menuItemIngredientCost(item) <= 0;
   });
   const incompleteRecipes = (state.pricingRecipes || []).filter(recipe => !pricingRecipeIsComplete(recipe));
   const backupAt = localStorage.getItem("lastManualBackupAt") || "";
@@ -4917,11 +4918,11 @@ function operationAgendaItems(data = todayOperationData()) {
       href: "/financeiro?view=accounts",
       action: "Ver contas"
     } : null,
-    unlinkedMenuItems.length ? {
+    menuWithoutIngredientCosts.length ? {
       type: "warning",
       category: "Menu",
-      title: `${unlinkedMenuItems.length} prato(s) sem receita vinculada`,
-      detail: "Vincule a receita para calcular custo e rentabilidade automaticamente.",
+      title: `${menuWithoutIngredientCosts.length} cumbuca(s) sem custo de insumos`,
+      detail: "Digite os custos dos ingredientes no Planejamento; o rateio entra automaticamente.",
       href: "/menu-semanal",
       action: "Abrir menu"
     } : null,
@@ -7690,12 +7691,201 @@ function planningIngredientTotal(ingredients) {
   return ingredients.reduce((sum, item) => sum + Number(item.value || 0), 0);
 }
 
+function menuItemHasPlanningContent(item = {}) {
+  return Boolean(
+    String(item.dish || "").trim()
+    || (item.ingredients || []).some(ingredient => {
+      return String(ingredient.name || "").trim() || Number(ingredient.value || 0) > 0;
+    })
+  );
+}
+
+function menuItemIngredientCost(item = {}) {
+  if (Object.prototype.hasOwnProperty.call(item, "ingredientCost")) {
+    return Math.max(0, Number(item.ingredientCost || 0));
+  }
+  const ingredientCost = planningIngredientTotal(item.ingredients || []);
+  if (ingredientCost > 0 || (item.ingredients || []).length) {
+    return ingredientCost;
+  }
+  return item.recipeId ? 0 : Math.max(0, Number(item.cost || 0));
+}
+
+function menuItemHasManualCost(item = {}) {
+  return Object.prototype.hasOwnProperty.call(item, "ingredientCost") || !item.recipeId;
+}
+
+function menuPlanningCosts(item = {}, sharedPerUnit = pricingSharedCosts().totalPerUnit) {
+  const ingredientCost = menuItemIngredientCost(item);
+  const sharedCost = menuItemHasPlanningContent(item) ? Math.max(0, sharedPerUnit) : 0;
+  return {
+    ingredientCost,
+    sharedCost,
+    totalCost: ingredientCost + sharedCost
+  };
+}
+
+function menuItemUnitCost(item = {}) {
+  if (!menuItemHasManualCost(item)) {
+    const recipe = pricingRecipeForMenuItem(item);
+    return recipe ? menuRecipeUnitCost(recipe) : Math.max(0, Number(item.cost || 0));
+  }
+  return menuPlanningCosts(item).totalCost;
+}
+
+function menuCatalogRecordedCosts(item = {}) {
+  const ingredientCost = menuItemIngredientCost(item);
+  const storedTotal = Math.max(0, Number(item.cost || 0));
+  const storedShared = Object.prototype.hasOwnProperty.call(item, "sharedCost")
+    ? Math.max(0, Number(item.sharedCost || 0))
+    : item.recipeId
+      ? 0
+      : Math.max(0, storedTotal - ingredientCost);
+  return {
+    ingredientCost,
+    sharedCost: storedShared,
+    totalCost: storedTotal > 0 ? storedTotal : ingredientCost + storedShared
+  };
+}
+
+function menuCatalogStatusLabel(status = "") {
+  return status === "pronto"
+    ? "Pronto"
+    : status === "preparo"
+      ? "Em preparo"
+      : status === "compras"
+        ? "Lista de compras"
+        : "Planejado";
+}
+
+function menuCatalogRows() {
+  return [1, 2, 3, 4, 5].flatMap(week => {
+    return (state.menus[menuKey(week)] || [])
+      .filter(menuItemHasPlanningContent)
+      .map(item => ({
+        week,
+        item,
+        costs: menuCatalogRecordedCosts(item),
+        ingredients: (item.ingredients || [])
+          .map(ingredient => String(ingredient.name || "").trim())
+          .filter(Boolean)
+      }));
+  });
+}
+
+function filteredMenuCatalogRows(rows = menuCatalogRows()) {
+  const filter = state.menuCatalogFilter || {};
+  const query = String(filter.search || "").trim().toLowerCase();
+  return rows.filter(row => {
+    if (filter.week !== "all" && Number(filter.week) !== row.week) {
+      return false;
+    }
+    if (filter.cost === "configured" && row.costs.totalCost <= 0) {
+      return false;
+    }
+    if (filter.cost === "missing" && row.costs.totalCost > 0) {
+      return false;
+    }
+    if (!query) {
+      return true;
+    }
+    return [row.item.dish, row.item.notes, ...row.ingredients]
+      .some(value => String(value || "").toLowerCase().includes(query));
+  });
+}
+
+function menuCatalogPanel() {
+  const allRows = menuCatalogRows();
+  const rows = filteredMenuCatalogRows(allRows);
+  const filter = state.menuCatalogFilter || {};
+  const uniqueDishes = new Set(
+    rows.map(row => String(row.item.dish || "").trim().toLowerCase()).filter(Boolean)
+  ).size;
+  const configuredRows = rows.filter(row => row.costs.totalCost > 0);
+  const averageCost = configuredRows.length
+    ? configuredRows.reduce((sum, row) => sum + row.costs.totalCost, 0) / configuredRows.length
+    : 0;
+  const periodLabel = formatMonthKeyBr(currentMenuPeriodKey());
+
+  return `
+    <section class="menu-catalog-panel" data-menu-catalog>
+      <div class="section-heading">
+        <div>
+          <h2>Cumbucas disponibilizadas em ${periodLabel}</h2>
+          <p class="muted-inline">Confira tudo o que entrou no cardápio do mês e o custo registrado em cada semana.</p>
+        </div>
+        <a class="secondary table-action" href="/menu-semanal?ano=${state.menuPeriod.year}&mes=${state.menuPeriod.month}&semana=${state.menuWeek}">Cadastrar no Planejamento</a>
+      </div>
+      <form id="menu-catalog-filter" class="filter-bar menu-catalog-filter">
+        <label>Buscar cumbuca ou insumo
+          <input name="search" placeholder="Nome do prato ou ingrediente" value="${escapeHtml(filter.search || "")}">
+        </label>
+        <label>Semana
+          <select name="week">
+            <option value="all" ${filter.week === "all" ? "selected" : ""}>Todas</option>
+            ${[1, 2, 3, 4, 5].map(week => `<option value="${week}" ${Number(filter.week) === week ? "selected" : ""}>Semana ${week}</option>`).join("")}
+          </select>
+        </label>
+        <label>Custo
+          <select name="cost">
+            <option value="all" ${filter.cost === "all" ? "selected" : ""}>Todos</option>
+            <option value="configured" ${filter.cost === "configured" ? "selected" : ""}>Com custo</option>
+            <option value="missing" ${filter.cost === "missing" ? "selected" : ""}>Sem custo</option>
+          </select>
+        </label>
+        <button type="submit">Filtrar</button>
+        <button class="secondary" type="button" id="clear-menu-catalog-filter">Limpar</button>
+      </form>
+      <div class="summary menu-catalog-summary">
+        <div class="metric"><span>Disponibilizações</span><strong>${rows.length}</strong></div>
+        <div class="metric"><span>Cumbucas diferentes</span><strong>${uniqueDishes}</strong></div>
+        <div class="metric"><span>Custo médio</span><strong>${money(averageCost)}</strong></div>
+        <div class="metric"><span>Sem custo</span><strong>${rows.length - configuredRows.length}</strong></div>
+      </div>
+      ${rows.length ? `
+        <div class="menu-catalog-grid">
+          ${rows.map(row => `
+            <article class="menu-catalog-card" data-menu-catalog-card data-catalog-week="${row.week}">
+              <div class="menu-catalog-card-head">
+                <span>Semana ${row.week}</span>
+                <span class="pricing-status ${row.costs.totalCost > 0 ? "profitable" : "pending"}">${row.costs.totalCost > 0 ? menuCatalogStatusLabel(row.item.status) : "Custo pendente"}</span>
+              </div>
+              <h3>${escapeHtml(row.item.dish || `Cumbuca ${row.item.slot || ""}`)}</h3>
+              <p>${row.ingredients.length ? escapeHtml(row.ingredients.join(", ")) : "Nenhum insumo detalhado."}</p>
+              <div class="menu-cost-breakdown">
+                <span><small>Insumos</small><strong>${money(row.costs.ingredientCost)}</strong></span>
+                <span><small>Rateio registrado</small><strong>${money(row.costs.sharedCost)}</strong></span>
+                <span class="total"><small>Custo por cumbuca</small><strong>${row.costs.totalCost > 0 ? money(row.costs.totalCost) : "Pendente"}</strong></span>
+              </div>
+              <a class="secondary table-action" href="/menu-semanal?ano=${state.menuPeriod.year}&mes=${state.menuPeriod.month}&semana=${row.week}">Abrir semana ${row.week}</a>
+            </article>
+          `).join("")}
+        </div>
+      ` : `<p class="muted menu-catalog-empty">Nenhuma cumbuca encontrada para os filtros deste mês.</p>`}
+    </section>
+  `;
+}
+
 async function renderMenu() {
   showStandardHero("Menu Semanal");
   setActive("menu-semanal");
   const currentWeek = state.menuWeek || 1;
   const currentKey = menuKey(currentWeek);
-  const result = await postJson("/api/menu-semanal", { meals: state.menus[currentKey] || [] });
+  const savedMenu = state.menus[currentKey] || [];
+  const result = await postJson("/api/menu-semanal", { meals: savedMenu });
+  const sharedCosts = pricingSharedCosts();
+  result.plan = result.plan.map((item, index) => {
+    const savedItem = savedMenu[index] || item;
+    const ingredientCost = menuItemIngredientCost(savedItem);
+    const normalizedItem = { ...item, ingredientCost };
+    const costs = menuPlanningCosts(normalizedItem, sharedCosts.totalPerUnit);
+    return {
+      ...normalizedItem,
+      sharedCost: costs.sharedCost,
+      cost: costs.totalCost
+    };
+  });
+  result.totalCost = result.plan.reduce((sum, item) => sum + Number(item.cost || 0), 0);
   const planningStats = {
     shopping: result.plan.filter(item => item.status === "compras").length,
     prep: result.plan.filter(item => item.status === "preparo").length,
@@ -7724,12 +7914,13 @@ async function renderMenu() {
       <div class="week-tabs" aria-label="Semanas do menu">
         <div class="week-links">
           ${[1, 2, 3, 4, 5].map(week => `
-            <a href="/menu-semanal?ano=${state.menuPeriod.year}&mes=${state.menuPeriod.month}&semana=${week}" class="${week === currentWeek && !state.showMonthSummary ? "active" : ""}" data-week="${week}">Semana ${week}</a>
+            <a href="/menu-semanal?ano=${state.menuPeriod.year}&mes=${state.menuPeriod.month}&semana=${week}" class="${week === currentWeek && !state.showMonthSummary && !state.showMenuCatalog ? "active" : ""}" data-week="${week}">Semana ${week}</a>
           `).join("")}
           <a href="/menu-semanal?ano=${state.menuPeriod.year}&mes=${state.menuPeriod.month}&resumo=mes" class="${state.showMonthSummary ? "active" : ""}" data-month-summary>Resumo do mês</a>
+          <a href="/menu-semanal?ano=${state.menuPeriod.year}&mes=${state.menuPeriod.month}&catalogo=cumbucas" class="${state.showMenuCatalog ? "active" : ""}" data-menu-catalog-link>Cumbucas do mês</a>
         </div>
       </div>
-      ${state.showMonthSummary ? monthSummaryPanel(currentKey) : `
+      ${state.showMenuCatalog ? menuCatalogPanel() : state.showMonthSummary ? monthSummaryPanel(currentKey) : `
       <form id="week-range-form" class="week-range-card">
         <h2>Semana ${currentWeek}</h2>
         <div class="date-range">
@@ -7752,13 +7943,13 @@ async function renderMenu() {
         <section class="planning-panel">
           <div class="pricing-workflow-context menu-pricing-source">
             <div>
-              <strong>Receitas, custos e preços vêm de Preços</strong>
-              <span>Escolha abaixo as receitas da semana. Qualquer atualização feita em Precificação passa automaticamente para o Menu e para a Rentabilidade.</span>
+              <strong>Cadastre as cumbucas diretamente no Planejamento</strong>
+              <span>Digite os ingredientes e os custos de insumos. O sistema acrescenta automaticamente ${money(sharedCosts.totalPerUnit)} de custos rateados por cumbuca, com base em ${sharedCosts.averageMonthlyUnits || 0} unidade(s) por mês.</span>
             </div>
-            <a class="secondary table-action" href="/precificacao?view=recipes">Gerenciar receitas em Preços</a>
+            <a class="secondary table-action" href="/precificacao?view=costs">Configurar custos rateados</a>
           </div>
           <div class="summary planning-summary">
-            <div class="metric"><span>Custo semanal</span><strong>${money(result.totalCost)}</strong></div>
+            <div class="metric"><span>Custo semanal</span><strong data-menu-weekly-cost>${money(result.totalCost)}</strong></div>
             <div class="metric"><span>Lista de compras</span><strong>${planningStats.shopping}</strong></div>
             <div class="metric"><span>Em preparo</span><strong>${planningStats.prep}</strong></div>
             <div class="metric"><span>Pratos prontos</span><strong>${planningStats.ready}/5</strong></div>
@@ -7766,40 +7957,32 @@ async function renderMenu() {
           <form id="menu-form">
             <div class="planning-board">
               ${result.plan.map((item, index) => {
-                const linkedRecipe = pricingRecipeForMenuItem(item);
-                const linkedCost = menuRecipeUnitCost(linkedRecipe);
+                const costs = menuPlanningCosts(item, sharedCosts.totalPerUnit);
                 return `
                 <article class="planning-card" data-status="${item.status}">
                   <div class="planning-card-top">
                     <span>Cumbuca ${item.slot}</span>
                     <strong>${item.status === "pronto" ? "Pronto" : item.status === "preparo" ? "Preparo" : item.status === "compras" ? "Compras" : "Planejado"}</strong>
                   </div>
-                  <label>Receita cadastrada em Preços
-                    <select name="recipe-${index}" data-menu-recipe-select="${index}">
-                      ${menuRecipeOptions(linkedRecipe?.id || item.recipeId || "")}
-                    </select>
-                  </label>
-                  <div class="menu-recipe-summary" data-menu-recipe-summary="${index}">
-                    ${menuRecipeSummaryHtml(linkedRecipe)}
-                  </div>
-                  <label>Nome da receita
-                    <input name="dish-${index}" data-menu-dish="${index}" value="${escapeHtml(linkedRecipe?.name || item.dish || "")}" placeholder="Selecione uma receita em Preços" readonly>
-                    <small>Preenchido automaticamente pelo cadastro de Preços.</small>
-                  </label>
-                  <label>Custo atual por prato
-                    <input name="cost-${index}" data-menu-cost="${index}" type="text" inputmode="decimal" value="${moneyInputValue(linkedRecipe ? linkedCost : item.cost)}" placeholder="Calculado em Preços" readonly>
-                    <small>Ingredientes, embalagem, rateios e taxas vêm de Preços.</small>
+                  <label>Nome da cumbuca
+                    <input name="dish-${index}" data-menu-dish="${index}" value="${escapeHtml(item.dish || "")}" placeholder="Ex.: Frango cremoso com arroz">
+                    <small>O prato desta semana é cadastrado e editado aqui.</small>
                   </label>
                   <div class="ingredient-list">
                     <div class="ingredient-list-title">
-                      <span>Lista de ingredientes</span>
-                      <span>Valor</span>
+                      <span>Insumo</span>
+                      <span>Custo manual</span>
                       <span></span>
                     </div>
                     <div class="ingredient-rows" data-ingredient-rows="${index}">
                       ${planningIngredientRows(item, index)}
                     </div>
                     <button class="ingredient-add" type="button" data-add-ingredient="${index}">+ Ingrediente</button>
+                  </div>
+                  <div class="menu-cost-breakdown" data-menu-cost-breakdown="${index}">
+                    <span><small>Insumos digitados</small><strong data-menu-ingredient-cost>${money(costs.ingredientCost)}</strong></span>
+                    <span><small>Rateio automático</small><strong data-menu-shared-cost>${money(costs.sharedCost)}</strong></span>
+                    <span class="total"><small>Custo total por cumbuca</small><strong data-menu-total-cost>${money(costs.totalCost)}</strong></span>
                   </div>
                   <label>Status
                     <select name="status-${index}">
@@ -7832,6 +8015,7 @@ async function renderMenu() {
       event.preventDefault();
       state.menuWeek = Number(event.currentTarget.dataset.week);
       state.showMonthSummary = false;
+      state.showMenuCatalog = false;
       persistState();
       history.replaceState(null, "", `/menu-semanal?ano=${state.menuPeriod.year}&mes=${state.menuPeriod.month}&semana=${state.menuWeek}`);
       renderMenu();
@@ -7843,6 +8027,7 @@ async function renderMenu() {
     monthSummaryLink.addEventListener("click", event => {
       event.preventDefault();
       state.showMonthSummary = true;
+      state.showMenuCatalog = false;
       state.showClients = false;
       state.showOrders = false;
       state.showPlanning = false;
@@ -7850,6 +8035,36 @@ async function renderMenu() {
       renderMenu();
     });
   }
+
+  const menuCatalogLink = document.querySelector("[data-menu-catalog-link]");
+  if (menuCatalogLink) {
+    menuCatalogLink.addEventListener("click", event => {
+      event.preventDefault();
+      state.showMenuCatalog = true;
+      state.showMonthSummary = false;
+      state.showClients = false;
+      state.showOrders = false;
+      state.showPlanning = false;
+      history.replaceState(null, "", `/menu-semanal?ano=${state.menuPeriod.year}&mes=${state.menuPeriod.month}&catalogo=cumbucas`);
+      renderMenu();
+    });
+  }
+
+  on("#menu-catalog-filter", "submit", event => {
+    event.preventDefault();
+    const data = readForm(event.currentTarget);
+    state.menuCatalogFilter = {
+      search: String(data.search || "").trim(),
+      week: String(data.week || "all"),
+      cost: String(data.cost || "all")
+    };
+    renderMenu();
+  });
+
+  on("#clear-menu-catalog-filter", "click", () => {
+    state.menuCatalogFilter = { search: "", week: "all", cost: "all" };
+    renderMenu();
+  });
 
   const clientToggle = document.querySelector("#client-toggle");
   if (clientToggle) {
@@ -7974,12 +8189,10 @@ async function renderMenu() {
     }
 
     const planField = clientForm.querySelector("[name='plan']");
-    const planValueField = clientForm.querySelector("[name='planValue']");
     const monthlyQuantityField = clientForm.querySelector("[name='monthlyQuantity']");
     function updateDeliveryVisibility() {
       clientForm.dataset.plan = planField.value;
       const isMonthly = planField.value === "mensalista";
-      planValueField.required = isMonthly;
       monthlyQuantityField.required = isMonthly;
     }
     planField.addEventListener("change", updateDeliveryVisibility);
@@ -8004,14 +8217,13 @@ async function renderMenu() {
 
       if (data.plan === "mensalista") {
         monthlyPackages[periodKey] = {
-          planValue: parseMoneyInput(data.planValue).toFixed(2),
+          ...(monthlyPackages[periodKey] || {}),
           monthlyQuantity: data.monthlyQuantity
         };
       }
 
       const client = {
         ...data,
-        planValue: parseMoneyInput(data.planValue).toFixed(2),
         weeklyDeliveryFee: parseMoneyInput(data.weeklyDeliveryFee).toFixed(2),
         monthlyPackages
       };
@@ -8067,6 +8279,8 @@ async function renderMenu() {
     const clientField = orderForm.querySelector("[name='clientPhone']");
     const orderValueFields = document.querySelector("#order-value-fields");
     const orderValueField = orderForm.querySelector("[name='orderValue']");
+    const orderValueLabel = document.querySelector("#order-value-label");
+    const orderValueHint = document.querySelector("#order-value-hint");
     const deliveryFeeFieldContainer = document.querySelector("#order-delivery-fee-field");
     const paidFieldContainer = document.querySelector("#order-paid-field");
     const deliveryFeeField = orderForm.querySelector("[name='orderDeliveryFee']");
@@ -8091,9 +8305,12 @@ async function renderMenu() {
       const client = selectedOrderClient();
       const hasClient = Boolean(client.phone);
       const isWeekly = client.plan === "semanal";
+      const isMonthly = client.plan === "mensalista";
       orderValueFields.hidden = !hasClient;
       orderValueField.disabled = !hasClient;
-      orderValueField.required = hasClient;
+      orderValueField.required = isWeekly;
+      orderValueLabel.textContent = isMonthly ? "Mensalidade recebida" : "Valor em real deste pedido";
+      orderValueHint.hidden = !isMonthly;
       deliveryFeeFieldContainer.hidden = !isWeekly;
       paidFieldContainer.hidden = !isWeekly;
       deliveryFeeField.disabled = !isWeekly;
@@ -8141,7 +8358,7 @@ async function renderMenu() {
         showToast("Selecione um cliente para o pedido.", "error");
         return;
       }
-      if (orderValue <= 0) {
+      if (client.plan === "semanal" && orderValue <= 0) {
         showToast("Informe o valor deste pedido.", "error");
         return;
       }
@@ -8158,13 +8375,11 @@ async function renderMenu() {
       if (client.plan === "mensalista") {
         const requested = dishes.reduce((sum, dish) => sum + Number(dish.quantity || 0), 0);
         const packageQuantity = clientMonthlyQuantity(client, currentKey);
-        const packageValue = clientMonthlyValue(client, currentKey);
-        if (packageQuantity <= 0 || packageValue <= 0) {
-          alert("Informe o valor e a quantidade do pacote mensal no cadastro deste cliente.");
+        if (packageQuantity <= 0) {
+          alert("Informe a quantidade do pacote mensal no cadastro deste cliente.");
           return;
         }
-        const packageCharge = monthlyChargeForOrder(client, currentKey, requested, state.editOrderId);
-        monthlyPackageCount = Math.max(0, Math.round(packageCharge / packageValue));
+        monthlyPackageCount = monthlyPackageCountForOrder(client, currentKey, requested, state.editOrderId);
         const orderedBefore = clientOrderedQuantity(client, currentKey, state.editOrderId);
         const capacityAfterOrder = clientMonthlyCapacity(client, currentKey, state.editOrderId)
           + (monthlyPackageCount * packageQuantity);
@@ -8182,8 +8397,10 @@ async function renderMenu() {
         dishes,
         amount: orderValue,
         deliveryFee,
-        paid,
-        paidAmount: editingOrder?.paidAmount || (paid ? orderValue : 0),
+        paid: client.plan === "mensalista" ? orderValue > 0 : paid,
+        paidAmount: client.plan === "mensalista"
+          ? orderValue
+          : editingOrder?.paidAmount || (paid ? orderValue : 0),
         monthlyPackageCount: client.plan === "mensalista" ? monthlyPackageCount : undefined,
         delivered: editingOrder?.delivered || false,
         deliveredAt: editingOrder?.deliveredAt || "",
@@ -8388,7 +8605,12 @@ async function renderMenu() {
       month: Number(data.month)
     };
     persistState();
-    history.replaceState(null, "", `/menu-semanal?ano=${state.menuPeriod.year}&mes=${state.menuPeriod.month}&semana=${state.menuWeek}`);
+    const selectedView = state.showMenuCatalog
+      ? "&catalogo=cumbucas"
+      : state.showMonthSummary
+        ? "&resumo=mes"
+        : `&semana=${state.menuWeek}`;
+    history.replaceState(null, "", `/menu-semanal?ano=${state.menuPeriod.year}&mes=${state.menuPeriod.month}${selectedView}`);
     renderMenu();
   });
 
@@ -8415,29 +8637,33 @@ async function renderMenu() {
 
   const menuForm = document.querySelector("#menu-form");
   if (menuForm) {
-    document.querySelectorAll("[data-menu-recipe-select]").forEach(select => {
-      select.addEventListener("change", event => {
-        const index = Number(event.currentTarget.dataset.menuRecipeSelect);
-        const recipe = pricingRecipeById(event.currentTarget.value);
-        const dishField = menuForm.querySelector(`[data-menu-dish="${index}"]`);
-        const costField = menuForm.querySelector(`[data-menu-cost="${index}"]`);
-        const summary = menuForm.querySelector(`[data-menu-recipe-summary="${index}"]`);
-        if (summary) {
-          summary.innerHTML = menuRecipeSummaryHtml(recipe);
-        }
-        if (!recipe) {
-          return;
-        }
-        if (dishField) {
-          dishField.value = recipe.name || "";
-        }
-        if (costField) {
-          costField.value = pricingRecipeIsComplete(recipe)
-            ? moneyInputValue(menuRecipeUnitCost(recipe))
-            : "";
-        }
-      });
-    });
+    function updateMenuCostPreview(menuIndex) {
+      const dish = menuForm.querySelector(`[data-menu-dish="${menuIndex}"]`)?.value || "";
+      const ingredients = readPlanningIngredients(menuForm, menuIndex);
+      const costs = menuPlanningCosts(
+        { dish, ingredients, ingredientCost: planningIngredientTotal(ingredients) },
+        sharedCosts.totalPerUnit
+      );
+      const breakdown = menuForm.querySelector(`[data-menu-cost-breakdown="${menuIndex}"]`);
+      if (breakdown) {
+        breakdown.querySelector("[data-menu-ingredient-cost]").textContent = money(costs.ingredientCost);
+        breakdown.querySelector("[data-menu-shared-cost]").textContent = money(costs.sharedCost);
+        breakdown.querySelector("[data-menu-total-cost]").textContent = money(costs.totalCost);
+      }
+      return costs.totalCost;
+    }
+
+    function updateMenuWeeklyCostPreview() {
+      const total = result.plan.reduce((sum, item, index) => {
+        return sum + updateMenuCostPreview(index);
+      }, 0);
+      const weeklyCost = menuForm
+        .closest(".planning-panel")
+        ?.querySelector("[data-menu-weekly-cost]");
+      if (weeklyCost) {
+        weeklyCost.textContent = money(total);
+      }
+    }
 
     document.querySelectorAll("[data-add-ingredient]").forEach(button => {
       button.addEventListener("click", event => {
@@ -8445,7 +8671,16 @@ async function renderMenu() {
         const rows = document.querySelector(`[data-ingredient-rows="${menuIndex}"]`);
         const ingredientIndex = rows.querySelectorAll("[data-ingredient-row]").length;
         rows.insertAdjacentHTML("beforeend", planningIngredientRow(menuIndex, ingredientIndex));
+        updateMenuWeeklyCostPreview();
       });
+    });
+
+    menuForm.addEventListener("input", event => {
+      const menuIndex = event.target.closest("[data-ingredient-row]")?.dataset.menuIndex
+        ?? event.target.dataset.menuDish;
+      if (menuIndex !== undefined) {
+        updateMenuWeeklyCostPreview();
+      }
     });
 
     menuForm.addEventListener("click", event => {
@@ -8460,34 +8695,32 @@ async function renderMenu() {
         row.querySelectorAll("input").forEach(input => {
           input.value = "";
         });
+        updateMenuWeeklyCostPreview();
         return;
       }
 
       row.remove();
+      updateMenuWeeklyCostPreview();
     });
 
     menuForm.addEventListener("submit", event => {
       event.preventDefault();
       const data = readForm(event.currentTarget);
-      const unlinkedSlots = result.plan.filter((item, index) => {
-        const hasExistingDish = Boolean(String(item.dish || "").trim());
-        return hasExistingDish && !pricingRecipeById(data[`recipe-${index}`]);
-      });
-      if (unlinkedSlots.length) {
-        showToast("Selecione uma receita cadastrada em Preços para cada prato do Menu.", "error");
-        return;
-      }
       state.menus[currentKey] = result.plan.map((item, index) => {
         const ingredients = readPlanningIngredients(event.currentTarget, index);
-        const recipeId = data[`recipe-${index}`] || "";
-        const recipe = pricingRecipeById(recipeId);
-        const linkedCost = menuRecipeUnitCost(recipe);
+        const dish = String(data[`dish-${index}`] || "").trim();
+        const ingredientCost = planningIngredientTotal(ingredients);
+        const costs = menuPlanningCosts(
+          { dish, ingredients, ingredientCost },
+          sharedCosts.totalPerUnit
+        );
         return {
           slot: index + 1,
-          recipeId,
-          dish: recipe?.name || "",
+          dish,
           ingredients,
-          cost: (recipe ? linkedCost : 0).toFixed(2),
+          ingredientCost: costs.ingredientCost.toFixed(2),
+          sharedCost: costs.sharedCost.toFixed(2),
+          cost: costs.totalCost.toFixed(2),
           status: data[`status-${index}`],
           notes: data[`notes-${index}`]
         };
@@ -8561,16 +8794,12 @@ function clientPanel(currentKey) {
             <option value="mensalista" ${editing?.plan === "mensalista" ? "selected" : ""}>Mensalista</option>
           </select>
         </label>
-        <label class="plan-value-field">
-          <span class="value-label weekly-value">Valor padrão</span>
-          <span class="value-label monthly-value">Valor mensal do mês</span>
-          <input name="planValue" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(packageForMonth.planValue)}">
-        </label>
         <label class="weekly-freight-value">Frete
           <input name="weeklyDeliveryFee" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(editing?.weeklyDeliveryFee || editing?.deliveryFee)}">
         </label>
         <label class="monthly-quantity">Quantidade do mês
           <input name="monthlyQuantity" type="number" min="0" step="1" placeholder="0" value="${packageForMonth.monthlyQuantity || ""}">
+          <small>A mensalidade será lançada manualmente em um pedido do mês.</small>
         </label>
         <label class="client-notes">Observação
           <textarea name="notes" placeholder="Preferência, restrição, detalhe de entrega">${editing?.notes || ""}</textarea>
@@ -8627,7 +8856,7 @@ function clientList(currentKey) {
               <td>${client.complement || ""}</td>
               <td>${client.phone || ""}</td>
               <td>${client.plan === "mensalista" ? "Mensalista" : "Semanal"}</td>
-              <td>${client.plan === "mensalista" ? money(clientMonthlyValue(client, currentKey)) : "Variável"}</td>
+              <td>${client.plan === "mensalista" ? "Manual nos pedidos" : "Variável"}</td>
               <td>
                 ${client.plan === "mensalista" ? `${clientRemainingQuantity(client, currentKey)}/${clientMonthlyCapacity(client, currentKey)} ${clientChargedPackageCount(client, currentKey) > 1 ? `<span class="quantity-badge renewed">${clientChargedPackageCount(client, currentKey)} pacotes</span>` : ""} ${clientQuantityStatus(client, currentKey)}` : money(client.weeklyDeliveryFee || client.deliveryFee)}
               </td>
@@ -8675,12 +8904,14 @@ function clientMonthlyQuantity(client, currentKey) {
   return Number(clientMonthlyPackage(client, currentKey).monthlyQuantity || 0);
 }
 
+function clientMonthlyRecordedValue(client, currentKey) {
+  return monthlyOrders(currentKey)
+    .filter(order => order.clientPhone === client.phone)
+    .reduce((sum, order) => sum + Number(order.amount || 0), 0);
+}
+
 function clientChargedPackageCount(client, currentKey, ignoredOrderId = null) {
   const packageValue = clientMonthlyValue(client, currentKey);
-  if (packageValue <= 0) {
-    return 0;
-  }
-
   return monthlyOrders(currentKey)
     .filter(order => order.clientPhone === client.phone)
     .filter(order => Number(order.id) !== Number(ignoredOrderId))
@@ -8688,7 +8919,7 @@ function clientChargedPackageCount(client, currentKey, ignoredOrderId = null) {
       if (Object.prototype.hasOwnProperty.call(order, "monthlyPackageCount")) {
         return sum + Math.max(0, Number(order.monthlyPackageCount || 0));
       }
-      return sum + Math.ceil(Number(order.amount || 0) / packageValue);
+      return sum + (packageValue > 0 ? Math.ceil(Number(order.amount || 0) / packageValue) : 0);
     }, 0);
 }
 
@@ -8709,14 +8940,13 @@ function clientRemainingQuantity(client, currentKey, ignoredOrderId = null) {
   return Math.max(0, clientMonthlyCapacity(client, currentKey, ignoredOrderId) - clientOrderedQuantity(client, currentKey, ignoredOrderId));
 }
 
-function monthlyChargeForOrder(client, currentKey, requestedQuantity, ignoredOrderId = null) {
+function monthlyPackageCountForOrder(client, currentKey, requestedQuantity, ignoredOrderId = null) {
   if (client.plan !== "mensalista") {
     return 0;
   }
 
-  const packageValue = clientMonthlyValue(client, currentKey);
   const packageQuantity = clientMonthlyQuantity(client, currentKey);
-  if (packageValue <= 0 || packageQuantity <= 0) {
+  if (packageQuantity <= 0) {
     return 0;
   }
 
@@ -8728,7 +8958,7 @@ function monthlyChargeForOrder(client, currentKey, requestedQuantity, ignoredOrd
     ? packagesNeeded
     : Math.max(0, packagesNeeded - chargedPackages);
 
-  return packagesToCharge * packageValue;
+  return packagesToCharge;
 }
 
 function isLowMonthlyQuantity(client, currentKey) {
@@ -8738,7 +8968,7 @@ function isLowMonthlyQuantity(client, currentKey) {
 
 function monthlyQuantityWarningText(client, remaining) {
   if (remaining <= 0) {
-    return `O pacote de ${client.name || "mensalista"} acabou. O próximo pedido libera um novo pacote, mas o valor continuará sendo informado manualmente.`;
+    return `O pacote de ${client.name || "mensalista"} acabou. O próximo pedido libera um novo pacote; a mensalidade continuará sendo lançada manualmente.`;
   }
 
   return `Atenção: ${client.name || "mensalista"} está com apenas ${remaining} cumbuca(s) restante(s) neste mês.`;
@@ -9055,8 +9285,9 @@ function orderFormPanel(plan, currentKey, editing, availableClients) {
           `).join("")}
         </div>
         <div class="weekly-order-fields" id="order-value-fields" hidden>
-          <label>Valor em real deste pedido
+          <label><span id="order-value-label">Valor em real deste pedido</span>
             <input name="orderValue" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(editing?.amount)}" disabled>
+            <small id="order-value-hint" hidden>Opcional. Só entra na contabilidade quando você informar o valor recebido.</small>
           </label>
           <label id="order-delivery-fee-field">Valor em frete
             <input name="orderDeliveryFee" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(editing?.deliveryFee)}" disabled>
@@ -9085,6 +9316,8 @@ async function renderQuickOrders() {
   state.showOrders = true;
   state.showClients = false;
   state.showPlanning = false;
+  state.showMonthSummary = false;
+  state.showMenuCatalog = false;
   if (!["orders", "production", "delivery", "form"].includes(state.orderTab)) {
     state.orderTab = "orders";
   }
@@ -9099,7 +9332,9 @@ function isOrderPaid(order = {}) {
 
 function paymentBadge(order, client) {
   if (client.plan === "mensalista") {
-    return `<span class="payment-badge paid">Mensalista</span>`;
+    return Number(order.amount || 0) > 0
+      ? `<span class="payment-badge paid">Mensalidade lançada</span>`
+      : `<span class="payment-badge pending">Mensalidade não lançada</span>`;
   }
   if (isOrderPaid(order)) {
     return `<span class="payment-badge paid">Pago</span>`;
@@ -9217,13 +9452,16 @@ function orderList(plan, currentKey) {
   const query = String(filter.search || state.orderSearch || "").trim().toLowerCase();
   const orders = weeklyOrders(currentKey).filter(order => {
     const client = clientByPhone(order.clientPhone);
-    if (filter.payment === "paid" && !isOrderPaid(order)) {
-      return false;
-    }
     if (filter.payment === "partial" && !(Number(order.paidAmount || 0) > 0 && !isOrderPaid(order))) {
       return false;
     }
-    if (filter.payment === "pending" && (isOrderPaid(order) || client.plan === "mensalista")) {
+    const paymentRecorded = client.plan === "mensalista"
+      ? Number(order.amount || 0) > 0
+      : isOrderPaid(order);
+    if (filter.payment === "paid" && !paymentRecorded) {
+      return false;
+    }
+    if (filter.payment === "pending" && paymentRecorded) {
       return false;
     }
     if (filter.delivery === "delivered" && !order.delivered) {
@@ -9297,7 +9535,7 @@ function orderList(plan, currentKey) {
 
 function paymentText(order, client) {
   if (client.plan === "mensalista") {
-    return "Mensalista";
+    return Number(order.amount || 0) > 0 ? "Mensalidade lançada" : "Mensalidade não lançada";
   }
 
   if (isOrderPaid(order)) {
@@ -9658,39 +9896,6 @@ function pricingRecipeReferencePrice(recipe) {
   }
   const metrics = pricingRecipeMetrics(recipe);
   return metrics.practicedPrice > 0 ? metrics.practicedPrice : metrics.suggestedPrice;
-}
-
-function menuRecipeOptions(selectedRecipeId = "") {
-  const recipes = [...(state.pricingRecipes || [])].sort((a, b) => {
-    return String(a.name || "").localeCompare(String(b.name || ""), "pt-BR");
-  });
-  return `
-    <option value="">Selecione uma receita cadastrada em Preços</option>
-    ${recipes.map(recipe => `
-      <option value="${escapeHtml(recipe.id)}" ${String(recipe.id) === String(selectedRecipeId) ? "selected" : ""}>
-        ${escapeHtml(recipe.name || "Receita sem nome")}${pricingRecipeIsComplete(recipe) ? "" : " — ingredientes pendentes"}
-      </option>
-    `).join("")}
-  `;
-}
-
-function menuRecipeSummaryHtml(recipe) {
-  if (!recipe) {
-    return `<span class="menu-recipe-empty">Escolha uma receita para preencher prato, custo e margem automaticamente.</span>`;
-  }
-  if (!pricingRecipeIsComplete(recipe)) {
-    return `<span class="menu-recipe-warning"><b>Receita incompleta.</b> Cadastre os ingredientes do lote de 50 pratos em Preços.</span>`;
-  }
-  const metrics = pricingRecipeMetrics(recipe);
-  const cost = menuRecipeUnitCost(recipe);
-  const profit = metrics.practicedPrice > 0 ? metrics.realProfit : metrics.suggestedProfit;
-  const margin = metrics.practicedPrice > 0 ? metrics.realMarginPercent : metrics.desiredMarginPercent;
-  return `
-    <span><small>Custo por prato</small><b>${money(cost)}</b></span>
-    <span><small>${metrics.practicedPrice > 0 ? "Lucro praticado" : "Lucro sugerido"}</small><b class="${profit < 0 ? "negative" : "positive"}">${money(profit)}</b></span>
-    <span><small>Margem</small><b>${pricingPercent(margin)}</b></span>
-    <span><small>Status</small>${pricingStatusPill(metrics.status)}</span>
-  `;
 }
 
 function pricingRecipeIsComplete(recipe) {
@@ -11101,7 +11306,7 @@ function reportData() {
   const totalIncome = income;
   const paidOrders = orders.filter(order => {
     const client = clientByPhone(order.clientPhone);
-    return client.plan === "mensalista" || isOrderPaid(order);
+    return client.plan === "mensalista" ? Number(order.amount || 0) > 0 : isOrderPaid(order);
   }).length;
 
   return {
@@ -12547,11 +12752,18 @@ function weeklyRecipeProfitabilityRows(data) {
         return;
       }
       const menuItem = (state.menus[order.menuKey] || []).find(item => Number(item.slot) === Number(dish.slot)) || {};
-      const recipe = pricingRecipeForMenuItem(menuItem);
+      const usesPlanningCost = menuItemHasManualCost(menuItem);
+      const recipe = usesPlanningCost ? null : pricingRecipeForMenuItem(menuItem);
       const referencePrice = recipe ? pricingRecipeReferencePrice(recipe) : fallbackUnitRevenue;
-      const key = recipe
-        ? `recipe:${recipe.id}`
-        : `menu:${order.menuKey || "sem-menu"}:${dish.slot}`;
+      const unitCost = usesPlanningCost ? menuItemUnitCost(menuItem) : menuRecipeUnitCost(recipe);
+      const costConfigured = usesPlanningCost
+        ? menuItemHasPlanningContent(menuItem) && menuItemIngredientCost(menuItem) > 0
+        : Boolean(recipe);
+      const key = usesPlanningCost
+        ? `menu:${order.menuKey || "sem-menu"}:${dish.slot}`
+        : recipe
+          ? `recipe:${recipe.id}`
+          : `menu:${order.menuKey || "sem-menu"}:${dish.slot}`;
       if (!rows.has(key)) {
         const metrics = recipe ? pricingRecipeMetrics(recipe) : null;
         rows.set(key, {
@@ -12562,13 +12774,15 @@ function weeklyRecipeProfitabilityRows(data) {
           revenue: 0,
           cost: 0,
           referencePrice,
-          desiredMargin: Number(metrics?.desiredMarginPercent || 0)
+          desiredMargin: Number(metrics?.desiredMarginPercent || 0),
+          costConfigured,
+          costSource: usesPlanningCost ? "Planejamento" : recipe ? "Preços" : "Sem custo"
         });
       }
       const row = rows.get(key);
       row.quantity += quantity;
       row.revenue += referencePrice * quantity;
-      row.cost += menuRecipeUnitCost(recipe) * quantity;
+      row.cost += unitCost * quantity;
     });
   });
 
@@ -12595,7 +12809,7 @@ function businessProfitabilityPanel(data) {
   const storeProfit = storeRows.reduce((sum, row) => sum + row.estimatedProfit, 0);
   const totalRevenue = weeklyRevenue + storeRevenue;
   const totalProfit = weeklyProfit + storeProfit;
-  const unlinkedRows = weekly.rows.filter(row => !row.recipe);
+  const unconfiguredRows = weekly.rows.filter(row => !row.costConfigured);
   const lowMarginRows = weekly.rows.filter(row => {
     return row.recipe && row.margin !== null && row.margin + 0.0001 < row.desiredMargin;
   });
@@ -12605,9 +12819,9 @@ function businessProfitabilityPanel(data) {
       <div class="section-heading">
         <div>
           <h2>Rentabilidade por prato ${reportTitleSuffix(data)}</h2>
-          <p class="muted-inline">Pedidos e Loja usam o preço atual cadastrado em Preços para cada receita do Menu.</p>
+          <p class="muted-inline">Pedidos usam insumos manuais + rateio automático do Planejamento. A Loja continua usando as receitas cadastradas em Preços.</p>
         </div>
-        <a class="secondary table-action" href="/precificacao?view=recipes">Abrir receitas em Preços</a>
+        <a class="secondary table-action" href="/precificacao?view=costs">Abrir custos rateados</a>
       </div>
       <div class="summary">
         <div class="metric report-metric"><span>Receita considerada</span><strong>${money(totalRevenue)}</strong></div>
@@ -12617,9 +12831,9 @@ function businessProfitabilityPanel(data) {
         <div class="metric report-metric"><span>Lucro dos pedidos</span><strong class="${weeklyProfit < 0 ? "negative" : "positive"}">${money(weeklyProfit)}</strong></div>
         <div class="metric report-metric"><span>Lucro da loja</span><strong class="${storeProfit < 0 ? "negative" : "positive"}">${money(storeProfit)}</strong></div>
       </div>
-      ${unlinkedRows.length || weekly.unallocatedUnits ? `
+      ${unconfiguredRows.length || weekly.unallocatedUnits ? `
         <p class="form-hint warning-text">
-          ${unlinkedRows.reduce((sum, row) => sum + row.quantity, 0) + weekly.unallocatedUnits} unidade(s) de pedidos ainda não têm receita identificada e não entram no custo.
+          ${unconfiguredRows.reduce((sum, row) => sum + row.quantity, 0) + weekly.unallocatedUnits} unidade(s) de pedidos ainda não têm custo identificado e não entram no cálculo completo.
         </p>
       ` : ""}
       ${weekly.rows.length ? `
@@ -12628,9 +12842,9 @@ function businessProfitabilityPanel(data) {
             <thead>
               <tr>
                 <th>Prato</th>
-                <th>Receita</th>
+                <th>Origem do custo</th>
                 <th>Quantidade</th>
-                <th>Preço de Preços</th>
+                <th>Valor unitário</th>
                 <th>Receita calculada</th>
                 <th>Custo estimado</th>
                 <th>Lucro estimado</th>
@@ -12642,18 +12856,18 @@ function businessProfitabilityPanel(data) {
               ${weekly.rows.map(row => `
                 <tr>
                   <td><strong>${escapeHtml(row.name)}</strong></td>
-                  <td>${row.recipe ? "Vinculada" : "Sem vínculo"}</td>
+                  <td>${row.costSource}</td>
                   <td>${row.quantity}</td>
-                  <td>${row.recipe ? money(row.referencePrice) : "—"}</td>
+                  <td>${money(row.referencePrice)}</td>
                   <td>${money(row.revenue)}</td>
-                  <td>${row.recipe ? money(row.cost) : "—"}</td>
-                  <td class="${row.profit < 0 ? "negative" : row.recipe ? "positive" : ""}">${row.recipe ? money(row.profit) : "—"}</td>
-                  <td>${row.recipe ? pricingPercent(row.margin) : "—"}</td>
-                  <td>${!row.recipe
-                    ? `<span class="pricing-status pending">Vincular receita</span>`
+                  <td>${row.costConfigured ? money(row.cost) : "—"}</td>
+                  <td class="${row.profit < 0 ? "negative" : row.costConfigured ? "positive" : ""}">${row.costConfigured ? money(row.profit) : "—"}</td>
+                  <td>${row.costConfigured ? pricingPercent(row.margin) : "—"}</td>
+                  <td>${!row.costConfigured
+                    ? `<span class="pricing-status pending">Preencher custos</span>`
                     : row.profit < 0
                       ? `<span class="pricing-status loss">Prejuízo</span>`
-                      : row.margin !== null && row.margin + 0.0001 < row.desiredMargin
+                      : row.recipe && row.margin !== null && row.margin + 0.0001 < row.desiredMargin
                         ? `<span class="pricing-status attention">Abaixo da meta</span>`
                         : `<span class="pricing-status profitable">Saudável</span>`}</td>
                 </tr>
@@ -17521,14 +17735,14 @@ function actionableManagementAlerts(metrics = homeMetricData(), today = todayOpe
     return [];
   });
   const menuAlerts = (state.menus[today.currentKey] || [])
-    .filter(item => String(item.dish || "").trim() && !pricingRecipeForMenuItem(item))
+    .filter(item => String(item.dish || "").trim() && menuItemIngredientCost(item) <= 0)
     .map(item => ({
       category: "Menu",
-      label: "Prato sem receita vinculada",
-      detail: `${item.dish} ainda não tem custo automático.`,
+      label: "Cumbuca sem custo de insumos",
+      detail: `${item.dish} precisa dos custos manuais dos ingredientes; o rateio será automático.`,
       type: "warning",
       href: "/menu-semanal",
-      action: "Vincular"
+      action: "Preencher"
     }));
   const backupAt = localStorage.getItem("lastManualBackupAt") || "";
   const backupDays = backupAgeDays(backupAt);
@@ -17806,10 +18020,17 @@ function applyRouteParams() {
   if (weekParam && Number(weekParam) >= 1 && Number(weekParam) <= 5) {
     state.menuWeek = Number(weekParam);
     state.showMonthSummary = false;
+    state.showMenuCatalog = false;
   }
 
   if (params.get("resumo") === "mes") {
     state.showMonthSummary = true;
+    state.showMenuCatalog = false;
+  }
+
+  if (params.get("catalogo") === "cumbucas") {
+    state.showMenuCatalog = true;
+    state.showMonthSummary = false;
   }
 
   const yearParam = params.get("ano");

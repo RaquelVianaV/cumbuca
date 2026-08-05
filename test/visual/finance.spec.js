@@ -146,7 +146,7 @@ test('menu is the single navigation entry and saves new orders', async ({ page }
   await orderForm.locator('input[name="orderValue"]').fill('40,00');
   await orderForm.getByRole('button', { name: 'Salvar pedido', exact: true }).click();
 
-  await expect.poll(() => database.state.orders?.length || 0).toBe(1);
+  await expect.poll(() => database.state.orders?.[0]?.amount).toBe(40);
   expect(database.state.orders[0]).toMatchObject({
     menuKey: '2026-08-semana-1',
     clientPhone: '85999999999',
@@ -167,7 +167,7 @@ test('menu is the single navigation entry and saves new orders', async ({ page }
   await expect(navigation.getByRole('link', { name: 'Menu', exact: true })).toHaveClass(/active/);
 });
 
-test('monthly clients only record revenue after the order value is entered', async ({ page }) => {
+test('monthly orders allow manual fees and only account for entered values', async ({ page }) => {
   const database = await mockOnlineDatabase(page);
   database.state = {
     weeklyMenusByPeriod: {
@@ -190,7 +190,6 @@ test('monthly clients only record revenue after the order value is entered', asy
         name: 'Cliente mensalista',
         phone: '85888888888',
         plan: 'mensalista',
-        planValue: '120.00',
         monthlyQuantity: '10',
       },
     ],
@@ -204,66 +203,59 @@ test('monthly clients only record revenue after the order value is entered', asy
   await orderForm.locator('select[name="clientPhone"]').selectOption('85888888888');
   await expect(orderForm.locator('#order-value-fields')).toBeVisible();
   await expect(orderForm.locator('input[name="orderValue"]')).toBeEnabled();
-  await expect(orderForm.locator('input[name="orderValue"]')).toHaveAttribute('required', '');
+  await expect(orderForm.locator('input[name="orderValue"]')).not.toHaveAttribute('required', '');
+  await expect(orderForm.locator('#order-value-label')).toHaveText('Mensalidade recebida');
+  await expect(orderForm.locator('#order-value-hint')).toBeVisible();
   await expect(orderForm.locator('#order-delivery-fee-field')).toBeHidden();
   await orderForm.locator('input[name="dish-1"]').fill('2');
-  await orderForm.getByRole('button', { name: 'Salvar pedido', exact: true }).click();
-  await expect.poll(() => database.state.orders?.length || 0).toBe(0);
-  await orderForm.locator('input[name="orderValue"]').fill('37,50');
   await orderForm.getByRole('button', { name: 'Salvar pedido', exact: true }).click();
 
   await expect.poll(() => database.state.orders?.length || 0).toBe(1);
   expect(database.state.orders[0]).toMatchObject({
     clientPhone: '85888888888',
-    amount: 37.5,
+    amount: 0,
+    paid: false,
+    paidAmount: 0,
     monthlyPackageCount: 1,
   });
+  await expect(page.getByText('Mensalidade não lançada', { exact: true }).first()).toBeVisible();
+
+  await page.locator('[data-edit-order]').first().click();
+  await expect(orderForm.locator('input[name="orderValue"]')).toHaveValue('');
+  await orderForm.locator('input[name="orderValue"]').fill('37,50');
+  await orderForm.getByRole('button', { name: 'Salvar edição', exact: true }).click();
+
+  await expect.poll(() => database.state.orders?.[0]?.amount).toBe(37.5);
+  expect(database.state.orders[0]).toMatchObject({
+    clientPhone: '85888888888',
+    amount: 37.5,
+    paid: true,
+    paidAmount: 37.5,
+    monthlyPackageCount: 1,
+  });
+  await expect(page.getByText('Mensalidade lançada', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('R$ 37,50', { exact: true }).first()).toBeVisible();
 });
 
-test('pricing recipes are the source for menu values and profitability', async ({
+test('menu planning combines manual ingredient costs with automatic allocated costs', async ({
   page,
 }, testInfo) => {
   const database = await mockOnlineDatabase(page);
   database.state = {
-    pricingIngredients: [
-      {
-        id: 'ingredient-1',
-        name: 'Ingrediente teste',
-        unit: 'kg',
-        purchaseQuantity: 1,
-        purchaseCost: 10,
+    pricingConfig: {
+      sharedCosts: {
+        averageMonthlyUnits: 100,
+        gas: 100,
+        energy: 100,
+        staff: [{ id: 'staff-1', name: 'Equipe', salary: 500 }],
+        rent: 200,
+        accountant: 100,
+        telephony: 0,
+        marketing: 0,
+        extraordinary: 0,
       },
-    ],
-    pricingRecipes: [
-      {
-        id: 'recipe-1',
-        name: 'Receita oficial de Preços',
-        category: 'Cumbuca',
-        weightGrams: 320,
-        packagingCost: 1,
-        fixedFee: 0,
-        variableFeePercent: 0,
-        desiredMarginPercent: 30,
-        practicedPrice: 25,
-        ingredientBatchSize: 50,
-        ingredients: [{ ingredientId: 'ingredient-1', quantity: 5 }],
-      },
-    ],
-    pricingConfig: { sharedCosts: {} },
-    weeklyMenusByPeriod: {
-      '2026-08-semana-1': [
-        {
-          slot: 1,
-          recipeId: 'recipe-1',
-          dish: 'Nome antigo do menu',
-          cost: 999,
-          ingredients: [],
-          status: 'planejado',
-          notes: '',
-        },
-      ],
     },
+    weeklyMenusByPeriod: {},
     menuWeek: 1,
     menuPeriod: { year: 2026, month: 8 },
     menuDatesByPeriod: {},
@@ -274,7 +266,7 @@ test('pricing recipes are the source for menu values and profitability', async (
         menuKey: '2026-08-semana-1',
         clientPhone: '85999999999',
         dishes: [{ slot: 1, quantity: 2 }],
-        amount: 1,
+        amount: 50,
         deliveryFee: 0,
         paid: true,
         createdAt: '2026-08-03T12:00:00.000Z',
@@ -285,38 +277,162 @@ test('pricing recipes are the source for menu values and profitability', async (
   await page.goto('/menu-semanal?ano=2026&mes=8&semana=1');
   await page.locator('#planning-toggle').click();
   await expect(page.locator('.menu-pricing-source')).toContainText(
-    'Receitas, custos e preços vêm de Preços'
+    'Cadastre as cumbucas diretamente no Planejamento'
   );
-  const recipeSelect = page.locator('[data-menu-recipe-select="0"]');
-  await expect(recipeSelect).toHaveValue('recipe-1');
-  await expect(recipeSelect).not.toContainText('Prato manual');
-  await expect(page.locator('[data-menu-dish="0"]')).toHaveValue('Receita oficial de Preços');
-  await expect(page.locator('[data-menu-dish="0"]')).toHaveAttribute('readonly', '');
-  await expect(page.locator('[data-menu-cost="0"]')).toHaveValue('2,00');
-  await expect(page.locator('[data-menu-cost="0"]')).toHaveAttribute('readonly', '');
+  await expect(
+    page.getByRole('link', { name: 'Configurar custos rateados', exact: true })
+  ).toHaveAttribute('href', '/precificacao?view=costs');
+
+  await page.locator('[data-menu-dish="0"]').fill('Cumbuca manual da semana');
+  const firstIngredient = page.locator('[data-ingredient-row][data-menu-index="0"]').first();
+  await firstIngredient.locator('.ingredient-name').fill('Arroz');
+  await firstIngredient.locator('.ingredient-value').fill('3,00');
+  await page.locator('[data-add-ingredient="0"]').click();
+  const secondIngredient = page.locator('[data-ingredient-row][data-menu-index="0"]').nth(1);
+  await secondIngredient.locator('.ingredient-name').fill('Frango');
+  await secondIngredient.locator('.ingredient-value').fill('7,00');
+
+  const breakdown = page.locator('[data-menu-cost-breakdown="0"]');
+  await expect(breakdown.locator('[data-menu-ingredient-cost]')).toHaveText('R$ 10,00');
+  await expect(breakdown.locator('[data-menu-shared-cost]')).toHaveText('R$ 10,00');
+  await expect(breakdown.locator('[data-menu-total-cost]')).toHaveText('R$ 20,00');
+  await expect(page.locator('[data-menu-weekly-cost]')).toHaveText('R$ 20,00');
+  await page.getByRole('button', { name: 'Salvar menu', exact: true }).click();
+
+  await expect
+    .poll(() => database.state.weeklyMenusByPeriod?.['2026-08-semana-1']?.[0]?.dish)
+    .toBe('Cumbuca manual da semana');
+  expect(database.state.weeklyMenusByPeriod['2026-08-semana-1'][0]).toMatchObject({
+    dish: 'Cumbuca manual da semana',
+    ingredientCost: '10.00',
+    sharedCost: '10.00',
+    cost: '20.00',
+    ingredients: [
+      { name: 'Arroz', value: '3.00' },
+      { name: 'Frango', value: '7.00' },
+    ],
+  });
 
   await page.goto('/relatorios?ano=2026&mes=8');
   await page.getByRole('button', { name: 'Rentabilidade', exact: true }).click();
   const profitability = page.locator('[data-profitability-panel]');
   await expect(profitability).toContainText(
-    'Pedidos e Loja usam o preço atual cadastrado em Preços'
+    'Pedidos usam insumos manuais + rateio automático do Planejamento'
   );
   await expect(
-    profitability.getByRole('link', { name: 'Abrir receitas em Preços', exact: true })
-  ).toHaveAttribute('href', '/precificacao?view=recipes');
+    profitability.getByRole('link', { name: 'Abrir custos rateados', exact: true })
+  ).toHaveAttribute('href', '/precificacao?view=costs');
   await expect(
     profitability.locator('.metric').filter({ hasText: 'Receita considerada' })
   ).toContainText('R$ 50,00');
   await expect(
     profitability.locator('.metric').filter({ hasText: 'Custo estimado' })
-  ).toContainText('R$ 4,00');
-  await expect(profitability.locator('tbody tr').first()).toContainText(
-    'Receita oficial de Preços'
-  );
-  await expect(profitability.locator('tbody tr').first()).toContainText('R$ 25,00');
+  ).toContainText('R$ 40,00');
+  await expect(profitability.locator('tbody tr').first()).toContainText('Cumbuca manual da semana');
+  await expect(profitability.locator('tbody tr').first()).toContainText('Planejamento');
+  await expect(profitability.locator('tbody tr').first()).toContainText('R$ 40,00');
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
-    path: testInfo.outputPath(`profitability-pricing-source-${testInfo.project.name}.png`),
+    path: testInfo.outputPath(`profitability-planning-cost-${testInfo.project.name}.png`),
+    fullPage: true,
+  });
+});
+
+test('monthly menu catalog filters offered dishes and shows recorded costs', async ({
+  page,
+}, testInfo) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    pricingConfig: {
+      sharedCosts: {
+        averageMonthlyUnits: 1,
+        rent: 99,
+      },
+    },
+    weeklyMenusByPeriod: {
+      '2026-08-semana-1': [
+        {
+          slot: 1,
+          dish: 'Frango cremoso',
+          ingredients: [
+            { name: 'Arroz', value: '4.00' },
+            { name: 'Frango', value: '5.00' },
+          ],
+          ingredientCost: '9.00',
+          sharedCost: '1.00',
+          cost: '10.00',
+          status: 'pronto',
+          notes: '',
+        },
+      ],
+      '2026-08-semana-2': [
+        {
+          slot: 1,
+          dish: 'Cumbuca vegetariana',
+          ingredients: [{ name: 'Legumes', value: '8.00' }],
+          ingredientCost: '8.00',
+          sharedCost: '4.00',
+          cost: '12.00',
+          status: 'planejado',
+          notes: '',
+        },
+      ],
+      '2026-08-semana-3': [
+        {
+          slot: 2,
+          dish: 'Frango cremoso',
+          ingredients: [{ name: 'Frango', value: '10.00' }],
+          ingredientCost: '10.00',
+          sharedCost: '1.00',
+          cost: '11.00',
+          status: 'preparo',
+          notes: 'Versão especial',
+        },
+      ],
+      '2026-07-semana-1': [
+        {
+          slot: 1,
+          dish: 'Prato de julho',
+          ingredients: [{ name: 'Insumo antigo', value: '6.00' }],
+          ingredientCost: '6.00',
+          sharedCost: '2.00',
+          cost: '8.00',
+          status: 'pronto',
+          notes: '',
+        },
+      ],
+    },
+    menuWeek: 1,
+    menuPeriod: { year: 2026, month: 8 },
+    menuDatesByPeriod: {},
+    clients: [],
+    orders: [],
+  };
+
+  await page.goto('/menu-semanal?ano=2026&mes=8&catalogo=cumbucas');
+  await expect(page.locator('[data-menu-catalog]')).toBeVisible();
+  await expect(page.locator('[data-menu-catalog-link]')).toHaveClass(/active/);
+  await expect(page.locator('[data-menu-catalog-card]')).toHaveCount(3);
+  await expect(page.locator('.menu-catalog-summary')).toContainText('Disponibilizações3');
+  await expect(page.locator('.menu-catalog-summary')).toContainText('Cumbucas diferentes2');
+  await expect(page.locator('.menu-catalog-summary')).toContainText('R$ 11,00');
+  await expect(page.getByText('Prato de julho', { exact: true })).toHaveCount(0);
+
+  const filter = page.locator('#menu-catalog-filter');
+  await filter.locator('input[name="search"]').fill('Frango');
+  await filter.locator('select[name="week"]').selectOption('3');
+  await filter.getByRole('button', { name: 'Filtrar', exact: true }).click();
+
+  await expect(page.locator('[data-menu-catalog-card]')).toHaveCount(1);
+  const result = page.locator('[data-menu-catalog-card]');
+  await expect(result).toContainText('Semana 3');
+  await expect(result).toContainText('Frango cremoso');
+  await expect(result).toContainText('R$ 10,00');
+  await expect(result).toContainText('R$ 1,00');
+  await expect(result).toContainText('R$ 11,00');
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath(`monthly-menu-catalog-${testInfo.project.name}.png`),
     fullPage: true,
   });
 });

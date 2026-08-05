@@ -182,9 +182,9 @@ test('management improvements are connected across the main areas', async ({ pag
 
   await page.goto('/menu-semanal');
   await page.getByRole('button', { name: 'Planejamento', exact: true }).click();
-  await expect(page.locator('[data-menu-recipe-select]')).toHaveCount(5);
+  await expect(page.locator('[data-menu-cost-breakdown]')).toHaveCount(5);
   await page.screenshot({
-    path: testInfo.outputPath('menu-recipe-link.png'),
+    path: testInfo.outputPath('menu-manual-costs.png'),
     fullPage: true,
   });
 

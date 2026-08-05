@@ -52,6 +52,13 @@ O deploy oficial usa Vercel.
 npm run deploy
 ```
 
+Para usar credenciais privadas e remover os avisos de segurança, configure na Vercel:
+
+- `CUMBUCA_PASSWORD`: senha privada de produção
+- `CUMBUCA_AUTH_SECRET`: segredo longo e aleatório para assinar sessões
+
+Enquanto essas variáveis não estiverem configuradas, o servidor registra um aviso de segurança sem interromper a aplicação.
+
 ### GitHub Actions
 
 O repositório já possui pipeline CI configurada em `.github/workflows/verify.yml`.

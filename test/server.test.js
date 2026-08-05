@@ -2,6 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 
+const testPassword = 'cumbuca-server-test-password';
+process.env.CUMBUCA_AUTH_SECRET = 'cumbuca-server-test-secret-2026';
+process.env.CUMBUCA_PASSWORD = testPassword;
 process.env.VERCEL = '1';
 const handleRequest = require('../server');
 const {
@@ -377,7 +380,7 @@ test('authenticated HTTP flow serves session, finance calculation and reports', 
   const login = await fetch(`${baseUrl}/api/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: 'cumbuca', password: 'cumbuca2026' }),
+    body: JSON.stringify({ username: 'cumbuca', password: testPassword }),
   });
   assert.equal(login.status, 200);
   const cookie = login.headers.get('set-cookie').split(';')[0];

@@ -429,6 +429,17 @@ const securityHeaders = {
   'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
 };
 
+// Environment security checks and flags
+const PRODUCTION = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+if (PRODUCTION) {
+  if (!process.env.CUMBUCA_AUTH_SECRET || AUTH_SECRET === 'cumbuca-local-secret') {
+    console.warn('SECURITY WARNING: configure CUMBUCA_AUTH_SECRET in production.');
+  }
+  if (!process.env.CUMBUCA_PASSWORD || AUTH_PASSWORD === 'cumbuca2026') {
+    console.warn('SECURITY WARNING: configure a private CUMBUCA_PASSWORD in production.');
+  }
+}
+
 function mergeHeaders(headers = {}) {
   return { ...securityHeaders, ...headers };
 }
@@ -667,7 +678,11 @@ async function currentUser(req) {
 }
 
 function sessionCookie(value, maxAge) {
-  const secure = process.env.VERCEL ? '; Secure' : '';
+  const secureFlag =
+    process.env.FORCE_SECURE_COOKIE === 'true' ||
+    process.env.VERCEL === '1' ||
+    process.env.NODE_ENV === 'production';
+  const secure = secureFlag ? '; Secure' : '';
   return `${SESSION_COOKIE}=${encodeURIComponent(
     value
   )}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${secure}`;
@@ -2763,6 +2778,16 @@ function serveStatic(req, res, pathname) {
 
 async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
+  // Enforce HTTPS when behind a proxy in production
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').toLowerCase();
+  if (
+    (process.env.NODE_ENV === 'production' || process.env.FORCE_HTTPS === 'true') &&
+    forwardedProto === 'http'
+  ) {
+    const host = req.headers.host || '';
+    redirect(res, `https://${host}${url.pathname}${url.search}`);
+    return;
+  }
   let user = null;
   let authenticated = false;
 
