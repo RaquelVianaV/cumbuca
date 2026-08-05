@@ -1036,6 +1036,7 @@ const state = {
   orderTab: "form",
   clientSearch: "",
   clientHistoryPhone: "",
+  renewClientIndex: null,
   orderSearch: "",
   editClientIndex: null,
   editOrderId: null,
@@ -4531,7 +4532,7 @@ function dashboardAlerts(metrics, weeklyOrders) {
   }
 
   if (metrics.lowMonthlyClients.length) {
-    alerts.push(["Mensalistas no limite", `${metrics.lowMonthlyClients.length} cliente(s)`]);
+    alerts.push(["Renovação de mensalistas", `${metrics.lowMonthlyClients.length} cliente(s) com 5 ou menos`]);
   }
 
   if (metrics.clientsWithoutAddress.length) {
@@ -4629,9 +4630,9 @@ function monthlyClientsPanel(currentKey = menuKey(state.menuWeek || 1)) {
         <div class="recent-list compact">
           ${rows.slice(0, 8).map(row => `
             <span>
-              <b>${row.remaining}/${row.capacity}</b>
+              <b>${row.remaining} restantes</b>
               ${row.client.name || row.client.phone}
-              <small>${row.value > 0 ? `${money(row.value)} lançado` : "Mensalidade não lançada"} - usados ${row.used}${row.packages > 1 ? ` - ${row.packages} pacotes` : ""}</small>
+              <small>${row.capacity} liberadas - ${row.value > 0 ? `${money(row.value)} lançado` : "Mensalidade não lançada"} - usados ${row.used}${row.packages > 1 ? ` - ${row.packages} pacotes` : ""}</small>
               ${row.client.phone ? `<a class="secondary table-action" href="${monthlyRenewalWhatsAppUrl(row.client, currentKey)}" target="_blank" rel="noopener">WhatsApp</a>` : ""}
             </span>
           `).join("")}
@@ -4859,7 +4860,7 @@ function todayOperationData() {
     const client = clientByPhone(order.clientPhone);
     return client.plan === "semanal" && !isOrderPaid(order);
   });
-  const pendingDelivery = weekOrders.filter(order => !order.delivered);
+  const pendingDelivery = weekOrders.filter(order => !isMonthlyRenewalRecord(order) && !order.delivered);
   const billsDue = state.cash
     .filter(isPendingBill)
     .filter(entry => {
@@ -8183,6 +8184,7 @@ async function renderMenu() {
     clientBack.addEventListener("click", () => {
       state.showClients = false;
       state.editClientIndex = null;
+      state.renewClientIndex = null;
       renderMenu();
     });
   }
@@ -8193,6 +8195,7 @@ async function renderMenu() {
       if (state.clientTab === "list") {
         state.editClientIndex = null;
       }
+      state.renewClientIndex = null;
       renderMenu();
     });
   });
@@ -8200,6 +8203,7 @@ async function renderMenu() {
   document.querySelectorAll("[data-edit-client]").forEach(button => {
     button.addEventListener("click", event => {
       state.editClientIndex = Number(event.currentTarget.dataset.editClient);
+      state.renewClientIndex = null;
       state.clientTab = "form";
       renderMenu();
     });
@@ -8208,6 +8212,7 @@ async function renderMenu() {
   document.querySelectorAll("[data-client-history]").forEach(button => {
     button.addEventListener("click", event => {
       state.clientHistoryPhone = event.currentTarget.dataset.clientHistory;
+      state.renewClientIndex = null;
       state.clientTab = "list";
       renderMenu();
     });
@@ -8220,6 +8225,8 @@ async function renderMenu() {
       renderMenu();
     });
   }
+
+  bindMonthlyRenewalControls(currentKey);
 
   document.querySelectorAll("[data-delete-client]").forEach(button => {
     button.addEventListener("click", event => {
@@ -8443,16 +8450,11 @@ async function renderMenu() {
         showToast("Informe o valor deste pedido.", "error");
         return;
       }
-      const duplicateOrder = !state.editOrderId && state.orders.some(order =>
-        order.menuKey === currentKey
-        && String(order.clientPhone || "") === String(clientPhone || "")
-      );
-      if (duplicateOrder && !confirm("Este cliente já tem pedido nesta semana. Criar outro pedido mesmo assim?")) {
-        return;
-      }
+      const editingOrder = state.editOrderId
+        ? state.orders.find(order => Number(order.id) === Number(state.editOrderId))
+        : null;
 
       let remainingAfterOrder = null;
-      let monthlyPackageCount = 0;
       if (client.plan === "mensalista") {
         const requested = dishes.reduce((sum, dish) => sum + Number(dish.quantity || 0), 0);
         const packageQuantity = clientMonthlyQuantity(client, currentKey);
@@ -8460,16 +8462,32 @@ async function renderMenu() {
           alert("Informe a quantidade do pacote mensal no cadastro deste cliente.");
           return;
         }
-        monthlyPackageCount = monthlyPackageCountForOrder(client, currentKey, requested, state.editOrderId);
         const orderedBefore = clientOrderedQuantity(client, currentKey, state.editOrderId);
-        const capacityAfterOrder = clientMonthlyCapacity(client, currentKey, state.editOrderId)
-          + (monthlyPackageCount * packageQuantity);
-        remainingAfterOrder = Math.max(0, capacityAfterOrder - orderedBefore - requested);
+        const capacityWithoutEditedOrder = clientMonthlyCapacity(client, currentKey, state.editOrderId);
+        const preservedLegacyCapacity = Math.max(
+          0,
+          clientMonthlyCapacity(client, currentKey) - capacityWithoutEditedOrder
+        );
+        const available = Math.max(
+          0,
+          capacityWithoutEditedOrder + preservedLegacyCapacity - orderedBefore
+        );
+        if (requested > available) {
+          alert(`Saldo insuficiente para ${client.name || "este mensalista"}. Restam ${available} cumbuca(s). Abra Cadastro de clientes > Clientes cadastrados > Renovar quantidade.`);
+          return;
+        }
+        remainingAfterOrder = available - requested;
       }
 
-      const editingOrder = state.editOrderId
-        ? state.orders.find(order => Number(order.id) === Number(state.editOrderId))
-        : null;
+      const duplicateOrder = !state.editOrderId && state.orders.some(order =>
+        !isMonthlyRenewalRecord(order)
+        &&
+        order.menuKey === currentKey
+        && String(order.clientPhone || "") === String(clientPhone || "")
+      );
+      if (duplicateOrder && !confirm("Este cliente já tem pedido nesta semana. Criar outro pedido mesmo assim?")) {
+        return;
+      }
 
       const savedOrder = {
         id: state.editOrderId || Date.now(),
@@ -8482,7 +8500,9 @@ async function renderMenu() {
         paidAmount: client.plan === "mensalista"
           ? orderValue
           : editingOrder?.paidAmount || (paid ? orderValue : 0),
-        monthlyPackageCount: client.plan === "mensalista" ? monthlyPackageCount : undefined,
+        monthlyPackageCount: client.plan === "mensalista"
+          ? editingOrder?.monthlyPackageCount
+          : undefined,
         delivered: editingOrder?.delivered || false,
         deliveredAt: editingOrder?.deliveredAt || "",
         totalQuantity: undefined,
@@ -8569,7 +8589,11 @@ async function renderMenu() {
     document.querySelectorAll("[data-delete-order]").forEach(button => {
       button.addEventListener("click", event => {
         const id = Number(event.currentTarget.dataset.deleteOrder);
-        if (!confirm("Excluir este pedido?")) {
+        const order = state.orders.find(item => Number(item.id) === id);
+        const message = isMonthlyRenewalRecord(order)
+          ? "Excluir esta renovação? A quantidade liberada e o valor lançado serão removidos."
+          : "Excluir este pedido?";
+        if (!confirm(message)) {
           return;
         }
         state.orders = state.orders.filter(order => Number(order.id) !== id);
@@ -8666,7 +8690,11 @@ async function renderMenu() {
   document.querySelectorAll("[data-delete-order]").forEach(button => {
     button.addEventListener("click", event => {
       const id = Number(event.currentTarget.dataset.deleteOrder);
-      if (!confirm("Excluir este pedido?")) {
+      const order = state.orders.find(item => Number(item.id) === id);
+      const message = isMonthlyRenewalRecord(order)
+        ? "Excluir esta renovação? A quantidade liberada e o valor lançado serão removidos."
+        : "Excluir este pedido?";
+      if (!confirm(message)) {
         return;
       }
       state.orders = state.orders.filter(order => Number(order.id) !== id);
@@ -8909,7 +8937,7 @@ function clientPanel(currentKey) {
         </label>
         <label class="monthly-quantity">Quantidade do mês
           <input name="monthlyQuantity" type="number" min="0" step="1" placeholder="0" value="${packageForMonth.monthlyQuantity || ""}">
-          <small>A mensalidade será lançada manualmente em um pedido do mês.</small>
+          <small>Esta é a quantidade inicial. Quando acabar, use Renovar quantidade na lista de clientes.</small>
         </label>
         <label class="client-notes">Observação
           <textarea name="notes" placeholder="Preferência, restrição, detalhe de entrega">${editing?.notes || ""}</textarea>
@@ -8920,6 +8948,154 @@ function clientPanel(currentKey) {
         </div>
       </form>
       `}
+    </section>
+  `;
+}
+
+function bindMonthlyRenewalControls(currentKey) {
+  const clientIndex = state.renewClientIndex;
+  const client = clientIndex !== null ? state.clients[clientIndex] : null;
+
+  document.querySelectorAll("[data-renew-client]").forEach(button => {
+    button.addEventListener("click", event => {
+      state.renewClientIndex = Number(event.currentTarget.dataset.renewClient);
+      state.clientHistoryPhone = "";
+      state.clientTab = "list";
+      renderMenu();
+    });
+  });
+
+  const cancelMonthlyRenewal = document.querySelector("#cancel-monthly-renewal");
+  if (cancelMonthlyRenewal) {
+    cancelMonthlyRenewal.addEventListener("click", () => {
+      state.renewClientIndex = null;
+      renderMenu();
+    });
+  }
+
+  const monthlyRenewalForm = document.querySelector("#monthly-renewal-form");
+  if (monthlyRenewalForm) {
+    const paymentToggle = monthlyRenewalForm.querySelector("[data-renewal-payment-toggle]");
+    const valueField = monthlyRenewalForm.querySelector("[data-renewal-value-field]");
+    const amountField = monthlyRenewalForm.elements.monthlyFeeAmount;
+    function updateMonthlyRenewalPaymentVisibility() {
+      const launchValue = paymentToggle.checked;
+      valueField.hidden = !launchValue;
+      amountField.disabled = !launchValue;
+      amountField.required = launchValue;
+      if (!launchValue) {
+        amountField.value = "";
+      }
+    }
+    paymentToggle.addEventListener("change", updateMonthlyRenewalPaymentVisibility);
+    updateMonthlyRenewalPaymentVisibility();
+
+    monthlyRenewalForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      const releaseSubmission = lockFormSubmission(event.currentTarget);
+      if (!releaseSubmission) {
+        return;
+      }
+      try {
+        const clientIndex = Number(event.currentTarget.dataset.clientIndex);
+        const client = state.clients[clientIndex];
+        const quantity = Math.max(0, Math.floor(Number(event.currentTarget.elements.renewalQuantity.value || 0)));
+        const launchValue = paymentToggle.checked;
+        const amount = launchValue ? Math.max(0, parseMoneyInput(amountField.value)) : 0;
+        if (!client || client.plan !== "mensalista") {
+          showToast("Mensalista não encontrado.", "error");
+          return;
+        }
+        if (quantity <= 0) {
+          showToast("Informe a nova quantidade de cumbucas.", "error");
+          return;
+        }
+        if (launchValue && amount <= 0) {
+          showToast("Informe o valor recebido da mensalidade.", "error");
+          return;
+        }
+
+        const now = new Date().toISOString();
+        state.orders.push({
+          id: Date.now(),
+          menuKey: currentKey,
+          clientPhone: client.phone,
+          dishes: [],
+          amount,
+          deliveryFee: 0,
+          paid: amount > 0,
+          paidAmount: amount,
+          monthlyRenewal: true,
+          renewalQuantity: quantity,
+          delivered: true,
+          deliveredAt: now,
+          notes: launchValue
+            ? `Renovação de ${quantity} cumbuca(s) com mensalidade lançada.`
+            : `Renovação de ${quantity} cumbuca(s) sem lançamento da mensalidade.`,
+          createdAt: now
+        });
+        recordAudit(
+          "Quantidade mensal renovada",
+          `${client.name || client.phone}: +${quantity} cumbuca(s)${amount > 0 ? `, mensalidade ${money(amount)}` : ", sem valor financeiro"}`
+        );
+        if (!await persistState()) {
+          return;
+        }
+        state.renewClientIndex = null;
+        await renderMenu();
+        showToast(
+          amount > 0
+            ? `Quantidade renovada e mensalidade de ${money(amount)} lançada.`
+            : "Quantidade renovada sem lançamento financeiro.",
+          "success"
+        );
+      } finally {
+        releaseSubmission();
+      }
+    });
+  }
+}
+
+function monthlyRenewalPanel(client, clientIndex, currentKey) {
+  if (!client || client.plan !== "mensalista") {
+    return "";
+  }
+
+  const remaining = clientRemainingQuantity(client, currentKey);
+  const capacity = clientMonthlyCapacity(client, currentKey);
+  const defaultQuantity = clientMonthlyQuantity(client, currentKey);
+  const recordedValue = clientMonthlyRecordedValue(client, currentKey);
+  return `
+    <section class="monthly-renewal-panel" data-monthly-renewal-panel>
+      <div class="section-heading">
+        <div>
+          <h3>Renovar quantidade de ${escapeHtml(client.name || client.phone)}</h3>
+          <p class="muted-inline">A nova quantidade é somada ao saldo. Você decide se quer lançar o valor da mensalidade agora.</p>
+        </div>
+        <button class="secondary" type="button" id="cancel-monthly-renewal">Cancelar</button>
+      </div>
+      <div class="summary monthly-renewal-summary">
+        <div class="metric"><span>Saldo atual</span><strong>${remaining}</strong><small>de ${capacity} liberadas no mês</small></div>
+        <div class="metric"><span>Quantidade sugerida</span><strong>${defaultQuantity}</strong><small>igual ao pacote inicial</small></div>
+        <div class="metric"><span>Mensalidade lançada</span><strong>${money(recordedValue)}</strong><small>somente valores informados</small></div>
+      </div>
+      <form id="monthly-renewal-form" class="monthly-renewal-form" data-client-index="${clientIndex}">
+        <label>Nova quantidade de cumbucas
+          <input name="renewalQuantity" type="number" min="1" step="1" value="${defaultQuantity || ""}" required>
+          <small>Essa quantidade será acrescentada ao saldo disponível.</small>
+        </label>
+        <label class="checkbox-field monthly-renewal-payment-toggle">
+          <input name="launchMonthlyFee" type="checkbox" data-renewal-payment-toggle>
+          <span>Lançar o valor da mensalidade agora</span>
+        </label>
+        <label data-renewal-value-field hidden>Valor da mensalidade recebida
+          <input name="monthlyFeeAmount" type="text" inputmode="decimal" placeholder="0,00" disabled>
+          <small>Se não marcar a opção acima, nenhum valor será lançado.</small>
+        </label>
+        <div class="actions">
+          <button type="submit">Confirmar renovação</button>
+        </div>
+      </form>
     </section>
   `;
 }
@@ -8960,20 +9136,21 @@ function clientList(currentKey) {
         <thead><tr><th>Nome</th><th>Endereço</th><th>Complemento</th><th>Telefone</th><th>Plano</th><th>Valor</th><th>Frete / Qtd. restante</th><th>Obs.</th><th></th></tr></thead>
         <tbody>
           ${orderedClients.map(({ client, index }) => `
-            <tr>
+            <tr data-client-row="${index}">
               <td>${client.name || ""}${client.inactive ? ` <span class="payment-badge pending">Inativo</span>` : ""}</td>
               <td>${client.address || ""}</td>
               <td>${client.complement || ""}</td>
               <td>${client.phone || ""}</td>
               <td>${client.plan === "mensalista" ? "Mensalista" : "Semanal"}</td>
-              <td>${client.plan === "mensalista" ? "Manual nos pedidos" : "Variável"}</td>
+              <td>${client.plan === "mensalista" ? "Manual ao renovar ou no pedido" : "Variável"}</td>
               <td>
-                ${client.plan === "mensalista" ? `${clientRemainingQuantity(client, currentKey)}/${clientMonthlyCapacity(client, currentKey)} ${clientChargedPackageCount(client, currentKey) > 1 ? `<span class="quantity-badge renewed">${clientChargedPackageCount(client, currentKey)} pacotes</span>` : ""} ${clientQuantityStatus(client, currentKey)}` : money(client.weeklyDeliveryFee || client.deliveryFee)}
+                ${client.plan === "mensalista" ? `<span class="monthly-quantity-balance"><strong>${clientRemainingQuantity(client, currentKey)} restantes</strong><small>${clientMonthlyCapacity(client, currentKey)} liberadas no mês</small></span> ${clientChargedPackageCount(client, currentKey) > 1 ? `<span class="quantity-badge renewed">${clientChargedPackageCount(client, currentKey)} pacotes</span>` : ""} ${clientQuantityStatus(client, currentKey)}` : money(client.weeklyDeliveryFee || client.deliveryFee)}
               </td>
               <td>${client.notes || ""}</td>
               <td>
                 <div class="table-actions">
                   <button class="secondary table-action" type="button" data-edit-client="${index}">Editar</button>
+                  ${client.plan === "mensalista" && !client.inactive ? `<button class="secondary table-action" type="button" data-renew-client="${index}">Renovar quantidade</button>` : ""}
                   <button class="secondary table-action" type="button" data-client-history="${client.phone || ""}">Histórico</button>
                   ${client.phone ? `<a class="secondary table-action" href="${client.plan === "mensalista" ? monthlyRenewalWhatsAppUrl(client, currentKey) : clientChargeWhatsAppUrl(client)}" target="_blank" rel="noopener">WhatsApp</a>` : ""}
                   ${client.inactive
@@ -8986,6 +9163,7 @@ function clientList(currentKey) {
         </tbody>
       </table>
     </div>
+    ${state.renewClientIndex !== null ? monthlyRenewalPanel(state.clients[state.renewClientIndex], state.renewClientIndex, currentKey) : ""}
     ${state.clientHistoryPhone ? clientHistoryPanel(state.clientHistoryPhone, currentKey) : ""}
   `;
 }
@@ -9006,10 +9184,6 @@ function clientMonthlyPackage(client, currentKey = menuKey()) {
   };
 }
 
-function clientMonthlyValue(client, currentKey) {
-  return Number(clientMonthlyPackage(client, currentKey).planValue || 0);
-}
-
 function clientMonthlyQuantity(client, currentKey) {
   return Number(clientMonthlyPackage(client, currentKey).monthlyQuantity || 0);
 }
@@ -9020,23 +9194,41 @@ function clientMonthlyRecordedValue(client, currentKey) {
     .reduce((sum, order) => sum + Number(order.amount || 0), 0);
 }
 
-function clientChargedPackageCount(client, currentKey, ignoredOrderId = null) {
-  const packageValue = clientMonthlyValue(client, currentKey);
+function isMonthlyRenewalRecord(order = {}) {
+  return order.monthlyRenewal === true;
+}
+
+function productionOrders(orders = []) {
+  return orders.filter(order => !isMonthlyRenewalRecord(order));
+}
+
+function clientMonthlyRenewals(client, currentKey, ignoredOrderId = null) {
   return monthlyOrders(currentKey)
     .filter(order => order.clientPhone === client.phone)
     .filter(order => Number(order.id) !== Number(ignoredOrderId))
-    .reduce((sum, order) => {
-      if (Object.prototype.hasOwnProperty.call(order, "monthlyPackageCount")) {
-        return sum + Math.max(0, Number(order.monthlyPackageCount || 0));
-      }
-      return sum + (packageValue > 0 ? Math.ceil(Number(order.amount || 0) / packageValue) : 0);
-    }, 0);
+    .filter(isMonthlyRenewalRecord);
+}
+
+function clientLegacyPackageCount(client, currentKey, ignoredOrderId = null) {
+  return monthlyOrders(currentKey)
+    .filter(order => order.clientPhone === client.phone)
+    .filter(order => Number(order.id) !== Number(ignoredOrderId))
+    .filter(order => !isMonthlyRenewalRecord(order))
+    .reduce((sum, order) => sum + Math.max(0, Number(order.monthlyPackageCount || 0)), 0);
+}
+
+function clientChargedPackageCount(client, currentKey, ignoredOrderId = null) {
+  const legacyPackages = clientLegacyPackageCount(client, currentKey, ignoredOrderId);
+  return Math.max(1, legacyPackages) + clientMonthlyRenewals(client, currentKey, ignoredOrderId).length;
 }
 
 function clientMonthlyCapacity(client, currentKey, ignoredOrderId = null) {
   const packageQuantity = clientMonthlyQuantity(client, currentKey);
-  const packageCount = Math.max(1, clientChargedPackageCount(client, currentKey, ignoredOrderId));
-  return packageQuantity * packageCount;
+  const legacyPackages = clientLegacyPackageCount(client, currentKey, ignoredOrderId);
+  const legacyAdditionalQuantity = Math.max(0, legacyPackages - 1) * packageQuantity;
+  const renewedQuantity = clientMonthlyRenewals(client, currentKey, ignoredOrderId)
+    .reduce((sum, order) => sum + Math.max(0, Number(order.renewalQuantity || 0)), 0);
+  return packageQuantity + legacyAdditionalQuantity + renewedQuantity;
 }
 
 function clientOrderedQuantity(client, currentKey, ignoredOrderId = null) {
@@ -9050,27 +9242,6 @@ function clientRemainingQuantity(client, currentKey, ignoredOrderId = null) {
   return Math.max(0, clientMonthlyCapacity(client, currentKey, ignoredOrderId) - clientOrderedQuantity(client, currentKey, ignoredOrderId));
 }
 
-function monthlyPackageCountForOrder(client, currentKey, requestedQuantity, ignoredOrderId = null) {
-  if (client.plan !== "mensalista") {
-    return 0;
-  }
-
-  const packageQuantity = clientMonthlyQuantity(client, currentKey);
-  if (packageQuantity <= 0) {
-    return 0;
-  }
-
-  const orderedQuantity = clientOrderedQuantity(client, currentKey, ignoredOrderId);
-  const chargedPackages = clientChargedPackageCount(client, currentKey, ignoredOrderId);
-  const entitledPackages = Math.max(1, chargedPackages);
-  const packagesNeeded = Math.max(entitledPackages, Math.ceil((orderedQuantity + requestedQuantity) / packageQuantity));
-  const packagesToCharge = chargedPackages === 0
-    ? packagesNeeded
-    : Math.max(0, packagesNeeded - chargedPackages);
-
-  return packagesToCharge;
-}
-
 function isLowMonthlyQuantity(client, currentKey) {
   const remaining = clientRemainingQuantity(client, currentKey);
   return client.plan === "mensalista" && remaining > 0 && remaining <= LOW_MONTHLY_QUANTITY;
@@ -9078,10 +9249,10 @@ function isLowMonthlyQuantity(client, currentKey) {
 
 function monthlyQuantityWarningText(client, remaining) {
   if (remaining <= 0) {
-    return `O pacote de ${client.name || "mensalista"} acabou. O próximo pedido libera um novo pacote; a mensalidade continuará sendo lançada manualmente.`;
+    return `A quantidade de ${client.name || "mensalista"} acabou. Use Clientes cadastrados > Renovar quantidade antes de lançar um novo pedido.`;
   }
 
-  return `Atenção: ${client.name || "mensalista"} está com apenas ${remaining} cumbuca(s) restante(s) neste mês.`;
+  return `Atenção: restam ${remaining} cumbuca(s) para ${client.name || "este mensalista"}. Renove em Clientes cadastrados > Renovar quantidade.`;
 }
 
 function clientQuantityStatus(client, currentKey) {
@@ -9095,7 +9266,7 @@ function clientQuantityStatus(client, currentKey) {
   }
 
   if (isLowMonthlyQuantity(client, currentKey)) {
-    return `<span class="quantity-badge low">Perto de acabar</span>`;
+    return `<span class="quantity-badge low">Renovar em breve</span>`;
   }
 
   return "";
@@ -9115,6 +9286,9 @@ function orderQuantity(order) {
 }
 
 function orderDishesText(order, plan) {
+  if (isMonthlyRenewalRecord(order)) {
+    return `Renovação mensalista: +${Number(order.renewalQuantity || 0)} cumbuca(s)`;
+  }
   if (!(order.dishes || []).length && Number(order.totalQuantity || 0) > 0) {
     return `${order.totalQuantity} cumbuca(s)`;
   }
@@ -9170,8 +9344,9 @@ function monthlyOrders(currentKey) {
 function monthSummaryPanel(currentKey) {
   const periodKey = menuPeriodKeyFromKey(currentKey);
   const orders = monthlyOrders(currentKey);
-  const totalQuantity = orders.reduce((sum, order) => sum + orderQuantity(order), 0);
-  const totalDeliveryFee = orders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0);
+  const mealOrders = productionOrders(orders);
+  const totalQuantity = mealOrders.reduce((sum, order) => sum + orderQuantity(order), 0);
+  const totalDeliveryFee = mealOrders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0);
   const weeklySummary = [1, 2, 3, 4, 5].map(week => {
     const key = `${periodKey}-semana-${week}`;
     const dishes = state.menus[key] || [];
@@ -9193,7 +9368,7 @@ function monthSummaryPanel(currentKey) {
     <section class="month-summary-panel">
       <div class="summary">
         <div class="metric"><span>Cumbucas vendidas</span><strong>${totalQuantity}</strong></div>
-        <div class="metric"><span>Pedidos no mês</span><strong>${orders.length}</strong></div>
+        <div class="metric"><span>Pedidos no mês</span><strong>${mealOrders.length}</strong></div>
         <div class="metric"><span>Frete arrecadado</span><strong>${money(totalDeliveryFee)}</strong></div>
       </div>
       <div class="table-wrap month-summary-table">
@@ -9220,11 +9395,12 @@ function monthSummaryPanel(currentKey) {
 
 function orderSummary(plan, currentKey) {
   const orders = weeklyOrders(currentKey);
-  const total = orders.reduce((sum, order) => sum + orderQuantity(order), 0);
+  const mealOrders = productionOrders(orders);
+  const total = mealOrders.reduce((sum, order) => sum + orderQuantity(order), 0);
   const totalAmount = orders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
-  const totalDeliveryFee = orders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0);
+  const totalDeliveryFee = mealOrders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0);
   const byDish = plan.map(item => {
-    const quantity = orders.reduce((sum, order) => {
+    const quantity = mealOrders.reduce((sum, order) => {
       const found = (order.dishes || []).find(dish => Number(dish.slot) === Number(item.slot));
       return sum + Number(found?.quantity || 0);
     }, 0);
@@ -9238,7 +9414,7 @@ function orderSummary(plan, currentKey) {
 
   return `
     <div class="summary order-summary">
-      <div class="metric"><span>Pedidos</span><strong>${orders.length}</strong></div>
+      <div class="metric"><span>Pedidos</span><strong>${mealOrders.length}</strong></div>
       <div class="metric"><span>Total de cumbucas</span><strong>${total}</strong></div>
       <div class="metric"><span>Valor em real</span><strong>${money(totalAmount)}</strong></div>
       <div class="metric"><span>Valor em frete</span><strong>${money(totalDeliveryFee)}</strong></div>
@@ -9297,7 +9473,7 @@ function monthlyRenewalWhatsAppUrl(client, currentKey) {
 }
 
 function productionListText(plan, currentKey) {
-  const totals = weeklyDishTotals(plan, weeklyOrders(currentKey));
+  const totals = weeklyDishTotals(plan, productionOrders(weeklyOrders(currentKey)));
   if (!totals.length) {
     return "Sem pedidos para produção.";
   }
@@ -9310,7 +9486,7 @@ function productionListText(plan, currentKey) {
 }
 
 function deliveryListText(currentKey) {
-  const rows = weeklyOrders(currentKey)
+  const rows = productionOrders(weeklyOrders(currentKey))
     .map(order => ({ order, client: clientByPhone(order.clientPhone) }))
     .filter(({ client }) => String(client.address || "").trim());
 
@@ -9331,7 +9507,7 @@ function deliveryListText(currentKey) {
 }
 
 function productionListPanel(plan, currentKey) {
-  const orders = weeklyOrders(currentKey);
+  const orders = productionOrders(weeklyOrders(currentKey));
   const totals = weeklyDishTotals(plan, orders);
   return `
     <section class="order-overview-panel">
@@ -9349,7 +9525,7 @@ function productionListPanel(plan, currentKey) {
 }
 
 function deliveryListPanel(currentKey) {
-  const rows = weeklyOrders(currentKey)
+  const rows = productionOrders(weeklyOrders(currentKey))
     .map(order => ({ order, client: clientByPhone(order.clientPhone) }))
     .filter(({ client }) => String(client.address || "").trim());
   return `
@@ -9412,7 +9588,7 @@ function orderFormPanel(plan, currentKey, editing, availableClients) {
           <select name="clientPhone" ${availableClients.length ? "required" : "disabled"}>
             ${availableClients.length
               ? `<option value="">Selecione um cliente</option>${availableClients.map(client => `
-                  <option value="${client.phone}" ${editing?.clientPhone === client.phone ? "selected" : ""}>${client.name} - ${client.phone}${client.plan === "mensalista" ? ` - restam ${clientRemainingQuantity(client, currentKey, editing?.id)}/${clientMonthlyCapacity(client, currentKey, editing?.id)}${clientChargedPackageCount(client, currentKey, editing?.id) > 1 ? ` - ${clientChargedPackageCount(client, currentKey, editing?.id)} pacotes` : ""}${isLowMonthlyQuantity(client, currentKey) ? " - perto de acabar" : clientRemainingQuantity(client, currentKey, editing?.id) <= 0 ? " - pode renovar" : ""}` : ""}</option>
+                  <option value="${client.phone}" ${editing?.clientPhone === client.phone ? "selected" : ""}>${client.name} - ${client.phone}${client.plan === "mensalista" ? ` - restam ${clientRemainingQuantity(client, currentKey)}${clientChargedPackageCount(client, currentKey) > 1 ? ` - ${clientChargedPackageCount(client, currentKey)} pacotes` : ""}${isLowMonthlyQuantity(client, currentKey) ? " - perto de acabar" : clientRemainingQuantity(client, currentKey) <= 0 ? " - renovar quantidade" : ""}` : ""}</option>
                 `).join("")}`
               : `<option value="">Cadastre ou reative um cliente primeiro</option>`}
           </select>
@@ -9431,7 +9607,7 @@ function orderFormPanel(plan, currentKey, editing, availableClients) {
         <div class="weekly-order-fields" id="order-value-fields" hidden>
           <label><span id="order-value-label">Valor em real deste pedido</span>
             <input name="orderValue" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(editing?.amount)}" disabled>
-            <small id="order-value-hint" hidden>Opcional. Só entra na contabilidade quando você informar o valor recebido.</small>
+            <small id="order-value-hint" hidden>Opcional. Só entra na contabilidade quando você informar o valor recebido. Para acrescentar saldo, use Renovar quantidade no cadastro do cliente.</small>
           </label>
           <label id="order-delivery-fee-field">Valor em frete
             <input name="orderDeliveryFee" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(editing?.deliveryFee)}" disabled>
@@ -9490,6 +9666,9 @@ function paymentBadge(order, client) {
 }
 
 function deliveryBadge(order) {
+  if (isMonthlyRenewalRecord(order)) {
+    return `<span class="payment-badge">Sem entrega</span>`;
+  }
   return order.delivered
     ? `<span class="payment-badge paid">Entregue</span>`
     : `<span class="payment-badge pending">Pendente</span>`;
@@ -9552,10 +9731,11 @@ function orderCardsHtml(orders, plan) {
     <div class="order-card-grid">
       ${orders.map(order => {
         const client = clientByPhone(order.clientPhone);
+        const renewal = isMonthlyRenewalRecord(order);
         const address = [client.address, client.complement].filter(Boolean).join(" - ");
         const total = Number(order.amount || 0) + Number(order.deliveryFee || 0);
         return `
-          <article class="order-card ${order.delivered ? "is-delivered" : ""}">
+          <article class="order-card ${renewal ? "monthly-renewal-order" : order.delivered ? "is-delivered" : ""}">
             <div class="order-card-head">
               <div>
                 <strong>${client.name || "Cliente removido"}</strong>
@@ -9563,25 +9743,25 @@ function orderCardsHtml(orders, plan) {
               </div>
               <div class="order-card-badges">
                 ${paymentBadge(order, client)}
-                ${deliveryBadge(order)}
+                ${renewal ? "" : deliveryBadge(order)}
               </div>
             </div>
             <div class="order-card-body">
               <p>${orderDishesText(order, plan) || "Pedido sem itens"}</p>
               <div class="mini-metrics">
-                <span><b>${orderQuantity(order)}</b><small>Cumbucas</small></span>
+                <span><b>${renewal ? `+${Number(order.renewalQuantity || 0)}` : orderQuantity(order)}</b><small>${renewal ? "Nova quantidade" : "Cumbucas"}</small></span>
                 <span><b>${total > 0 ? money(total) : "-"}</b><small>Total</small></span>
-                <span><b>${client.plan === "mensalista" ? "Mensal" : "Semanal"}</b><small>Perfil</small></span>
+                <span><b>${renewal ? "Renovação" : client.plan === "mensalista" ? "Mensal" : "Semanal"}</b><small>Perfil</small></span>
               </div>
               ${address ? `<small class="muted-inline">${address}</small>` : ""}
               ${order.notes ? `<small class="muted-inline">${order.notes}</small>` : ""}
             </div>
             <div class="order-card-actions">
-              <button class="secondary table-action" type="button" data-edit-order="${order.id}">Editar</button>
-              ${client.plan === "semanal" ? `<button class="secondary table-action" type="button" data-toggle-paid-order="${order.id}">${isOrderPaid(order) ? "Pendente" : "Pago"}</button>` : ""}
-              ${client.plan === "semanal" ? `<button class="secondary table-action" type="button" data-partial-paid-order="${order.id}">Parcial</button>` : ""}
-              <button class="secondary table-action" type="button" data-toggle-delivered-order="${order.id}">${order.delivered ? "Desfazer" : "Entregue"}</button>
-              <a class="secondary table-action" href="${orderWhatsAppUrl(order, plan)}" target="_blank" rel="noopener">WhatsApp</a>
+              ${renewal ? "" : `<button class="secondary table-action" type="button" data-edit-order="${order.id}">Editar</button>`}
+              ${!renewal && client.plan === "semanal" ? `<button class="secondary table-action" type="button" data-toggle-paid-order="${order.id}">${isOrderPaid(order) ? "Pendente" : "Pago"}</button>` : ""}
+              ${!renewal && client.plan === "semanal" ? `<button class="secondary table-action" type="button" data-partial-paid-order="${order.id}">Parcial</button>` : ""}
+              ${renewal ? "" : `<button class="secondary table-action" type="button" data-toggle-delivered-order="${order.id}">${order.delivered ? "Desfazer" : "Entregue"}</button>`}
+              ${renewal ? "" : `<a class="secondary table-action" href="${orderWhatsAppUrl(order, plan)}" target="_blank" rel="noopener">WhatsApp</a>`}
               <button class="danger table-action" type="button" data-delete-order="${order.id}">Excluir</button>
             </div>
           </article>
@@ -9596,6 +9776,9 @@ function orderList(plan, currentKey) {
   const query = String(filter.search || state.orderSearch || "").trim().toLowerCase();
   const orders = weeklyOrders(currentKey).filter(order => {
     const client = clientByPhone(order.clientPhone);
+    if (isMonthlyRenewalRecord(order) && filter.delivery !== "all") {
+      return false;
+    }
     if (filter.payment === "partial" && !(Number(order.paidAmount || 0) > 0 && !isOrderPaid(order))) {
       return false;
     }
@@ -9645,6 +9828,7 @@ function orderList(plan, currentKey) {
         <tbody>
           ${orders.map(order => {
             const client = clientByPhone(order.clientPhone);
+            const renewal = isMonthlyRenewalRecord(order);
             return `
               <tr>
                 <td>${client.name || "Cliente removido"}</td>
@@ -9655,15 +9839,15 @@ function orderList(plan, currentKey) {
                 <td>${Number(order.amount || 0) > 0 ? money(order.amount) : ""}</td>
                 <td>${Number(order.deliveryFee || 0) > 0 ? money(order.deliveryFee) : ""}</td>
                 <td>${paymentBadge(order, client)}</td>
-                <td>${deliveryBadge(order)}</td>
+                <td>${renewal ? "Sem entrega" : deliveryBadge(order)}</td>
                 <td>${order.notes || ""}</td>
                 <td>
                   <div class="table-actions">
-                    <button class="secondary table-action" type="button" data-edit-order="${order.id}">Editar</button>
-                    ${client.plan === "semanal" ? `<button class="secondary table-action" type="button" data-toggle-paid-order="${order.id}">${isOrderPaid(order) ? "Marcar pendente" : "Marcar pago"}</button>` : ""}
-                    ${client.plan === "semanal" ? `<button class="secondary table-action" type="button" data-partial-paid-order="${order.id}">Parcial</button>` : ""}
-                    <button class="secondary table-action" type="button" data-toggle-delivered-order="${order.id}">${order.delivered ? "Desfazer entrega" : "Entregue"}</button>
-                    <a class="secondary table-action" href="${orderWhatsAppUrl(order, plan)}" target="_blank" rel="noopener">WhatsApp</a>
+                    ${renewal ? "" : `<button class="secondary table-action" type="button" data-edit-order="${order.id}">Editar</button>`}
+                    ${!renewal && client.plan === "semanal" ? `<button class="secondary table-action" type="button" data-toggle-paid-order="${order.id}">${isOrderPaid(order) ? "Marcar pendente" : "Marcar pago"}</button>` : ""}
+                    ${!renewal && client.plan === "semanal" ? `<button class="secondary table-action" type="button" data-partial-paid-order="${order.id}">Parcial</button>` : ""}
+                    ${renewal ? "" : `<button class="secondary table-action" type="button" data-toggle-delivered-order="${order.id}">${order.delivered ? "Desfazer entrega" : "Entregue"}</button>`}
+                    ${renewal ? "" : `<a class="secondary table-action" href="${orderWhatsAppUrl(order, plan)}" target="_blank" rel="noopener">WhatsApp</a>`}
                     <button class="danger table-action" type="button" data-delete-order="${order.id}">Excluir</button>
                   </div>
                 </td>
@@ -9692,7 +9876,7 @@ function paymentText(order, client) {
 }
 
 function orderOverviewPanel(plan, currentKey) {
-  const orders = weeklyOrders(currentKey);
+  const orders = productionOrders(weeklyOrders(currentKey));
 
   if (!orders.length) {
     return `<p class="muted">Nenhum pedido registrado nesta semana.</p>`;
@@ -11741,29 +11925,32 @@ function clientHistoryPanel(phone, currentKey) {
   const orders = state.orders
     .filter(order => order.clientPhone === phone)
     .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
-  const totalQuantity = orders.reduce((sum, order) => sum + orderQuantity(order), 0);
-  const pending = orders.filter(order => client.plan === "semanal" && !isOrderPaid(order));
+  const mealOrders = productionOrders(orders);
+  const renewals = orders.filter(isMonthlyRenewalRecord);
+  const totalQuantity = mealOrders.reduce((sum, order) => sum + orderQuantity(order), 0);
+  const pending = mealOrders.filter(order => client.plan === "semanal" && !isOrderPaid(order));
   return `
     <section class="panel report-section client-history-panel">
       <div class="section-heading">
         <div>
           <h2>Histórico de ${escapeHtml(client.name || phone)}</h2>
-          <p class="muted-inline">${orders.length} pedido(s), ${totalQuantity} cumbuca(s), ${pending.length} pagamento(s) pendente(s).</p>
+          <p class="muted-inline">${mealOrders.length} pedido(s), ${totalQuantity} cumbuca(s), ${renewals.length} renovação(ões), ${pending.length} pagamento(s) pendente(s).</p>
         </div>
         <button class="secondary" type="button" id="close-client-history">Fechar</button>
       </div>
       ${orders.length ? `
         <div class="table-wrap report-table">
           <table>
-            <thead><tr><th>Semana</th><th>Quantidade</th><th>Valor</th><th>Pagamento</th><th>Entrega</th><th>Obs.</th></tr></thead>
+            <thead><tr><th>Semana</th><th>Registro</th><th>Quantidade</th><th>Valor</th><th>Pagamento</th><th>Entrega</th><th>Obs.</th></tr></thead>
             <tbody>
               ${orders.slice(0, 20).map(order => `
                 <tr>
                   <td>${order.menuKey || ""}</td>
-                  <td>${orderQuantity(order)}</td>
+                  <td>${isMonthlyRenewalRecord(order) ? "Renovação" : "Pedido"}</td>
+                  <td>${isMonthlyRenewalRecord(order) ? `+${Number(order.renewalQuantity || 0)}` : orderQuantity(order)}</td>
                   <td>${Number(order.amount || 0) > 0 ? money(order.amount) : ""}</td>
                   <td>${paymentText(order, client)}</td>
-                  <td>${order.delivered ? "Entregue" : "Pendente"}</td>
+                  <td>${isMonthlyRenewalRecord(order) ? "Sem entrega" : order.delivered ? "Entregue" : "Pendente"}</td>
                   <td>${escapeHtml(order.notes || "")}</td>
                 </tr>
               `).join("")}

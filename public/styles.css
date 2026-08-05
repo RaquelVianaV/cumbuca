@@ -5659,6 +5659,50 @@ html.dark-mode .cash-hero > div:first-child {
   flex: 1;
 }
 
+.monthly-quantity-balance {
+  display: inline-grid;
+  gap: 2px;
+  vertical-align: middle;
+}
+
+.monthly-quantity-balance strong {
+  color: var(--green-dark);
+}
+
+.monthly-quantity-balance small {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.monthly-renewal-panel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid rgba(8, 127, 91, 0.24);
+  border-radius: 8px;
+  background: #f3f8f5;
+  scroll-margin-top: 100px;
+}
+
+.monthly-renewal-panel h3 {
+  margin: 0 0 4px;
+}
+
+.monthly-renewal-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.monthly-renewal-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(240px, 1fr) minmax(200px, 0.8fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.monthly-renewal-payment-toggle {
+  margin: 0;
+}
+
 .client-table table {
   min-width: 860px;
 }
@@ -6140,6 +6184,7 @@ html.dark-mode .order-card,
 html.dark-mode .alert-card,
 html.dark-mode .partners-dashboard > section,
 html.dark-mode .planning-card,
+html.dark-mode .monthly-renewal-panel,
 html.dark-mode .menu-profit-controls,
 html.dark-mode .menu-cost-breakdown,
 html.dark-mode .menu-catalog-card,
@@ -6746,6 +6791,7 @@ a.secondary.table-action,
   .week-range-card,
   .date-range,
   .client-form,
+  .monthly-renewal-form,
   .order-dish-summary,
   .weekly-order-fields,
   .planning-board,

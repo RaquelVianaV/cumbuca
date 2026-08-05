@@ -216,7 +216,6 @@ test('monthly orders allow manual fees and only account for entered values', asy
     amount: 0,
     paid: false,
     paidAmount: 0,
-    monthlyPackageCount: 1,
   });
   await expect(page.getByText('Mensalidade não lançada', { exact: true }).first()).toBeVisible();
 
@@ -231,10 +230,246 @@ test('monthly orders allow manual fees and only account for entered values', asy
     amount: 37.5,
     paid: true,
     paidAmount: 37.5,
-    monthlyPackageCount: 1,
   });
   await expect(page.getByText('Mensalidade lançada', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('R$ 37,50', { exact: true }).first()).toBeVisible();
+});
+
+test('monthly client balance decreases with orders and warns at five remaining', async ({
+  page,
+}) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    weeklyMenusByPeriod: {
+      '2026-08-semana-1': [
+        {
+          slot: 1,
+          dish: 'Cumbuca mensal',
+          cost: '10.00',
+          ingredients: [],
+          status: 'planejado',
+          notes: '',
+        },
+      ],
+    },
+    menuWeek: 1,
+    menuPeriod: { year: 2026, month: 8 },
+    menuDatesByPeriod: {},
+    clients: [
+      {
+        name: 'Cliente mensalista',
+        phone: '85888888888',
+        plan: 'mensalista',
+        monthlyQuantity: '6',
+      },
+    ],
+    orders: [],
+  };
+
+  await page.goto('/menu-semanal?ano=2026&mes=8&semana=1');
+  await page.locator('#order-toggle').click();
+  await page.locator('[data-order-tab="form"]').click();
+  const orderForm = page.locator('#order-form');
+  await orderForm.locator('select[name="clientPhone"]').selectOption('85888888888');
+  await orderForm.locator('input[name="dish-1"]').fill('1');
+
+  let warningMessage = '';
+  page.once('dialog', async (dialog) => {
+    warningMessage = dialog.message();
+    await dialog.accept();
+  });
+  await orderForm.getByRole('button', { name: 'Salvar pedido', exact: true }).click();
+
+  await expect.poll(() => database.state.orders?.length).toBe(1);
+  expect(database.state.orders[0].dishes).toEqual([{ slot: 1, quantity: 1 }]);
+  expect(warningMessage).toContain('restam 5 cumbuca(s)');
+  expect(warningMessage).toContain('Renovar quantidade');
+
+  await page.locator('#client-toggle').click();
+  await page.locator('[data-client-tab="list"]').click();
+  const clientRow = page.locator('[data-client-row="0"]');
+  await expect(clientRow).toContainText('5 restantes');
+  await expect(clientRow).toContainText('Renovar em breve');
+});
+
+test('monthly balance includes orders from other weeks while editing', async ({ page }) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    weeklyMenusByPeriod: {
+      '2026-08-semana-1': [
+        { slot: 1, dish: 'Cumbuca 1', cost: '10.00', ingredients: [], status: 'planejado' },
+      ],
+      '2026-08-semana-2': [
+        { slot: 1, dish: 'Cumbuca 2', cost: '10.00', ingredients: [], status: 'planejado' },
+      ],
+    },
+    menuWeek: 2,
+    menuPeriod: { year: 2026, month: 8 },
+    menuDatesByPeriod: {},
+    clients: [
+      {
+        name: 'Océlio Fernandes',
+        phone: '85988254630',
+        plan: 'mensalista',
+        monthlyQuantity: '25',
+      },
+    ],
+    orders: [
+      {
+        id: 1001,
+        menuKey: '2026-08-semana-1',
+        clientPhone: '85988254630',
+        dishes: [{ slot: 1, quantity: 5 }],
+        amount: 0,
+      },
+      {
+        id: 1002,
+        menuKey: '2026-08-semana-2',
+        clientPhone: '85988254630',
+        dishes: [{ slot: 1, quantity: 5 }],
+        amount: 0,
+      },
+    ],
+  };
+
+  await page.goto('/menu-semanal?ano=2026&mes=8&semana=2');
+  await page.locator('#order-toggle').click();
+  await page.locator('[data-order-tab="orders"]').click();
+  await page.locator('[data-edit-order="1002"]').first().click();
+
+  const orderForm = page.locator('#order-form');
+  await expect(orderForm.locator('select[name="clientPhone"] option:checked')).toContainText(
+    'restam 15'
+  );
+  await expect(orderForm.locator('select[name="clientPhone"] option:checked')).not.toContainText(
+    'restam 20'
+  );
+
+  await orderForm.locator('input[name="dish-1"]').fill('6');
+  await orderForm.getByRole('button', { name: 'Salvar edição', exact: true }).click();
+  await expect
+    .poll(() => database.state.orders?.find((order) => order.id === 1002)?.dishes[0].quantity)
+    .toBe(6);
+
+  await page.locator('#client-toggle').click();
+  await page.locator('[data-client-tab="list"]').click();
+  await expect(page.locator('[data-client-row="0"]')).toContainText('14 restantes');
+});
+
+test('monthly clients renew quantities manually and choose whether to launch the fee', async ({
+  page,
+}, testInfo) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    weeklyMenusByPeriod: {
+      '2026-08-semana-1': [
+        {
+          slot: 1,
+          dish: 'Cumbuca mensal',
+          cost: '10.00',
+          ingredients: [],
+          status: 'planejado',
+          notes: '',
+        },
+      ],
+    },
+    menuWeek: 1,
+    menuPeriod: { year: 2026, month: 8 },
+    menuDatesByPeriod: {},
+    clients: [
+      {
+        name: 'Cliente mensalista',
+        phone: '85888888888',
+        plan: 'mensalista',
+        monthlyQuantity: '10',
+      },
+    ],
+    orders: [
+      {
+        id: 'monthly-order-exhausted',
+        menuKey: '2026-08-semana-1',
+        clientPhone: '85888888888',
+        dishes: [{ slot: 1, quantity: 10 }],
+        amount: 0,
+        paid: false,
+        paidAmount: 0,
+      },
+    ],
+  };
+
+  await page.goto('/menu-semanal?ano=2026&mes=8&semana=1');
+  await page.locator('#order-toggle').click();
+  await page.locator('[data-order-tab="form"]').click();
+  const orderForm = page.locator('#order-form');
+  await orderForm.locator('select[name="clientPhone"]').selectOption('85888888888');
+  await orderForm.locator('input[name="dish-1"]').fill('1');
+  let blockedOrderMessage = '';
+  page.once('dialog', async (dialog) => {
+    blockedOrderMessage = dialog.message();
+    await dialog.accept();
+  });
+  await orderForm.getByRole('button', { name: 'Salvar pedido', exact: true }).click();
+  expect(blockedOrderMessage).toContain('Saldo insuficiente');
+  expect(blockedOrderMessage).toContain('Renovar quantidade');
+  expect(database.state.orders).toHaveLength(1);
+
+  await page.locator('#client-toggle').click();
+  await page.locator('[data-client-tab="list"]').click();
+  const clientRow = page.locator('[data-client-row="0"]');
+  await expect(clientRow).toContainText('0 restantes');
+  await clientRow.getByRole('button', { name: 'Renovar quantidade', exact: true }).click();
+
+  let renewalForm = page.locator('#monthly-renewal-form');
+  await expect(renewalForm).toBeVisible();
+  await expect(renewalForm.locator('input[name="renewalQuantity"]')).toHaveValue('10');
+  await expect(renewalForm.locator('[data-renewal-value-field]')).toBeHidden();
+  await renewalForm.locator('input[name="renewalQuantity"]').fill('12');
+  await renewalForm.getByRole('button', { name: 'Confirmar renovação', exact: true }).click();
+
+  await expect.poll(() => database.state.orders?.length).toBe(2);
+  expect(database.state.orders[1]).toMatchObject({
+    clientPhone: '85888888888',
+    monthlyRenewal: true,
+    renewalQuantity: 12,
+    amount: 0,
+    paid: false,
+    paidAmount: 0,
+  });
+  await expect(page.locator('[data-client-row="0"]')).toContainText('12 restantes');
+  await expect(page.locator('[data-client-row="0"]')).toContainText('22 liberadas no mês');
+
+  await page
+    .locator('[data-client-row="0"]')
+    .getByRole('button', { name: 'Renovar quantidade', exact: true })
+    .click();
+  renewalForm = page.locator('#monthly-renewal-form');
+  await renewalForm.locator('input[name="renewalQuantity"]').fill('8');
+  await renewalForm.locator('[data-renewal-payment-toggle]').check();
+  await expect(renewalForm.locator('[data-renewal-value-field]')).toBeVisible();
+  await renewalForm.locator('input[name="monthlyFeeAmount"]').fill('80,00');
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath(`monthly-client-renewal-form-${testInfo.project.name}.png`),
+    fullPage: true,
+  });
+  await renewalForm.getByRole('button', { name: 'Confirmar renovação', exact: true }).click();
+
+  await expect.poll(() => database.state.orders?.length).toBe(3);
+  expect(database.state.orders[2]).toMatchObject({
+    clientPhone: '85888888888',
+    monthlyRenewal: true,
+    renewalQuantity: 8,
+    amount: 80,
+    paid: true,
+    paidAmount: 80,
+  });
+  await expect(page.locator('[data-client-row="0"]')).toContainText('20 restantes');
+  await expect(page.locator('[data-client-row="0"]')).toContainText('30 liberadas no mês');
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath(`monthly-client-renewal-${testInfo.project.name}.png`),
+    fullPage: true,
+  });
 });
 
 test('menu planning combines manual costs, packaging, allocated costs and profit', async ({
