@@ -1935,6 +1935,13 @@ test('finance divides supermarket and paid bills by all plates sold in the month
         quantity: 2,
         unitsPerCombo: 5,
       },
+      {
+        id: 'store-unlinked',
+        date: '2026-08-04',
+        productName: 'Produto sem prato vinculado',
+        saleType: 'unit',
+        quantity: 2,
+      },
     ],
     weeklyMenusByPeriod: {
       '2026-08-semana-1': [
@@ -2001,11 +2008,12 @@ test('finance divides supermarket and paid bills by all plates sold in the month
   await expect(panel).toBeVisible();
   await expect(panel.locator('[data-finance-supermarket-total]')).toHaveText('R$ 180,00');
   await expect(panel.locator('[data-finance-bills-total]')).toHaveText('R$ 120,00');
-  await expect(panel.locator('[data-finance-sold-plates]')).toContainText('30');
+  await expect(panel.locator('[data-finance-sold-plates]')).toContainText('32');
   await expect(
     panel.locator('.metric').filter({ hasText: 'Total de pratos vendidos' })
-  ).toContainText('Menu 10 + Loja 20');
-  await expect(panel.locator('[data-finance-cost-per-plate]')).toContainText('R$ 10,00');
+  ).toContainText('Menu 10 + Loja 22');
+  await expect(panel.locator('[data-finance-cost-per-plate]')).toContainText('R$ 9,38');
+  await expect(panel).toContainText('2 prato(s) vendido(s) ainda estão sem custo');
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
     path: testInfo.outputPath('finance-food-and-bills-cost.png'),

@@ -10111,6 +10111,9 @@ function pricingRecipeLegacyIngredientCost(recipe = {}) {
 }
 
 function pricingRecipeSupermarketUnitCost(recipe = {}) {
+  if (!recipe) {
+    return 0;
+  }
   if (Object.prototype.hasOwnProperty.call(recipe, "supermarketUnitCost")) {
     return pricingSafeNumber(recipe.supermarketUnitCost);
   }
