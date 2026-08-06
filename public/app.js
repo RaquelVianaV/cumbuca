@@ -16900,7 +16900,6 @@ function financialIntegrityHtml(result) {
     </div>
     <div class="integrity-metrics">
       <div class="integrity-metric"><span>Saldo acumulado</span><strong class="${result.totals?.balance < 0 ? "negative" : "positive"}">${money(result.totals?.balance || 0)}</strong></div>
-      <div class="integrity-metric"><span>Ajustes acumulados</span><strong class="${result.totals?.adjustments < 0 ? "negative" : "positive"}">${money(result.totals?.adjustments || 0)}</strong></div>
       <div class="integrity-metric"><span>Último backup</span><strong>${backupLabel}</strong></div>
       <div class="integrity-metric"><span>Períodos reabertos</span><strong>${reopenedCount}</strong></div>
     </div>
@@ -16944,10 +16943,6 @@ function integrityCheckDetail(check, result) {
       return "Nenhum período reaberto.";
     }
     return `${months === 1 ? "1 mês" : `${months} meses`} e ${weeks === 1 ? "1 semana" : `${weeks} semanas`} reabertos.`;
-  }
-  if (check.id === "adjustments") {
-    const adjustments = Number(result.totals?.adjustments || 0);
-    return Math.abs(adjustments) >= 0.01 ? `Saldo dos ajustes ${money(adjustments)}.` : "Sem ajustes acumulados.";
   }
   if (check.id === "backup-restorable" && result.restoreValidation?.valid) {
     return `Backup legível e completo (${formatBytesLabel(result.restoreValidation.bytes)}).`;

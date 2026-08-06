@@ -331,6 +331,32 @@ test('financial integrity reports negative balance and reopened periods', () => 
   assert.deepEqual(result.closings.unlockedMonths, ['2026-05']);
 });
 
+test('financial integrity keeps account adjustments out of accumulated warnings', () => {
+  const state = normalizeState({
+    cashEntries: [
+      { id: 'income-1', date: '2026-06-10', type: 'income', amount: 100 },
+      {
+        id: 'adjustment-1',
+        date: '2026-06-10',
+        type: 'expense',
+        category: 'ajuste-conta',
+        amount: 25,
+      },
+    ],
+  });
+  const result = financialIntegritySummary(state, null);
+
+  assert.equal(result.totals.adjustments, -25);
+  assert.equal(
+    result.checks.some((check) => check.id === 'adjustments'),
+    false
+  );
+  assert.equal(
+    result.checks.some((check) => check.label === 'Ajustes acumulados'),
+    false
+  );
+});
+
 test('financial reset endpoints require authentication', async (t) => {
   const server = http.createServer(handleRequest);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));

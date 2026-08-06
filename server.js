@@ -1504,15 +1504,6 @@ function financialIntegritySummary(state, backup = null) {
       label: 'Períodos reabertos',
       detail: reopenedPeriodsText(unlockedMonths.length, unlockedWeeks.length),
     },
-    {
-      id: 'adjustments',
-      level: Math.abs(totals.adjustments) >= 0.01 ? 'warning' : 'ok',
-      label: 'Ajustes acumulados',
-      detail:
-        Math.abs(totals.adjustments) >= 0.01
-          ? `Saldo dos ajustes ${brl(totals.adjustments)}.`
-          : 'Sem ajustes acumulados.',
-    },
   ];
   const status = checks.some((check) => check.level === 'danger')
     ? 'danger'

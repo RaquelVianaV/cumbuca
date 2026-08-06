@@ -17,6 +17,7 @@ test('narrow browser windows keep horizontal page scrolling available', () => {
   assert.match(css, /@media \(min-width: 561px\) and \(max-width: 1100px\)/);
   assert.match(css, /grid-template-columns: repeat\(5, minmax\(0, 1fr\)\)/);
   assert.match(app, /cash-filter-disclosure/);
+  assert.doesNotMatch(app, /Ajustes acumulados/);
   assert.match(app, /advancedCashFilterActive/);
   assert.match(app, /cash-filter-actions/);
   assert.match(css, /#cash-filter-form > label > select/);
