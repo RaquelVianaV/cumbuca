@@ -6069,8 +6069,10 @@ async function renderCash() {
           <label>Buscar
             <input name="search" placeholder="Nome, motivo ou origem" value="${state.cashFilter.search || ""}">
           </label>
-          <button type="submit">Aplicar</button>
-          <button class="secondary" type="button" id="clear-cash-filter">Limpar filtros</button>
+          <div class="cash-filter-actions">
+            <button class="secondary" type="button" id="clear-cash-filter">Limpar filtros</button>
+            <button type="submit">Aplicar</button>
+          </div>
         </form>
         </details>
         <div class="quick-filter-bar">

@@ -458,6 +458,51 @@ test('narrow desktop window activates compact mode', async ({ page }, testInfo) 
   });
 });
 
+test('cash advanced filters align fields and actions without clipping', async ({
+  page,
+}, testInfo) => {
+  await page.goto('/fluxo-de-caixa?panel=ledger');
+  const disclosure = page.locator('.cash-filter-disclosure');
+  await disclosure.locator('summary').click();
+  await expect(disclosure).toHaveAttribute('open', '');
+
+  const layout = await page.locator('#cash-filter-form').evaluate((form) => {
+    const formRect = form.getBoundingClientRect();
+    const actions = form.querySelector('.cash-filter-actions');
+    const actionsRect = actions.getBoundingClientRect();
+    const visibleLabels = [...form.querySelectorAll(':scope > label')].filter(
+      (label) => getComputedStyle(label).display !== 'none'
+    );
+    return {
+      formColumns: getComputedStyle(form).gridTemplateColumns.split(' ').length,
+      actionColumns: getComputedStyle(actions).gridTemplateColumns.split(' ').length,
+      actionsRightGap: Math.abs(formRect.right - 10 - actionsRect.right),
+      visibleLabels: visibleLabels.length,
+      accountWidth: form.querySelector('#cash-filter-account').getBoundingClientRect().width,
+      searchWidth: form.querySelector('input[name="search"]').getBoundingClientRect().width,
+      pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+
+  expect(layout.visibleLabels).toBe(6);
+  expect(layout.pageOverflow).toBeLessThanOrEqual(1);
+  expect(layout.actionsRightGap).toBeLessThanOrEqual(1);
+  if (testInfo.project.name === 'mobile') {
+    expect(layout.formColumns).toBe(1);
+    expect(layout.actionColumns).toBe(1);
+  } else {
+    expect(layout.formColumns).toBe(6);
+    expect(layout.actionColumns).toBe(2);
+    expect(layout.accountWidth).toBeGreaterThan(175);
+    expect(layout.searchWidth).toBeGreaterThan(205);
+  }
+
+  await page.screenshot({
+    path: testInfo.outputPath('cash-advanced-filters-layout.png'),
+    fullPage: true,
+  });
+});
+
 test('mobile cash view keeps shortcuts compact', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile', 'Mobile-only visual check');
   await page.goto('/fluxo-de-caixa?panel=ledger');

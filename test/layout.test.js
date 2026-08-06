@@ -18,6 +18,9 @@ test('narrow browser windows keep horizontal page scrolling available', () => {
   assert.match(css, /grid-template-columns: repeat\(5, minmax\(0, 1fr\)\)/);
   assert.match(app, /cash-filter-disclosure/);
   assert.match(app, /advancedCashFilterActive/);
+  assert.match(app, /cash-filter-actions/);
+  assert.match(css, /#cash-filter-form > label > select/);
+  assert.match(css, /grid-template-columns: 0\.8fr 1\.05fr 1\.05fr 1\.1fr 1\.2fr 1\.4fr/);
   assert.match(css, /cash-ledger-panel > \.summary/);
   assert.match(html, /id="hero-motto"/);
   assert.match(html, /class="hero quote-mode hero-loading"/);
