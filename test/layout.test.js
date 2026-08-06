@@ -110,10 +110,13 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.doesNotMatch(app, /amount: client\.plan === "mensalista"/);
   assert.match(app, /history\.replaceState\(null, "", `\/menu-semanal\$\{location\.search\}`\)/);
   assert.match(app, /Cadastre as cumbucas diretamente no Planejamento/);
-  assert.match(app, /Digite os ingredientes e os custos de insumos/);
+  assert.match(app, /Digite manualmente o custo de supermercado de uma unidade/);
   assert.match(app, /href="\/precificacao\?view=costs">Configurar custos rateados/);
   assert.match(app, /function pricingRecipeReferencePrice/);
-  assert.match(app, /Pedidos usam insumos manuais \+ rateio automático do Planejamento/);
+  assert.match(
+    app,
+    /Pedidos usam o custo manual de supermercado \+ rateio automático do Planejamento/
+  );
   assert.match(app, /href="\/precificacao\?view=costs">Abrir custos rateados/);
   assert.match(css, /\.menu-cost-breakdown/);
   assert.match(app, /const nextAccounts = upcomingBills\(5, \{ includeOverdue: true \}\)/);
@@ -251,11 +254,12 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(server, /'storeProductQuantities'/);
   assert.match(css, /\.store-product-quantity-row/);
   assert.match(app, /\["dashboard", "Visão geral"\]/);
-  assert.match(app, /\["ingredients", "Ingredientes"\]/);
-  assert.match(app, /\["recipes", "Receitas"\]/);
+  assert.doesNotMatch(app, /\["ingredients", "Ingredientes"\]/);
+  assert.match(app, /\["recipes", "Pratos"\]/);
   assert.match(app, /\["costs", "Custos rateados"\]/);
-  assert.match(app, /id="pricing-ingredient-form"/);
   assert.match(app, /id="pricing-recipe-form"/);
+  assert.match(app, /name="supermarketUnitCost"/);
+  assert.match(app, /Custo de supermercado por unidade/);
   assert.match(app, /id="pricing-shared-cost-form"/);
   assert.match(app, /id="save-pricing-staff"/);
   assert.match(app, /data-pricing-staff-member/);
@@ -267,6 +271,7 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /function pricingRecipeForMenuItem/);
   assert.match(app, /data-menu-cost-breakdown/);
   assert.match(app, /data-menu-ingredient-cost/);
+  assert.match(app, /data-menu-supermarket-cost/);
   assert.match(app, /data-menu-shared-cost/);
   assert.match(app, /data-menu-packaging/);
   assert.match(app, /data-menu-packaging-cost/);
@@ -281,6 +286,9 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /function menuItemProfitPercent/);
   assert.match(app, /function menuPlanningCosts/);
   assert.match(app, /function weeklyMenuProductionCost/);
+  assert.match(app, /function monthlyFoodAndBillsCost/);
+  assert.match(app, /function financeFoodAndBillsCostPanel/);
+  assert.match(app, /Custo de supermercado e boletos por prato/);
   assert.match(app, /data-menu-weekly-quantity/);
   assert.match(app, /data-week-summary/);
   assert.match(app, /Valor que sobra na semana/);
@@ -289,7 +297,7 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /function menuCatalogRecordedCosts/);
   assert.match(app, /Cumbucas do mês/);
   assert.match(app, /catalogo=cumbucas/);
-  assert.match(app, /Buscar cumbuca ou insumo/);
+  assert.match(app, /Buscar cumbuca/);
   assert.match(css, /\.menu-catalog-grid/);
   assert.match(css, /\.menu-catalog-card/);
   assert.match(css, /\.menu-profit-controls/);
@@ -311,15 +319,8 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(css, /\.monthly-renewal-panel/);
   assert.match(css, /\.monthly-renewal-form/);
   assert.match(server, /recipeId: String\(found\.recipeId/);
-  assert.match(app, /PRICING_RECIPE_BATCH_SIZE = 50/);
-  assert.match(app, /function pricingRecipeIngredientBatchSize/);
-  assert.match(app, /ingredientBatchSize: PRICING_RECIPE_BATCH_SIZE/);
-  assert.match(app, /Informe depois o lote para 50 pratos/);
-  assert.match(app, /data-pricing-save-next/);
-  assert.match(app, /data-pricing-create-base/);
-  assert.match(app, /Cadastrar receita e continuar/);
-  assert.match(app, /data-pricing-add-ingredient-for-recipe/);
-  assert.match(app, /Ingredientes pendentes/);
+  assert.match(app, /function pricingRecipeSupermarketUnitCost/);
+  assert.match(app, /Custo de supermercado pendente/);
   assert.match(app, /function storeProductPerformanceRows/);
   assert.match(app, /function storeProductPerformancePanel/);
   assert.match(app, /function weeklyRecipeProfitabilityRows/);
@@ -338,8 +339,8 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /Cumbuca mais lucrativa/);
   assert.match(server, /'pricingRecipes'/);
   assert.match(server, /function calculatePricing/);
-  assert.match(server, /ingredientBatchSize/);
-  assert.match(server, /Ingredientes pendentes/);
+  assert.match(server, /supermarketUnitCost/);
+  assert.match(server, /Custo de supermercado pendente/);
   assert.match(css, /\.pricing-dashboard-grid/);
   assert.match(css, /\.pricing-staff-editor/);
   assert.match(css, /\.pricing-staff-total/);

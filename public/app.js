@@ -4594,7 +4594,7 @@ function dashboardAlerts(metrics, weeklyOrders) {
   }
 
   if (incompleteRecipes.length) {
-    alerts.push(["Receitas incompletas", `${incompleteRecipes.length} receita(s) sem ingredientes`]);
+    alerts.push(["Pratos incompletos", `${incompleteRecipes.length} prato(s) sem custo de supermercado`]);
   }
 
   if (lossRecipes.length) {
@@ -4972,18 +4972,18 @@ function operationAgendaItems(data = todayOperationData()) {
     menuWithoutIngredientCosts.length ? {
       type: "warning",
       category: "Menu",
-      title: `${menuWithoutIngredientCosts.length} cumbuca(s) sem custo de insumos`,
-      detail: "Digite os custos dos ingredientes no Planejamento; o rateio entra automaticamente.",
+      title: `${menuWithoutIngredientCosts.length} cumbuca(s) sem custo de supermercado`,
+      detail: "Digite o custo de supermercado por unidade no Planejamento; o rateio entra automaticamente.",
       href: "/menu-semanal",
       action: "Abrir menu"
     } : null,
     incompleteRecipes.length ? {
       type: "warning",
       category: "Preços",
-      title: `${incompleteRecipes.length} receita(s) sem ingredientes`,
-      detail: "Complete o lote de 50 pratos para liberar os cálculos.",
+      title: `${incompleteRecipes.length} prato(s) sem custo de supermercado`,
+      detail: "Informe o custo de supermercado de uma unidade para liberar os cálculos.",
       href: "/precificacao?view=recipes",
-      action: "Completar receitas"
+      action: "Completar pratos"
     } : null,
     data.todayCash.length && !dayClosing ? {
       type: "warning",
@@ -7904,8 +7904,8 @@ function menuCatalogPanel() {
         <a class="secondary table-action" href="/menu-semanal?ano=${state.menuPeriod.year}&mes=${state.menuPeriod.month}&semana=${state.menuWeek}">Cadastrar no Planejamento</a>
       </div>
       <form id="menu-catalog-filter" class="filter-bar menu-catalog-filter">
-        <label>Buscar cumbuca ou insumo
-          <input name="search" placeholder="Nome do prato ou ingrediente" value="${escapeHtml(filter.search || "")}">
+        <label>Buscar cumbuca
+          <input name="search" placeholder="Nome do prato" value="${escapeHtml(filter.search || "")}">
         </label>
         <label>Semana
           <select name="week">
@@ -7938,9 +7938,9 @@ function menuCatalogPanel() {
                 <span class="pricing-status ${row.costs.costConfigured ? "profitable" : "pending"}">${row.costs.costConfigured ? menuCatalogStatusLabel(row.item.status) : "Custo pendente"}</span>
               </div>
               <h3>${escapeHtml(row.item.dish || `Cumbuca ${row.item.slot || ""}`)}</h3>
-              <p>${row.ingredients.length ? escapeHtml(row.ingredients.join(", ")) : "Nenhum insumo detalhado."}</p>
+              <p>Custo de supermercado informado manualmente por unidade.</p>
               <div class="menu-cost-breakdown">
-                <span><small>Insumos</small><strong>${money(row.costs.ingredientCost)}</strong></span>
+                <span><small>Supermercado</small><strong>${money(row.costs.ingredientCost)}</strong></span>
                 <span><small>Rateio registrado</small><strong>${money(row.costs.sharedCost)}</strong></span>
                 <span><small>Embalagem</small><strong>${money(row.costs.packagingCost)}</strong></span>
                 <span class="total"><small>Custo por cumbuca</small><strong>${row.costs.costConfigured ? money(row.costs.totalCost) : "Pendente"}</strong></span>
@@ -8049,7 +8049,7 @@ async function renderMenu() {
           <div class="pricing-workflow-context menu-pricing-source">
             <div>
               <strong>Cadastre as cumbucas diretamente no Planejamento</strong>
-              <span>Digite os ingredientes e os custos de insumos. O sistema acrescenta o rateio, a embalagem e calcula o lucro de cada prato. Os valores iniciais são ${money(MENU_DEFAULT_PACKAGING_COST)} de embalagem e ${MENU_DEFAULT_PROFIT_PERCENT}% de lucro sobre o custo total.</span>
+              <span>Digite manualmente o custo de supermercado de uma unidade. O sistema acrescenta o rateio, a embalagem e calcula o lucro de cada prato. Os valores iniciais são ${money(MENU_DEFAULT_PACKAGING_COST)} de embalagem e ${MENU_DEFAULT_PROFIT_PERCENT}% de lucro sobre o custo total.</span>
             </div>
             <a class="secondary table-action" href="/precificacao?view=costs">Configurar custos rateados</a>
           </div>
@@ -8073,17 +8073,10 @@ async function renderMenu() {
                     <input name="dish-${index}" data-menu-dish="${index}" value="${escapeHtml(item.dish || "")}" placeholder="Ex.: Frango cremoso com arroz">
                     <small>O prato desta semana é cadastrado e editado aqui.</small>
                   </label>
-                  <div class="ingredient-list">
-                    <div class="ingredient-list-title">
-                      <span>Insumo</span>
-                      <span>Custo manual</span>
-                      <span></span>
-                    </div>
-                    <div class="ingredient-rows" data-ingredient-rows="${index}">
-                      ${planningIngredientRows(item, index)}
-                    </div>
-                    <button class="ingredient-add" type="button" data-add-ingredient="${index}">+ Ingrediente</button>
-                  </div>
+                  <label>Custo de supermercado por unidade
+                    <input name="ingredient-cost-${index}" data-menu-supermarket-cost="${index}" type="text" inputmode="decimal" value="${moneyInputValue(costs.ingredientCost)}" placeholder="Ex.: 12,50">
+                    <small>Digite o total gasto no supermercado para fazer uma unidade deste prato.</small>
+                  </label>
                   <div class="menu-profit-controls">
                     <label>Valor da embalagem
                       <input name="packaging-${index}" data-menu-packaging="${index}" type="text" inputmode="decimal" value="${moneyInputValue(item.packagingCost)}" placeholder="R$ 1,60">
@@ -8097,7 +8090,7 @@ async function renderMenu() {
                     </label>
                   </div>
                   <div class="menu-cost-breakdown" data-menu-cost-breakdown="${index}">
-                    <span><small>Insumos digitados</small><strong data-menu-ingredient-cost>${money(costs.ingredientCost)}</strong></span>
+                    <span><small>Supermercado por unidade</small><strong data-menu-ingredient-cost>${money(costs.ingredientCost)}</strong></span>
                     <span><small>Rateio automático</small><strong data-menu-shared-cost>${money(costs.sharedCost)}</strong></span>
                     <span><small>Embalagem</small><strong data-menu-packaging-cost>${money(costs.packagingCost)}</strong></span>
                     <span class="total"><small>Custo total por cumbuca</small><strong data-menu-total-cost>${money(costs.totalCost)}</strong></span>
@@ -8788,7 +8781,10 @@ async function renderMenu() {
   if (menuForm) {
     function updateMenuCostPreview(menuIndex) {
       const dish = menuForm.querySelector(`[data-menu-dish="${menuIndex}"]`)?.value || "";
-      const ingredients = readPlanningIngredients(menuForm, menuIndex);
+      const ingredientCost = Math.max(
+        0,
+        parseMoneyInput(menuForm.querySelector(`[data-menu-supermarket-cost="${menuIndex}"]`)?.value)
+      );
       const packagingCost = Math.max(
         0,
         parseMoneyInput(menuForm.querySelector(`[data-menu-packaging="${menuIndex}"]`)?.value)
@@ -8800,8 +8796,7 @@ async function renderMenu() {
       const costs = menuPlanningCosts(
         {
           dish,
-          ingredients,
-          ingredientCost: planningIngredientTotal(ingredients),
+          ingredientCost,
           packagingCost,
           profitPercent
         },
@@ -8835,18 +8830,8 @@ async function renderMenu() {
       }
     }
 
-    document.querySelectorAll("[data-add-ingredient]").forEach(button => {
-      button.addEventListener("click", event => {
-        const menuIndex = Number(event.currentTarget.dataset.addIngredient);
-        const rows = document.querySelector(`[data-ingredient-rows="${menuIndex}"]`);
-        const ingredientIndex = rows.querySelectorAll("[data-ingredient-row]").length;
-        rows.insertAdjacentHTML("beforeend", planningIngredientRow(menuIndex, ingredientIndex));
-        updateMenuWeeklyCostPreview();
-      });
-    });
-
     menuForm.addEventListener("input", event => {
-      const menuIndex = event.target.closest("[data-ingredient-row]")?.dataset.menuIndex
+      const menuIndex = event.target.dataset.menuSupermarketCost
         ?? event.target.dataset.menuDish
         ?? event.target.dataset.menuPackaging
         ?? event.target.dataset.menuProfitPercent;
@@ -8855,43 +8840,22 @@ async function renderMenu() {
       }
     });
 
-    menuForm.addEventListener("click", event => {
-      const removeButton = event.target.closest("[data-remove-ingredient]");
-      if (!removeButton) {
-        return;
-      }
-
-      const row = removeButton.closest("[data-ingredient-row]");
-      const rows = row.parentElement;
-      if (rows.querySelectorAll("[data-ingredient-row]").length === 1) {
-        row.querySelectorAll("input").forEach(input => {
-          input.value = "";
-        });
-        updateMenuWeeklyCostPreview();
-        return;
-      }
-
-      row.remove();
-      updateMenuWeeklyCostPreview();
-    });
-
     menuForm.addEventListener("submit", event => {
       event.preventDefault();
       const data = readForm(event.currentTarget);
       state.menus[currentKey] = result.plan.map((item, index) => {
-        const ingredients = readPlanningIngredients(event.currentTarget, index);
         const dish = String(data[`dish-${index}`] || "").trim();
-        const ingredientCost = planningIngredientTotal(ingredients);
+        const ingredientCost = Math.max(0, parseMoneyInput(data[`ingredient-cost-${index}`]));
         const packagingCost = Math.max(0, parseMoneyInput(data[`packaging-${index}`]));
         const profitPercent = Math.max(0, parseMoneyInput(data[`profit-percent-${index}`]));
         const costs = menuPlanningCosts(
-          { dish, ingredients, ingredientCost, packagingCost, profitPercent },
+          { dish, ingredientCost, packagingCost, profitPercent },
           sharedCosts.totalPerUnit
         );
         return {
           slot: index + 1,
           dish,
-          ingredients,
+          ingredients: [],
           ingredientCost: costs.ingredientCost.toFixed(2),
           sharedCost: costs.sharedCost.toFixed(2),
           packagingCost: packagingCost.toFixed(2),
@@ -10134,6 +10098,25 @@ function pricingSharedCosts(config = state.pricingConfig) {
   };
 }
 
+function pricingRecipeLegacyIngredientCost(recipe = {}) {
+  const ingredientMap = new Map(
+    normalizedPricingIngredients().map(ingredient => [String(ingredient.id), ingredient])
+  );
+  const ingredientBatchSize = pricingRecipeIngredientBatchSize(recipe);
+  return (recipe?.ingredients || []).reduce((sum, item) => {
+    const ingredient = ingredientMap.get(String(item.ingredientId));
+    const quantityPerPlate = pricingDecimalNumber(item.quantity) / ingredientBatchSize;
+    return sum + quantityPerPlate * pricingIngredientUnitCost(ingredient);
+  }, 0);
+}
+
+function pricingRecipeSupermarketUnitCost(recipe = {}) {
+  if (Object.prototype.hasOwnProperty.call(recipe, "supermarketUnitCost")) {
+    return pricingSafeNumber(recipe.supermarketUnitCost);
+  }
+  return pricingRecipeLegacyIngredientCost(recipe);
+}
+
 function storeAverageMonthlyUnits() {
   const monthly = new Map();
   (state.storeProductQuantities || []).forEach(entry => {
@@ -10151,22 +10134,14 @@ function storeAverageMonthlyUnits() {
 }
 
 function pricingRecipeMetrics(recipe, config = state.pricingConfig) {
-  const ingredientMap = new Map(
-    normalizedPricingIngredients().map(ingredient => [String(ingredient.id), ingredient])
-  );
-  const ingredientBatchSize = pricingRecipeIngredientBatchSize(recipe);
-  const ingredientCost = (recipe?.ingredients || []).reduce((sum, item) => {
-    const ingredient = ingredientMap.get(String(item.ingredientId));
-    const quantityPerPlate = pricingDecimalNumber(item.quantity) / ingredientBatchSize;
-    return sum + quantityPerPlate * pricingIngredientUnitCost(ingredient);
-  }, 0);
+  const supermarketUnitCost = pricingRecipeSupermarketUnitCost(recipe);
   const packagingCost = pricingSafeNumber(recipe?.packagingCost);
   const fixedFee = pricingSafeNumber(recipe?.fixedFee);
   const variableFeePercent = pricingDecimalNumber(recipe?.variableFeePercent);
   const desiredMarginPercent = pricingDecimalNumber(recipe?.desiredMarginPercent);
   const practicedPrice = pricingSafeNumber(recipe?.practicedPrice);
   const shared = pricingSharedCosts(config);
-  const baseCost = ingredientCost
+  const baseCost = supermarketUnitCost
     + packagingCost
     + shared.productionPerUnit
     + shared.laborPerUnit
@@ -10187,7 +10162,7 @@ function pricingRecipeMetrics(recipe, config = state.pricingConfig) {
       ? suggestedPrice / totalCost
       : 0;
   const status = !pricingRecipeIsComplete(recipe)
-    ? "Ingredientes pendentes"
+    ? "Custo de supermercado pendente"
     : practicedPrice <= 0 || realMarginPercent === null
       ? "Atenção"
       : realProfit < 0
@@ -10196,7 +10171,8 @@ function pricingRecipeMetrics(recipe, config = state.pricingConfig) {
           ? "Lucrativa"
           : "Atenção";
   return {
-    ingredientCost,
+    supermarketUnitCost,
+    ingredientCost: supermarketUnitCost,
     packagingCost,
     productionCost: shared.productionPerUnit,
     laborCost: shared.laborPerUnit,
@@ -10224,7 +10200,7 @@ function pricingStatusPill(status) {
     ? "profitable"
     : status === "Prejuízo"
       ? "loss"
-      : status === "Ingredientes pendentes"
+      : status === "Custo de supermercado pendente" || status === "Ingredientes pendentes"
         ? "pending"
       : "attention";
   return `<span class="pricing-status ${className}">${status}</span>`;
@@ -10267,7 +10243,7 @@ function pricingRecipeReferencePrice(recipe) {
 }
 
 function pricingRecipeIsComplete(recipe) {
-  return (recipe?.ingredients || []).some(item => pricingDecimalNumber(item.quantity) > 0);
+  return pricingRecipeSupermarketUnitCost(recipe) > 0;
 }
 
 function pricingProjectionRecipe() {
@@ -10281,9 +10257,9 @@ function pricingProjectionRecipe() {
 function pricingFlowHtml() {
   return `
     <section class="pricing-flow" aria-label="Etapas da precificação">
-      <span><b>1</b><small>Receita</small><strong>Cadastre primeiro os dados do prato</strong></span>
-      <span><b>2</b><small>Ingredientes</small><strong>Informe depois o lote para 50 pratos</strong></span>
-      <span><b>3</b><small>Precificação</small><strong>Custos, margem e preço sugerido</strong></span>
+      <span><b>1</b><small>Prato</small><strong>Cadastre os dados da cumbuca</strong></span>
+      <span><b>2</b><small>Supermercado</small><strong>Informe o gasto de uma unidade</strong></span>
+      <span><b>3</b><small>Preço</small><strong>Confira custo, margem e sugestão</strong></span>
     </section>
   `;
 }
@@ -10345,8 +10321,8 @@ function pricingDashboardPanel() {
     `}
     ${pendingRows.length ? `
       <div class="pricing-warning">
-        <strong>${pendingRows.length} receita(s) aguardando ingredientes</strong>
-        <span>Essas receitas já estão salvas, mas só entram nos cálculos depois que você informar os ingredientes para 50 pratos.</span>
+        <strong>${pendingRows.length} receita(s) sem custo de supermercado</strong>
+        <span>Informe quanto é gasto no supermercado para produzir uma unidade de cada prato.</span>
         <button class="secondary" type="button" data-pricing-edit-pending-recipe="${escapeHtml(pendingRows[0].recipe.id)}">Continuar cadastro</button>
       </div>
     ` : ""}
@@ -10354,7 +10330,7 @@ function pricingDashboardPanel() {
       <article class="panel pricing-kpi">
         <span>Custo médio por cumbuca</span>
         <strong>${money(averageCost)}</strong>
-        <small>${completeRows.length} receita(s) completa(s)</small>
+        <small>${completeRows.length} prato(s) com custo informado</small>
       </article>
       <article class="panel pricing-kpi">
         <span>Margem média real</span>
@@ -10364,7 +10340,7 @@ function pricingDashboardPanel() {
       <article class="panel pricing-kpi">
         <span>Cumbuca mais lucrativa</span>
         <strong>${escapeHtml(mostProfitable?.recipe?.name || "—")}</strong>
-        <small>${mostProfitable ? money(mostProfitable.metrics.practicedPrice > 0 ? mostProfitable.metrics.realProfit : mostProfitable.metrics.suggestedProfit) : "Cadastre uma receita"}</small>
+        <small>${mostProfitable ? money(mostProfitable.metrics.practicedPrice > 0 ? mostProfitable.metrics.realProfit : mostProfitable.metrics.suggestedProfit) : "Cadastre um prato"}</small>
       </article>
       <article class="panel pricing-kpi">
         <span>Menor margem real</span>
@@ -10374,7 +10350,7 @@ function pricingDashboardPanel() {
       <article class="panel pricing-kpi">
         <span>Embalagem por refeição</span>
         <strong>${money(averagePackaging)}</strong>
-        <small>Média das receitas</small>
+        <small>Média dos pratos</small>
       </article>
       <article class="panel pricing-kpi">
         <span>Custos rateados por unidade</span>
@@ -10387,9 +10363,9 @@ function pricingDashboardPanel() {
       <div class="section-heading">
         <div>
           <h2>Painel de precificação</h2>
-          <p class="muted-inline">O custo total inclui ingredientes, embalagem, produção, mão de obra, demais custos rateados e taxas.</p>
+          <p class="muted-inline">O custo total inclui supermercado por unidade, embalagem, produção, mão de obra, demais custos rateados e taxas.</p>
         </div>
-        <button type="button" data-pricing-open-view="recipes">Cadastrar receita</button>
+        <button type="button" data-pricing-open-view="recipes">Cadastrar prato</button>
       </div>
       ${rows.length ? `
         <div class="table-wrap report-table pricing-table">
@@ -10423,10 +10399,10 @@ function pricingDashboardPanel() {
                   <td class="${metrics.practicedPrice > 0 && metrics.realProfit < 0 ? "negative" : "positive"}">${pricingRecipeIsComplete(recipe) && metrics.practicedPrice > 0 ? money(metrics.realProfit) : "—"}</td>
                   <td>${pricingRecipeIsComplete(recipe) ? pricingPercent(metrics.realMarginPercent) : "—"}</td>
                   <td>${pricingRecipeIsComplete(recipe) && metrics.markup ? `${metrics.markup.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}x` : "—"}</td>
-                  <td>${pricingStatusPill(pricingRecipeIsComplete(recipe) ? metrics.status : "Ingredientes pendentes")}</td>
+                  <td>${pricingStatusPill(pricingRecipeIsComplete(recipe) ? metrics.status : "Custo de supermercado pendente")}</td>
                   <td>
                     <div class="table-actions">
-                      <button class="secondary table-action" type="button" data-edit-pricing-recipe="${escapeHtml(recipe.id)}">${pricingRecipeIsComplete(recipe) ? "Editar" : "Adicionar ingredientes"}</button>
+                      <button class="secondary table-action" type="button" data-edit-pricing-recipe="${escapeHtml(recipe.id)}">${pricingRecipeIsComplete(recipe) ? "Editar" : "Informar custo"}</button>
                       <button class="danger table-action" type="button" data-delete-pricing-recipe="${escapeHtml(recipe.id)}">Excluir</button>
                     </div>
                   </td>
@@ -10435,7 +10411,7 @@ function pricingDashboardPanel() {
             </tbody>
           </table>
         </div>
-      ` : `<p class="muted">Cadastre primeiro a receita. Depois, informe os ingredientes usados para 50 pratos.</p>`}
+      ` : `<p class="muted">Cadastre o prato e informe o custo de supermercado de uma unidade.</p>`}
     </section>
 
     ${projectionRecipe && projection ? `
@@ -10455,7 +10431,7 @@ function pricingDashboardPanel() {
             </label>
           </div>
           <div class="pricing-cost-breakdown">
-            <span><small>Ingredientes</small><strong>${money(projection.ingredientCost)}</strong></span>
+            <span><small>Supermercado por unidade</small><strong>${money(projection.supermarketUnitCost)}</strong></span>
             <span><small>Embalagem</small><strong>${money(projection.packagingCost)}</strong></span>
             <span><small>Produção</small><strong>${money(projection.productionCost)}</strong></span>
             <span><small>Mão de obra</small><strong>${money(projection.laborCost)}</strong></span>
@@ -10564,16 +10540,7 @@ function pricingIngredientsPanel(editingIngredient = null) {
 }
 
 function pricingRecipesPanel(editingRecipe = null) {
-  const ingredients = normalizedPricingIngredients();
   const shared = pricingSharedCosts();
-  const isIngredientStep = Boolean(editingRecipe);
-  const isComplete = pricingRecipeIsComplete(editingRecipe);
-  const editingItems = new Map(
-    (editingRecipe?.ingredients || []).map(item => [
-      String(item.ingredientId),
-      pricingRecipeIngredientQuantityForBatch(editingRecipe, item)
-    ])
-  );
   const preview = pricingRecipeMetrics(editingRecipe || {});
   const recipeDefaults = {
     ...defaultAppConfig,
@@ -10583,11 +10550,8 @@ function pricingRecipesPanel(editingRecipe = null) {
     ${pricingFlowHtml()}
     <div class="pricing-recipe-layout">
       <section class="panel">
-        <p class="pricing-recipe-step">Etapa ${isIngredientStep ? "2" : "1"} de 2</p>
-        <h2>${isIngredientStep ? `${isComplete ? "Editar" : "Adicionar"} ingredientes à receita` : "Cadastrar receita"}</h2>
-        <p class="muted-inline">${isIngredientStep
-          ? `A receita ${escapeHtml(editingRecipe.name)} já está salva. Agora informe os ingredientes usados no lote de ${PRICING_RECIPE_BATCH_SIZE} pratos.`
-          : "Primeiro salve os dados do prato. Na próxima etapa, você cadastrará os ingredientes da receita."}</p>
+        <h2>${editingRecipe ? "Editar prato" : "Cadastrar prato"}</h2>
+        <p class="muted-inline">Informe apenas o valor de supermercado gasto para produzir uma unidade. Não é necessário cadastrar ingredientes.</p>
         <form id="pricing-recipe-form" class="form-grid">
           <input name="recipeId" type="hidden" value="${escapeHtml(editingRecipe?.id || "")}">
           <label>Nome da cumbuca
@@ -10598,6 +10562,10 @@ function pricingRecipesPanel(editingRecipe = null) {
           </label>
           <label>Peso final (g)
             <input name="weightGrams" type="number" min="1" step="1" placeholder="Ex.: 500" value="${pricingDecimalNumber(editingRecipe?.weightGrams) || ""}" required>
+          </label>
+          <label>Custo de supermercado por unidade
+            <input name="supermarketUnitCost" type="text" inputmode="decimal" placeholder="Ex.: 12,50" value="${moneyInputValue(editingRecipe ? pricingRecipeSupermarketUnitCost(editingRecipe) : "")}" required>
+            <small>Digite o total gasto no supermercado para fazer uma unidade deste prato.</small>
           </label>
           <label>Custo da embalagem
             <input name="packagingCost" type="text" inputmode="decimal" placeholder="Cumbuca, tampa, talheres..." value="${moneyInputValue(editingRecipe ? editingRecipe.packagingCost : recipeDefaults.defaultPackagingCost)}">
@@ -10615,61 +10583,16 @@ function pricingRecipesPanel(editingRecipe = null) {
           <label>Preço praticado
             <input name="practicedPrice" type="text" inputmode="decimal" placeholder="Valor realmente vendido" value="${moneyInputValue(editingRecipe?.practicedPrice)}">
           </label>
-          ${isIngredientStep ? `
-          <fieldset class="pricing-ingredient-picker">
-            <legend>Ingredientes para ${PRICING_RECIPE_BATCH_SIZE} pratos</legend>
-            ${ingredients.length ? `
-              <p class="pricing-recipe-batch-note">
-                <strong>Lote padrão: ${PRICING_RECIPE_BATCH_SIZE} pratos.</strong>
-                Informe abaixo a quantidade total de cada ingrediente usada para produzir os ${PRICING_RECIPE_BATCH_SIZE} pratos.
-                O sistema calcula automaticamente o custo de uma cumbuca.
-              </p>
-              <div class="pricing-recipe-ingredient-list">
-                ${ingredients.map(ingredient => `
-                  <label class="pricing-recipe-ingredient">
-                    <span>
-                      <b>${escapeHtml(ingredient.name)}</b>
-                      <small>${pricingUnitCostMoney(pricingIngredientUnitCost(ingredient))} por ${pricingIngredientUnitLabel(ingredient.unit)}</small>
-                    </span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.001"
-                      placeholder="Total para ${PRICING_RECIPE_BATCH_SIZE} (${pricingIngredientUnitLabel(ingredient.unit)})"
-                      value="${editingItems.get(String(ingredient.id)) || ""}"
-                      data-pricing-recipe-ingredient="${escapeHtml(ingredient.id)}"
-                      aria-label="Quantidade de ${escapeHtml(ingredient.name)} para ${PRICING_RECIPE_BATCH_SIZE} pratos"
-                    >
-                  </label>
-                `).join("")}
-              </div>
-              <button class="secondary pricing-add-ingredient" type="button" data-pricing-add-ingredient-for-recipe="${escapeHtml(editingRecipe.id)}">
-                Cadastrar novo ingrediente
-              </button>
-            ` : `
-              <p class="muted">A receita já foi cadastrada. Agora cadastre o primeiro ingrediente para montar o lote de ${PRICING_RECIPE_BATCH_SIZE} pratos.</p>
-              <button class="secondary" type="button" data-pricing-add-ingredient-for-recipe="${escapeHtml(editingRecipe.id)}">Cadastrar primeiro ingrediente</button>
-            `}
-          </fieldset>
-          ` : ""}
           <div class="actions">
-            ${isIngredientStep ? `
-              <button type="submit" ${ingredients.length ? "" : "disabled"}>Salvar ingredientes da receita</button>
-              <button class="secondary" type="submit" data-pricing-save-next ${ingredients.length ? "" : "disabled"}>
-                Salvar ingredientes e cadastrar outra receita
-              </button>
-              <button class="secondary" type="button" id="cancel-pricing-recipe-edit">Voltar</button>
-            ` : `
-              <button type="submit" data-pricing-create-base>Cadastrar receita e continuar</button>
-            `}
+            <button type="submit">${editingRecipe ? "Salvar prato" : "Cadastrar prato"}</button>
+            ${editingRecipe ? `<button class="secondary" type="button" id="cancel-pricing-recipe-edit">Cancelar</button>` : ""}
           </div>
         </form>
       </section>
-      ${isIngredientStep ? `
       <aside class="panel pricing-recipe-preview" aria-live="polite">
         <h2>Prévia automática</h2>
         <div class="pricing-cost-breakdown compact">
-          <span><small>Ingredientes por cumbuca</small><strong data-pricing-preview="ingredients">${money(preview.ingredientCost)}</strong></span>
+          <span><small>Supermercado por unidade</small><strong data-pricing-preview="supermarket">${money(preview.supermarketUnitCost)}</strong></span>
           <span><small>Embalagem</small><strong data-pricing-preview="packaging">${money(preview.packagingCost)}</strong></span>
           <span><small>Produção rateada</small><strong data-pricing-preview="production">${money(shared.productionPerUnit)}</strong></span>
           <span><small>Mão de obra rateada</small><strong data-pricing-preview="labor">${money(shared.laborPerUnit)}</strong></span>
@@ -10685,25 +10608,18 @@ function pricingRecipesPanel(editingRecipe = null) {
         </div>
         <p class="pricing-formula">Preço sugerido = custo base ÷ (1 − margem desejada − taxa variável).</p>
       </aside>
-      ` : `
-        <aside class="panel pricing-recipe-next-step">
-          <span>Próxima etapa</span>
-          <strong>Ingredientes da receita</strong>
-          <p>Depois de salvar o prato, informe os ingredientes e as quantidades totais usadas para 50 unidades.</p>
-        </aside>
-      `}
     </div>
     <section class="panel report-section">
       <div class="section-heading">
         <div>
-          <h2>Receitas cadastradas</h2>
-          <p class="muted-inline">${(state.pricingRecipes || []).length} receita(s)</p>
+          <h2>Pratos cadastrados</h2>
+          <p class="muted-inline">${(state.pricingRecipes || []).length} prato(s)</p>
         </div>
       </div>
       ${(state.pricingRecipes || []).length ? `
         <div class="table-wrap report-table">
           <table>
-            <thead><tr><th>Cumbuca</th><th>Categoria</th><th>Peso</th><th>Ingredientes</th><th>Preço sugerido</th><th>Status</th><th>Ações</th></tr></thead>
+            <thead><tr><th>Cumbuca</th><th>Categoria</th><th>Peso</th><th>Supermercado por unidade</th><th>Preço sugerido</th><th>Status</th><th>Ações</th></tr></thead>
             <tbody>
               ${(state.pricingRecipes || []).map(recipe => {
                 const metrics = pricingRecipeMetrics(recipe);
@@ -10712,12 +10628,12 @@ function pricingRecipesPanel(editingRecipe = null) {
                     <td><strong>${escapeHtml(recipe.name)}</strong></td>
                     <td>${escapeHtml(recipe.category || "Sem categoria")}</td>
                     <td>${pricingDecimalNumber(recipe.weightGrams)} g</td>
-                    <td>${(recipe.ingredients || []).length}</td>
+                    <td>${pricingRecipeIsComplete(recipe) ? money(metrics.supermarketUnitCost) : "—"}</td>
                     <td>${pricingRecipeIsComplete(recipe) ? money(metrics.suggestedPrice) : "—"}</td>
-                    <td>${pricingStatusPill(pricingRecipeIsComplete(recipe) ? metrics.status : "Ingredientes pendentes")}</td>
+                    <td>${pricingStatusPill(pricingRecipeIsComplete(recipe) ? metrics.status : "Custo de supermercado pendente")}</td>
                     <td>
                       <div class="table-actions">
-                        <button class="secondary table-action" type="button" data-edit-pricing-recipe="${escapeHtml(recipe.id)}">${pricingRecipeIsComplete(recipe) ? "Editar" : "Adicionar ingredientes"}</button>
+                        <button class="secondary table-action" type="button" data-edit-pricing-recipe="${escapeHtml(recipe.id)}">${pricingRecipeIsComplete(recipe) ? "Editar" : "Informar custo"}</button>
                         <button class="danger table-action" type="button" data-delete-pricing-recipe="${escapeHtml(recipe.id)}">Excluir</button>
                       </div>
                     </td>
@@ -10727,7 +10643,7 @@ function pricingRecipesPanel(editingRecipe = null) {
             </tbody>
           </table>
         </div>
-      ` : `<p class="muted">Nenhuma receita cadastrada ainda.</p>`}
+      ` : `<p class="muted">Nenhum prato cadastrado ainda.</p>`}
     </section>
   `;
 }
@@ -10874,23 +10790,20 @@ function pricingSharedCostsFromForm(form, staffOverride = null) {
 
 function pricingRecipeDraftFromForm(form) {
   const values = readForm(form);
+  const savedRecipe = pricingRecipeById(values.recipeId);
   return {
     id: values.recipeId || "",
     name: String(values.name || "").trim(),
     category: String(values.category || "").trim(),
     weightGrams: pricingDecimalNumber(values.weightGrams),
+    supermarketUnitCost: pricingSafeNumber(values.supermarketUnitCost),
     packagingCost: pricingSafeNumber(values.packagingCost),
     fixedFee: pricingSafeNumber(values.fixedFee),
     variableFeePercent: pricingDecimalNumber(values.variableFeePercent),
     desiredMarginPercent: pricingDecimalNumber(values.desiredMarginPercent),
     practicedPrice: pricingSafeNumber(values.practicedPrice),
-    ingredientBatchSize: PRICING_RECIPE_BATCH_SIZE,
-    ingredients: [...form.querySelectorAll("[data-pricing-recipe-ingredient]")]
-      .map(field => ({
-        ingredientId: field.dataset.pricingRecipeIngredient,
-        quantity: pricingDecimalNumber(field.value)
-      }))
-      .filter(item => item.quantity > 0)
+    ingredientBatchSize: savedRecipe?.ingredientBatchSize || PRICING_RECIPE_BATCH_SIZE,
+    ingredients: savedRecipe?.ingredients || []
   };
 }
 
@@ -10902,7 +10815,7 @@ function updatePricingRecipePreview(form) {
     : metrics.suggestedVariableFee;
   const profit = metrics.practicedPrice > 0 ? metrics.realProfit : metrics.suggestedProfit;
   const values = {
-    ingredients: money(metrics.ingredientCost),
+    supermarket: money(metrics.supermarketUnitCost),
     packaging: money(metrics.packagingCost),
     production: money(metrics.productionCost),
     labor: money(metrics.laborCost),
@@ -11044,8 +10957,7 @@ async function renderPricing() {
   setActive("precificacao");
   const pricingTabs = [
     ["dashboard", "Visão geral"],
-    ["ingredients", "Ingredientes"],
-    ["recipes", "Receitas"],
+    ["recipes", "Pratos"],
     ["costs", "Custos rateados"]
   ];
   const requestedView = new URLSearchParams(location.search).get("view");
@@ -11056,15 +10968,11 @@ async function renderPricing() {
     state.pricingViewTab = "dashboard";
   }
   const activeView = state.pricingViewTab;
-  const editingIngredient = normalizedPricingIngredients().find(ingredient => {
-    return String(ingredient.id) === String(state.editPricingIngredientId);
-  }) || null;
   const editingRecipe = pricingRecipeById(state.editPricingRecipeId) || null;
 
   app.innerHTML = `
     ${viewTabsHtml("pricingViewTab", activeView, pricingTabs)}
     ${viewPaneHtml("dashboard", activeView, pricingDashboardPanel())}
-    ${viewPaneHtml("ingredients", activeView, pricingIngredientsPanel(editingIngredient))}
     ${viewPaneHtml("recipes", activeView, pricingRecipesPanel(editingRecipe))}
     ${viewPaneHtml("costs", activeView, pricingCostsPanel())}
   `;
@@ -11225,15 +11133,14 @@ async function renderPricing() {
     recipeForm.addEventListener("input", () => updatePricingRecipePreview(recipeForm));
     recipeForm.addEventListener("submit", async event => {
       event.preventDefault();
-      const saveAndAddAnother = event.submitter?.hasAttribute("data-pricing-save-next") || false;
       const recipe = pricingRecipeDraftFromForm(event.currentTarget);
       const creatingRecipe = !recipe.id;
       if (!recipe.name || !recipe.category || recipe.weightGrams <= 0) {
         showToast("Informe nome, categoria e peso final da cumbuca.", "warning");
         return;
       }
-      if (!creatingRecipe && !recipe.ingredients.length) {
-        showToast("Informe ao menos um ingrediente usado na receita.", "warning");
+      if (recipe.supermarketUnitCost <= 0) {
+        showToast("Informe o custo de supermercado de uma unidade.", "warning");
         return;
       }
       if (recipe.desiredMarginPercent + recipe.variableFeePercent >= 100) {
@@ -11246,7 +11153,7 @@ async function renderPricing() {
           && String(item.id) !== String(recipe.id);
       });
       if (duplicate) {
-        showToast("Já existe uma receita com esse nome.", "warning");
+        showToast("Já existe um prato com esse nome.", "warning");
         return;
       }
       const savedRecipe = {
@@ -11258,28 +11165,19 @@ async function renderPricing() {
         state.pricingRecipes = (state.pricingRecipes || []).map(item => {
           return String(item.id) === String(recipe.id) ? savedRecipe : item;
         });
-        recordAudit("Receita de precificação editada", recipe.name);
+        recordAudit("Prato de precificação editado", recipe.name);
       } else {
         state.pricingRecipes = [...(state.pricingRecipes || []), savedRecipe];
-        recordAudit("Receita de precificação cadastrada", recipe.name);
+        recordAudit("Prato de precificação cadastrado", recipe.name);
       }
       state.pricingConfig = {
         ...(state.pricingConfig || {}),
         projectionRecipeId: state.pricingConfig?.projectionRecipeId || savedRecipe.id
       };
       if (await persistState()) {
-        if (creatingRecipe) {
-          state.editPricingRecipeId = savedRecipe.id;
-          showToast("Receita cadastrada. Agora adicione os ingredientes usados em 50 pratos.", "success");
-          openPricingView("recipes");
-        } else if (saveAndAddAnother) {
-          state.editPricingRecipeId = null;
-          showToast("Ingredientes salvos. O formulário está pronto para a próxima receita.", "success");
-          openPricingView("recipes");
-        } else {
-          state.editPricingRecipeId = null;
-          openPricingView("dashboard");
-        }
+        state.editPricingRecipeId = null;
+        showToast(creatingRecipe ? "Prato cadastrado com o custo unitário de supermercado." : "Prato atualizado.", "success");
+        openPricingView("dashboard");
       }
     });
   }
@@ -11300,7 +11198,7 @@ async function renderPricing() {
     button.addEventListener("click", async event => {
       const recipeId = event.currentTarget.dataset.deletePricingRecipe;
       const recipe = pricingRecipeById(recipeId);
-      if (!recipe || !confirm(`Excluir a receita "${recipe.name}"?`)) {
+      if (!recipe || !confirm(`Excluir o prato "${recipe.name}"?`)) {
         return;
       }
       state.pricingRecipes = (state.pricingRecipes || []).filter(item => {
@@ -11517,13 +11415,13 @@ function technicalSheetPanel(config = state.pricingConfig) {
       ${rows.length ? `
         <div class="table-wrap report-table">
           <table>
-            <thead><tr><th>Semana</th><th>Cumbuca</th><th>Ingredientes</th><th>Custo</th><th>Preço sugerido</th><th>Lucro</th></tr></thead>
+            <thead><tr><th>Semana</th><th>Cumbuca</th><th>Supermercado por unidade</th><th>Custo</th><th>Preço sugerido</th><th>Lucro</th></tr></thead>
             <tbody>
               ${rows.map(row => `
                 <tr>
                   <td>${row.key}</td>
                   <td>${escapeHtml(row.dish)}<br><small>Cumbuca ${row.slot} - ${row.status}</small></td>
-                  <td>${row.ingredients.length ? row.ingredients.map(item => `${escapeHtml(item.name || "")}: ${money(item.value)}`).join("<br>") : "Sem ingredientes"}</td>
+                  <td>${money(row.ingredientCost)}</td>
                   <td>${money(row.totalCost)}</td>
                   <td>${money(row.suggestedPrice)}</td>
                   <td class="${row.profit < 0 ? "negative" : "positive"}">${money(row.profit)}</td>
@@ -11532,7 +11430,7 @@ function technicalSheetPanel(config = state.pricingConfig) {
             </tbody>
           </table>
         </div>
-      ` : `<p class="muted">Cadastre ingredientes no planejamento do Menu Semanal para gerar a ficha técnica.</p>`}
+      ` : `<p class="muted">Cadastre o custo de supermercado por unidade no Menu Semanal para gerar a ficha técnica.</p>`}
     </section>
   `;
 }
@@ -11720,6 +11618,117 @@ function reportData() {
     weeklyClients: state.clients.filter(client => client.plan !== "mensalista").length,
     monthlyClients: state.clients.filter(client => client.plan === "mensalista").length
   };
+}
+
+function supermarketExpenseEntry(entry = {}) {
+  return slugifyCategory(categoryName(entry.category)) === "supermercado";
+}
+
+function menuSupermarketUnitCost(item = {}) {
+  const manualCost = menuItemIngredientCost(item);
+  if (manualCost > 0) {
+    return manualCost;
+  }
+  return pricingRecipeSupermarketUnitCost(pricingRecipeForMenuItem(item));
+}
+
+function storeSaleSupermarketUnitCost(entry = {}) {
+  const product = storeProductById(entry.productId);
+  const linkedRecipe = storeProductRecipe(product || {});
+  const recipe = linkedRecipe || pricingRecipeForMenuItem({ dish: storeSaleProductName(entry) });
+  return pricingRecipeSupermarketUnitCost(recipe);
+}
+
+function monthlyFoodAndBillsCost(periodKey = reportPeriodKey()) {
+  const orders = productionOrders(state.orders.filter(order => {
+    return menuPeriodKeyFromKey(order.menuKey) === periodKey;
+  }));
+  const storeSales = state.storeSales.filter(entry => {
+    return String(entry.date || "").startsWith(periodKey);
+  });
+  let menuQuantity = 0;
+  let storeQuantity = 0;
+  let supermarketTotal = 0;
+  let unitsWithoutSupermarketCost = 0;
+
+  orders.forEach(order => {
+    const orderTotal = orderQuantity(order);
+    menuQuantity += orderTotal;
+    if (!(order.dishes || []).length) {
+      unitsWithoutSupermarketCost += orderTotal;
+      return;
+    }
+    let allocatedQuantity = 0;
+    (order.dishes || []).forEach(dish => {
+      const quantity = Math.max(0, Number(dish.quantity || 0));
+      const menuItem = (state.menus[order.menuKey] || []).find(item => {
+        return Number(item.slot) === Number(dish.slot);
+      }) || {};
+      const unitCost = menuSupermarketUnitCost(menuItem);
+      allocatedQuantity += quantity;
+      supermarketTotal += unitCost * quantity;
+      if (unitCost <= 0) {
+        unitsWithoutSupermarketCost += quantity;
+      }
+    });
+    unitsWithoutSupermarketCost += Math.max(0, orderTotal - allocatedQuantity);
+  });
+
+  storeSales.forEach(entry => {
+    const quantity = storeSaleUnitQuantity(entry);
+    const unitCost = storeSaleSupermarketUnitCost(entry);
+    storeQuantity += quantity;
+    supermarketTotal += unitCost * quantity;
+    if (unitCost <= 0) {
+      unitsWithoutSupermarketCost += quantity;
+    }
+  });
+
+  const billEntries = accountingCashEntries(state.cash).filter(entry => {
+    return entry.type === "expense"
+      && String(cashAccountingDate(entry)).startsWith(periodKey)
+      && !isAccountAdjustmentEntry(entry)
+      && !supermarketExpenseEntry(entry)
+      && (isBillEntry(entry) || Boolean(entry.financialAccountId));
+  });
+  const billsTotal = billEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const totalQuantity = menuQuantity + storeQuantity;
+  const combinedTotal = supermarketTotal + billsTotal;
+
+  return {
+    periodKey,
+    menuQuantity,
+    storeQuantity,
+    totalQuantity,
+    supermarketTotal,
+    billsTotal,
+    combinedTotal,
+    costPerPlate: totalQuantity > 0 ? combinedTotal / totalQuantity : 0,
+    unitsWithoutSupermarketCost
+  };
+}
+
+function financeFoodAndBillsCostPanel(periodKey = reportPeriodKey()) {
+  const costs = monthlyFoodAndBillsCost(periodKey);
+  return `
+    <section class="panel report-section finance-food-cost" data-finance-food-cost>
+      <div class="section-heading">
+        <div>
+          <h2>Custo de supermercado e boletos por prato</h2>
+          <p class="muted-inline">${formatMonthKeyBr(periodKey)} · (supermercado dos pratos vendidos + boletos pagos) ÷ total de pratos vendidos.</p>
+        </div>
+      </div>
+      <div class="summary">
+        <div class="metric report-metric"><span>Supermercado dos pratos</span><strong data-finance-supermarket-total>${money(costs.supermarketTotal)}</strong></div>
+        <div class="metric report-metric"><span>Boletos pagos</span><strong data-finance-bills-total>${money(costs.billsTotal)}</strong></div>
+        <div class="metric report-metric"><span>Total de pratos vendidos</span><strong data-finance-sold-plates>${costs.totalQuantity}</strong><small>Menu ${costs.menuQuantity} + Loja ${costs.storeQuantity}</small></div>
+        <div class="metric report-metric total"><span>Custo por prato</span><strong data-finance-cost-per-plate>${costs.totalQuantity > 0 ? money(costs.costPerPlate) : "—"}</strong><small>${money(costs.combinedTotal)} ÷ ${costs.totalQuantity || 0}</small></div>
+      </div>
+      ${costs.unitsWithoutSupermarketCost > 0 ? `
+        <p class="form-hint warning-text">${costs.unitsWithoutSupermarketCost} prato(s) vendido(s) ainda estão sem custo de supermercado identificado. O total vendido entra no divisor, mas esses pratos somam R$ 0,00 ao supermercado até o custo ser informado.</p>
+      ` : ""}
+    </section>
+  `;
 }
 
 function sumRowsByLabel(rows, labelFor, amountFor) {
@@ -13211,7 +13220,7 @@ function businessProfitabilityPanel(data) {
       <div class="section-heading">
         <div>
           <h2>Rentabilidade por prato ${reportTitleSuffix(data)}</h2>
-          <p class="muted-inline">Pedidos usam insumos manuais + rateio automático do Planejamento. A Loja continua usando as receitas cadastradas em Preços.</p>
+          <p class="muted-inline">Pedidos usam o custo manual de supermercado + rateio automático do Planejamento. A Loja usa os pratos cadastrados em Preços.</p>
         </div>
         <a class="secondary table-action" href="/precificacao?view=costs">Abrir custos rateados</a>
       </div>
@@ -17260,6 +17269,7 @@ function renderFinance() {
       </div>
       <div class="metric report-metric"><span>Ajustes</span><strong class="${data.accountAdjustmentTotals.balance < 0 ? "negative" : "positive"}">${money(data.accountAdjustmentTotals.balance)}</strong></div>
     </section>
+    ${financeFoodAndBillsCostPanel(data.periodKey)}
     ${viewPaneHtml("summary", activeTab, `
       ${financialPlanVsActualPanel(data)}
       ${["month", "week"].includes(reportType) ? monthlyOriginCategoryPanel(data) : ""}
@@ -18113,8 +18123,8 @@ function actionableManagementAlerts(metrics = homeMetricData(), today = todayOpe
     if (!pricingRecipeIsComplete(recipe)) {
       return [{
         category: "Preços",
-        label: "Receita sem ingredientes",
-        detail: `${recipe.name || "Receita sem nome"} precisa do lote de 50 pratos.`,
+        label: "Prato sem custo de supermercado",
+        detail: `${recipe.name || "Prato sem nome"} precisa do custo de supermercado por unidade.`,
         type: "warning",
         href: "/precificacao?view=recipes",
         action: "Completar"
@@ -18151,8 +18161,8 @@ function actionableManagementAlerts(metrics = homeMetricData(), today = todayOpe
     .filter(item => String(item.dish || "").trim() && menuItemIngredientCost(item) <= 0)
     .map(item => ({
       category: "Menu",
-      label: "Cumbuca sem custo de insumos",
-      detail: `${item.dish} precisa dos custos manuais dos ingredientes; o rateio será automático.`,
+      label: "Cumbuca sem custo de supermercado",
+      detail: `${item.dish} precisa do custo manual de supermercado por unidade; o rateio será automático.`,
       type: "warning",
       href: "/menu-semanal",
       action: "Preencher"

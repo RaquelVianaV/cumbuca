@@ -2121,9 +2121,8 @@ function calculatePricing(payload = {}) {
       ])
     );
     const recipeIngredients = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
-    const hasIngredients = recipeIngredients.some((item) => Math.max(0, number(item.quantity)) > 0);
     const ingredientBatchSize = Math.max(1, number(recipe.ingredientBatchSize) || 1);
-    const ingredientCost = recipeIngredients.reduce((sum, item) => {
+    const legacyIngredientCost = recipeIngredients.reduce((sum, item) => {
       const ingredient = ingredientMap.get(String(item.ingredientId));
       if (!ingredient) {
         return sum;
@@ -2139,6 +2138,9 @@ function calculatePricing(payload = {}) {
       const unitCost = purchaseQuantity > 0 ? purchaseCost / purchaseQuantity : 0;
       return sum + (Math.max(0, number(item.quantity)) / ingredientBatchSize) * unitCost;
     }, 0);
+    const supermarketUnitCost = Object.prototype.hasOwnProperty.call(recipe, 'supermarketUnitCost')
+      ? Math.max(0, number(recipe.supermarketUnitCost))
+      : legacyIngredientCost;
     const shared = payload.sharedCosts || {};
     const averageMonthlyUnits = Math.max(0, number(shared.averageMonthlyUnits));
     const productionMonthly = Math.max(0, number(shared.gas)) + Math.max(0, number(shared.energy));
@@ -2160,7 +2162,7 @@ function calculatePricing(payload = {}) {
     const desiredMarginPercent = Math.max(0, number(recipe.desiredMarginPercent));
     const practicedPrice = Math.max(0, number(recipe.practicedPrice));
     const baseCost =
-      ingredientCost + packagingCost + productionCost + laborCost + otherCost + fixedFee;
+      supermarketUnitCost + packagingCost + productionCost + laborCost + otherCost + fixedFee;
     const divisor = 1 - (variableFeePercent + desiredMarginPercent) / 100;
     const suggestedPrice = divisor > 0 ? baseCost / divisor : 0;
     const suggestedVariableFee = suggestedPrice * (variableFeePercent / 100);
@@ -2176,18 +2178,20 @@ function calculatePricing(payload = {}) {
         : totalCost > 0
         ? suggestedPrice / totalCost
         : 0;
-    const status = !hasIngredients
-      ? 'Ingredientes pendentes'
-      : practicedPrice <= 0 || realMarginPercent === null
-      ? 'Atenção'
-      : realProfit < 0
-      ? 'Prejuízo'
-      : realMarginPercent + 0.0001 >= desiredMarginPercent
-      ? 'Lucrativa'
-      : 'Atenção';
+    const status =
+      supermarketUnitCost <= 0
+        ? 'Custo de supermercado pendente'
+        : practicedPrice <= 0 || realMarginPercent === null
+        ? 'Atenção'
+        : realProfit < 0
+        ? 'Prejuízo'
+        : realMarginPercent + 0.0001 >= desiredMarginPercent
+        ? 'Lucrativa'
+        : 'Atenção';
 
     return {
-      ingredientCost,
+      supermarketUnitCost,
+      ingredientCost: supermarketUnitCost,
       packagingCost,
       productionCost,
       laborCost,
@@ -2708,12 +2712,16 @@ function weeklyMenu(payload = {}) {
           }))
           .filter((item) => item.name || item.value > 0)
       : [];
-    const ingredientCost = ingredients.reduce((sum, item) => sum + item.value, 0);
+    const legacyIngredientCost = ingredients.reduce((sum, item) => sum + item.value, 0);
+    const ingredientCost = Object.prototype.hasOwnProperty.call(found, 'ingredientCost')
+      ? Math.max(0, number(found.ingredientCost))
+      : legacyIngredientCost;
     return {
       slot: index + 1,
       recipeId: String(found.recipeId || '').trim(),
       dish: String(found.dish || '').trim(),
       ingredients,
+      ingredientCost,
       cost: ingredientCost || number(found.cost),
       status,
       notes: String(found.notes || '').trim(),

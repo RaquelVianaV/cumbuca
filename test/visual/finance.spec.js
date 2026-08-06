@@ -521,13 +521,8 @@ test('menu planning combines manual costs, packaging, allocated costs and profit
   await expect(page.locator('[data-menu-profit-percent="0"]')).toHaveValue('30,00');
 
   await page.locator('[data-menu-dish="0"]').fill('Cumbuca manual da semana');
-  const firstIngredient = page.locator('[data-ingredient-row][data-menu-index="0"]').first();
-  await firstIngredient.locator('.ingredient-name').fill('Arroz');
-  await firstIngredient.locator('.ingredient-value').fill('3,00');
-  await page.locator('[data-add-ingredient="0"]').click();
-  const secondIngredient = page.locator('[data-ingredient-row][data-menu-index="0"]').nth(1);
-  await secondIngredient.locator('.ingredient-name').fill('Frango');
-  await secondIngredient.locator('.ingredient-value').fill('7,00');
+  await expect(page.locator('[data-ingredient-row][data-menu-index="0"]')).toHaveCount(0);
+  await page.locator('[data-menu-supermarket-cost="0"]').fill('10,00');
 
   const breakdown = page.locator('[data-menu-cost-breakdown="0"]');
   await expect(breakdown.locator('[data-menu-ingredient-cost]')).toHaveText('R$ 10,00');
@@ -558,17 +553,14 @@ test('menu planning combines manual costs, packaging, allocated costs and profit
     cost: '21.60',
     profit: '6.48',
     suggestedPrice: '28.08',
-    ingredients: [
-      { name: 'Arroz', value: '3.00' },
-      { name: 'Frango', value: '7.00' },
-    ],
+    ingredients: [],
   });
 
   await page.goto('/relatorios?ano=2026&mes=8');
   await page.getByRole('button', { name: 'Rentabilidade', exact: true }).click();
   const profitability = page.locator('[data-profitability-panel]');
   await expect(profitability).toContainText(
-    'Pedidos usam insumos manuais + rateio automático do Planejamento'
+    'Pedidos usam o custo manual de supermercado + rateio automático do Planejamento'
   );
   await expect(
     profitability.getByRole('link', { name: 'Abrir custos rateados', exact: true })
@@ -1862,92 +1854,29 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   expect(database.state.pricingConfig.sharedCosts).not.toHaveProperty('water');
   expect(database.state.pricingConfig.sharedCosts).not.toHaveProperty('labels');
 
-  await page.getByRole('button', { name: 'Receitas', exact: true }).click();
-  let recipeForm = page.locator('#pricing-recipe-form');
-  await expect(page.locator('.pricing-recipe-step')).toHaveText('Etapa 1 de 2');
-  await expect(recipeForm.locator('[data-pricing-recipe-ingredient]')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Pratos', exact: true }).click();
+  const recipeForm = page.locator('#pricing-recipe-form');
+  await expect(page.getByRole('button', { name: 'Ingredientes', exact: true })).toHaveCount(0);
   await recipeForm.locator('input[name="name"]').fill('Frango Fit');
   await recipeForm.locator('input[name="category"]').fill('Frango');
   await recipeForm.locator('input[name="weightGrams"]').fill('500');
+  await recipeForm.locator('input[name="supermarketUnitCost"]').fill('4,75');
   await recipeForm.locator('input[name="packagingCost"]').fill('2');
   await recipeForm.locator('input[name="fixedFee"]').fill('0,50');
   await recipeForm.locator('input[name="variableFeePercent"]').fill('10');
   await recipeForm.locator('input[name="desiredMarginPercent"]').fill('40');
   await recipeForm.locator('input[name="practicedPrice"]').fill('30');
-  await recipeForm
-    .getByRole('button', { name: 'Cadastrar receita e continuar', exact: true })
-    .click();
+  await expect(page.locator('[data-pricing-preview="supermarket"]')).toContainText('R$ 4,75');
+  await expect(page.locator('[data-pricing-preview="suggested"]')).toContainText('R$ 31,17');
+  await expect(page.locator('[data-pricing-preview="profit"]')).toContainText('R$ 11,42');
+  await expectNoHorizontalOverflow(page);
+  await recipeForm.getByRole('button', { name: 'Cadastrar prato', exact: true }).click();
   await expect.poll(() => database.state.pricingRecipes?.length).toBe(1);
   expect(database.state.pricingRecipes[0]).toMatchObject({
     name: 'Frango Fit',
-    ingredientBatchSize: 50,
+    supermarketUnitCost: 4.75,
     ingredients: [],
   });
-
-  recipeForm = page.locator('#pricing-recipe-form');
-  await expect(page.locator('.pricing-recipe-step')).toHaveText('Etapa 2 de 2');
-  await expect(
-    page.locator(
-      '.view-pane[data-view-pane="recipes"] .report-section table .pricing-status.pending'
-    )
-  ).toContainText('Ingredientes pendentes');
-  await recipeForm
-    .getByRole('button', { name: 'Cadastrar primeiro ingrediente', exact: true })
-    .click();
-
-  let ingredientForm = page.locator('#pricing-ingredient-form');
-  await expect(page.locator('.pricing-workflow-context')).toContainText('Frango Fit');
-  const unitSelect = ingredientForm.locator('select[name="unit"]');
-  await expect(unitSelect.locator('option')).toHaveCount(3);
-  await expect(unitSelect.locator('option')).toHaveText(['Quilograma (kg)', 'Unidade', 'Caixa']);
-  await ingredientForm.locator('input[name="name"]').fill('Peito de frango');
-  await unitSelect.selectOption('kg');
-  await ingredientForm.locator('input[name="purchaseQuantity"]').fill('1');
-  await ingredientForm.locator('input[name="purchaseCost"]').fill('20');
-  await expect(page.locator('[data-pricing-ingredient-unit-cost]')).toContainText('20,00');
-  await ingredientForm.getByRole('button', { name: 'Cadastrar ingrediente', exact: true }).click();
-  await expect.poll(() => database.state.pricingIngredients?.length).toBe(1);
-  await expect(page).toHaveURL(/precificacao\?view=recipes/);
-  expect(database.state.pricingIngredients[0]).toMatchObject({ unit: 'kg' });
-
-  recipeForm = page.locator('#pricing-recipe-form');
-  await recipeForm.getByRole('button', { name: 'Cadastrar novo ingrediente', exact: true }).click();
-  ingredientForm = page.locator('#pricing-ingredient-form');
-  await ingredientForm.locator('input[name="name"]').fill('Arroz');
-  await ingredientForm.locator('select[name="unit"]').selectOption('box');
-  await ingredientForm.locator('input[name="purchaseQuantity"]').fill('1');
-  await ingredientForm.locator('input[name="purchaseCost"]').fill('25');
-  await ingredientForm.getByRole('button', { name: 'Cadastrar ingrediente', exact: true }).click();
-  await expect.poll(() => database.state.pricingIngredients?.length).toBe(2);
-  await expect(page).toHaveURL(/precificacao\?view=recipes/);
-  expect(database.state.pricingIngredients[1]).toMatchObject({ unit: 'box' });
-
-  recipeForm = page.locator('#pricing-recipe-form');
-  await expect(recipeForm.locator('fieldset')).toContainText('50 pratos');
-  await recipeForm.locator('[data-pricing-recipe-ingredient]').nth(0).fill('10');
-  await recipeForm.locator('[data-pricing-recipe-ingredient]').nth(1).fill('1.5');
-  await expect(page.locator('[data-pricing-preview="suggested"]')).toContainText('31,17');
-  await expect(page.locator('[data-pricing-preview="profit"]')).toContainText('11,42');
-  await expectNoHorizontalOverflow(page);
-  await page.screenshot({
-    path: testInfo.outputPath('pricing-recipe-batch-50.png'),
-    fullPage: true,
-  });
-  await recipeForm
-    .getByRole('button', { name: 'Salvar ingredientes e cadastrar outra receita', exact: true })
-    .click();
-  await expect.poll(() => database.state.pricingRecipes?.[0]?.ingredients?.length).toBe(2);
-  expect(database.state.pricingRecipes[0]).toMatchObject({
-    ingredientBatchSize: 50,
-    ingredients: [
-      expect.objectContaining({ quantity: 10 }),
-      expect.objectContaining({ quantity: 1.5 }),
-    ],
-  });
-  await expect(page).toHaveURL(/precificacao\?view=recipes/);
-  await expect(page.locator('#pricing-recipe-form input[name="name"]')).toHaveValue('');
-
-  await page.locator('[data-view-tab="dashboard"]').click();
   await expect(page).toHaveURL(/precificacao\?view=dashboard/);
   const recipeRow = page.locator('.pricing-table tbody tr');
   await expect(recipeRow).toHaveCount(1);
@@ -1958,31 +1887,128 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   await expect(recipeRow).toContainText('Atenção');
   await expect(page.getByRole('heading', { name: 'Lucro estimado por lote' })).toBeVisible();
 
-  delete database.state.pricingRecipes[0].ingredientBatchSize;
-  database.state.pricingRecipes[0].ingredients[0].quantity = 0.2;
-  database.state.pricingRecipes[0].ingredients[1].quantity = 0.03;
-  await page.reload();
-  await page
-    .locator('.pricing-table tbody tr')
-    .getByRole('button', { name: 'Editar', exact: true })
-    .click();
-  const legacyRecipeForm = page.locator('#pricing-recipe-form');
-  await expect(legacyRecipeForm.locator('[data-pricing-recipe-ingredient]').nth(0)).toHaveValue(
-    '10'
-  );
-  await expect(legacyRecipeForm.locator('[data-pricing-recipe-ingredient]').nth(1)).toHaveValue(
-    '1.5'
-  );
-  await expect(page.locator('[data-pricing-preview="suggested"]')).toContainText('31,17');
-  await legacyRecipeForm
-    .getByRole('button', { name: 'Salvar ingredientes da receita', exact: true })
-    .click();
-  await expect.poll(() => database.state.pricingRecipes?.[0]?.ingredientBatchSize).toBe(50);
-
   await page.setViewportSize({ width: 390, height: 844 });
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
     path: testInfo.outputPath('pricing-recipe-dashboard.png'),
+    fullPage: true,
+  });
+});
+
+test('finance divides supermarket and paid bills by all plates sold in the month', async ({
+  page,
+}, testInfo) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    reportPeriod: { type: 'month', year: 2026, month: 8, week: 1 },
+    pricingIngredients: [],
+    pricingConfig: {},
+    pricingRecipes: [
+      {
+        id: 'recipe-store',
+        name: 'Frango da loja',
+        supermarketUnitCost: 5,
+        packagingCost: 0,
+        fixedFee: 0,
+        variableFeePercent: 0,
+        desiredMarginPercent: 30,
+        practicedPrice: 20,
+        ingredients: [],
+      },
+    ],
+    storeProducts: [
+      { id: 'product-store', name: 'Frango da loja', pricingRecipeId: 'recipe-store' },
+    ],
+    storeSales: [
+      {
+        id: 'store-unit',
+        date: '2026-08-03',
+        productId: 'product-store',
+        saleType: 'unit',
+        quantity: 10,
+      },
+      {
+        id: 'store-combo',
+        date: '2026-08-04',
+        productId: 'product-store',
+        saleType: 'combo',
+        quantity: 2,
+        unitsPerCombo: 5,
+      },
+    ],
+    weeklyMenusByPeriod: {
+      '2026-08-semana-1': [
+        {
+          slot: 1,
+          dish: 'Peixe semanal',
+          ingredientCost: '8.00',
+          packagingCost: '0.00',
+          cost: '8.00',
+          ingredients: [],
+        },
+      ],
+    },
+    orders: [
+      {
+        id: 'menu-order',
+        menuKey: '2026-08-semana-1',
+        dishes: [{ slot: 1, quantity: 10 }],
+        totalQuantity: 10,
+        amount: 200,
+        createdAt: '2026-08-05T12:00:00.000Z',
+      },
+    ],
+    cashEntries: [
+      {
+        id: 'paid-bill',
+        date: '2026-08-06',
+        dueDate: '2026-08-06',
+        paidAt: '2026-08-06T12:00:00.000Z',
+        type: 'expense',
+        category: 'boleto',
+        amount: '90.00',
+      },
+      {
+        id: 'account-bill',
+        date: '2026-08-07',
+        type: 'expense',
+        category: 'aluguel',
+        amount: '30.00',
+        financialAccountId: 'account-1',
+      },
+      {
+        id: 'separate-supermarket-entry',
+        date: '2026-08-08',
+        dueDate: '2026-08-08',
+        paidAt: '2026-08-08T12:00:00.000Z',
+        type: 'expense',
+        category: 'supermercado',
+        amount: '999.00',
+      },
+      {
+        id: 'pending-bill',
+        date: '2026-08-09',
+        dueDate: '2026-08-09',
+        type: 'expense',
+        category: 'boleto',
+        amount: '999.00',
+      },
+    ],
+  };
+
+  await page.goto('/financeiro?ano=2026&mes=8');
+  const panel = page.locator('[data-finance-food-cost]');
+  await expect(panel).toBeVisible();
+  await expect(panel.locator('[data-finance-supermarket-total]')).toHaveText('R$ 180,00');
+  await expect(panel.locator('[data-finance-bills-total]')).toHaveText('R$ 120,00');
+  await expect(panel.locator('[data-finance-sold-plates]')).toContainText('30');
+  await expect(
+    panel.locator('.metric').filter({ hasText: 'Total de pratos vendidos' })
+  ).toContainText('Menu 10 + Loja 20');
+  await expect(panel.locator('[data-finance-cost-per-plate]')).toContainText('R$ 10,00');
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath('finance-food-and-bills-cost.png'),
     fullPage: true,
   });
 });

@@ -70,12 +70,8 @@ test('normalizeState fills missing keys without replacing supplied values', () =
   assert.equal(state.appConfig.storeName, 'Cumbuca');
 });
 
-test('calculatePricing rates monthly costs and calculates suggested and real margins', () => {
+test('calculatePricing uses a manual supermarket unit cost and rates monthly costs', () => {
   const result = calculatePricing({
-    catalog: [
-      { id: 'chicken', unit: 'kg', purchaseQuantity: 1, purchaseCost: 20 },
-      { id: 'rice', unit: 'box', purchaseQuantity: 1, purchaseCost: 25 },
-    ],
     sharedCosts: {
       averageMonthlyUnits: 1000,
       gas: 100,
@@ -93,11 +89,7 @@ test('calculatePricing rates monthly costs and calculates suggested and real mar
       extraordinary: 100,
     },
     recipe: {
-      ingredientBatchSize: 50,
-      ingredients: [
-        { ingredientId: 'chicken', quantity: 10 },
-        { ingredientId: 'rice', quantity: 1.5 },
-      ],
+      supermarketUnitCost: 4.75,
       packagingCost: 2,
       fixedFee: 0.5,
       variableFeePercent: 10,
@@ -106,6 +98,7 @@ test('calculatePricing rates monthly costs and calculates suggested and real mar
     },
   });
 
+  assert.equal(result.supermarketUnitCost, 4.75);
   assert.equal(result.ingredientCost, 4.75);
   assert.equal(result.productionCost, 0.3);
   assert.equal(result.laborCost, 1);
@@ -120,7 +113,7 @@ test('calculatePricing rates monthly costs and calculates suggested and real mar
   assert.equal(result.status, 'Lucrativa');
 });
 
-test('calculatePricing preserves legacy per-plate ingredient quantities', () => {
+test('calculatePricing preserves legacy ingredient costs until a manual value is saved', () => {
   const result = calculatePricing({
     catalog: [{ id: 'chicken', unit: 'kg', purchaseQuantity: 1, purchaseCost: 20 }],
     recipe: {
@@ -131,6 +124,7 @@ test('calculatePricing preserves legacy per-plate ingredient quantities', () => 
   });
 
   assert.equal(result.ingredientCost, 4);
+  assert.equal(result.supermarketUnitCost, 4);
   assert.equal(result.baseCost, 4);
 });
 
@@ -142,7 +136,7 @@ test('calculatePricing preserves legacy labor until staff is registered', () => 
       labor: 500,
     },
     recipe: {
-      ingredients: [],
+      supermarketUnitCost: 0,
       desiredMarginPercent: 0,
       variableFeePercent: 0,
     },
@@ -150,7 +144,7 @@ test('calculatePricing preserves legacy labor until staff is registered', () => 
 
   assert.equal(result.laborCost, 5);
   assert.equal(result.baseCost, 5);
-  assert.equal(result.status, 'Ingredientes pendentes');
+  assert.equal(result.status, 'Custo de supermercado pendente');
 });
 
 test('automatic backups share one version per UTC hour', () => {
