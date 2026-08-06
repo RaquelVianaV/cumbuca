@@ -1238,7 +1238,7 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
   });
 });
 
-test('withdrawals separate account balance, prior withdrawals and cash compensation', async ({
+test('withdrawals automatically apply cash debts and never exceed the account balance', async ({
   page,
 }, testInfo) => {
   const database = await mockOnlineDatabase(page);
@@ -1279,15 +1279,22 @@ test('withdrawals separate account balance, prior withdrawals and cash compensat
   await expect(form.locator('.withdrawal-preview')).toContainText('-R$ 250,00');
   await expect(form.locator('.withdrawal-preview')).toContainText('Base da divisão');
   await expect(form.locator('.withdrawal-preview')).toContainText('R$ 5.000,00');
-  await form.locator('input[name="vanessa"]').fill('2.800,00');
-  await expect(form.locator('.withdrawal-preview')).toContainText('Pagou ao caixa R$ 200,00');
-  await expect(form.locator('.withdrawal-preview')).toContainText('Ainda não retirou R$ 150,00');
+  await expect(form.locator('.withdrawal-preview')).toContainText('Total que sai agoraR$ 4.750,00');
+  await expect(form.locator('.withdrawal-preview')).toContainText(
+    'Vanessa total retiradoR$ 3.150,00'
+  );
+  await expect(form.locator('.withdrawal-preview')).toContainText(
+    'Raquel total retiradoR$ 1.350,00'
+  );
+  await form.locator('input[name="vanessa"]').fill('5.000,00');
+  await expect(form.locator('.withdrawal-preview')).toContainText('Excede o saldo');
   await form.locator('input[name="vanessa"]').fill('2.950,00');
+  const cappedCalculation = await page.evaluate(() =>
+    window.withdrawalDistributionCalculation(2000, 10000, 0)
+  );
+  expect(cappedCalculation.total).toBeLessThanOrEqual(2000);
+  expect(cappedCalculation.accountAfterWithdrawal).toBeGreaterThanOrEqual(0);
   await expectNoHorizontalOverflow(page);
-  await page.screenshot({
-    path: testInfo.outputPath('withdrawal-cash-compensation.png'),
-    fullPage: true,
-  });
   await form.getByRole('button', { name: 'Registrar retiradas', exact: true }).click();
 
   await expect.poll(() => database.state.cashEntries?.length).toBe(5);
@@ -1306,6 +1313,7 @@ test('withdrawals separate account balance, prior withdrawals and cash compensat
   expect(firstVanessa).toMatchObject({
     amount: '2950.00',
     expectedAmount: '3150.00',
+    cashDebtAmount: '200.00',
     priorWithdrawalAmount: '200.00',
     accountBalanceBefore: '4750.00',
     cashAccount: 'pj',
@@ -1316,6 +1324,7 @@ test('withdrawals separate account balance, prior withdrawals and cash compensat
   expect(firstRaquel).toMatchObject({
     amount: '1300.00',
     expectedAmount: '1350.00',
+    cashDebtAmount: '50.00',
     priorWithdrawalAmount: '50.00',
     accountBalanceBefore: '4750.00',
     cashAccount: 'pj',
@@ -1325,15 +1334,40 @@ test('withdrawals separate account balance, prior withdrawals and cash compensat
       .filter((entry) => String(entry.id || '').startsWith('withdrawal-'))
       .every((entry) => entry.cashAccount === 'pj')
   ).toBe(true);
-  const accumulated = page
-    .locator('.partners-dashboard section')
-    .filter({ hasText: 'Valores compensados ao caixa' });
-  await expect(accumulated).toContainText('Vanessa');
-  await expect(accumulated).toContainText('Pagou ao caixa R$ 200,00');
-  await expect(accumulated).toContainText('Pagou ao caixa R$ 50,00');
+  const monthSummary = page.locator('.partners-dashboard section').filter({
+    hasText: 'Lucro operacional',
+  });
+  await expect(monthSummary).toContainText('Lucro operacionalR$ 5.000,00');
+  await expect(monthSummary).toContainText('Vanessa total retiradoR$ 3.150,00');
+  await expect(monthSummary).toContainText('Raquel total retiradoR$ 1.350,00');
   expect(
     await page.evaluate((dateKey) => window.accountBalanceUntilDate(dateKey), today)
   ).toBeCloseTo(0, 2);
+  await page.screenshot({
+    path: testInfo.outputPath('withdrawal-cash-compensation.png'),
+    fullPage: true,
+  });
+  await page.goto('/financeiro?view=withdrawals');
+  const withdrawalReport = page.locator('.withdrawal-person-panel');
+  await expect(withdrawalReport).toContainText('Lucro operacionalR$ 5.000,00');
+  await expect(withdrawalReport).toContainText('Cofrinho (10%)R$ 500,00');
+  await expect(withdrawalReport).toContainText('Vanessa total retiradoR$ 3.150,00');
+  await expect(withdrawalReport).toContainText('Raquel total retiradoR$ 1.350,00');
+  await expect(withdrawalReport).toContainText('Dívidas compensadasR$ 250,00');
+  await expect(withdrawalReport).toContainText('Total que saiu da contaR$ 4.750,00');
+  await expect(withdrawalReport).toContainText('Total retirado na semana');
+  await expect(withdrawalReport).toContainText('Total retirado no mês');
+  await expect(withdrawalReport).toContainText(
+    'R$ 3.150,00Recebeu agora R$ 2.950,00 · dívida compensada R$ 200,00'
+  );
+  await expect(withdrawalReport).toContainText(
+    'R$ 1.350,00Recebeu agora R$ 1.300,00 · dívida compensada R$ 50,00'
+  );
+  await expect(page.locator('.report-grid')).toContainText('Resultado após retiradasR$ 0,00');
+  await page.screenshot({
+    path: testInfo.outputPath('withdrawal-report-breakdown.png'),
+    fullPage: true,
+  });
 });
 
 test('store sales filter by day, week and month with previous month comparison', async ({

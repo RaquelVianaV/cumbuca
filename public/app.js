@@ -2957,12 +2957,12 @@ function roundedMoneyValue(value) {
   return Math.round(Number(value || 0) * 100) / 100;
 }
 
-function withdrawalDistributionCalculation(accountBalance, priorVanessa = 0, priorRaquel = 0) {
+function withdrawalDistributionCalculation(accountBalance, debtVanessa = 0, debtRaquel = 0) {
   const physicalBalance = Math.max(0, roundedMoneyValue(parseMoneyInput(accountBalance)));
-  const withdrawnBeforeVanessa = Math.max(0, roundedMoneyValue(parseMoneyInput(priorVanessa)));
-  const withdrawnBeforeRaquel = Math.max(0, roundedMoneyValue(parseMoneyInput(priorRaquel)));
+  const cashDebtVanessa = Math.max(0, roundedMoneyValue(parseMoneyInput(debtVanessa)));
+  const cashDebtRaquel = Math.max(0, roundedMoneyValue(parseMoneyInput(debtRaquel)));
   const distributionBase = roundedMoneyValue(
-    physicalBalance + withdrawnBeforeVanessa + withdrawnBeforeRaquel
+    physicalBalance + cashDebtVanessa + cashDebtRaquel
   );
   const suggested = withdrawalSplit(distributionBase);
   const expectedSavings = roundedMoneyValue(suggested.savings);
@@ -2970,11 +2970,24 @@ function withdrawalDistributionCalculation(accountBalance, priorVanessa = 0, pri
   const expectedRaquel = roundedMoneyValue(
     distributionBase - expectedSavings - expectedVanessa
   );
-  const paidToCashVanessa = Math.min(expectedVanessa, withdrawnBeforeVanessa);
-  const paidToCashRaquel = Math.min(expectedRaquel, withdrawnBeforeRaquel);
-  const vanessa = roundedMoneyValue(expectedVanessa - paidToCashVanessa);
-  const raquel = roundedMoneyValue(expectedRaquel - paidToCashRaquel);
-  const savings = expectedSavings;
+  const paidToCashVanessa = Math.min(expectedVanessa, cashDebtVanessa);
+  const paidToCashRaquel = Math.min(expectedRaquel, cashDebtRaquel);
+  const netDueVanessa = roundedMoneyValue(expectedVanessa - paidToCashVanessa);
+  const netDueRaquel = roundedMoneyValue(expectedRaquel - paidToCashRaquel);
+  const savings = Math.min(expectedSavings, physicalBalance);
+  const availableForPartners = roundedMoneyValue(Math.max(0, physicalBalance - savings));
+  const partnerClaims = roundedMoneyValue(netDueVanessa + netDueRaquel);
+  const partnerPaymentRatio = partnerClaims > availableForPartners && partnerClaims > 0
+    ? availableForPartners / partnerClaims
+    : 1;
+  const vanessa = roundedMoneyValue(Math.min(
+    netDueVanessa,
+    netDueVanessa * partnerPaymentRatio
+  ));
+  const raquel = roundedMoneyValue(Math.min(
+    netDueRaquel,
+    Math.max(0, availableForPartners - vanessa)
+  ));
   const total = roundedMoneyValue(savings + vanessa + raquel);
 
   return {
@@ -2984,17 +2997,21 @@ function withdrawalDistributionCalculation(accountBalance, priorVanessa = 0, pri
     expectedSavings,
     expectedVanessa,
     expectedRaquel,
-    priorVanessa: withdrawnBeforeVanessa,
-    priorRaquel: withdrawnBeforeRaquel,
+    debtVanessa: cashDebtVanessa,
+    debtRaquel: cashDebtRaquel,
+    priorVanessa: cashDebtVanessa,
+    priorRaquel: cashDebtRaquel,
     paidToCashVanessa,
     paidToCashRaquel,
-    remainingDebtVanessa: roundedMoneyValue(withdrawnBeforeVanessa - paidToCashVanessa),
-    remainingDebtRaquel: roundedMoneyValue(withdrawnBeforeRaquel - paidToCashRaquel),
+    remainingDebtVanessa: roundedMoneyValue(cashDebtVanessa - paidToCashVanessa),
+    remainingDebtRaquel: roundedMoneyValue(cashDebtRaquel - paidToCashRaquel),
+    pendingVanessa: roundedMoneyValue(netDueVanessa - vanessa),
+    pendingRaquel: roundedMoneyValue(netDueRaquel - raquel),
     savings,
     vanessa,
     raquel,
     total,
-    accountAfterWithdrawal: roundedMoneyValue(physicalBalance - total)
+    accountAfterWithdrawal: roundedMoneyValue(Math.max(0, physicalBalance - total))
   };
 }
 
@@ -3723,11 +3740,11 @@ function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
       group[expectedKey] += expectedAmount;
       group[expectedFlag] = true;
     }
-    const priorWithdrawalAmount = Number(entry.priorWithdrawalAmount);
-    if (Number.isFinite(priorWithdrawalAmount) && ["vanessa", "raquel"].includes(target)) {
+    const cashDebtAmount = Number(entry.cashDebtAmount ?? entry.priorWithdrawalAmount);
+    if (Number.isFinite(cashDebtAmount) && ["vanessa", "raquel"].includes(target)) {
       const priorKey = `prior${target[0].toUpperCase()}${target.slice(1)}`;
       const priorFlag = `hasPrior${target[0].toUpperCase()}${target.slice(1)}`;
-      group[priorKey] += priorWithdrawalAmount;
+      group[priorKey] += cashDebtAmount;
       group[priorFlag] = true;
     }
     group.entries.push(entry);
@@ -3818,6 +3835,13 @@ function partnerPeriodTotals(groups = []) {
     totals.expectedSavings += Number(group.expectedSavings || 0);
     totals.expectedVanessa += Number(group.expectedVanessa || 0);
     totals.expectedRaquel += Number(group.expectedRaquel || 0);
+    totals.expectedTotal += Number(group.expectedTotal || 0);
+    totals.paidNowTotal += Number(group.total || 0);
+    totals.operationalProfit += Number(group.savings || 0)
+      + Number(group.vanessa || 0)
+      + Number(group.paidToCashVanessa || 0)
+      + Number(group.raquel || 0)
+      + Number(group.paidToCashRaquel || 0);
     totals.priorVanessa += Number(group.priorVanessa || 0);
     totals.priorRaquel += Number(group.priorRaquel || 0);
     totals.paidToCashVanessa += Number(group.paidToCashVanessa || 0);
@@ -3836,6 +3860,9 @@ function partnerPeriodTotals(groups = []) {
     expectedSavings: 0,
     expectedVanessa: 0,
     expectedRaquel: 0,
+    expectedTotal: 0,
+    paidNowTotal: 0,
+    operationalProfit: 0,
     priorVanessa: 0,
     priorRaquel: 0,
     paidToCashVanessa: 0,
@@ -3891,21 +3918,17 @@ function withdrawalHistoryHtml(monthKey = currentMonthKey()) {
   return `
     <div class="table-wrap report-table">
       <table>
-        <thead><tr><th>Data</th><th>Conta</th><th>Saldo real usado</th><th>Base da divisão</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Compensado ao caixa</th><th>Retirado agora</th><th></th></tr></thead>
+        <thead><tr><th>Data</th><th>Conta</th><th>Saldo disponível</th><th>Lucro operacional</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Saiu da conta</th><th></th></tr></thead>
         <tbody>
           ${groups.map(group => `
             <tr>
               <td>${formatIsoDateBr(group.date)}</td>
               <td>${group.mixedCashAccounts ? "Mais de uma conta" : cashAccountLabel(group.cashAccount)}</td>
               <td>${money(group.accountBalanceBefore)}</td>
-              <td>${money(group.distributionBase)}<br><small>Saldo + retirado antes</small></td>
-              <td>${money(group.savings)}<br><small>Direito ${money(group.expectedSavings)}</small></td>
-              <td>${money(group.vanessa)}<br><small>Direito ${money(group.expectedVanessa)} · antes ${money(group.priorVanessa)}</small></td>
-              <td>${money(group.raquel)}<br><small>Direito ${money(group.expectedRaquel)} · antes ${money(group.priorRaquel)}</small></td>
-              <td>
-                <small>Vanessa: ${partnerCashOffsetLabel(group.paidToCashVanessa)}</small><br>
-                <small>Raquel: ${partnerCashOffsetLabel(group.paidToCashRaquel)}</small>
-              </td>
+              <td><strong>${money(group.savings + group.vanessa + group.paidToCashVanessa + group.raquel + group.paidToCashRaquel)}</strong><br><small>Total retirado</small></td>
+              <td>${money(group.savings)}<br><small>10% bruto ${money(group.expectedSavings)}</small></td>
+              <td><strong>${money(group.vanessa + group.paidToCashVanessa)}</strong><br><small>Recebeu agora ${money(group.vanessa)} · dívida compensada ${money(group.paidToCashVanessa)} · direito ${money(group.expectedVanessa)}</small></td>
+              <td><strong>${money(group.raquel + group.paidToCashRaquel)}</strong><br><small>Recebeu agora ${money(group.raquel)} · dívida compensada ${money(group.paidToCashRaquel)} · direito ${money(group.expectedRaquel)}</small></td>
               <td><strong>${money(group.total)}</strong></td>
               <td><button class="secondary table-action" type="button" data-edit-withdrawal="${escapeHtml(group.key)}">Editar</button></td>
             </tr>
@@ -4104,32 +4127,59 @@ function financialSummary(cashEntries = []) {
 }
 
 function withdrawalBreakdownAmounts(withdrawals = {}, control = {}) {
+  const receivedNowVanessa = Number(withdrawals.vanessa || 0);
+  const receivedNowRaquel = Number(withdrawals.raquel || 0);
+  const savings = Number(withdrawals.savings || 0);
+  const paidToCashVanessa = Number(control?.paidToCashVanessa ?? control?.differenceVanessa ?? 0);
+  const paidToCashRaquel = Number(control?.paidToCashRaquel ?? control?.differenceRaquel ?? 0);
+  const vanessa = receivedNowVanessa + paidToCashVanessa;
+  const raquel = receivedNowRaquel + paidToCashRaquel;
   return {
-    vanessa: Number(withdrawals.vanessa || 0),
-    savings: Number(withdrawals.savings || 0),
-    raquel: Number(withdrawals.raquel || 0),
-    paidToCashVanessa: Number(control?.paidToCashVanessa ?? control?.differenceVanessa ?? 0),
-    paidToCashRaquel: Number(control?.paidToCashRaquel ?? control?.differenceRaquel ?? 0),
+    vanessa,
+    savings,
+    raquel,
+    total: vanessa + savings + raquel,
+    receivedNowVanessa,
+    receivedNowRaquel,
+    paidToCashVanessa,
+    paidToCashRaquel,
     pendingVanessa: Number(control?.pendingVanessa ?? control?.differenceVanessa ?? 0),
     pendingRaquel: Number(control?.pendingRaquel ?? control?.differenceRaquel ?? 0)
   };
 }
 
+function operationalProfitForReport(data = {}) {
+  const withdrawals = data.financial?.withdrawals || {};
+  const entries = data.financial?.withdrawalEntries || [];
+  if (!entries.length) {
+    return Number(data.financial?.profitBeforeWithdrawals || 0);
+  }
+  return withdrawalBreakdownAmounts(withdrawals, data.partnerWithdrawalControl).total;
+}
+
+function operationalResultForReport(data = {}) {
+  const withdrawalAmounts = withdrawalBreakdownAmounts(
+    data.financial?.withdrawals || {},
+    data.partnerWithdrawalControl
+  );
+  return operationalProfitForReport(data) - withdrawalAmounts.total;
+}
+
 function withdrawalBreakdownMetrics(withdrawals = {}, className = "metric", control = {}) {
   const amounts = withdrawalBreakdownAmounts(withdrawals, control);
   return `
-    <div class="${className}"><span>Vanessa recebeu</span><strong>${money(amounts.vanessa)}</strong></div>
+    <div class="${className}"><span>Vanessa total retirado</span><strong>${money(amounts.vanessa)}</strong></div>
     <div class="${className}"><span>Cofrinho</span><strong>${money(amounts.savings)}</strong></div>
-    <div class="${className}"><span>Raquel recebeu</span><strong>${money(amounts.raquel)}</strong></div>
+    <div class="${className}"><span>Raquel total retirado</span><strong>${money(amounts.raquel)}</strong></div>
   `;
 }
 
 function withdrawalBreakdownStatement(withdrawals = {}, control = {}) {
   const amounts = withdrawalBreakdownAmounts(withdrawals, control);
   return `
-    <div class="statement-line"><span>(-) Vanessa recebeu</span><strong>${money(amounts.vanessa)}</strong></div>
+    <div class="statement-line"><span>(-) Vanessa total retirado</span><strong>${money(amounts.vanessa)}</strong></div>
     <div class="statement-line"><span>(-) Cofrinho</span><strong>${money(amounts.savings)}</strong></div>
-    <div class="statement-line"><span>(-) Raquel recebeu</span><strong>${money(amounts.raquel)}</strong></div>
+    <div class="statement-line"><span>(-) Raquel total retirado</span><strong>${money(amounts.raquel)}</strong></div>
   `;
 }
 
@@ -5544,13 +5594,9 @@ async function renderCash() {
     editingWithdrawal?.priorRaquel || 0
   );
   const withdrawalFormValues = editingWithdrawal || automaticWithdrawal;
-  const previewSavingsLoan = Math.max(
-    0,
-    Number(withdrawalFormValues.total || 0) - withdrawalAccountBalance
+  const previewAccountAfterWithdrawal = roundedMoneyValue(
+    Math.max(0, withdrawalAccountBalance - Number(withdrawalFormValues.total || 0))
   );
-  const previewAccountAfterWithdrawal = withdrawalAccountBalance
-    + previewSavingsLoan
-    - Number(withdrawalFormValues.total || 0);
   const savingsPlanning = state.financialPlanning || {};
   const savingsCurrent = savingsBalance();
   const savingsExpected = savingsExpectedBalance();
@@ -5831,7 +5877,7 @@ async function renderCash() {
         ${activeCashPanel === "withdrawals" ? `
         <div class="cash-tab-section withdrawal-panel">
         <h2>${editingWithdrawal ? "Editar retirada" : "Retiradas"}</h2>
-        <p class="muted-inline">O saldo real mostra somente o dinheiro que existe na conta. Valores já retirados durante a semana entram separadamente na base da divisão e são compensados da parte de Vanessa ou Raquel.</p>
+        <p class="muted-inline">O saldo real mostra somente o dinheiro que existe na conta. Valores já retirados entram separadamente na base da divisão e são compensados da parte de Vanessa ou Raquel.</p>
         <div class="partners-dashboard">
           <section>
             <h3>Valores compensados ao caixa</h3>
@@ -5843,30 +5889,18 @@ async function renderCash() {
           <section>
             <h3>Semana de ${formatIsoDateBr(partnersDashboard.weekStart)} a ${formatIsoDateBr(partnersDashboard.weekEnd)}</h3>
             <div class="summary">
-              <div class="metric"><span>Vanessa retirou agora</span><strong>${money(partnersDashboard.week.vanessa)}</strong></div>
-              <div class="metric"><span>Vanessa pagou ao caixa</span><strong>${money(partnersDashboard.week.paidToCashVanessa)}</strong></div>
-              <div class="metric"><span>Raquel retirou agora</span><strong>${money(partnersDashboard.week.raquel)}</strong></div>
-              <div class="metric"><span>Raquel pagou ao caixa</span><strong>${money(partnersDashboard.week.paidToCashRaquel)}</strong></div>
+              <div class="metric"><span>Vanessa total retirado</span><strong>${money(partnersDashboard.week.vanessa + partnersDashboard.week.paidToCashVanessa)}</strong></div>
+              <div class="metric"><span>Raquel total retirado</span><strong>${money(partnersDashboard.week.raquel + partnersDashboard.week.paidToCashRaquel)}</strong></div>
               <div class="metric"><span>Cofrinho</span><strong>${money(partnersDashboard.week.savings)}</strong></div>
             </div>
           </section>
           <section>
             <h3>${formatMonthKeyBr(partnersPeriod)}</h3>
             <div class="summary">
-              <div class="metric"><span>Vanessa retirou agora</span><strong>${money(partnersDashboard.month.vanessa)}</strong></div>
-              <div class="metric"><span>Vanessa pagou ao caixa</span><strong>${money(partnersDashboard.month.paidToCashVanessa)}</strong></div>
-              <div class="metric"><span>Raquel retirou agora</span><strong>${money(partnersDashboard.month.raquel)}</strong></div>
-              <div class="metric"><span>Raquel pagou ao caixa</span><strong>${money(partnersDashboard.month.paidToCashRaquel)}</strong></div>
-              <div class="metric"><span>Cofrinho no mês</span><strong>${money(partnersDashboard.month.savings)}</strong></div>
-            </div>
-          </section>
-          <section>
-            <h3>Projeção até ${formatIsoDateBr(partnersDashboard.monthEnd)}</h3>
-            <div class="summary">
-              <div class="metric"><span>Vanessa projetado</span><strong>${money(partnersDashboard.projection.vanessa)}</strong></div>
-              <div class="metric"><span>Raquel projetado</span><strong>${money(partnersDashboard.projection.raquel)}</strong></div>
-              <div class="metric"><span>Cofrinho projetado</span><strong>${money(partnersDashboard.projection.savings)}</strong></div>
-              <div class="metric"><span>Saldo atual do cofrinho</span><strong>${money(savingsCurrent)}</strong></div>
+              <div class="metric"><span>Lucro operacional</span><strong>${money(partnersDashboard.month.operationalProfit)}</strong></div>
+              <div class="metric"><span>Vanessa total retirado</span><strong>${money(partnersDashboard.month.vanessa + partnersDashboard.month.paidToCashVanessa)}</strong></div>
+              <div class="metric"><span>Raquel total retirado</span><strong>${money(partnersDashboard.month.raquel + partnersDashboard.month.paidToCashRaquel)}</strong></div>
+              <div class="metric"><span>Cofrinho no mês</span><strong>${money(partnersDashboard.month.expectedSavings)}</strong></div>
             </div>
           </section>
         </div>
@@ -5882,7 +5916,7 @@ async function renderCash() {
           </label>
           <div class="withdrawal-value-group">
             <strong>1. Dinheiro que não está mais na conta</strong>
-            <p class="muted-inline">Confira o saldo real no banco e informe o que Vanessa ou Raquel já retiraram antes desta divisão. Se o saldo real estiver diferente do sistema, a diferença será registrada como ajuste da conta. O valor já retirado entra na base, mas não será retirado novamente.</p>
+            <p class="muted-inline">Confira o saldo real no banco e informe o que Vanessa ou Raquel já retiraram antes desta divisão. O valor já retirado entra na base, mas não será retirado novamente.</p>
             <div class="withdrawal-fields">
               <label>Saldo real da conta agora
                 <input name="accountBalanceBefore" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalAccountBalance)}">
@@ -5912,7 +5946,7 @@ async function renderCash() {
           </div>
           <div class="withdrawal-value-group">
             <strong>3. Quanto realmente sairá da conta agora</strong>
-            <p class="muted-inline">Os valores já retirados são descontados da parte da pessoa. Se o valor real for diferente da sugestão, o sistema mostrará essa diferença separadamente.</p>
+            <p class="muted-inline">Os valores já retirados são descontados da parte da pessoa. O total informado abaixo nunca pode ultrapassar o saldo real da conta.</p>
             <div class="withdrawal-fields">
               <label>Cofrinho agora
                 <input name="savings" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.savings)}">
@@ -5932,10 +5966,9 @@ async function renderCash() {
             <span><b>Retirado antes da divisão</b>${money(Number(withdrawalFormValues.priorVanessa || 0) + Number(withdrawalFormValues.priorRaquel || 0))}</span>
             <span><b>Base da divisão</b>${money(withdrawalFormValues.distributionBase)}</span>
             <span><b>Total que sai agora</b>${money(withdrawalFormValues.total)}</span>
-            <span><b>Empréstimo do cofrinho</b>${money(previewSavingsLoan)}</span>
-            <span><b>Saldo da conta depois</b>${money(Math.max(0, previewAccountAfterWithdrawal))}</span>
-            <span><b>Vanessa compensou</b>${money(withdrawalFormValues.paidToCashVanessa)}</span>
-            <span><b>Raquel compensou</b>${money(withdrawalFormValues.paidToCashRaquel)}</span>
+            <span><b>Saldo da conta depois</b>${money(previewAccountAfterWithdrawal)}</span>
+            <span><b>Vanessa total retirado</b>${money(Number(withdrawalFormValues.vanessa || 0) + Number(withdrawalFormValues.paidToCashVanessa || 0))}</span>
+            <span><b>Raquel total retirado</b>${money(Number(withdrawalFormValues.raquel || 0) + Number(withdrawalFormValues.paidToCashRaquel || 0))}</span>
           </div>
           <div class="actions">
             <button type="submit">${editingWithdrawal ? "Salvar retirada" : "Registrar retiradas"}</button>
@@ -7097,12 +7130,11 @@ async function renderCash() {
       withdrawalForm.elements.expectedSavings.value = moneyInputValue(calculation.expectedSavings);
       withdrawalForm.elements.expectedVanessa.value = moneyInputValue(calculation.expectedVanessa);
       withdrawalForm.elements.expectedRaquel.value = moneyInputValue(calculation.expectedRaquel);
-      const actualFields = [
+      [
         ["savings", "savings"],
         ["vanessa", "vanessa"],
         ["raquel", "raquel"]
-      ];
-      actualFields.forEach(([fieldName, valueKey]) => {
+      ].forEach(([fieldName, valueKey]) => {
         const field = withdrawalForm.elements[fieldName];
         const keptSuggestedValue = Math.abs(
           parseMoneyInput(field.value) - Number(previousSuggested[valueKey] || 0)
@@ -7127,6 +7159,10 @@ async function renderCash() {
         raquel: Math.max(0, parseMoneyInput(withdrawalForm.elements.raquel.value))
       };
       actual.total = roundedMoneyValue(actual.savings + actual.vanessa + actual.raquel);
+      const accountAfterWithdrawal = roundedMoneyValue(
+        Math.max(0, calculation.physicalBalance - actual.total)
+      );
+      const excess = roundedMoneyValue(Math.max(0, actual.total - calculation.physicalBalance));
       const pendingVanessa = Math.max(
         0,
         calculation.expectedVanessa - calculation.paidToCashVanessa - actual.vanessa
@@ -7135,20 +7171,20 @@ async function renderCash() {
         0,
         calculation.expectedRaquel - calculation.paidToCashRaquel - actual.raquel
       );
-      const savingsLoan = Math.max(0, actual.total - calculation.physicalBalance);
-      const accountAfterWithdrawal = calculation.physicalBalance + savingsLoan - actual.total;
       const preview = withdrawalForm.querySelector(".withdrawal-preview");
       preview.innerHTML = `
         <span><b>Saldo calculado pelo sistema</b>${money(calculatedBalance)}</span>
         <span><b>Saldo real da conta</b>${money(calculation.physicalBalance)}</span>
         <span><b>Ajuste para igualar ao banco</b>${money(balanceDifference)}</span>
-        <span><b>Retirado antes da divisão</b>${money(calculation.priorVanessa + calculation.priorRaquel)}</span>
+        <span><b>Retirado antes da divisão</b>${money(calculation.debtVanessa + calculation.debtRaquel)}</span>
         <span><b>Base da divisão</b>${money(calculation.distributionBase)}</span>
-        <span><b>Total que sai agora</b>${money(actual.total)}</span>
-        <span><b>Empréstimo do cofrinho</b>${money(savingsLoan)}</span>
-        <span><b>Saldo da conta depois</b>${money(Math.max(0, accountAfterWithdrawal))}</span>
-        <span><b>Vanessa compensou</b>${partnerCashOffsetLabel(calculation.paidToCashVanessa)}<small>${partnerPendingLabel(pendingVanessa)}</small></span>
-        <span><b>Raquel compensou</b>${partnerCashOffsetLabel(calculation.paidToCashRaquel)}<small>${partnerPendingLabel(pendingRaquel)}</small></span>
+        <span><b>Total que sai agora</b>${money(actual.total)}<small>${excess > 0 ? `Excede o saldo em ${money(excess)}` : "Dentro do saldo disponível"}</small></span>
+        <span><b>Saldo da conta depois</b>${money(accountAfterWithdrawal)}</span>
+        <span><b>Vanessa total retirado</b>${money(actual.vanessa + calculation.paidToCashVanessa)}<small>${partnerCashOffsetLabel(calculation.paidToCashVanessa)} · ${partnerPendingLabel(pendingVanessa)}</small></span>
+        <span><b>Raquel total retirado</b>${money(actual.raquel + calculation.paidToCashRaquel)}<small>${partnerCashOffsetLabel(calculation.paidToCashRaquel)} · ${partnerPendingLabel(pendingRaquel)}</small></span>
+        ${calculation.remainingDebtVanessa > 0 || calculation.remainingDebtRaquel > 0
+          ? `<span><b>Dívida que continua pendente</b>Vanessa ${money(calculation.remainingDebtVanessa)} · Raquel ${money(calculation.remainingDebtRaquel)}</span>`
+          : ""}
       `;
     };
 
@@ -7190,28 +7226,25 @@ async function renderCash() {
     expected.total = calculation.expectedTotal;
     const split = {
       distributionBase: calculation.distributionBase,
-      total: Math.max(0, parseMoneyInput(values.savings)) + Math.max(0, parseMoneyInput(values.vanessa)) + Math.max(0, parseMoneyInput(values.raquel)),
       savings: Math.max(0, parseMoneyInput(values.savings)),
       vanessa: Math.max(0, parseMoneyInput(values.vanessa)),
       raquel: Math.max(0, parseMoneyInput(values.raquel))
     };
+    split.total = roundedMoneyValue(split.savings + split.vanessa + split.raquel);
     const prior = {
-      vanessa: calculation.priorVanessa,
-      raquel: calculation.priorRaquel
+      vanessa: calculation.debtVanessa,
+      raquel: calculation.debtRaquel
     };
     if (expected.total <= 0) {
       showToast("Não há saldo ou retirada anterior para formar a base da divisão.", "error");
       return;
     }
 
-    const savingsLoan = Math.max(0, split.total - available);
-    const projectedSavingsBalance = savingsBalance()
-      + (split.savings - Number(previousWithdrawal?.savings || 0))
-      - (savingsLoan - previousSavingsLoanAmount);
-    if (projectedSavingsBalance < -0.009) {
-      showToast(`O cofrinho não cobre o excedente de ${money(savingsLoan)}. Atualize o saldo do cofrinho ou reduza a retirada.`, "error");
+    if (split.total > available + 0.009) {
+      showToast("A retirada não pode ultrapassar o valor disponível na conta.", "error");
       return;
     }
+    const savingsLoan = 0;
 
     if (blockClosedPeriod(values.date, "registrar retiradas")) {
       return;
@@ -7262,6 +7295,7 @@ async function renderCash() {
         amount: split.savings.toFixed(2),
         distributionBase: split.distributionBase.toFixed(2),
         accountBalanceBefore: available.toFixed(2),
+        grossWithdrawalAmount: expected.total.toFixed(2),
         expectedAmount: expected.savings.toFixed(2)
       },
       {
@@ -7274,7 +7308,10 @@ async function renderCash() {
         amount: split.vanessa.toFixed(2),
         distributionBase: split.distributionBase.toFixed(2),
         accountBalanceBefore: available.toFixed(2),
+        grossWithdrawalAmount: expected.total.toFixed(2),
+        cashDebtAmount: prior.vanessa.toFixed(2),
         priorWithdrawalAmount: prior.vanessa.toFixed(2),
+        paidToCashAmount: calculation.paidToCashVanessa.toFixed(2),
         expectedAmount: expected.vanessa.toFixed(2)
       },
       {
@@ -7287,7 +7324,10 @@ async function renderCash() {
         amount: split.raquel.toFixed(2),
         distributionBase: split.distributionBase.toFixed(2),
         accountBalanceBefore: available.toFixed(2),
+        grossWithdrawalAmount: expected.total.toFixed(2),
+        cashDebtAmount: prior.raquel.toFixed(2),
         priorWithdrawalAmount: prior.raquel.toFixed(2),
+        paidToCashAmount: calculation.paidToCashRaquel.toFixed(2),
         expectedAmount: expected.raquel.toFixed(2)
       }
     ].filter(entry => entry && (Number(entry.amount || 0) > 0 || Number(entry.expectedAmount || 0) > 0));
@@ -7320,9 +7360,7 @@ async function renderCash() {
           : "Devolução ao cofrinho por ajuste de retirada"
       });
     }
-    const pendingVanessa = Math.max(0, expected.vanessa - calculation.paidToCashVanessa - split.vanessa);
-    const pendingRaquel = Math.max(0, expected.raquel - calculation.paidToCashRaquel - split.raquel);
-    const auditDetail = `${cashAccountLabel(cashAccount)} - saldo calculado ${money(calculatedBalanceBefore)} - saldo real ${money(available)}${Math.abs(balanceDifference) > 0.009 ? ` - ajuste da conta ${money(balanceDifference)}` : ""} - retirado antes Vanessa/Raquel ${money(prior.vanessa)} / ${money(prior.raquel)} - base ${money(expected.total)} - retirado agora ${money(split.total)} - cofrinho direito/agora ${money(expected.savings)} / ${money(split.savings)}, Vanessa direito/agora ${money(expected.vanessa)} / ${money(split.vanessa)} (${partnerCashOffsetLabel(calculation.paidToCashVanessa)}; ${partnerPendingLabel(pendingVanessa)}), Raquel direito/agora ${money(expected.raquel)} / ${money(split.raquel)} (${partnerCashOffsetLabel(calculation.paidToCashRaquel)}; ${partnerPendingLabel(pendingRaquel)})${savingsLoan > 0 ? ` - empréstimo do cofrinho ${money(savingsLoan)}` : ""}`;
+    const auditDetail = `${cashAccountLabel(cashAccount)} - saldo calculado ${money(calculatedBalanceBefore)} - saldo informado ${money(available)}${Math.abs(balanceDifference) > 0.009 ? ` - ajuste da conta ${money(balanceDifference)}` : ""} - dívidas Vanessa/Raquel ${money(prior.vanessa)} / ${money(prior.raquel)} - lucro bruto ${money(expected.total)} - saiu da conta ${money(split.total)} - cofrinho ${money(split.savings)}, Vanessa direito/dívida/recebe ${money(expected.vanessa)} / ${money(calculation.paidToCashVanessa)} / ${money(split.vanessa)}, Raquel direito/dívida/recebe ${money(expected.raquel)} / ${money(calculation.paidToCashRaquel)} / ${money(split.raquel)}`;
     recordAudit(previousWithdrawal ? "Retirada editada" : "Retirada registrada", auditDetail);
     state.editWithdrawalGroup = null;
     if (await persistState()) {
@@ -11805,14 +11843,23 @@ function reportPdfWithdrawalRows(data) {
   const informedRaquel = Number(partners.raquel || 0);
   const differenceTotal = Number(partners.difference || 0) || automaticDifferenceTotal;
   const rows = [
-    ["Cofrinho recebeu", money(data.financial.withdrawals.savings)],
+    ["Lucro operacional", money(operationalProfitForReport(data))],
+    ["Total que saiu da conta", money(data.partnerWithdrawalControl?.paidNowTotal)],
+    ["Cofrinho - direito de 10%", money(data.partnerWithdrawalControl?.expectedSavings)],
+    ["Cofrinho - transferido agora", money(data.financial.withdrawals.savings)],
     ["Vanessa - direito na divisão", money(data.partnerWithdrawalControl?.expectedVanessa)],
-    ["Vanessa - retirou agora", money(data.financial.withdrawals.vanessa)],
-    ["Vanessa - pagou ao caixa", money(data.partnerWithdrawalControl?.paidToCashVanessa)],
+    ["Vanessa - dívida informada", money(data.partnerWithdrawalControl?.priorVanessa)],
+    ["Vanessa - dívida compensada", money(data.partnerWithdrawalControl?.paidToCashVanessa)],
+    ["Vanessa - recebeu agora", money(data.financial.withdrawals.vanessa)],
+    ["Vanessa - total retirado", money(Number(data.financial.withdrawals.vanessa || 0) + Number(data.partnerWithdrawalControl?.paidToCashVanessa || 0))],
+    ["Vanessa - dívida restante", money(data.partnerWithdrawalControl?.remainingDebtVanessa)],
     ["Vanessa - ainda não retirou", money(data.partnerWithdrawalControl?.pendingVanessa)],
     ["Raquel - direito na divisão", money(data.partnerWithdrawalControl?.expectedRaquel)],
-    ["Raquel - retirou agora", money(data.financial.withdrawals.raquel)],
-    ["Raquel - pagou ao caixa", money(data.partnerWithdrawalControl?.paidToCashRaquel)],
+    ["Raquel - dívida informada", money(data.partnerWithdrawalControl?.priorRaquel)],
+    ["Raquel - dívida compensada", money(data.partnerWithdrawalControl?.paidToCashRaquel)],
+    ["Raquel - recebeu agora", money(data.financial.withdrawals.raquel)],
+    ["Raquel - total retirado", money(Number(data.financial.withdrawals.raquel || 0) + Number(data.partnerWithdrawalControl?.paidToCashRaquel || 0))],
+    ["Raquel - dívida restante", money(data.partnerWithdrawalControl?.remainingDebtRaquel)],
     ["Raquel - ainda não retirou", money(data.partnerWithdrawalControl?.pendingRaquel)]
   ];
 
@@ -12216,11 +12263,11 @@ function reportCsvRows(kind, data) {
     const rows = [
       { seção: "resumo", data: "", descrição: "Entradas no caixa", tipo: "entrada", categoria: "", valor: data.financial.income },
       { seção: "resumo", data: "", descrição: "Saídas operacionais", tipo: "saída", categoria: "operacional", valor: data.financial.operationalExpenses },
-      { seção: "resumo", data: "", descrição: "Lucro antes das retiradas", tipo: "saldo", categoria: "", valor: data.financial.profitBeforeWithdrawals },
-      { seção: "resumo", data: "", descrição: "Vanessa recebeu", tipo: "saída", categoria: "retirada", valor: withdrawalAmounts.vanessa },
+      { seção: "resumo", data: "", descrição: "Lucro operacional", tipo: "saldo", categoria: "", valor: operationalProfitForReport(data) },
+      { seção: "resumo", data: "", descrição: "Vanessa - total retirado", tipo: "saída", categoria: "retirada", valor: withdrawalAmounts.vanessa },
       { seção: "resumo", data: "", descrição: "Cofrinho", tipo: "saída", categoria: "retirada", valor: withdrawalAmounts.savings },
-      { seção: "resumo", data: "", descrição: "Raquel recebeu", tipo: "saída", categoria: "retirada", valor: withdrawalAmounts.raquel },
-      { seção: "resumo", data: "", descrição: "Resultado após retiradas", tipo: "saldo", categoria: "", valor: data.financial.availableForWithdrawal },
+      { seção: "resumo", data: "", descrição: "Raquel - total retirado", tipo: "saída", categoria: "retirada", valor: withdrawalAmounts.raquel },
+      { seção: "resumo", data: "", descrição: "Resultado após retiradas", tipo: "saldo", categoria: "", valor: operationalResultForReport(data) },
       { seção: "ajustes da conta", data: "", descrição: "Entradas de ajuste", tipo: "entrada", categoria: "ajuste da conta", valor: data.accountAdjustmentTotals.income },
       { seção: "ajustes da conta", data: "", descrição: "Saídas de ajuste", tipo: "saída", categoria: "ajuste da conta", valor: data.accountAdjustmentTotals.expenses },
       { seção: "ajustes da conta", data: "", descrição: "Saldo dos ajustes", tipo: "saldo", categoria: "ajuste da conta", valor: data.accountAdjustmentTotals.balance },
@@ -12228,14 +12275,23 @@ function reportCsvRows(kind, data) {
       { seção: "resumo", data: data.savingsUpdatedAt || "", descrição: "Valor atual do cofrinho", tipo: "saldo", categoria: "cofrinho", valor: data.savingsBalance },
       { seção: "produção", data: "", descrição: "Cumbucas vendidas na loja", tipo: "quantidade", categoria: "loja", valor: data.storeQuantity },
       { seção: "produção", data: "", descrição: "Total de cumbucas vendidas", tipo: "quantidade", categoria: "total", valor: data.totalSoldQuantity },
-      { seção: "retiradas", data: "", descrição: "Cofrinho", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.savings },
-      { seção: "retiradas", data: "", descrição: "Vanessa", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.vanessa },
-      { seção: "retiradas", data: "", descrição: "Raquel", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.raquel },
+      { seção: "retiradas", data: "", descrição: "Lucro operacional", tipo: "controle", categoria: "retirada", valor: withdrawalAmounts.total },
+      { seção: "retiradas", data: "", descrição: "Total que saiu da conta", tipo: "saída", categoria: "retirada", valor: data.partnerWithdrawalControl?.paidNowTotal || 0 },
+      { seção: "retiradas", data: "", descrição: "Cofrinho - direito de 10%", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.expectedSavings || 0 },
+      { seção: "retiradas", data: "", descrição: "Cofrinho - transferido agora", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.savings },
+      { seção: "retiradas", data: "", descrição: "Vanessa - recebeu agora", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.vanessa },
+      { seção: "retiradas", data: "", descrição: "Vanessa - total retirado", tipo: "controle", categoria: "retirada", valor: withdrawalAmounts.vanessa },
+      { seção: "retiradas", data: "", descrição: "Raquel - recebeu agora", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.raquel },
+      { seção: "retiradas", data: "", descrição: "Raquel - total retirado", tipo: "controle", categoria: "retirada", valor: withdrawalAmounts.raquel },
       { seção: "retiradas", data: "", descrição: "Vanessa - direito na divisão", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.expectedVanessa || 0 },
-      { seção: "retiradas", data: "", descrição: "Vanessa - pagou ao caixa", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.paidToCashVanessa || 0 },
+      { seção: "retiradas", data: "", descrição: "Vanessa - dívida informada", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.priorVanessa || 0 },
+      { seção: "retiradas", data: "", descrição: "Vanessa - dívida compensada", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.paidToCashVanessa || 0 },
+      { seção: "retiradas", data: "", descrição: "Vanessa - dívida restante", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.remainingDebtVanessa || 0 },
       { seção: "retiradas", data: "", descrição: "Vanessa - ainda não retirou", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.pendingVanessa || 0 },
       { seção: "retiradas", data: "", descrição: "Raquel - direito na divisão", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.expectedRaquel || 0 },
-      { seção: "retiradas", data: "", descrição: "Raquel - pagou ao caixa", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.paidToCashRaquel || 0 },
+      { seção: "retiradas", data: "", descrição: "Raquel - dívida informada", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.priorRaquel || 0 },
+      { seção: "retiradas", data: "", descrição: "Raquel - dívida compensada", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.paidToCashRaquel || 0 },
+      { seção: "retiradas", data: "", descrição: "Raquel - dívida restante", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.remainingDebtRaquel || 0 },
       { seção: "retiradas", data: "", descrição: "Raquel - ainda não retirou", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.pendingRaquel || 0 },
       { seção: "retiradas", data: data.partnersRecord?.periodKey || "", descrição: "Vanessa informada", tipo: "controle", categoria: "retirada", valor: data.partnersRecord?.vanessa || 0 },
       { seção: "retiradas", data: data.partnersRecord?.periodKey || "", descrição: "Raquel informada", tipo: "controle", categoria: "retirada", valor: data.partnersRecord?.raquel || 0 },
@@ -12358,11 +12414,11 @@ function reportPdfHtml(data) {
     ["Total", money(data.balance)],
     ["Entradas", money(data.totalIncome)],
     ["Saídas", money(data.expenses)],
-    ["Lucro antes retiradas", money(data.financial.profitBeforeWithdrawals)],
-    ["Vanessa recebeu", money(withdrawalAmounts.vanessa)],
+    ["Lucro operacional", money(operationalProfitForReport(data))],
+    ["Vanessa total retirado", money(withdrawalAmounts.vanessa)],
     ["Cofrinho", money(withdrawalAmounts.savings)],
-    ["Raquel recebeu", money(withdrawalAmounts.raquel)],
-    ["Resultado após retiradas", money(data.financial.availableForWithdrawal)],
+    ["Raquel total retirado", money(withdrawalAmounts.raquel)],
+    ["Resultado após retiradas", money(operationalResultForReport(data))],
     ["Ajustes da conta", money(data.accountAdjustmentTotals.balance)],
     ["Saldo da conta", money(data.accountBalance)],
     ["Cofrinho atual", money(data.savingsBalance)],
@@ -12564,8 +12620,8 @@ async function downloadReportPdf(options = {}) {
       totalIncome: data.totalIncome,
       expenses: data.expenses,
       operationalExpenses: data.financial.operationalExpenses,
-      profitBeforeWithdrawals: data.financial.profitBeforeWithdrawals,
-      availableForWithdrawal: data.financial.availableForWithdrawal,
+      profitBeforeWithdrawals: withdrawalAmounts.total,
+      availableForWithdrawal: operationalResultForReport(data),
       accountAdjustmentIncome: data.accountAdjustmentTotals.income,
       accountAdjustmentExpenses: data.accountAdjustmentTotals.expenses,
       accountAdjustmentBalance: data.accountAdjustmentTotals.balance,
@@ -12573,6 +12629,7 @@ async function downloadReportPdf(options = {}) {
       savingsBalance: data.savingsBalance,
       savingsUpdatedAt: data.savingsUpdatedAt,
       withdrawalTotal: data.financial.withdrawals.total,
+      withdrawalGrossTotal: withdrawalAmounts.total,
       withdrawalVanessa: withdrawalAmounts.vanessa,
       withdrawalSavings: withdrawalAmounts.savings,
       withdrawalRaquel: withdrawalAmounts.raquel,
@@ -12661,8 +12718,8 @@ async function downloadReportXlsx(options = {}) {
       totalIncome: data.totalIncome,
       expenses: data.expenses,
       operationalExpenses: data.financial.operationalExpenses,
-      profitBeforeWithdrawals: data.financial.profitBeforeWithdrawals,
-      availableForWithdrawal: data.financial.availableForWithdrawal,
+      profitBeforeWithdrawals: withdrawalAmounts.total,
+      availableForWithdrawal: operationalResultForReport(data),
       accountAdjustmentIncome: data.accountAdjustmentTotals.income,
       accountAdjustmentExpenses: data.accountAdjustmentTotals.expenses,
       accountAdjustmentBalance: data.accountAdjustmentTotals.balance,
@@ -12678,10 +12735,12 @@ async function downloadReportXlsx(options = {}) {
         ["Vanessa - direito na divisão", Number(data.partnerWithdrawalControl?.expectedVanessa || 0)],
         ["Vanessa - retirou agora", Number(data.financial.withdrawals.vanessa || 0)],
         ["Vanessa - pagou ao caixa", Number(data.partnerWithdrawalControl?.paidToCashVanessa || 0)],
+        ["Vanessa - total retirado", Number(withdrawalAmounts.vanessa || 0)],
         ["Vanessa - ainda não retirou", Number(data.partnerWithdrawalControl?.pendingVanessa || 0)],
         ["Raquel - direito na divisão", Number(data.partnerWithdrawalControl?.expectedRaquel || 0)],
         ["Raquel - retirou agora", Number(data.financial.withdrawals.raquel || 0)],
         ["Raquel - pagou ao caixa", Number(data.partnerWithdrawalControl?.paidToCashRaquel || 0)],
+        ["Raquel - total retirado", Number(withdrawalAmounts.raquel || 0)],
         ["Raquel - ainda não retirou", Number(data.partnerWithdrawalControl?.pendingRaquel || 0)],
         ["Vanessa informada", Number(data.partnersRecord?.vanessa || 0)],
         ["Raquel informada", Number(data.partnersRecord?.raquel || 0)],
@@ -13299,10 +13358,10 @@ function comparisonReportRows(data) {
   return [
     ["Entradas", data.income, previousTotals.income],
     ["Saídas", data.expenses, previousTotals.expenses],
-    ["Lucro", data.financial.profitBeforeWithdrawals, previousFinancial.profitBeforeWithdrawals],
-    ["Vanessa recebeu", currentWithdrawalAmounts.vanessa, previousWithdrawalAmounts.vanessa],
+    ["Lucro operacional", currentWithdrawalAmounts.total, previousWithdrawalAmounts.total],
+    ["Vanessa total retirado", currentWithdrawalAmounts.vanessa, previousWithdrawalAmounts.vanessa],
     ["Cofrinho", currentWithdrawalAmounts.savings, previousWithdrawalAmounts.savings],
-    ["Raquel recebeu", currentWithdrawalAmounts.raquel, previousWithdrawalAmounts.raquel],
+    ["Raquel total retirado", currentWithdrawalAmounts.raquel, previousWithdrawalAmounts.raquel],
     ["Pedidos", data.orders.length, previousOrders.length],
     ["Cumbucas", data.totalSoldQuantity, previousOrderQuantity + previousStoreQuantity],
     ["Ticket médio", data.averageTicket, previousAverageTicket]
@@ -13668,12 +13727,12 @@ function withdrawalReportTable(data) {
   return `
     <div class="table-wrap report-table">
       <table>
-        <thead><tr><th>Data</th><th>Destino</th><th>Descrição</th><th>Direito na divisão</th><th>Retirado antes</th><th>Retirado agora</th><th>Pago ao caixa</th></tr></thead>
+        <thead><tr><th>Data</th><th>Destino</th><th>Descrição</th><th>Direito na divisão</th><th>Dívida informada</th><th>Recebeu agora</th><th>Dívida compensada</th></tr></thead>
         <tbody>
           ${data.financial.withdrawalEntries.map(entry => {
             const target = withdrawalTarget(entry);
             const expected = Number(entry.expectedAmount ?? entry.amount);
-            const storedPrior = Number(entry.priorWithdrawalAmount);
+            const storedPrior = Number(entry.cashDebtAmount ?? entry.priorWithdrawalAmount);
             const prior = Number.isFinite(storedPrior)
               ? storedPrior
               : ["vanessa", "raquel"].includes(target)
@@ -13713,10 +13772,12 @@ function withdrawalPersonRows(data) {
       expectedWeek: weekTotals.expectedSavings,
       receivedWeek: weekTotals.savings,
       paidToCashWeek: 0,
+      totalWeek: weekTotals.savings,
       pendingWeek: 0,
       expectedMonth: monthTotals.expectedSavings,
       receivedMonth: monthTotals.savings,
       paidToCashMonth: 0,
+      totalMonth: monthTotals.savings,
       pendingMonth: 0
     },
     {
@@ -13725,10 +13786,12 @@ function withdrawalPersonRows(data) {
       expectedWeek: weekTotals.expectedVanessa,
       receivedWeek: weekTotals.vanessa,
       paidToCashWeek: weekTotals.paidToCashVanessa,
+      totalWeek: weekTotals.vanessa + weekTotals.paidToCashVanessa,
       pendingWeek: weekTotals.pendingVanessa,
       expectedMonth: monthTotals.expectedVanessa,
       receivedMonth: monthTotals.vanessa,
       paidToCashMonth: monthTotals.paidToCashVanessa,
+      totalMonth: monthTotals.vanessa + monthTotals.paidToCashVanessa,
       pendingMonth: monthTotals.pendingVanessa
     },
     {
@@ -13737,10 +13800,12 @@ function withdrawalPersonRows(data) {
       expectedWeek: weekTotals.expectedRaquel,
       receivedWeek: weekTotals.raquel,
       paidToCashWeek: weekTotals.paidToCashRaquel,
+      totalWeek: weekTotals.raquel + weekTotals.paidToCashRaquel,
       pendingWeek: weekTotals.pendingRaquel,
       expectedMonth: monthTotals.expectedRaquel,
       receivedMonth: monthTotals.raquel,
       paidToCashMonth: monthTotals.paidToCashRaquel,
+      totalMonth: monthTotals.raquel + monthTotals.paidToCashRaquel,
       pendingMonth: monthTotals.pendingRaquel
     }
   ];
@@ -13749,15 +13814,24 @@ function withdrawalPersonRows(data) {
 function withdrawalPersonReportPanel(data) {
   const rows = withdrawalPersonRows(data);
   const groups = withdrawalHistoryGroups(data.financial.withdrawalEntries);
+  const periodTotals = partnerPeriodTotals(groups);
   return `
     <section class="panel report-section withdrawal-person-panel">
       <div class="section-heading">
         <h2>Retiradas por pessoa ${reportTitleSuffix(data)}</h2>
         <button class="secondary" type="button" data-export-withdrawals>Exportar CSV</button>
       </div>
+      <div class="summary withdrawal-report-summary">
+        <div class="metric"><span>Lucro operacional</span><strong>${money(periodTotals.operationalProfit)}</strong></div>
+        <div class="metric"><span>Cofrinho (10%)</span><strong>${money(periodTotals.savings)}</strong></div>
+        <div class="metric"><span>Vanessa total retirado</span><strong>${money(periodTotals.vanessa + periodTotals.paidToCashVanessa)}</strong></div>
+        <div class="metric"><span>Raquel total retirado</span><strong>${money(periodTotals.raquel + periodTotals.paidToCashRaquel)}</strong></div>
+        <div class="metric"><span>Dívidas compensadas</span><strong>${money(periodTotals.paidToCashVanessa + periodTotals.paidToCashRaquel)}</strong></div>
+        <div class="metric"><span>Total que saiu da conta</span><strong>${money(periodTotals.paidNowTotal)}</strong></div>
+      </div>
       <div class="table-wrap report-table">
         <table>
-          <thead><tr><th>Destino</th><th>Direito na semana</th><th>Retirou agora</th><th>Pagou ao caixa</th><th>Ainda não retirou</th><th>Direito no mês</th><th>Retirou no mês</th><th>Pagou ao caixa no mês</th><th>Ainda não retirou no mês</th></tr></thead>
+          <thead><tr><th>Destino</th><th>Direito na semana</th><th>Recebeu agora</th><th>Dívida descontada</th><th>Total retirado na semana</th><th>Pendente</th><th>Direito no mês</th><th>Recebeu agora no mês</th><th>Dívida descontada no mês</th><th>Total retirado no mês</th><th>Pendente no mês</th></tr></thead>
           <tbody>
             ${rows.map(row => `
               <tr>
@@ -13765,10 +13839,12 @@ function withdrawalPersonReportPanel(data) {
                 <td>${money(row.expectedWeek)}</td>
                 <td>${money(row.receivedWeek)}</td>
                 <td>${row.key === "savings" ? "-" : money(row.paidToCashWeek)}</td>
+                <td><strong>${money(row.totalWeek)}</strong></td>
                 <td>${row.key === "savings" ? "-" : partnerPendingLabel(row.pendingWeek)}</td>
                 <td>${money(row.expectedMonth)}</td>
                 <td>${money(row.receivedMonth)}</td>
                 <td>${row.key === "savings" ? "-" : money(row.paidToCashMonth)}</td>
+                <td><strong>${money(row.totalMonth)}</strong></td>
                 <td>${row.key === "savings" ? "-" : partnerPendingLabel(row.pendingMonth)}</td>
               </tr>
             `).join("")}
@@ -13779,17 +13855,17 @@ function withdrawalPersonReportPanel(data) {
       ${groups.length ? `
         <div class="table-wrap report-table">
           <table>
-            <thead><tr><th>Data</th><th>Saldo real</th><th>Base da divisão</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Pago ao caixa</th><th>Retirado agora</th></tr></thead>
+            <thead><tr><th>Data</th><th>Saldo disponível</th><th>Lucro operacional</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Dívidas compensadas</th><th>Saiu da conta</th></tr></thead>
             <tbody>
               ${groups.map(group => `
                 <tr>
                   <td>${formatIsoDateBr(group.date)}</td>
                   <td>${money(group.accountBalanceBefore)}</td>
-                  <td>${money(group.distributionBase)}</td>
+                  <td><strong>${money(group.savings + group.vanessa + group.paidToCashVanessa + group.raquel + group.paidToCashRaquel)}</strong><br><small>Total retirado</small></td>
                   <td>${money(group.savings)}<br><small>Direito ${money(group.expectedSavings)}</small></td>
-                  <td>${money(group.vanessa)}<br><small>Direito ${money(group.expectedVanessa)} · antes ${money(group.priorVanessa)}</small></td>
-                  <td>${money(group.raquel)}<br><small>Direito ${money(group.expectedRaquel)} · antes ${money(group.priorRaquel)}</small></td>
-                  <td><small>Vanessa: ${partnerCashOffsetLabel(group.paidToCashVanessa)}</small><br><small>Raquel: ${partnerCashOffsetLabel(group.paidToCashRaquel)}</small></td>
+                  <td><strong>${money(group.vanessa + group.paidToCashVanessa)}</strong><br><small>Recebeu agora ${money(group.vanessa)} · dívida compensada ${money(group.paidToCashVanessa)} · direito ${money(group.expectedVanessa)}</small></td>
+                  <td><strong>${money(group.raquel + group.paidToCashRaquel)}</strong><br><small>Recebeu agora ${money(group.raquel)} · dívida compensada ${money(group.paidToCashRaquel)} · direito ${money(group.expectedRaquel)}</small></td>
+                  <td><small>Vanessa ${money(group.paidToCashVanessa)}</small><br><small>Raquel ${money(group.paidToCashRaquel)}</small></td>
                   <td><strong>${money(group.total)}</strong></td>
                 </tr>
               `).join("")}
@@ -13810,17 +13886,21 @@ function exportWithdrawalReport(data = reportData()) {
     cofrinho_deveria: group.expectedSavings,
     cofrinho_retirado_agora: group.savings,
     vanessa_direito: group.expectedVanessa,
-    vanessa_retirado_antes: group.priorVanessa,
-    vanessa_pago_ao_caixa: group.paidToCashVanessa,
-    vanessa_retirado_agora: group.vanessa,
+    vanessa_divida_informada: group.priorVanessa,
+    vanessa_divida_compensada: group.paidToCashVanessa,
+    vanessa_recebeu_agora: group.vanessa,
+    vanessa_total_retirado: group.vanessa + group.paidToCashVanessa,
+    vanessa_divida_restante: group.remainingDebtVanessa,
     vanessa_ainda_nao_retirou: group.pendingVanessa,
     raquel_direito: group.expectedRaquel,
-    raquel_retirado_antes: group.priorRaquel,
-    raquel_pago_ao_caixa: group.paidToCashRaquel,
-    raquel_retirado_agora: group.raquel,
+    raquel_divida_informada: group.priorRaquel,
+    raquel_divida_compensada: group.paidToCashRaquel,
+    raquel_recebeu_agora: group.raquel,
+    raquel_total_retirado: group.raquel + group.paidToCashRaquel,
+    raquel_divida_restante: group.remainingDebtRaquel,
     raquel_ainda_nao_retirou: group.pendingRaquel,
-    total_direitos: group.expectedTotal,
-    total_retirado_agora: group.total
+    lucro_operacional: group.savings + group.vanessa + group.paidToCashVanessa + group.raquel + group.paidToCashRaquel,
+    total_que_saiu_da_conta: group.total
   }));
   const suffix = data.type === "day" ? data.date : data.type === "week" ? data.weekKey : data.periodKey;
   downloadTextFile(`cumbuca-retiradas-${suffix}.csv`, toCsv(rows), "text/csv;charset=utf-8");
@@ -13871,9 +13951,9 @@ function weeklyClosingPanel(data) {
       <div class="summary">
         <div class="metric"><span>Entradas operacionais</span><strong>${money(data.financial.income)}</strong></div>
         <div class="metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
-        <div class="metric"><span>Lucro antes retiradas</span><strong>${money(data.financial.profitBeforeWithdrawals)}</strong></div>
+        <div class="metric"><span>Lucro operacional</span><strong>${money(operationalProfitForReport(data))}</strong></div>
         ${withdrawalBreakdownMetrics(data.financial.withdrawals, "metric", data.partnerWithdrawalControl)}
-        <div class="metric"><span>Resultado após retiradas</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
+        <div class="metric"><span>Resultado após retiradas</span><strong class="${operationalResultForReport(data) < 0 ? "negative" : "positive"}">${money(operationalResultForReport(data))}</strong></div>
         <div class="metric"><span>Ajustes da conta</span><strong class="${data.accountAdjustmentTotals.balance < 0 ? "negative" : "positive"}">${money(data.accountAdjustmentTotals.balance)}</strong></div>
       </div>
       ${closing ? `
@@ -13925,7 +14005,7 @@ function monthlyClosingPanel(data) {
       <div class="summary">
         <div class="metric"><span>Faturamento</span><strong>${money(data.financial.income)}</strong></div>
         <div class="metric"><span>Custos operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
-        <div class="metric"><span>Lucro antes retiradas</span><strong>${money(data.financial.profitBeforeWithdrawals)}</strong></div>
+        <div class="metric"><span>Lucro operacional</span><strong>${money(operationalProfitForReport(data))}</strong></div>
         ${withdrawalBreakdownMetrics(data.financial.withdrawals, "metric", data.partnerWithdrawalControl)}
       </div>
       ${closing ? `
@@ -15560,13 +15640,18 @@ function accountAdjustmentsReportPanel(data) {
 }
 
 function simplifiedStatementPanel(data) {
-  const finalResult = data.financial.profitBeforeWithdrawals - data.financial.withdrawals.total;
+  const operationalProfit = operationalProfitForReport(data);
+  const withdrawalAmounts = withdrawalBreakdownAmounts(
+    data.financial.withdrawals,
+    data.partnerWithdrawalControl
+  );
+  const finalResult = operationalProfit - withdrawalAmounts.total;
   return `
     <section class="panel report-section simplified-statement">
       <h2>Demonstrativo financeiro</h2>
       <div class="statement-line"><span>Receitas operacionais</span><strong>${money(data.financial.income)}</strong></div>
       <div class="statement-line"><span>(-) Custos operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
-      <div class="statement-line"><span>(=) Lucro operacional</span><strong>${money(data.financial.profitBeforeWithdrawals)}</strong></div>
+      <div class="statement-line"><span>(=) Lucro operacional</span><strong>${money(operationalProfit)}</strong></div>
       ${withdrawalBreakdownStatement(data.financial.withdrawals, data.partnerWithdrawalControl)}
       <div class="statement-line statement-total"><span>(=) Resultado após retiradas</span><strong class="${finalResult < 0 ? "negative" : "positive"}">${money(finalResult)}</strong></div>
     </section>
@@ -17084,11 +17169,11 @@ function financeDashboardPanel(data) {
     <section class="finance-dashboard">
       <div class="finance-spotlight">
         <span>Dashboard financeiro</span>
-        <h2>${money(data.financial.availableForWithdrawal)}</h2>
+        <h2>${money(operationalResultForReport(data))}</h2>
         <p>Resultado do lucro do período depois das retiradas já lançadas.</p>
       </div>
       <div class="finance-dashboard-grid">
-        <div class="metric"><span>Lucro antes retiradas</span><strong class="${data.financial.profitBeforeWithdrawals < 0 ? "negative" : "positive"}">${money(data.financial.profitBeforeWithdrawals)}</strong></div>
+        <div class="metric"><span>Lucro operacional</span><strong class="${operationalProfitForReport(data) < 0 ? "negative" : "positive"}">${money(operationalProfitForReport(data))}</strong></div>
         ${withdrawalBreakdownMetrics(data.financial.withdrawals, "metric", data.partnerWithdrawalControl)}
         <div class="metric"><span>Retirada projetada</span><strong class="${projection.projectedAvailableForWithdrawal < 0 ? "negative" : "positive"}">${money(projection.projectedAvailableForWithdrawal)}</strong></div>
         <div class="metric"><span>Guardado + disponível</span><strong class="${availableAfterSavings < 0 ? "negative" : "positive"}">${money(availableAfterSavings)}</strong></div>
@@ -17167,9 +17252,9 @@ function renderFinance() {
     <section class="report-grid">
       <div class="metric report-metric"><span>Entradas operacionais</span><strong>${money(data.financial.income)}</strong></div>
       <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
-      <div class="metric report-metric"><span>Lucro</span><strong class="${data.financial.profitBeforeWithdrawals < 0 ? "negative" : "positive"}">${money(data.financial.profitBeforeWithdrawals)}</strong></div>
+      <div class="metric report-metric"><span>Lucro operacional</span><strong class="${operationalProfitForReport(data) < 0 ? "negative" : "positive"}">${money(operationalProfitForReport(data))}</strong></div>
       ${withdrawalBreakdownMetrics(data.financial.withdrawals, "metric report-metric", data.partnerWithdrawalControl)}
-      <div class="metric report-metric"><span>Resultado após retiradas</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
+      <div class="metric report-metric"><span>Resultado após retiradas</span><strong class="${operationalResultForReport(data) < 0 ? "negative" : "positive"}">${money(operationalResultForReport(data))}</strong></div>
       <div class="metric report-metric account-balance-metric has-account-breakdown">
         <span>Saldo das contas</span>
         <strong class="${data.accountBalance < 0 ? "negative" : "positive"}">${money(data.accountBalance)}</strong>
@@ -17325,9 +17410,9 @@ function renderReports() {
       <div class="metric report-metric"><span>Entradas no caixa</span><strong>${money(data.income)}</strong></div>
       <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
       <div class="metric report-metric"><span>Saldo da conta</span><strong class="${data.accountBalance < 0 ? "negative" : "positive"}">${money(data.accountBalance)}</strong></div>
-      <div class="metric report-metric"><span>Lucro antes retiradas</span><strong class="${data.financial.profitBeforeWithdrawals < 0 ? "negative" : "positive"}">${money(data.financial.profitBeforeWithdrawals)}</strong></div>
+      <div class="metric report-metric"><span>Lucro operacional</span><strong class="${operationalProfitForReport(data) < 0 ? "negative" : "positive"}">${money(operationalProfitForReport(data))}</strong></div>
       ${withdrawalBreakdownMetrics(data.financial.withdrawals, "metric report-metric", data.partnerWithdrawalControl)}
-      <div class="metric report-metric"><span>Resultado após retiradas</span><strong class="${data.financial.availableForWithdrawal < 0 ? "negative" : "positive"}">${money(data.financial.availableForWithdrawal)}</strong></div>
+      <div class="metric report-metric"><span>Resultado após retiradas</span><strong class="${operationalResultForReport(data) < 0 ? "negative" : "positive"}">${money(operationalResultForReport(data))}</strong></div>
     </section>
     ${viewTabsHtml("reportViewTab", activeTab, tabs)}
     ${viewPaneHtml("summary", activeTab, `
@@ -17895,8 +17980,8 @@ function reportExportPayload(data = reportData()) {
       totalIncome: data.totalIncome,
       expenses: data.expenses,
       operationalExpenses: data.financial.operationalExpenses,
-      profitBeforeWithdrawals: data.financial.profitBeforeWithdrawals,
-      availableForWithdrawal: data.financial.availableForWithdrawal,
+      profitBeforeWithdrawals: withdrawalAmounts.total,
+      availableForWithdrawal: operationalResultForReport(data),
       accountAdjustmentIncome: data.accountAdjustmentTotals.income,
       accountAdjustmentExpenses: data.accountAdjustmentTotals.expenses,
       accountAdjustmentBalance: data.accountAdjustmentTotals.balance,

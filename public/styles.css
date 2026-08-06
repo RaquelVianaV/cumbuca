@@ -2499,6 +2499,11 @@ html.dark-mode .cash-category-summary-action {
   gap: 12px;
 }
 
+.withdrawal-report-summary {
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  margin: 12px 0;
+}
+
 .cash-ledger-panel {
   display: grid;
   gap: 10px;
@@ -2692,6 +2697,12 @@ html.dark-mode .cash-category-summary-action {
 .withdrawal-preview b {
   color: var(--earth);
   font-size: 0.82rem;
+}
+
+.withdrawal-preview small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
 }
 
 .report-panel {
