@@ -109,9 +109,11 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.doesNotMatch(app, /planValueField\.required = isMonthly/);
   assert.doesNotMatch(app, /amount: client\.plan === "mensalista"/);
   assert.match(app, /history\.replaceState\(null, "", `\/menu-semanal\$\{location\.search\}`\)/);
-  assert.match(app, /Cadastre as cumbucas diretamente no Planejamento/);
-  assert.match(app, /O supermercado vem automaticamente do Caixa/);
-  assert.match(app, /href="\/fluxo-de-caixa">Abrir Supermercado no Caixa/);
+  assert.match(app, /Cadastre os custos do menu diretamente no Planejamento/);
+  assert.match(app, /Gasto total de supermercado desta semana/);
+  assert.match(app, /será dividido somente pelas/);
+  assert.doesNotMatch(app, /O supermercado vem automaticamente do Caixa/);
+  assert.match(app, /href="\/precificacao\?view=costs">Configurar outros custos rateados/);
   assert.match(app, /id="global-period-form"/);
   assert.match(app, /Aplicar em todo o sistema/);
   assert.match(app, /function applyGlobalPeriodToViews/);
@@ -288,6 +290,10 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /function pricingRecipeForMenuItem/);
   assert.match(app, /data-menu-cost-breakdown/);
   assert.match(app, /data-menu-supermarket-rate/);
+  assert.match(app, /data-menu-weekly-supermarket-total/);
+  assert.match(app, /data-menu-supermarket-unit/);
+  assert.match(app, /data-menu-dish-cost/);
+  assert.match(app, /data-menu-dish-cost-value/);
   assert.doesNotMatch(app, /data-menu-supermarket-cost/);
   assert.match(app, /data-menu-shared-cost/);
   assert.match(app, /data-menu-packaging/);
@@ -303,6 +309,9 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /function menuItemPackagingCost/);
   assert.match(app, /function menuItemProfitPercent/);
   assert.match(app, /function menuPlanningCosts/);
+  assert.match(app, /function weeklyMenuPlanningCosts/);
+  assert.match(app, /function weeklyMenuSupermarketAllocation/);
+  assert.match(app, /weeklyMenuSupermarketCostsByPeriod/);
   assert.match(app, /function weeklyMenuProductionCost/);
   assert.match(app, /function monthlyFoodAndBillsCost/);
   assert.match(app, /function financeFoodAndBillsCostPanel/);
@@ -319,6 +328,7 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(css, /\.menu-catalog-grid/);
   assert.match(css, /\.menu-catalog-card/);
   assert.match(css, /\.menu-profit-controls/);
+  assert.match(css, /\.menu-weekly-supermarket-entry/);
   assert.match(css, /\.percentage-input/);
   assert.match(css, /\.month-summary-note/);
   assert.match(app, /function isMonthlyRenewalRecord/);

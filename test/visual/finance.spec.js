@@ -472,7 +472,7 @@ test('monthly clients renew quantities manually and choose whether to launch the
   });
 });
 
-test('menu planning rates the supermarket cash total with packaging, other costs and profit', async ({
+test('menu planning divides the manual weekly supermarket total only by its menu orders', async ({
   page,
 }, testInfo) => {
   const database = await mockOnlineDatabase(page);
@@ -491,6 +491,9 @@ test('menu planning rates the supermarket cash total with packaging, other costs
       },
     },
     weeklyMenusByPeriod: {},
+    weeklyMenuSupermarketCostsByPeriod: {
+      '2026-08-semana-1': '30.00',
+    },
     menuWeek: 1,
     menuPeriod: { year: 2026, month: 8 },
     menuDatesByPeriod: {},
@@ -523,36 +526,54 @@ test('menu planning rates the supermarket cash total with packaging, other costs
         amount: '4.00',
       },
     ],
+    storeSales: [
+      {
+        id: 'store-sales-outside-menu',
+        date: '2026-08-03',
+        quantity: 8,
+      },
+    ],
   };
 
   await page.goto('/menu-semanal?ano=2026&mes=8&semana=1');
   await page.locator('#planning-toggle').click();
   await expect(page.locator('.menu-pricing-source')).toContainText(
-    'Cadastre as cumbucas diretamente no Planejamento'
+    'Cadastre os custos do menu diretamente no Planejamento'
   );
   await expect(
-    page.getByRole('link', { name: 'Abrir Supermercado no Caixa', exact: true })
-  ).toHaveAttribute('href', '/fluxo-de-caixa');
+    page.getByRole('link', { name: 'Configurar outros custos rateados', exact: true })
+  ).toHaveAttribute('href', '/precificacao?view=costs');
   await expect(page.locator('.menu-pricing-source')).toContainText(
-    'R$ 20,00 de saídas líquidas, rateadas por 2 cumbuca(s) vendida(s) no mês, ou R$ 10,00 por unidade'
+    'dividido somente pelas 2 cumbuca(s) pedida(s) neste menu, ficando R$ 15,00 por unidade'
   );
+  await expect(page.locator('[data-menu-weekly-supermarket-total]')).toHaveValue('30,00');
+  await expect(page.locator('[data-menu-supermarket-quantity]')).toHaveText('2');
+  await expect(page.locator('[data-menu-supermarket-unit]')).toHaveText('R$ 15,00');
   await expect(page.locator('[data-menu-packaging="0"]')).toHaveValue('1,60');
   await expect(page.locator('[data-menu-profit-percent="0"]')).toHaveValue('30,00');
   await expect(page.locator('[data-menu-supermarket-cost="0"]')).toHaveCount(0);
 
   await page.locator('[data-menu-dish="0"]').fill('Cumbuca da semana');
+  await page.locator('[data-menu-dish-cost="0"]').fill('5,00');
   await expect(page.locator('[data-ingredient-row][data-menu-index="0"]')).toHaveCount(0);
 
   const breakdown = page.locator('[data-menu-cost-breakdown="0"]');
-  await expect(breakdown.locator('[data-menu-supermarket-rate]')).toHaveText('R$ 10,00');
+  await expect(breakdown.locator('[data-menu-dish-cost-value]')).toHaveText('R$ 5,00');
+  await expect(breakdown.locator('[data-menu-supermarket-rate]')).toHaveText('R$ 15,00');
   await expect(breakdown.locator('[data-menu-shared-cost]')).toHaveText('R$ 10,00');
   await expect(breakdown.locator('[data-menu-packaging-cost]')).toHaveText('R$ 1,60');
-  await expect(breakdown.locator('[data-menu-total-cost]')).toHaveText('R$ 21,60');
+  await expect(breakdown.locator('[data-menu-total-cost]')).toHaveText('R$ 31,60');
   await expect(breakdown.locator('[data-menu-profit-label]')).toHaveText('Lucro (30%)');
-  await expect(breakdown.locator('[data-menu-profit]')).toHaveText('R$ 6,48');
-  await expect(breakdown.locator('[data-menu-suggested-price]')).toHaveText('R$ 28,08');
-  await expect(page.locator('[data-menu-weekly-cost]')).toHaveText('R$ 43,20');
+  await expect(breakdown.locator('[data-menu-profit]')).toHaveText('R$ 9,48');
+  await expect(breakdown.locator('[data-menu-suggested-price]')).toHaveText('R$ 41,08');
+  await expect(page.locator('[data-menu-weekly-cost]')).toHaveText('R$ 63,20');
   await expect(page.locator('[data-menu-weekly-quantity]')).toHaveText('2 cumbuca(s) pedida(s)');
+
+  await page.locator('[data-menu-weekly-supermarket-total]').fill('40,00');
+  await expect(page.locator('[data-menu-supermarket-unit]')).toHaveText('R$ 20,00');
+  await expect(breakdown.locator('[data-menu-supermarket-rate]')).toHaveText('R$ 20,00');
+  await expect(breakdown.locator('[data-menu-total-cost]')).toHaveText('R$ 36,60');
+  await expect(page.locator('[data-menu-weekly-cost]')).toHaveText('R$ 73,20');
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
     path: testInfo.outputPath(`menu-planning-profit-${testInfo.project.name}.png`),
@@ -563,18 +584,21 @@ test('menu planning rates the supermarket cash total with packaging, other costs
   await expect
     .poll(() => database.state.weeklyMenusByPeriod?.['2026-08-semana-1']?.[0]?.dish)
     .toBe('Cumbuca da semana');
+  expect(database.state.weeklyMenuSupermarketCostsByPeriod).toMatchObject({
+    '2026-08-semana-1': '40.00',
+  });
   expect(database.state.weeklyMenusByPeriod['2026-08-semana-1'][0]).toMatchObject({
     dish: 'Cumbuca da semana',
-    supermarketCost: '10.00',
+    dishCost: '5.00',
     sharedCost: '10.00',
     packagingCost: '1.60',
     profitPercent: '30.00',
-    cost: '21.60',
-    profit: '6.48',
-    suggestedPrice: '28.08',
+    cost: '36.60',
+    profit: '10.98',
+    suggestedPrice: '47.58',
   });
   expect(database.state.weeklyMenusByPeriod['2026-08-semana-1'][0]).not.toHaveProperty(
-    'ingredientCost'
+    'supermarketCost'
   );
 
   await page.goto('/relatorios?ano=2026&mes=8');
@@ -591,10 +615,10 @@ test('menu planning rates the supermarket cash total with packaging, other costs
   ).toContainText('R$ 50,00');
   await expect(
     profitability.locator('.metric').filter({ hasText: 'Custo estimado' })
-  ).toContainText('R$ 43,20');
+  ).toContainText('R$ 27,20');
   await expect(profitability.locator('tbody tr').first()).toContainText('Cumbuca da semana');
   await expect(profitability.locator('tbody tr').first()).toContainText('Planejamento + Caixa');
-  await expect(profitability.locator('tbody tr').first()).toContainText('R$ 43,20');
+  await expect(profitability.locator('tbody tr').first()).toContainText('R$ 27,20');
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
     path: testInfo.outputPath(`profitability-planning-cost-${testInfo.project.name}.png`),
@@ -602,7 +626,7 @@ test('menu planning rates the supermarket cash total with packaging, other costs
   });
 });
 
-test('monthly menu summary multiplies unit cost by ordered quantities and shows the result', async ({
+test('monthly menu summary includes each manual weekly supermarket total', async ({
   page,
 }, testInfo) => {
   const database = await mockOnlineDatabase(page);
@@ -613,6 +637,7 @@ test('monthly menu summary multiplies unit cost by ordered quantities and shows 
         {
           slot: 1,
           dish: 'Moqueca de peixe',
+          dishCost: '0.00',
           ingredients: [{ name: 'Custo legado que não deve ser usado', value: '999.00' }],
           ingredientCost: '999.00',
           sharedCost: '0.00',
@@ -623,6 +648,9 @@ test('monthly menu summary multiplies unit cost by ordered quantities and shows 
           notes: '',
         },
       ],
+    },
+    weeklyMenuSupermarketCostsByPeriod: {
+      '2026-08-semana-1': '2408.00',
     },
     menuWeek: 1,
     menuPeriod: { year: 2026, month: 8 },
@@ -650,7 +678,7 @@ test('monthly menu summary multiplies unit cost by ordered quantities and shows 
         date: '2026-08-05',
         type: 'expense',
         category: 'supermercado',
-        amount: '2408.00',
+        amount: '9999.00',
       },
     ],
   };

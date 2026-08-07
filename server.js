@@ -28,6 +28,7 @@ const permissionKeys = ['editFinancial', 'manageClosings', 'restoreBackup', 'cle
 const stateKeys = [
   'cashEntries',
   'weeklyMenusByPeriod',
+  'weeklyMenuSupermarketCostsByPeriod',
   'menuWeek',
   'menuPeriod',
   'menuDatesByPeriod',
@@ -65,6 +66,7 @@ const financialResetKeys = [
 const defaultState = {
   cashEntries: [],
   weeklyMenusByPeriod: {},
+  weeklyMenuSupermarketCostsByPeriod: {},
   menuWeek: 1,
   menuPeriod: {
     year: new Date().getFullYear(),
@@ -1373,6 +1375,11 @@ function backupPreview(payload = {}) {
     menus:
       data.weeklyMenusByPeriod && typeof data.weeklyMenusByPeriod === 'object'
         ? Object.keys(data.weeklyMenusByPeriod).length
+        : 0,
+    menuSupermarketCosts:
+      data.weeklyMenuSupermarketCostsByPeriod &&
+      typeof data.weeklyMenuSupermarketCostsByPeriod === 'object'
+        ? Object.keys(data.weeklyMenuSupermarketCostsByPeriod).length
         : 0,
     menuDates:
       data.menuDatesByPeriod && typeof data.menuDatesByPeriod === 'object'
@@ -2720,6 +2727,7 @@ function weeklyMenu(payload = {}) {
       slot: index + 1,
       recipeId: String(found.recipeId || '').trim(),
       dish: String(found.dish || '').trim(),
+      dishCost: Math.max(0, number(found.dishCost)),
       ingredients,
       ingredientCost,
       cost: ingredientCost || number(found.cost),

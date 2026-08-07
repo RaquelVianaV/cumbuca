@@ -4891,6 +4891,38 @@ html.dark-mode .cash-hero > div:first-child {
   margin-bottom: 14px;
 }
 
+.menu-weekly-supermarket-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(220px, 0.6fr);
+  gap: 14px;
+  align-items: end;
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid rgba(8, 127, 91, 0.2);
+  border-radius: 12px;
+  background: rgba(8, 127, 91, 0.045);
+}
+
+.menu-weekly-supermarket-result {
+  display: grid;
+  gap: 7px;
+  padding: 12px 14px;
+  border-radius: 9px;
+  background: rgba(8, 127, 91, 0.08);
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.menu-weekly-supermarket-result span {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.menu-weekly-supermarket-result strong {
+  color: var(--green-dark);
+}
+
 .menu-profit-controls {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -6244,6 +6276,7 @@ html.dark-mode .alert-card,
 html.dark-mode .partners-dashboard > section,
 html.dark-mode .planning-card,
 html.dark-mode .monthly-renewal-panel,
+html.dark-mode .menu-weekly-supermarket-entry,
 html.dark-mode .menu-profit-controls,
 html.dark-mode .menu-cost-breakdown,
 html.dark-mode .menu-catalog-card,
@@ -8035,6 +8068,7 @@ a.secondary.table-action,
 @media (max-width: 700px) {
   .operation-priority-list,
   .menu-recipe-summary,
+  .menu-weekly-supermarket-entry,
   .menu-profit-controls,
   .menu-cost-breakdown,
   .plan-vs-actual-grid,

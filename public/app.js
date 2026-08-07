@@ -51,6 +51,7 @@ const configRouteOptions = [
 const localStateKeys = [
   "cashEntries",
   "weeklyMenusByPeriod",
+  "weeklyMenuSupermarketCostsByPeriod",
   "menuWeek",
   "menuPeriod",
   "globalPeriod",
@@ -1003,6 +1004,7 @@ function seededCashCategories(saved = localValue("cashCategories", null)) {
 const state = {
   cash: localValue("cashEntries", []),
   menus: localValue("weeklyMenusByPeriod", {}),
+  menuSupermarketCosts: localValue("weeklyMenuSupermarketCostsByPeriod", {}),
   menuWeek: Number(localStorage.getItem("menuWeek") || "1"),
   menuPeriod: localValue("menuPeriod", {
     year: new Date().getFullYear(),
@@ -1121,6 +1123,7 @@ function appStatePayload() {
   return {
     cashEntries: state.cash,
     weeklyMenusByPeriod: state.menus,
+    weeklyMenuSupermarketCostsByPeriod: state.menuSupermarketCosts,
     menuWeek: state.menuWeek,
     menuPeriod: state.menuPeriod,
     menuDatesByPeriod: state.menuDates,
@@ -1166,6 +1169,7 @@ function recordSystemIssue(type, message, detail = "") {
 function applyPayloadToState(saved = {}) {
   state.cash = saved.cashEntries || [];
   state.menus = saved.weeklyMenusByPeriod || {};
+  state.menuSupermarketCosts = saved.weeklyMenuSupermarketCostsByPeriod || {};
   state.menuWeek = Number(saved.menuWeek || 1);
   state.menuPeriod = saved.menuPeriod || {
     year: new Date().getFullYear(),
@@ -1514,6 +1518,7 @@ function emptyCleanupPreview() {
     cash: 0,
     orders: 0,
     menus: 0,
+    menuSupermarketCosts: 0,
     menuDates: 0,
     storeSales: 0,
     storeProductQuantities: 0,
@@ -1562,6 +1567,7 @@ function cleanupPreview(year) {
     cash: state.cash.filter(entry => String(entry.date || "").startsWith(target)).length,
     orders: state.orders.filter(order => yearFromMenuKey(order.menuKey) === target).length,
     menus: Object.keys(state.menus || {}).filter(key => yearFromMenuKey(key) === target).length,
+    menuSupermarketCosts: Object.keys(state.menuSupermarketCosts || {}).filter(key => yearFromMenuKey(key) === target).length,
     menuDates: Object.keys(state.menuDates || {}).filter(key => yearFromMenuKey(key) === target).length,
     storeSales: state.storeSales.filter(entry => String(entry.date || "").startsWith(target)).length,
     storeProductQuantities: state.storeProductQuantities.filter(entry => String(entry.month || "").startsWith(target)).length,
@@ -1593,6 +1599,7 @@ function databaseUsageEstimate() {
     cash: state.cash.length,
     orders: state.orders.length,
     menus: Object.keys(state.menus || {}).length,
+    menuSupermarketCosts: Object.keys(state.menuSupermarketCosts || {}).length,
     menuDates: Object.keys(state.menuDates || {}).length,
     storeSales: state.storeSales.length,
     storeProducts: state.storeProducts.length,
@@ -1638,6 +1645,7 @@ function yearUsageEstimate(year) {
     cashEntries: state.cash.filter(entry => String(entry.date || "").startsWith(target)),
     orders: state.orders.filter(order => yearFromMenuKey(order.menuKey) === target),
     weeklyMenusByPeriod: Object.fromEntries(Object.entries(state.menus || {}).filter(([key]) => yearFromMenuKey(key) === target)),
+    weeklyMenuSupermarketCostsByPeriod: Object.fromEntries(Object.entries(state.menuSupermarketCosts || {}).filter(([key]) => yearFromMenuKey(key) === target)),
     menuDatesByPeriod: Object.fromEntries(Object.entries(state.menuDates || {}).filter(([key]) => yearFromMenuKey(key) === target)),
     storeSales: state.storeSales.filter(entry => String(entry.date || "").startsWith(target)),
     storeProductQuantities: state.storeProductQuantities.filter(entry => String(entry.month || "").startsWith(target)),
@@ -1740,6 +1748,7 @@ function cleanupYears() {
     addYear(yearFromDateKey(entry.createdAt));
   });
   Object.keys(state.menus || {}).forEach(key => addYear(yearFromMenuKey(key)));
+  Object.keys(state.menuSupermarketCosts || {}).forEach(key => addYear(yearFromMenuKey(key)));
   Object.keys(state.monthlyClosings || {}).forEach(key => addYear(yearFromDateKey(key)));
   Object.keys(state.weeklyClosings || {}).forEach(key => addYear(yearFromDateKey(key)));
 
@@ -1763,6 +1772,7 @@ async function cleanupYear(year) {
   state.channelReceipts = state.channelReceipts.filter(entry => !String(entry.date || "").startsWith(target));
   state.auditLog = (state.auditLog || []).filter(entry => !String(entry.createdAt || "").startsWith(target));
   state.menus = Object.fromEntries(Object.entries(state.menus || {}).filter(([key]) => yearFromMenuKey(key) !== target));
+  state.menuSupermarketCosts = Object.fromEntries(Object.entries(state.menuSupermarketCosts || {}).filter(([key]) => yearFromMenuKey(key) !== target));
   state.menuDates = Object.fromEntries(Object.entries(state.menuDates || {}).filter(([key]) => yearFromMenuKey(key) !== target));
   state.monthlyClosings = Object.fromEntries(Object.entries(state.monthlyClosings || {}).filter(([key]) => !String(key || "").startsWith(target)));
   state.weeklyClosings = Object.fromEntries(Object.entries(state.weeklyClosings || {}).filter(([key]) => !String(key || "").startsWith(target)));
@@ -1848,6 +1858,7 @@ function cleanupPreviewHtml(year, preview) {
       <div class="metric"><span>Caixa</span><strong>${preview.cash}</strong></div>
       <div class="metric"><span>Pedidos</span><strong>${preview.orders}</strong></div>
       <div class="metric"><span>Menus</span><strong>${preview.menus}</strong></div>
+      <div class="metric"><span>Supermercado semanal</span><strong>${preview.menuSupermarketCosts}</strong></div>
       <div class="metric"><span>Datas menu</span><strong>${preview.menuDates}</strong></div>
       <div class="metric"><span>Loja</span><strong>${preview.storeSales}</strong></div>
       <div class="metric"><span>Produtos da loja</span><strong>${preview.storeProductQuantities}</strong></div>
@@ -7857,6 +7868,36 @@ function menuItemHasPlanningContent(item = {}) {
   );
 }
 
+function menuItemManualDishCost(item = {}) {
+  return menuItemHasPlanningContent(item)
+    ? Math.max(0, Number(item.dishCost || 0))
+    : 0;
+}
+
+function weeklyMenuSupermarketTotal(currentKey = menuKey(state.menuWeek || 1)) {
+  return Math.max(0, Number(state.menuSupermarketCosts?.[currentKey] || 0));
+}
+
+function weeklyMenuProductionQuantity(currentKey = menuKey(state.menuWeek || 1)) {
+  return productionOrders(weeklyOrders(currentKey))
+    .reduce((sum, order) => sum + orderQuantity(order), 0);
+}
+
+function weeklyMenuSupermarketAllocation(
+  currentKey = menuKey(state.menuWeek || 1),
+  supermarketTotal = null
+) {
+  const total = supermarketTotal === null || supermarketTotal === undefined
+    ? weeklyMenuSupermarketTotal(currentKey)
+    : Math.max(0, Number(supermarketTotal || 0));
+  const totalQuantity = weeklyMenuProductionQuantity(currentKey);
+  return {
+    supermarketTotal: total,
+    totalQuantity,
+    costPerUnit: totalQuantity > 0 ? total / totalQuantity : 0
+  };
+}
+
 function menuItemPackagingCost(item = {}) {
   if (!menuItemHasPlanningContent(item)) {
     return 0;
@@ -7888,6 +7929,26 @@ function menuPlanningCosts(
     sharedCost,
     packagingCost,
     profitPercent,
+    totalCost,
+    profit,
+    suggestedPrice: totalCost + profit
+  };
+}
+
+function weeklyMenuPlanningCosts(
+  item = {},
+  currentKey = menuKey(state.menuWeek || 1),
+  supermarketTotal = null,
+  sharedPerUnit = pricingSharedCosts().totalPerUnit
+) {
+  const supermarket = weeklyMenuSupermarketAllocation(currentKey, supermarketTotal);
+  const sharedCosts = menuPlanningCosts(item, sharedPerUnit, supermarket.costPerUnit);
+  const dishCost = menuItemManualDishCost(item);
+  const totalCost = dishCost + sharedCosts.totalCost;
+  const profit = totalCost * (sharedCosts.profitPercent / 100);
+  return {
+    ...sharedCosts,
+    dishCost,
     totalCost,
     profit,
     suggestedPrice: totalCost + profit
@@ -8051,12 +8112,13 @@ async function renderMenu() {
   const savedMenu = state.menus[currentKey] || [];
   const result = await postJson("/api/menu-semanal", { meals: savedMenu });
   const sharedCosts = pricingSharedCosts();
-  const supermarketAllocation = monthlySupermarketAllocation(currentMenuPeriodKey());
+  const supermarketAllocation = weeklyMenuSupermarketAllocation(currentKey);
   result.plan = result.plan.map((item, index) => {
     const savedItem = savedMenu[index] || item;
     const normalizedItem = {
       slot: item.slot,
       dish: item.dish,
+      dishCost: Math.max(0, Number(savedItem.dishCost || 0)),
       status: item.status,
       notes: item.notes,
       packagingCost: Object.prototype.hasOwnProperty.call(savedItem, "packagingCost")
@@ -8064,10 +8126,11 @@ async function renderMenu() {
         : MENU_DEFAULT_PACKAGING_COST,
       profitPercent: menuItemProfitPercent(savedItem)
     };
-    const costs = menuPlanningCosts(
+    const costs = weeklyMenuPlanningCosts(
       normalizedItem,
-      sharedCosts.totalPerUnit,
-      supermarketAllocation.costPerUnit
+      currentKey,
+      supermarketAllocation.supermarketTotal,
+      sharedCosts.totalPerUnit
     );
     return {
       ...normalizedItem,
@@ -8082,8 +8145,7 @@ async function renderMenu() {
     weeklyOrders(currentKey),
     item => Number(item.cost || 0)
   );
-  const weeklyOrderedQuantity = weeklyOrders(currentKey)
-    .reduce((sum, order) => sum + orderQuantity(order), 0);
+  const weeklyOrderedQuantity = supermarketAllocation.totalQuantity;
   const planningStats = {
     shopping: result.plan.filter(item => item.status === "compras").length,
     prep: result.plan.filter(item => item.status === "preparo").length,
@@ -8141,10 +8203,10 @@ async function renderMenu() {
         <section class="planning-panel">
           <div class="pricing-workflow-context menu-pricing-source">
             <div>
-              <strong>Cadastre as cumbucas diretamente no Planejamento</strong>
-              <span>O supermercado vem automaticamente do Caixa: ${money(supermarketAllocation.supermarketTotal)} de saídas líquidas, rateadas por ${supermarketAllocation.totalQuantity} cumbuca(s) vendida(s) no mês${supermarketAllocation.totalQuantity > 0 ? `, ou ${money(supermarketAllocation.costPerUnit)} por unidade` : ""}. O sistema também soma os outros custos rateados e a embalagem.</span>
+              <strong>Cadastre os custos do menu diretamente no Planejamento</strong>
+              <span>Informe o custo de cada prato e o gasto total de supermercado desta semana. O supermercado será dividido somente pelas ${supermarketAllocation.totalQuantity} cumbuca(s) pedida(s) neste menu${supermarketAllocation.totalQuantity > 0 ? `, ficando ${money(supermarketAllocation.costPerUnit)} por unidade` : ""}, e entrará no Resumo do mês do Menu Semanal.</span>
             </div>
-            <a class="secondary table-action" href="/fluxo-de-caixa">Abrir Supermercado no Caixa</a>
+            <a class="secondary table-action" href="/precificacao?view=costs">Configurar outros custos rateados</a>
           </div>
           <div class="summary planning-summary">
             <div class="metric"><span>Custo total da semana</span><strong data-menu-weekly-cost>${money(result.totalCost)}</strong><small data-menu-weekly-quantity>${weeklyOrderedQuantity} cumbuca(s) pedida(s)</small></div>
@@ -8153,12 +8215,23 @@ async function renderMenu() {
             <div class="metric"><span>Pratos prontos</span><strong>${planningStats.ready}/5</strong></div>
           </div>
           <form id="menu-form">
+            <div class="menu-weekly-supermarket-entry">
+              <label>Gasto total de supermercado desta semana
+                <input name="weekly-supermarket-total" data-menu-weekly-supermarket-total type="text" inputmode="decimal" value="${moneyInputValue(supermarketAllocation.supermarketTotal)}" placeholder="Ex.: 1.500,00">
+                <small>Valor manual usado somente neste menu semanal.</small>
+              </label>
+              <div class="menu-weekly-supermarket-result">
+                <span>Dividido por <strong data-menu-supermarket-quantity>${supermarketAllocation.totalQuantity}</strong> cumbuca(s)</span>
+                <span>Supermercado por unidade <strong data-menu-supermarket-unit>${money(supermarketAllocation.costPerUnit)}</strong></span>
+              </div>
+            </div>
             <div class="planning-board">
               ${result.plan.map((item, index) => {
-                const costs = menuPlanningCosts(
+                const costs = weeklyMenuPlanningCosts(
                   item,
-                  sharedCosts.totalPerUnit,
-                  supermarketAllocation.costPerUnit
+                  currentKey,
+                  supermarketAllocation.supermarketTotal,
+                  sharedCosts.totalPerUnit
                 );
                 return `
                 <article class="planning-card" data-status="${item.status}">
@@ -8169,6 +8242,10 @@ async function renderMenu() {
                   <label>Nome da cumbuca
                     <input name="dish-${index}" data-menu-dish="${index}" value="${escapeHtml(item.dish || "")}" placeholder="Ex.: Frango cremoso com arroz">
                     <small>O prato desta semana é cadastrado e editado aqui.</small>
+                  </label>
+                  <label>Custo manual do prato por unidade
+                    <input name="dish-cost-${index}" data-menu-dish-cost="${index}" type="text" inputmode="decimal" value="${moneyInputValue(item.dishCost)}" placeholder="Ex.: 8,50">
+                    <small>Informe manualmente quanto custa produzir uma unidade deste prato.</small>
                   </label>
                   <div class="menu-profit-controls">
                     <label>Valor da embalagem
@@ -8183,7 +8260,8 @@ async function renderMenu() {
                     </label>
                   </div>
                   <div class="menu-cost-breakdown" data-menu-cost-breakdown="${index}">
-                    <span><small>Supermercado do Caixa rateado</small><strong data-menu-supermarket-rate>${money(costs.supermarketCost)}</strong></span>
+                    <span><small>Custo manual do prato</small><strong data-menu-dish-cost-value>${money(costs.dishCost)}</strong></span>
+                    <span><small>Supermercado semanal rateado</small><strong data-menu-supermarket-rate>${money(costs.supermarketCost)}</strong></span>
                     <span><small>Outros custos rateados</small><strong data-menu-shared-cost>${money(costs.sharedCost)}</strong></span>
                     <span><small>Embalagem</small><strong data-menu-packaging-cost>${money(costs.packagingCost)}</strong></span>
                     <span class="total"><small>Custo total por cumbuca</small><strong data-menu-total-cost>${money(costs.totalCost)}</strong></span>
@@ -8872,8 +8950,19 @@ async function renderMenu() {
 
   const menuForm = document.querySelector("#menu-form");
   if (menuForm) {
+    function currentWeeklySupermarketTotal() {
+      return Math.max(
+        0,
+        parseMoneyInput(menuForm.querySelector("[data-menu-weekly-supermarket-total]")?.value)
+      );
+    }
+
     function updateMenuCostPreview(menuIndex) {
       const dish = menuForm.querySelector(`[data-menu-dish="${menuIndex}"]`)?.value || "";
+      const dishCost = Math.max(
+        0,
+        parseMoneyInput(menuForm.querySelector(`[data-menu-dish-cost="${menuIndex}"]`)?.value)
+      );
       const packagingCost = Math.max(
         0,
         parseMoneyInput(menuForm.querySelector(`[data-menu-packaging="${menuIndex}"]`)?.value)
@@ -8882,17 +8971,20 @@ async function renderMenu() {
         0,
         parseMoneyInput(menuForm.querySelector(`[data-menu-profit-percent="${menuIndex}"]`)?.value)
       );
-      const costs = menuPlanningCosts(
+      const costs = weeklyMenuPlanningCosts(
         {
           dish,
+          dishCost,
           packagingCost,
           profitPercent
         },
-        sharedCosts.totalPerUnit,
-        supermarketAllocation.costPerUnit
+        currentKey,
+        currentWeeklySupermarketTotal(),
+        sharedCosts.totalPerUnit
       );
       const breakdown = menuForm.querySelector(`[data-menu-cost-breakdown="${menuIndex}"]`);
       if (breakdown) {
+        breakdown.querySelector("[data-menu-dish-cost-value]").textContent = money(costs.dishCost);
         breakdown.querySelector("[data-menu-supermarket-rate]").textContent = money(costs.supermarketCost);
         breakdown.querySelector("[data-menu-shared-cost]").textContent = money(costs.sharedCost);
         breakdown.querySelector("[data-menu-packaging-cost]").textContent = money(costs.packagingCost);
@@ -8905,6 +8997,18 @@ async function renderMenu() {
     }
 
     function updateMenuWeeklyCostPreview() {
+      const allocation = weeklyMenuSupermarketAllocation(
+        currentKey,
+        currentWeeklySupermarketTotal()
+      );
+      const supermarketQuantity = menuForm.querySelector("[data-menu-supermarket-quantity]");
+      const supermarketUnit = menuForm.querySelector("[data-menu-supermarket-unit]");
+      if (supermarketQuantity) {
+        supermarketQuantity.textContent = String(allocation.totalQuantity);
+      }
+      if (supermarketUnit) {
+        supermarketUnit.textContent = money(allocation.costPerUnit);
+      }
       const unitCosts = result.plan.map((item, index) => updateMenuCostPreview(index));
       const total = weeklyMenuProductionCost(
         result.plan,
@@ -8920,10 +9024,11 @@ async function renderMenu() {
     }
 
     menuForm.addEventListener("input", event => {
-      const menuIndex = event.target.dataset.menuDish
+      const menuIndex = event.target.dataset.menuDishCost
+        ?? event.target.dataset.menuDish
         ?? event.target.dataset.menuPackaging
         ?? event.target.dataset.menuProfitPercent;
-      if (menuIndex !== undefined) {
+      if (menuIndex !== undefined || event.target.dataset.menuWeeklySupermarketTotal !== undefined) {
         updateMenuWeeklyCostPreview();
       }
     });
@@ -8931,19 +9036,23 @@ async function renderMenu() {
     menuForm.addEventListener("submit", event => {
       event.preventDefault();
       const data = readForm(event.currentTarget);
+      const supermarketTotal = Math.max(0, parseMoneyInput(data["weekly-supermarket-total"]));
+      state.menuSupermarketCosts[currentKey] = supermarketTotal.toFixed(2);
       state.menus[currentKey] = result.plan.map((item, index) => {
         const dish = String(data[`dish-${index}`] || "").trim();
+        const dishCost = Math.max(0, parseMoneyInput(data[`dish-cost-${index}`]));
         const packagingCost = Math.max(0, parseMoneyInput(data[`packaging-${index}`]));
         const profitPercent = Math.max(0, parseMoneyInput(data[`profit-percent-${index}`]));
-        const costs = menuPlanningCosts(
-          { dish, packagingCost, profitPercent },
-          sharedCosts.totalPerUnit,
-          supermarketAllocation.costPerUnit
+        const costs = weeklyMenuPlanningCosts(
+          { dish, dishCost, packagingCost, profitPercent },
+          currentKey,
+          supermarketTotal,
+          sharedCosts.totalPerUnit
         );
         return {
           slot: index + 1,
           dish,
-          supermarketCost: costs.supermarketCost.toFixed(2),
+          dishCost: dishCost.toFixed(2),
           sharedCost: costs.sharedCost.toFixed(2),
           packagingCost: packagingCost.toFixed(2),
           profitPercent: profitPercent.toFixed(2),
@@ -8960,6 +9069,7 @@ async function renderMenu() {
 
     on("#clear-menu", "click", () => {
       state.menus[currentKey] = [];
+      delete state.menuSupermarketCosts[currentKey];
       persistState();
       renderMenu();
     });
@@ -9447,7 +9557,11 @@ function monthSummaryPanel(currentKey) {
     const key = `${periodKey}-semana-${week}`;
     const dishes = state.menus[key] || [];
     const weekOrders = weeklyOrders(key);
-    const menuCost = weeklyMenuProductionCost(dishes, weekOrders, null, periodKey);
+    const menuCost = weeklyMenuProductionCost(
+      dishes,
+      weekOrders,
+      item => weeklyMenuPlanningCosts(item, key).totalCost
+    );
     const orderAmount = weekOrders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
 
     return {

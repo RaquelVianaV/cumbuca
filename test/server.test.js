@@ -64,6 +64,7 @@ test('normalizeState fills missing keys without replacing supplied values', () =
   assert.deepEqual(state.storeProductQuantities, []);
   assert.deepEqual(state.pricingRecipes, []);
   assert.deepEqual(state.weeklyClosings, {});
+  assert.deepEqual(state.weeklyMenuSupermarketCostsByPeriod, {});
   assert.deepEqual(state.financialPlanning.accounts, []);
   assert.deepEqual(state.financialPlanning.reconciliationHistory, []);
   assert.deepEqual(state.financialPlanning.monthlyBudgets, {});
