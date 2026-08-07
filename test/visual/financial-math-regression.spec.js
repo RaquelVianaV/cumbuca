@@ -463,6 +463,106 @@ test('receita de vendas usa o Caixa e não duplica pedidos, aportes, diferenças
   expect(result.statement).toContain('Conciliação com entradas do Financeiro');
 });
 
+test('conta-corrente de sócia afeta caixa sem alterar operação, insumos ou lucro', async ({
+  page,
+}) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    cashEntries: [
+      {
+        id: 'sale-1',
+        date: '2026-08-07',
+        type: 'income',
+        category: 'venda',
+        amount: '1000.00',
+        cashAccount: 'pj',
+      },
+      {
+        id: 'partner-cash-debit-1',
+        date: '2026-08-07',
+        type: 'expense',
+        category: 'conta-socia',
+        amount: '300.00',
+        cashAccount: 'pj',
+        partnerMovementId: 'partner-debit-1',
+        nonOperationalPartnerAccount: true,
+      },
+      {
+        id: 'partner-cash-payment-1',
+        date: '2026-08-07',
+        type: 'income',
+        category: 'conta-socia',
+        amount: '100.00',
+        cashAccount: 'pj',
+        partnerMovementId: 'partner-payment-1',
+        nonOperationalPartnerAccount: true,
+      },
+    ],
+    partnerAccounts: {
+      partners: [
+        { id: 'vanessa', name: 'Vanessa', active: true },
+        { id: 'raquel', name: 'Raquel', active: true },
+      ],
+      movements: [
+        {
+          id: 'partner-debit-1',
+          partnerId: 'vanessa',
+          date: '2026-08-07',
+          type: 'debit',
+          description: 'Compra pessoal',
+          amount: '300.00',
+          origin: 'pj',
+          cashImpact: true,
+          cashEntryId: 'partner-cash-debit-1',
+        },
+        {
+          id: 'partner-payment-1',
+          partnerId: 'vanessa',
+          date: '2026-08-07',
+          type: 'payment',
+          description: 'Pagamento via Pix',
+          amount: '100.00',
+          origin: 'pix',
+          cashImpact: true,
+          cashEntryId: 'partner-cash-payment-1',
+        },
+      ],
+      withdrawalSnapshots: [],
+    },
+  };
+
+  await page.goto('/financeiro?view=partners&ano=2026&mes=8');
+  await expect(page.locator('[data-partner-current-accounts]')).toContainText(
+    'Conta-corrente das sócias'
+  );
+  await expect(page.locator('.partner-account-card').filter({ hasText: 'Vanessa' })).toContainText(
+    'R$ 200,00'
+  );
+  const result = await page.evaluate(() => {
+    const periodEntries = window.reportCashEntries('2026-08', '');
+    const financial = window.financialSummary(periodEntries);
+    const purchases = window.productionPurchasesForPeriod('2026-08');
+    const dre = window.managementDreData('2026-08');
+    return {
+      physicalCash: window.accountBalanceUntilDate('2026-08-07', [], 'pj'),
+      operationalIncome: financial.income,
+      operationalExpenses: financial.operationalExpenses,
+      operationalProfit: financial.profitBeforeWithdrawals,
+      purchases: purchases.purchasesProduction,
+      sales: purchases.salesRevenue,
+      reconciliation: dre.financialIncomeReconciliation,
+    };
+  });
+
+  expect(result.physicalCash).toBeCloseTo(800, 2);
+  expect(result.operationalIncome).toBeCloseTo(1000, 2);
+  expect(result.operationalExpenses).toBe(0);
+  expect(result.operationalProfit).toBeCloseTo(1000, 2);
+  expect(result.purchases).toBe(0);
+  expect(result.sales).toBeCloseTo(1000, 2);
+  expect(result.reconciliation).toBe(0);
+});
+
 test('comparação mensal calcula variação, pontos percentuais e média de três meses', async ({
   page,
 }) => {
@@ -561,6 +661,11 @@ test('DRE separa compras, despesas, distribuições e caixa sem alterar o lucro 
       cashWithdrawals: dre.cashWithdrawals,
       debtCompensation: dre.debtCompensation,
       distribution: dre.distribution,
+      openingCashBalance: dre.openingCashBalance,
+      cashIncome: dre.cashIncome,
+      cashExpenses: dre.cashExpenses,
+      adjustments: dre.accountAdjustmentTotals.balance,
+      finalCashBalance: dre.finalCashBalance,
       html: window.managementStatementHtml(dre),
     };
   });
@@ -581,10 +686,15 @@ test('DRE separa compras, despesas, distribuições e caixa sem alterar o lucro 
   expect(result.cashWithdrawals).toBeCloseTo(6127.4, 2);
   expect(result.debtCompensation).toBeCloseTo(250, 2);
   expect(result.distribution).toBeCloseTo(6377.4, 2);
+  expect(result.openingCashBalance).toBeCloseTo(1000, 2);
+  expect(
+    result.openingCashBalance + result.cashIncome - result.cashExpenses + result.adjustments
+  ).toBeCloseTo(result.finalCashBalance, 2);
   expect(result.html).toContain('Margem após compras');
   expect(result.html).not.toContain('Conciliação com entradas do Financeiro');
   expect(result.html).toContain('Compensação de dívida sem saída da conta');
   expect(result.html).toContain('Movimentação de caixa');
+  expect(result.html).toContain('Saldo inicial');
 });
 
 test('painel local apresenta os indicadores financeiros corrigidos', async ({ page }, testInfo) => {
@@ -614,6 +724,8 @@ test('painel local apresenta os indicadores financeiros corrigidos', async ({ pa
   );
   await expect(page.locator('.executive-attention')).toContainText('O que precisa da sua atenção');
   await expect(page.locator('[data-management-dre]')).toContainText('Margem após compras');
+  await expect(page.locator('[data-management-dre]')).toContainText('Saldo inicialR$ 1.000,00');
+  await expect(page.locator('[data-management-dre]')).toContainText('Saldo final-R$ 2.256,49');
   await expect(page.locator('.management-comparison-panel')).toContainText(
     'Comparação com mês anterior'
   );

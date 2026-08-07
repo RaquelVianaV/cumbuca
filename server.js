@@ -4,6 +4,8 @@ const path = require('path');
 const crypto = require('crypto');
 const PDFDocument = require('pdfkit');
 const JSZip = require('jszip');
+const partnerAccountRules = require('./public/partner-accounts');
+const { normalizePartnerAccounts, validatePartnerAccountState } = partnerAccountRules;
 let Pool = null;
 try {
   ({ Pool } = require('pg'));
@@ -24,9 +26,16 @@ const EXTERNAL_BACKUP_URL = process.env.CUMBUCA_EXTERNAL_BACKUP_URL || '';
 const INTEGRATION_TOKEN = process.env.CUMBUCA_INTEGRATION_TOKEN || '';
 const RESET_TOKEN = process.env.CUMBUCA_RESET_TOKEN || '';
 const loginAttempts = new Map();
-const permissionKeys = ['editFinancial', 'manageClosings', 'restoreBackup', 'clearData'];
+const permissionKeys = [
+  'editFinancial',
+  'managePartnerAdjustments',
+  'manageClosings',
+  'restoreBackup',
+  'clearData',
+];
 const stateKeys = [
   'cashEntries',
+  'partnerAccounts',
   'weeklyMenusByPeriod',
   'weeklyMenuSupermarketCostsByPeriod',
   'menuWeek',
@@ -56,6 +65,7 @@ const stateKeys = [
 
 const financialResetKeys = [
   'cashEntries',
+  'partnerAccounts',
   'storeSales',
   'storeProductQuantities',
   'channelReceipts',
@@ -65,6 +75,7 @@ const financialResetKeys = [
 
 const defaultState = {
   cashEntries: [],
+  partnerAccounts: partnerAccountRules.defaultPartnerAccounts(),
   weeklyMenusByPeriod: {},
   weeklyMenuSupermarketCostsByPeriod: {},
   menuWeek: 1,
@@ -129,7 +140,7 @@ function cloneJson(value) {
 }
 
 function normalizeState(payload = {}) {
-  return Object.fromEntries(
+  const state = Object.fromEntries(
     stateKeys.map((key) => [
       key,
       Object.prototype.hasOwnProperty.call(payload, key)
@@ -137,6 +148,8 @@ function normalizeState(payload = {}) {
         : cloneJson(defaultState[key]),
     ])
   );
+  state.partnerAccounts = normalizePartnerAccounts(state.partnerAccounts);
+  return state;
 }
 
 function normalizedPermissions(value = {}, role = 'operator') {
@@ -146,6 +159,7 @@ function normalizedPermissions(value = {}, role = 'operator') {
       ? Object.fromEntries(permissionKeys.map((key) => [key, true]))
       : {
           editFinancial: true,
+          managePartnerAdjustments: false,
           manageClosings: false,
           restoreBackup: false,
           clearData: false,
@@ -260,6 +274,19 @@ function changedRecordMonths(previous = [], next = []) {
   return [...months];
 }
 
+function partnerAccountDatedRecords(value = {}) {
+  const account = normalizePartnerAccounts(value);
+  return [...account.movements, ...account.withdrawalSnapshots];
+}
+
+function partnerManualAdjustmentsChanged(previous = {}, next = {}) {
+  const manualRows = (value) =>
+    normalizePartnerAccounts(value).movements.filter(
+      (movement) => movement.type === 'manual_adjustment'
+    );
+  return !jsonEqual(manualRows(previous), manualRows(next));
+}
+
 function stateWriteViolation(
   currentState,
   payload = {},
@@ -283,6 +310,7 @@ function stateWriteViolation(
   }
   for (const key of [
     'cashEntries',
+    'partnerAccounts',
     'storeSales',
     'storeProductQuantities',
     'channelReceipts',
@@ -304,7 +332,13 @@ function stateWriteViolation(
       }
       continue;
     }
-    const dates = changedRecordDates(currentState[key] || [], payload[key] || []);
+    const previousRecords =
+      key === 'partnerAccounts'
+        ? partnerAccountDatedRecords(currentState[key])
+        : currentState[key] || [];
+    const nextRecords =
+      key === 'partnerAccounts' ? partnerAccountDatedRecords(payload[key]) : payload[key] || [];
+    const dates = changedRecordDates(previousRecords, nextRecords);
     for (const date of dates) {
       const locked = lockedClosingForDate(currentState, date);
       if (locked) {
@@ -327,6 +361,7 @@ function stateWriteViolation(
 function financialPayloadChanged(currentState, payload = {}) {
   return [
     'cashEntries',
+    'partnerAccounts',
     'storeSales',
     'storeProducts',
     'storeProductQuantities',
@@ -1826,6 +1861,19 @@ async function writeAppState(payload = {}, user = null, options = {}) {
   }
   if (
     !options.bypassPermissions &&
+    Object.prototype.hasOwnProperty.call(payload, 'partnerAccounts') &&
+    partnerManualAdjustmentsChanged(
+      currentBeforeWrite.state.partnerAccounts,
+      payload.partnerAccounts
+    ) &&
+    !userCan(user, 'managePartnerAdjustments')
+  ) {
+    const error = new Error('Somente usuários autorizados podem registrar ajustes de sócias.');
+    error.statusCode = 403;
+    throw error;
+  }
+  if (
+    !options.bypassPermissions &&
     bulkFinancialClearRequested(currentBeforeWrite.state, payload) &&
     !userCan(user, 'clearData')
   ) {
@@ -1840,6 +1888,22 @@ async function writeAppState(payload = {}, user = null, options = {}) {
     const error = new Error(violation.message);
     error.statusCode = violation.statusCode;
     throw error;
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(payload, 'partnerAccounts') ||
+    Object.prototype.hasOwnProperty.call(payload, 'cashEntries')
+  ) {
+    const nextState = normalizeState({ ...currentBeforeWrite.state, ...payload });
+    const validation = validatePartnerAccountState(
+      nextState.partnerAccounts,
+      nextState.cashEntries,
+      options.bypassLocks ? null : currentBeforeWrite.state.partnerAccounts
+    );
+    if (!validation.valid) {
+      const error = new Error(validation.errors[0] || 'Conta-corrente das sócias inconsistente.');
+      error.statusCode = 409;
+      throw error;
+    }
   }
   const entries = Object.entries(payload).filter(([key]) => stateKeys.includes(key));
 
@@ -3382,6 +3446,9 @@ handleRequest._test = {
   legacyBackupDate,
   normalizeState,
   normalizedPermissions,
+  partnerAccountDatedRecords,
+  partnerAccountRules,
+  partnerManualAdjustmentsChanged,
   stateWriteViolation,
   userCan,
   validateBackupPayload,

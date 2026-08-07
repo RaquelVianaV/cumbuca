@@ -220,6 +220,21 @@ test('operation menu exposes Semanal, Loja and Precificação while expenses sta
 
   await page.goto('/home');
   const navigation = page.locator('nav.nav');
+  const navigateFromMenu = async (label) => {
+    const directLink = navigation.getByRole('link', { name: label, exact: true });
+    if (await directLink.isVisible()) {
+      await directLink.click();
+      return;
+    }
+    await navigation.getByRole('link', { name: 'Mais ferramentas', exact: true }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Mais ferramentas', exact: true })
+    ).toBeVisible();
+    await page
+      .locator('.quick-actions a')
+      .filter({ has: page.getByText(label, { exact: true }) })
+      .click();
+  };
   await expect.poll(() => database.stateGetCount).toBe(1);
   await page.evaluate(() => {
     window.__cumbucaNavigationMarker = 'preserved';
@@ -257,7 +272,7 @@ test('operation menu exposes Semanal, Loja and Precificação while expenses sta
   await expect(page).toHaveURL(/\/precificacao$/);
   await expect(page.locator('#page-title')).toHaveText('Precificação');
 
-  await navigation.getByRole('link', { name: 'Despesas', exact: true }).click();
+  await navigateFromMenu('Despesas');
   await expect(page).toHaveURL(/\/despesas$/);
   await expect(page.locator('#page-title')).toHaveText('Despesas');
   await expect(page.getByRole('heading', { name: 'Nova despesa', exact: true })).toBeVisible();
@@ -269,14 +284,14 @@ test('operation menu exposes Semanal, Loja and Precificação while expenses sta
   await expect(page.getByText('Despesa operacional teste', { exact: true })).toBeVisible();
   await expect(page.getByText('Venda que não é despesa', { exact: true })).toHaveCount(0);
 
-  await navigation.getByRole('link', { name: 'Financeiro', exact: true }).click();
+  await navigateFromMenu('Financeiro');
   await expect(page).toHaveURL(/\/financeiro$/);
   await page.getByRole('button', { name: 'Planejamento', exact: true }).click();
   await expect(
     page.getByRole('heading', { name: 'Orçamento mensal por categoria', exact: true })
   ).toBeVisible();
 
-  await navigation.getByRole('link', { name: 'Manutenção', exact: true }).click();
+  await navigateFromMenu('Manutenção');
   await expect(page).toHaveURL(/\/backups$/);
   await expect(page.locator('#page-title')).toHaveText('Manutenção');
   await expect.poll(() => database.stateGetCount).toBe(1);
@@ -1002,6 +1017,71 @@ test('accounts workflow is visible and responsive', async ({ page }, testInfo) =
   });
 });
 
+test('partner current accounts are usable without desktop or mobile clipping', async ({
+  page,
+}, testInfo) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    cashEntries: [],
+    partnerAccounts: {
+      partners: [
+        { id: 'vanessa', name: 'Vanessa' },
+        { id: 'raquel', name: 'Raquel' },
+      ],
+      movements: [
+        {
+          id: 'partner-opening-test',
+          partnerId: 'vanessa',
+          date: '2026-08-07',
+          type: 'debit',
+          amount: 150,
+          description: 'Saldo inicial para teste',
+          origin: 'other',
+          observation: 'Sem movimentação de caixa',
+          createdAt: '2026-08-07T12:00:00.000Z',
+          updatedAt: '2026-08-07T12:00:00.000Z',
+        },
+      ],
+      withdrawalSnapshots: [],
+    },
+  };
+
+  await page.goto('/financeiro?view=partners');
+  await expect(
+    page.getByRole('heading', { name: 'Conta-corrente das sócias', exact: true })
+  ).toBeVisible();
+  const headingPosition = await page
+    .getByRole('heading', { name: 'Conta-corrente das sócias', exact: true })
+    .evaluate((heading) => ({
+      top: heading.getBoundingClientRect().top,
+      viewport: window.innerHeight,
+    }));
+  expect(headingPosition.top).toBeLessThan(headingPosition.viewport);
+  await expect(page.locator('.partner-account-card')).toHaveCount(2);
+  await expect(page.locator('.partner-account-card').first()).toContainText('R$ 150,00');
+  await expect(page.locator('#partner-movement-form')).toBeVisible();
+  await expect(page.locator('.partner-history-panel tbody tr')).toHaveCount(1);
+  await expectNoHorizontalOverflow(page);
+
+  const layout = await page.evaluate(() => ({
+    formColumns: getComputedStyle(
+      document.querySelector('.partner-movement-form')
+    ).gridTemplateColumns.split(' ').length,
+    cardsOverflow:
+      document.querySelector('.partner-account-cards').scrollWidth -
+      document.querySelector('.partner-account-cards').clientWidth,
+  }));
+  expect(layout.formColumns).toBe(testInfo.project.name === 'mobile' ? 1 : 3);
+  expect(layout.cardsOverflow).toBeLessThanOrEqual(1);
+
+  const screenshotPath = testInfo.outputPath('partner-current-accounts.png');
+  await page.screenshot({ path: screenshotPath, fullPage: true });
+  await testInfo.attach('partner-current-accounts.png', {
+    path: screenshotPath,
+    contentType: 'image/png',
+  });
+});
+
 test('future bills choose the cash account only when paid', async ({ page }) => {
   const database = await mockOnlineDatabase(page);
   database.state = { cashEntries: [] };
@@ -1458,6 +1538,37 @@ test('withdrawals automatically apply cash debts and never exceed the account ba
         amount: '5000.00',
       },
     ],
+    partnerAccounts: {
+      partners: [
+        { id: 'vanessa', name: 'Vanessa', active: true },
+        { id: 'raquel', name: 'Raquel', active: true },
+      ],
+      movements: [
+        {
+          id: 'partner-debt-vanessa',
+          partnerId: 'vanessa',
+          date: today,
+          type: 'debit',
+          description: 'Retirada pessoal anterior',
+          amount: '200.00',
+          origin: 'pj',
+          cashImpact: false,
+          createdAt: `${today}T09:00:00.000Z`,
+        },
+        {
+          id: 'partner-debt-raquel',
+          partnerId: 'raquel',
+          date: today,
+          type: 'debit',
+          description: 'Retirada pessoal anterior',
+          amount: '50.00',
+          origin: 'pj',
+          cashImpact: false,
+          createdAt: `${today}T09:05:00.000Z`,
+        },
+      ],
+      withdrawalSnapshots: [],
+    },
     financialPlanning: {
       savings: '1000.00',
       savingsExpectedBalance: '1000.00',
@@ -1470,8 +1581,8 @@ test('withdrawals automatically apply cash debts and never exceed the account ba
   await form.locator('select[name="cashAccount"]').selectOption('pj');
   await expect(form.locator('input[name="accountBalanceBefore"]')).toHaveValue('5.000,00');
   await form.locator('input[name="accountBalanceBefore"]').fill('4.750,00');
-  await form.locator('input[name="priorVanessa"]').fill('200,00');
-  await form.locator('input[name="priorRaquel"]').fill('50,00');
+  await expect(form.locator('[data-withdrawal-debt="vanessa"]')).toContainText('R$ 200,00');
+  await expect(form.locator('[data-withdrawal-debt="raquel"]')).toContainText('R$ 50,00');
   await expect(form.locator('input[name="expectedSavings"]')).toHaveValue('500,00');
   await expect(form.locator('input[name="expectedVanessa"]')).toHaveValue('3.150,00');
   await expect(form.locator('input[name="expectedRaquel"]')).toHaveValue('1.350,00');
@@ -1480,7 +1591,7 @@ test('withdrawals automatically apply cash debts and never exceed the account ba
   await expect(form.locator('input[name="raquel"]')).toHaveValue('1.300,00');
   await expect(form.locator('.withdrawal-preview')).toContainText('Ajuste para igualar ao banco');
   await expect(form.locator('.withdrawal-preview')).toContainText('-R$ 250,00');
-  await expect(form.locator('.withdrawal-preview')).toContainText('Base da divisão');
+  await expect(form.locator('.withdrawal-preview')).toContainText('Base ajustada para a quebra');
   await expect(form.locator('.withdrawal-preview')).toContainText('R$ 5.000,00');
   await expect(form.locator('.withdrawal-preview')).toContainText('Total que sai agoraR$ 4.750,00');
   await expect(form.locator('.withdrawal-preview')).toContainText(
@@ -1497,6 +1608,11 @@ test('withdrawals automatically apply cash debts and never exceed the account ba
   );
   expect(cappedCalculation.total).toBeLessThanOrEqual(2000);
   expect(cappedCalculation.accountAfterWithdrawal).toBeGreaterThanOrEqual(0);
+  const legacyReconstruction = await page.evaluate(() => window.withdrawalSplitFromRaquel(1350));
+  expect(legacyReconstruction.total).toBeCloseTo(5000, 2);
+  expect(legacyReconstruction.savings).toBeCloseTo(500, 2);
+  expect(legacyReconstruction.vanessa).toBeCloseTo(3150, 2);
+  expect(legacyReconstruction.raquel).toBeCloseTo(1350, 2);
   await expectNoHorizontalOverflow(page);
   await form.getByRole('button', { name: 'Registrar retiradas', exact: true }).click();
 
@@ -1520,6 +1636,8 @@ test('withdrawals automatically apply cash debts and never exceed the account ba
     priorWithdrawalAmount: '200.00',
     accountBalanceBefore: '4750.00',
     cashAccount: 'pj',
+    paidToCashAmount: '200.00',
+    remainingDebtAmount: '0.00',
   });
   const firstRaquel = database.state.cashEntries.find(
     (entry) => entry.description === 'Retirada - Raquel'
@@ -1531,7 +1649,18 @@ test('withdrawals automatically apply cash debts and never exceed the account ba
     priorWithdrawalAmount: '50.00',
     accountBalanceBefore: '4750.00',
     cashAccount: 'pj',
+    paidToCashAmount: '50.00',
+    remainingDebtAmount: '0.00',
   });
+  expect(database.state.partnerAccounts.withdrawalSnapshots).toHaveLength(1);
+  expect(database.state.partnerAccounts.withdrawalSnapshots[0]).toMatchObject({
+    physicalCash: '4750.00',
+    receivablesTotal: '250.00',
+    adjustedBase: '5000.00',
+    companyReserve: '500.00',
+    cashPaidTotal: '4750.00',
+  });
+  expect(database.state.partnerAccounts.movements).toHaveLength(4);
   expect(
     database.state.cashEntries
       .filter((entry) => String(entry.id || '').startsWith('withdrawal-'))
@@ -2718,7 +2847,7 @@ test('home period applies the selected month across monthly views', async ({ pag
     .locator('.partners-dashboard section')
     .filter({ hasText: 'Valores compensados ao caixa' });
   await expect(compensation).toContainText('julho de 2026');
-  await expect(compensation).toContainText('Pagou ao caixa R$ 100,00');
+  await expect(compensation).toContainText('Compensado na retirada R$ 100,00');
   await expect(compensation).not.toContainText('R$ 300,00');
 
   await page.goto('/loja');

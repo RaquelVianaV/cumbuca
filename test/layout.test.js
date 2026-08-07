@@ -423,9 +423,16 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /name="expectedRaquel"/);
   assert.match(app, /Conta de onde saiu o dinheiro/);
   assert.match(app, /value="unassigned"/);
-  assert.match(app, /Saldo real da conta agora/);
+  assert.match(app, /Caixa real disponível/);
   assert.match(app, /Divisão automática/);
+  assert.match(app, /Tratamento da dívida de cada sócia/);
   assert.match(app, /Quanto realmente sairá da conta agora/);
+  assert.match(app, /Conta-corrente das sócias/);
+  assert.match(app, /partnerAccountsPanel/);
+  assert.match(app, /nonOperationalPartnerAccount/);
+  assert.match(app, /partnerWithdrawalSnapshotId/);
+  assert.match(server, /validatePartnerAccountState/);
+  assert.match(css, /\.partner-account-cards/);
   assert.match(app, /Lucro operacional/);
   assert.match(app, /Total que sai agora/);
   assert.match(app, /Vanessa - distribuição total/);
@@ -520,9 +527,12 @@ test('mobile tables receive column labels', () => {
 test('HTML and service worker use the same asset versions', () => {
   const cssVersion = html.match(/styles\.css\?v=([^"]+)/)?.[1];
   const appVersion = html.match(/app\.js\?v=([^"]+)/)?.[1];
+  const partnerAccountsVersion = html.match(/partner-accounts\.js\?v=([^"]+)/)?.[1];
 
   assert.ok(cssVersion);
   assert.ok(appVersion);
+  assert.ok(partnerAccountsVersion);
   assert.match(serviceWorker, new RegExp(`styles\\.css\\?v=${cssVersion}`));
   assert.match(serviceWorker, new RegExp(`app\\.js\\?v=${appVersion}`));
+  assert.match(serviceWorker, new RegExp(`partner-accounts\\.js\\?v=${partnerAccountsVersion}`));
 });

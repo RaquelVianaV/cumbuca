@@ -14,6 +14,17 @@ const currentUserBadge = document.querySelector('#current-user');
 const globalNewButton = document.querySelector('#global-new-button');
 const globalNewDialog = document.querySelector('#global-new-dialog');
 const globalNewClose = document.querySelector('#global-new-close');
+const partnerAccountRules = window.CumbucaPartnerAccounts;
+const {
+  calculateWithdrawalDistribution: calculatePartnerWithdrawalDistribution,
+  consolidatedMovementIds: consolidatedPartnerMovementIds,
+  defaultPartnerAccounts,
+  isPartnerCashEntry,
+  movementEffect: partnerMovementEffect,
+  normalizePartnerAccounts,
+  partnerAccountSummary,
+  partnerBalances
+} = partnerAccountRules;
 const navLinks = [...document.querySelectorAll('[data-route]')];
 let systemStatus = {
   server: false,
@@ -53,6 +64,7 @@ const configRouteOptions = [
 ];
 const localStateKeys = [
   "cashEntries",
+  "partnerAccounts",
   "weeklyMenusByPeriod",
   "weeklyMenuSupermarketCostsByPeriod",
   "menuWeek",
@@ -649,6 +661,8 @@ function showToast(text, mode = "success") {
     document.body.appendChild(area);
   }
 
+  [...area.querySelectorAll(".toast")].forEach(item => item.remove());
+
   const toast = document.createElement("div");
   toast.className = `toast ${mode}`;
   toast.textContent = text;
@@ -821,6 +835,7 @@ const defaultIncomeCategories = [
   ["raquel", "Raquel"],
   ["cofrinho", "Cofrinho"],
   ["diferenca", "Diferença"],
+  ["conta-socia", "Conta-corrente de sócia"],
   ["ajuste-conta", "Ajuste da conta"]
 ];
 const channelDefinitions = [
@@ -853,6 +868,7 @@ const defaultExpenseCategories = [
   ["gas", "Gás"],
   ["vivo", "Vivo"],
   ["retirada", "Retirada"],
+  ["conta-socia", "Conta-corrente de sócia"],
   ["vanessa", "Vanessa"],
   ["raquel", "Raquel"],
   ["cofrinho", "Cofrinho"],
@@ -1006,6 +1022,7 @@ function seededCashCategories(saved = localValue("cashCategories", null)) {
 
 const state = {
   cash: localValue("cashEntries", []),
+  partnerAccounts: normalizePartnerAccounts(localValue("partnerAccounts", defaultPartnerAccounts())),
   menus: localValue("weeklyMenusByPeriod", {}),
   menuSupermarketCosts: localValue("weeklyMenuSupermarketCostsByPeriod", {}),
   menuWeek: Number(localStorage.getItem("menuWeek") || "1"),
@@ -1052,6 +1069,10 @@ const state = {
   editSavingsEntryId: null,
   cashSort: { key: "date", direction: "desc" },
   editWithdrawalGroup: null,
+  editPartnerMovementId: null,
+  partnerMovementDraft: null,
+  partnerAccountFocus: localValue("partnerAccountFocus", "vanessa"),
+  partnerAccountFilter: localValue("partnerAccountFilter", { start: "", end: "" }),
   editChannelReceiptId: null,
   editCashCategory: null,
   cashPanelTab: "entry",
@@ -1125,6 +1146,7 @@ if (localStorage.getItem("cashFilterDefaultMonthVersion") !== "2026-06") {
 function appStatePayload() {
   return {
     cashEntries: state.cash,
+    partnerAccounts: state.partnerAccounts,
     weeklyMenusByPeriod: state.menus,
     weeklyMenuSupermarketCostsByPeriod: state.menuSupermarketCosts,
     menuWeek: state.menuWeek,
@@ -1171,6 +1193,7 @@ function recordSystemIssue(type, message, detail = "") {
 
 function applyPayloadToState(saved = {}) {
   state.cash = saved.cashEntries || [];
+  state.partnerAccounts = normalizePartnerAccounts(saved.partnerAccounts || defaultPartnerAccounts());
   state.menus = saved.weeklyMenusByPeriod || {};
   state.menuSupermarketCosts = saved.weeklyMenuSupermarketCostsByPeriod || {};
   state.menuWeek = Number(saved.menuWeek || 1);
@@ -2824,7 +2847,7 @@ function cashCategoryOptions(type, selected = "") {
 
 function isBillCategory(value) {
   const normalized = String(value || "").replace(/^supplier:/, "reason:").toLowerCase();
-  if (normalized === "ajuste-conta") {
+  if (["ajuste-conta", "conta-socia"].includes(normalized)) {
     return false;
   }
   return normalized === "boleto"
@@ -2971,7 +2994,9 @@ function accountAdjustmentTotals(entries = state.cash) {
 }
 
 function businessCashEntries(entries = state.cash) {
-  return accountingCashEntries(entries).filter(entry => !isAccountAdjustmentEntry(entry));
+  return accountingCashEntries(entries).filter(
+    entry => !isAccountAdjustmentEntry(entry) && !isPartnerCashEntry(entry)
+  );
 }
 
 function withdrawalSplit(amount) {
@@ -2980,77 +3005,98 @@ function withdrawalSplit(amount) {
     ...defaultAppConfig,
     ...(state.appConfig || {})
   };
-  const savingsPercent = Math.max(0, Number(config.splitSavingsPercent || 0));
-  const vanessaPercent = Math.max(0, Number(config.splitVanessaPercent || 0));
-  const raquelPercent = Math.max(0, Number(config.splitRaquelPercent || 0));
-  const partnersTotal = vanessaPercent + raquelPercent || 100;
-  const savings = total * (savingsPercent / 100);
-  const remaining = total - savings;
-  const vanessa = remaining * (vanessaPercent / partnersTotal);
-  const raquel = remaining * (raquelPercent / partnersTotal);
-
-  return { total, savings, remaining, vanessa, raquel };
+  const calculation = calculatePartnerWithdrawalDistribution({
+    physicalBalance: total,
+    savingsPercent: Number(config.splitSavingsPercent || 0),
+    partners: [
+      { id: "vanessa", share: Number(config.splitVanessaPercent || 0) },
+      { id: "raquel", share: Number(config.splitRaquelPercent || 0) }
+    ]
+  });
+  return {
+    total,
+    savings: calculation.expectedSavings,
+    remaining: calculation.partnerPool,
+    vanessa: Number(calculation.partners.find(partner => partner.id === "vanessa")?.expectedRight || 0),
+    raquel: Number(calculation.partners.find(partner => partner.id === "raquel")?.expectedRight || 0)
+  };
 }
 
 function roundedMoneyValue(value) {
   return Math.round(Number(value || 0) * 100) / 100;
 }
 
-function withdrawalDistributionCalculation(accountBalance, debtVanessa = 0, debtRaquel = 0) {
-  const physicalBalance = Math.max(0, roundedMoneyValue(parseMoneyInput(accountBalance)));
-  const cashDebtVanessa = Math.max(0, roundedMoneyValue(parseMoneyInput(debtVanessa)));
-  const cashDebtRaquel = Math.max(0, roundedMoneyValue(parseMoneyInput(debtRaquel)));
-  const distributionBase = roundedMoneyValue(
-    physicalBalance + cashDebtVanessa + cashDebtRaquel
+function withdrawalDistributionCalculation(
+  accountBalance,
+  debtVanessa = 0,
+  debtRaquel = 0,
+  options = {}
+) {
+  const config = { ...defaultAppConfig, ...(state.appConfig || {}) };
+  const openingVanessa = Math.max(0, roundedMoneyValue(parseMoneyInput(debtVanessa)));
+  const openingRaquel = Math.max(0, roundedMoneyValue(parseMoneyInput(debtRaquel)));
+  const realPaymentVanessa = Math.max(
+    0,
+    roundedMoneyValue(parseMoneyInput(options.realPaymentVanessa || 0))
   );
-  const suggested = withdrawalSplit(distributionBase);
-  const expectedSavings = roundedMoneyValue(suggested.savings);
-  const expectedVanessa = roundedMoneyValue(suggested.vanessa);
-  const expectedRaquel = roundedMoneyValue(
-    distributionBase - expectedSavings - expectedVanessa
+  const realPaymentRaquel = Math.max(
+    0,
+    roundedMoneyValue(parseMoneyInput(options.realPaymentRaquel || 0))
   );
-  const paidToCashVanessa = Math.min(expectedVanessa, cashDebtVanessa);
-  const paidToCashRaquel = Math.min(expectedRaquel, cashDebtRaquel);
-  const netDueVanessa = roundedMoneyValue(expectedVanessa - paidToCashVanessa);
-  const netDueRaquel = roundedMoneyValue(expectedRaquel - paidToCashRaquel);
-  const savings = Math.min(expectedSavings, physicalBalance);
-  const availableForPartners = roundedMoneyValue(Math.max(0, physicalBalance - savings));
-  const partnerClaims = roundedMoneyValue(netDueVanessa + netDueRaquel);
-  const partnerPaymentRatio = partnerClaims > availableForPartners && partnerClaims > 0
-    ? availableForPartners / partnerClaims
-    : 1;
-  const vanessa = roundedMoneyValue(Math.min(
-    netDueVanessa,
-    netDueVanessa * partnerPaymentRatio
-  ));
-  const raquel = roundedMoneyValue(Math.min(
-    netDueRaquel,
-    Math.max(0, availableForPartners - vanessa)
-  ));
-  const total = roundedMoneyValue(savings + vanessa + raquel);
-
+  const result = calculatePartnerWithdrawalDistribution({
+    physicalBalance: Math.max(0, roundedMoneyValue(parseMoneyInput(accountBalance))),
+    savingsPercent: Number(config.splitSavingsPercent || 0),
+    partners: [
+      {
+        id: "vanessa",
+        name: "Vanessa",
+        share: Number(config.splitVanessaPercent || 0),
+        openingDebt: openingVanessa,
+        realPayment: realPaymentVanessa,
+        compensation: options.compensationVanessa === undefined
+          ? Math.max(0, openingVanessa - realPaymentVanessa)
+          : Math.max(0, parseMoneyInput(options.compensationVanessa))
+      },
+      {
+        id: "raquel",
+        name: "Raquel",
+        share: Number(config.splitRaquelPercent || 0),
+        openingDebt: openingRaquel,
+        realPayment: realPaymentRaquel,
+        compensation: options.compensationRaquel === undefined
+          ? Math.max(0, openingRaquel - realPaymentRaquel)
+          : Math.max(0, parseMoneyInput(options.compensationRaquel))
+      }
+    ]
+  });
+  const vanessa = result.partners.find(partner => partner.id === "vanessa") || {};
+  const raquel = result.partners.find(partner => partner.id === "raquel") || {};
   return {
-    physicalBalance,
-    distributionBase,
-    expectedTotal: roundedMoneyValue(expectedSavings + expectedVanessa + expectedRaquel),
-    expectedSavings,
-    expectedVanessa,
-    expectedRaquel,
-    debtVanessa: cashDebtVanessa,
-    debtRaquel: cashDebtRaquel,
-    priorVanessa: cashDebtVanessa,
-    priorRaquel: cashDebtRaquel,
-    paidToCashVanessa,
-    paidToCashRaquel,
-    remainingDebtVanessa: roundedMoneyValue(cashDebtVanessa - paidToCashVanessa),
-    remainingDebtRaquel: roundedMoneyValue(cashDebtRaquel - paidToCashRaquel),
-    pendingVanessa: roundedMoneyValue(netDueVanessa - vanessa),
-    pendingRaquel: roundedMoneyValue(netDueRaquel - raquel),
-    savings,
-    vanessa,
-    raquel,
-    total,
-    accountAfterWithdrawal: roundedMoneyValue(Math.max(0, physicalBalance - total))
+    physicalBalance: result.physicalBalance,
+    cashAvailable: result.cashAvailable,
+    distributionBase: result.distributionBase,
+    expectedTotal: result.expectedTotal,
+    expectedSavings: result.expectedSavings,
+    expectedVanessa: Number(vanessa.expectedRight || 0),
+    expectedRaquel: Number(raquel.expectedRight || 0),
+    debtVanessa: openingVanessa,
+    debtRaquel: openingRaquel,
+    priorVanessa: openingVanessa,
+    priorRaquel: openingRaquel,
+    realPaymentVanessa: Number(vanessa.realPayment || 0),
+    realPaymentRaquel: Number(raquel.realPayment || 0),
+    paidToCashVanessa: Number(vanessa.compensation || 0),
+    paidToCashRaquel: Number(raquel.compensation || 0),
+    remainingDebtVanessa: Number(vanessa.remainingDebt || 0),
+    remainingDebtRaquel: Number(raquel.remainingDebt || 0),
+    pendingVanessa: Number(vanessa.pendingDistribution || 0),
+    pendingRaquel: Number(raquel.pendingDistribution || 0),
+    savings: result.savingsPaid,
+    vanessa: Number(vanessa.cashPaid || 0),
+    raquel: Number(raquel.cashPaid || 0),
+    total: result.cashPaidTotal,
+    accountAfterWithdrawal: result.accountAfterWithdrawal,
+    partnerCalculation: result
   };
 }
 
@@ -3064,18 +3110,16 @@ function withdrawalSplitFromRaquel(raquelAmount) {
   const vanessaPercent = Math.max(0, Number(config.splitVanessaPercent || 0));
   const raquelPercent = Math.max(0, Number(config.splitRaquelPercent || 0));
   const partnersTotal = vanessaPercent + raquelPercent || 100;
+  const partnerPoolRate = Math.max(0, 1 - (savingsPercent / 100));
 
-  if (!raquelPercent) {
+  if (!raquelPercent || !partnerPoolRate) {
     const total = raquel;
     return { total, savings: 0, remaining: total, vanessa: 0, raquel };
   }
 
-  const base = raquel / (raquelPercent / partnersTotal);
-  const savings = base * (savingsPercent / 100);
-  const vanessa = base * (vanessaPercent / partnersTotal);
-  const total = savings + vanessa + raquel;
-
-  return { total, savings, remaining: base, vanessa, raquel };
+  const partnerShareRate = raquelPercent / partnersTotal;
+  const total = raquel / (partnerPoolRate * partnerShareRate);
+  return withdrawalSplit(total);
 }
 
 function accountBalanceUntilDate(dateKey, excludeIds = [], cashAccount = "all") {
@@ -3751,8 +3795,19 @@ function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
       hasAccountBalanceBefore: false,
       priorVanessa: 0,
       priorRaquel: 0,
+      paidToCashVanessa: 0,
+      paidToCashRaquel: 0,
+      realPaymentVanessa: 0,
+      realPaymentRaquel: 0,
+      storedRemainingDebtVanessa: 0,
+      storedRemainingDebtRaquel: 0,
       hasPriorVanessa: false,
       hasPriorRaquel: false,
+      hasPaidToCashVanessa: false,
+      hasPaidToCashRaquel: false,
+      hasStoredRemainingDebtVanessa: false,
+      hasStoredRemainingDebtRaquel: false,
+      partnerWithdrawalSnapshotId: "",
       cashAccount: "",
       mixedCashAccounts: false,
       entries: []
@@ -3764,6 +3819,8 @@ function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
       group.cashAccount = group.cashAccount || entryCashAccount;
     }
     const target = withdrawalTarget(entry);
+    group.partnerWithdrawalSnapshotId = group.partnerWithdrawalSnapshotId
+      || String(entry.partnerWithdrawalSnapshotId || "");
     group[target] += Number(entry.amount || 0);
     group.total += Number(entry.amount || 0);
     group.distributionBase = Math.max(group.distributionBase, Number(entry.distributionBase || 0));
@@ -3786,6 +3843,23 @@ function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
       group[priorKey] += cashDebtAmount;
       group[priorFlag] = true;
     }
+    const paidToCashAmount = Number(entry.paidToCashAmount);
+    if (Number.isFinite(paidToCashAmount) && ["vanessa", "raquel"].includes(target)) {
+      const suffix = `${target[0].toUpperCase()}${target.slice(1)}`;
+      group[`paidToCash${suffix}`] += paidToCashAmount;
+      group[`hasPaidToCash${suffix}`] = true;
+    }
+    const realPaymentAmount = Number(entry.realPaymentAmount);
+    if (Number.isFinite(realPaymentAmount) && ["vanessa", "raquel"].includes(target)) {
+      const suffix = `${target[0].toUpperCase()}${target.slice(1)}`;
+      group[`realPayment${suffix}`] += realPaymentAmount;
+    }
+    const remainingDebtAmount = Number(entry.remainingDebtAmount);
+    if (Number.isFinite(remainingDebtAmount) && ["vanessa", "raquel"].includes(target)) {
+      const suffix = `${target[0].toUpperCase()}${target.slice(1)}`;
+      group[`storedRemainingDebt${suffix}`] += remainingDebtAmount;
+      group[`hasStoredRemainingDebt${suffix}`] = true;
+    }
     group.entries.push(entry);
     groups.set(key, group);
   });
@@ -3799,16 +3873,24 @@ function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
     const inferredPriorRaquel = Math.max(0, expectedRaquel - group.raquel);
     const priorVanessa = group.hasPriorVanessa ? group.priorVanessa : inferredPriorVanessa;
     const priorRaquel = group.hasPriorRaquel ? group.priorRaquel : inferredPriorRaquel;
-    const paidToCashVanessa = Math.min(expectedVanessa, priorVanessa);
-    const paidToCashRaquel = Math.min(expectedRaquel, priorRaquel);
+    const paidToCashVanessa = group.hasPaidToCashVanessa
+      ? group.paidToCashVanessa
+      : Math.min(expectedVanessa, priorVanessa);
+    const paidToCashRaquel = group.hasPaidToCashRaquel
+      ? group.paidToCashRaquel
+      : Math.min(expectedRaquel, priorRaquel);
     const netDueVanessa = Math.max(0, expectedVanessa - paidToCashVanessa);
     const netDueRaquel = Math.max(0, expectedRaquel - paidToCashRaquel);
     const pendingVanessa = Math.max(0, netDueVanessa - group.vanessa);
     const pendingRaquel = Math.max(0, netDueRaquel - group.raquel);
     const extraVanessa = Math.max(0, group.vanessa - netDueVanessa);
     const extraRaquel = Math.max(0, group.raquel - netDueRaquel);
-    const remainingDebtVanessa = Math.max(0, priorVanessa - paidToCashVanessa);
-    const remainingDebtRaquel = Math.max(0, priorRaquel - paidToCashRaquel);
+    const remainingDebtVanessa = group.hasStoredRemainingDebtVanessa
+      ? group.storedRemainingDebtVanessa
+      : Math.max(0, priorVanessa - paidToCashVanessa);
+    const remainingDebtRaquel = group.hasStoredRemainingDebtRaquel
+      ? group.storedRemainingDebtRaquel
+      : Math.max(0, priorRaquel - paidToCashRaquel);
     const distributionBase = expectedTotal || group.distributionBase || group.total;
     const accountBalanceBefore = group.hasAccountBalanceBefore
       ? group.accountBalanceBefore
@@ -3859,7 +3941,7 @@ function partnerCashOffsetLabel(value) {
   if (amount < 0.01) {
     return "Sem compensação";
   }
-  return `Pagou ao caixa ${money(amount)}`;
+  return `Compensado na retirada ${money(amount)}`;
 }
 
 function withdrawalGroupsBetween(start, end) {
@@ -3966,11 +4048,13 @@ function withdrawalHistoryHtml(monthKey = currentMonthKey()) {
               <td>${group.mixedCashAccounts ? "Mais de uma conta" : cashAccountLabel(group.cashAccount)}</td>
               <td>${money(group.accountBalanceBefore)}</td>
               <td><strong>${money(group.savings + group.vanessa + group.paidToCashVanessa + group.raquel + group.paidToCashRaquel)}</strong><br><small>Inclui compensações</small></td>
-              <td>${money(group.savings)}<br><small>10% bruto ${money(group.expectedSavings)}</small></td>
+              <td>${money(group.savings)}<br><small>${Number(state.appConfig.splitSavingsPercent || 0)}% bruto ${money(group.expectedSavings)}</small></td>
               <td><strong>${money(group.vanessa + group.paidToCashVanessa)}</strong><br><small>Recebeu agora ${money(group.vanessa)} · dívida compensada ${money(group.paidToCashVanessa)} · direito ${money(group.expectedVanessa)}</small></td>
               <td><strong>${money(group.raquel + group.paidToCashRaquel)}</strong><br><small>Recebeu agora ${money(group.raquel)} · dívida compensada ${money(group.paidToCashRaquel)} · direito ${money(group.expectedRaquel)}</small></td>
               <td><strong>${money(group.total)}</strong></td>
-              <td><button class="secondary table-action" type="button" data-edit-withdrawal="${escapeHtml(group.key)}">Editar</button></td>
+              <td>${group.partnerWithdrawalSnapshotId
+                ? `<span class="status-pill">Snapshot salvo</span>`
+                : `<button class="secondary table-action" type="button" data-edit-withdrawal="${escapeHtml(group.key)}">Editar</button>`}</td>
             </tr>
           `).join("")}
         </tbody>
@@ -4110,6 +4194,515 @@ function upsertPartnersRecord(record) {
   };
 }
 
+function partnerAccountPartners() {
+  return normalizePartnerAccounts(state.partnerAccounts).partners;
+}
+
+function partnerAccountMovements() {
+  return normalizePartnerAccounts(state.partnerAccounts).movements;
+}
+
+function partnerWithdrawalSnapshots() {
+  return normalizePartnerAccounts(state.partnerAccounts).withdrawalSnapshots;
+}
+
+function partnerAccountName(partnerId) {
+  return partnerAccountPartners().find(partner => partner.id === partnerId)?.name || partnerId;
+}
+
+function partnerMovementTypeLabel(type) {
+  return {
+    debit: "Débito",
+    payment: "Pagamento recebido",
+    withdrawal_compensation: "Compensação na distribuição",
+    manual_adjustment: "Ajuste manual"
+  }[type] || "Movimentação";
+}
+
+function partnerOriginLabel(origin) {
+  return {
+    pj: "Conta PJ",
+    pf: "Conta PF da empresa",
+    card: "Cartão da empresa",
+    cash: "Dinheiro",
+    pix: "Pix/transferência",
+    other: "Outro"
+  }[origin] || origin || "Não informada";
+}
+
+function partnerAccountBalance(partnerId, throughDate = "") {
+  return Number(partnerBalances(state.partnerAccounts, throughDate)[partnerId] || 0);
+}
+
+function partnerMovementIsConsolidated(movementId) {
+  return consolidatedPartnerMovementIds(state.partnerAccounts).has(String(movementId || ""));
+}
+
+function partnerAccountCashEntry(movement = {}) {
+  return state.cash.find(entry => String(entry.id || "") === String(movement.cashEntryId || ""));
+}
+
+function partnerCashCandidateOptions(type, selectedId = "") {
+  const expectedType = type === "payment" ? "income" : "expense";
+  const rows = accountingCashEntries(state.cash)
+    .filter(entry => entry.type === expectedType)
+    .filter(entry => !isWithdrawalEntry(entry) && !isAccountAdjustmentEntry(entry))
+    .filter(entry => !entry.partnerMovementId || String(entry.id) === String(selectedId))
+    .sort((left, right) => String(right.date || "").localeCompare(String(left.date || "")));
+  return [
+    `<option value="">Selecione um lançamento</option>`,
+    ...rows.map(entry => `<option value="${escapeHtml(entry.id)}" ${String(entry.id) === String(selectedId) ? "selected" : ""}>${formatIsoDateBr(entry.date)} · ${escapeHtml(entry.description || cashDisplayCategoryName(entry))} · ${money(entry.amount)}</option>`)
+  ].join("");
+}
+
+function partnerMovementFormHtml(partnerId) {
+  const editing = state.editPartnerMovementId
+    ? partnerAccountMovements().find(movement => String(movement.id) === String(state.editPartnerMovementId))
+    : null;
+  const draft = state.partnerMovementDraft || {};
+  const selectedPartner = editing?.partnerId || draft.partnerId || partnerId;
+  const type = editing?.type || draft.type || "debit";
+  const linkedCash = editing ? partnerAccountCashEntry(editing) : null;
+  const cashMode = linkedCash
+    ? linkedCash.partnerAccountGenerated ? "create" : "link"
+    : type === "manual_adjustment" ? "none" : "create";
+  const cashAccount = normalizedCashAccount(linkedCash?.cashAccount || "pj");
+  const canAdjust = canUser("managePartnerAdjustments");
+  return `
+    <section class="panel partner-movement-form-panel" id="partner-movement-form-panel">
+      <div class="section-heading">
+        <div>
+          <h2>${editing ? "Editar movimentação" : "Nova movimentação"}</h2>
+          <p class="muted-inline">Valores são sempre positivos. O tipo define se o saldo devedor aumenta ou diminui.</p>
+        </div>
+      </div>
+      <form id="partner-movement-form" class="form-grid partner-movement-form">
+        <label>Sócia
+          <select name="partnerId" required>
+            ${partnerAccountPartners().filter(partner => partner.active || partner.id === selectedPartner).map(partner => `<option value="${partner.id}" ${partner.id === selectedPartner ? "selected" : ""}>${escapeHtml(partner.name)}</option>`).join("")}
+          </select>
+        </label>
+        <label>Data
+          <input name="date" type="date" value="${editing?.date || isoDate(new Date())}" required>
+        </label>
+        <label>Tipo
+          <select name="type" required>
+            <option value="debit" ${type === "debit" ? "selected" : ""}>Débito pessoal</option>
+            <option value="payment" ${type === "payment" ? "selected" : ""}>Pagamento recebido</option>
+            ${canAdjust ? `<option value="manual_adjustment" ${type === "manual_adjustment" ? "selected" : ""}>Ajuste manual</option>` : ""}
+          </select>
+        </label>
+        <label>Descrição da movimentação
+          <input name="description" value="${escapeHtml(editing?.description || "")}" placeholder="Ex.: Uber pessoal ou pagamento via Pix" required>
+        </label>
+        <label>Valor
+          <input name="amount" type="text" inputmode="decimal" value="${moneyInputValue(editing?.amount)}" placeholder="0,00" required>
+        </label>
+        <label data-partner-origin>Origem
+          <select name="origin">
+            ${[
+              ["pj", "Conta PJ"],
+              ["pf", "Conta PF da empresa"],
+              ["card", "Cartão da empresa"],
+              ["cash", "Dinheiro"],
+              ["pix", "Pix/transferência"],
+              ["other", "Outro"]
+            ].map(([key, label]) => `<option value="${key}" ${key === (editing?.origin || (type === "payment" ? "pix" : "pj")) ? "selected" : ""}>${label}</option>`).join("")}
+          </select>
+        </label>
+        <label data-partner-adjustment-direction>Direção do ajuste
+          <select name="direction">
+            <option value="increase" ${editing?.direction !== "decrease" ? "selected" : ""}>Aumentar saldo devedor</option>
+            <option value="decrease" ${editing?.direction === "decrease" ? "selected" : ""}>Reduzir saldo devedor</option>
+          </select>
+        </label>
+        <label data-partner-cash-mode>Tratamento no fluxo de caixa
+          <select name="cashMode">
+            <option value="create" ${cashMode === "create" ? "selected" : ""}>Criar lançamento real no caixa</option>
+            <option value="link" ${cashMode === "link" ? "selected" : ""}>Vincular lançamento existente</option>
+            <option value="none" ${cashMode === "none" ? "selected" : ""}>Sem saída de caixa neste momento</option>
+          </select>
+        </label>
+        <label data-partner-cash-link>Lançamento existente
+          <select name="existingCashEntryId">
+            ${partnerCashCandidateOptions(type, cashMode === "link" ? editing?.cashEntryId : "")}
+          </select>
+        </label>
+        <label data-partner-cash-account>Conta movimentada
+          <select name="cashAccount">${cashAccountOptionsHtml(cashAccount, type === "payment" ? "income" : "expense")}</select>
+        </label>
+        <label class="wide">Observação
+          <textarea name="observation" placeholder="Obrigatória para ajustes manuais">${escapeHtml(editing?.observation || "")}</textarea>
+        </label>
+        <p class="muted-inline wide partner-cash-explanation">Débito pessoal não vira despesa operacional. Pagamento recebido é entrada real de caixa, mas não é receita.</p>
+        <div class="actions wide">
+          <button type="submit">${editing ? "Salvar movimentação" : "Registrar movimentação"}</button>
+          ${(editing || state.partnerMovementDraft) ? `<button class="secondary" type="button" id="cancel-partner-movement">Cancelar</button>` : ""}
+        </div>
+      </form>
+    </section>
+  `;
+}
+
+function partnerAccountsPanel() {
+  const partners = partnerAccountPartners();
+  const balances = partnerBalances(state.partnerAccounts);
+  const selectedId = partners.some(partner => partner.id === state.partnerAccountFocus)
+    ? state.partnerAccountFocus
+    : partners[0]?.id || "";
+  state.partnerAccountFocus = selectedId;
+  const filter = state.partnerAccountFilter || { start: "", end: "" };
+  const selectedPartner = partners.find(partner => partner.id === selectedId);
+  const summary = partnerAccountSummary(state.partnerAccounts, selectedId, filter);
+  const rows = partnerAccountMovements()
+    .filter(movement => movement.partnerId === selectedId)
+    .filter(movement => !filter.start || movement.date >= filter.start)
+    .filter(movement => !filter.end || movement.date <= filter.end)
+    .sort((left, right) => String(right.date || "").localeCompare(String(left.date || "")) || String(right.createdAt || "").localeCompare(String(left.createdAt || "")));
+  return `
+    <section class="partner-current-accounts" data-partner-current-accounts>
+      <div class="section-heading partner-account-heading">
+        <div>
+          <span class="executive-eyebrow">Financeiro · Sócias</span>
+          <h2>Conta-corrente das sócias</h2>
+          <p class="muted-inline">Créditos da empresa contra as sócias, separados do resultado operacional e do saldo bancário.</p>
+        </div>
+      </div>
+      <div class="partner-account-cards">
+        ${partners.map(partner => `
+          <article class="partner-account-card ${partner.id === selectedId ? "active" : ""}">
+            <span>Valor a receber</span>
+            <h3>${escapeHtml(partner.name)}</h3>
+            <strong>${money(balances[partner.id] || 0)}</strong>
+            <small>Saldo devedor à empresa</small>
+            <div class="actions">
+              <button class="secondary table-action" type="button" data-partner-focus="${partner.id}">Ver histórico</button>
+              <button class="secondary table-action" type="button" data-new-partner-debit="${partner.id}">+ Novo débito</button>
+              <button class="secondary table-action" type="button" data-new-partner-payment="${partner.id}">Registrar pagamento</button>
+            </div>
+          </article>
+        `).join("")}
+      </div>
+      ${partnerMovementFormHtml(selectedId)}
+      <section class="panel partner-history-panel" id="partner-history-panel">
+        <div class="section-heading">
+          <div>
+            <h2>Conta-corrente — ${escapeHtml(selectedPartner?.name || selectedId)}</h2>
+            <p class="muted-inline">Histórico individual, com cada débito e crédito preservado.</p>
+          </div>
+        </div>
+        <form id="partner-account-filter" class="filter-bar partner-account-filter">
+          <label>De <input name="start" type="date" value="${filter.start || ""}"></label>
+          <label>Até <input name="end" type="date" value="${filter.end || ""}"></label>
+          <button type="submit" class="secondary">Filtrar</button>
+          <button type="button" class="secondary" id="clear-partner-account-filter">Limpar</button>
+        </form>
+        <div class="summary partner-account-summary">
+          <div class="metric"><span>Débitos pessoais acumulados</span><strong>${money(summary.debits)}</strong></div>
+          <div class="metric"><span>Pagamentos reais</span><strong>${money(summary.payments)}</strong></div>
+          <div class="metric"><span>Compensações em retirada</span><strong>${money(summary.compensations)}</strong></div>
+          <div class="metric"><span>Ajustes</span><strong>${money(summary.adjustments)}</strong></div>
+          <div class="metric"><span>Saldo atual</span><strong>${money(summary.currentBalance)}</strong></div>
+        </div>
+        ${rows.length ? `
+          <div class="table-wrap report-table">
+            <table>
+              <thead><tr><th>Data</th><th>Tipo</th><th>Descrição</th><th>Origem</th><th>Valor</th><th>Observação</th><th>Ações</th></tr></thead>
+              <tbody>
+                ${rows.map(movement => {
+                  const effect = partnerMovementEffect(movement);
+                  const consolidated = partnerMovementIsConsolidated(movement.id);
+                  return `<tr>
+                    <td>${formatIsoDateBr(movement.date)}</td>
+                    <td>${partnerMovementTypeLabel(movement.type)}</td>
+                    <td><strong>${escapeHtml(movement.description)}</strong>${movement.cashEntryId ? `<br><small>Caixa vinculado uma única vez</small>` : movement.type === "withdrawal_compensation" ? `<br><small>Sem entrada bancária</small>` : ""}</td>
+                    <td>${escapeHtml(partnerOriginLabel(movement.origin))}</td>
+                    <td><strong class="${effect > 0 ? "negative" : "positive"}">${effect > 0 ? "+" : "−"} ${money(Math.abs(effect))}</strong></td>
+                    <td>${escapeHtml(movement.observation || "—")}</td>
+                    <td>${consolidated
+                      ? `<span class="status-pill">Consolidado</span>${canUser("managePartnerAdjustments") ? `<button class="secondary table-action" type="button" data-reverse-partner-movement="${escapeHtml(movement.id)}">Estornar</button>` : ""}`
+                      : `<button class="secondary table-action" type="button" data-edit-partner-movement="${escapeHtml(movement.id)}">Editar</button><button class="danger table-action" type="button" data-delete-partner-movement="${escapeHtml(movement.id)}">Excluir</button>`}</td>
+                  </tr>`;
+                }).join("")}
+              </tbody>
+            </table>
+          </div>
+        ` : `<p class="muted">Nenhuma movimentação encontrada neste período.</p>`}
+      </section>
+      <section class="panel partner-snapshot-panel">
+        <h2>Quebras consolidadas</h2>
+        <p class="muted-inline">Snapshots preservam caixa real, valores a receber, direitos, compensações e pagamentos usados no fechamento.</p>
+        ${partnerWithdrawalSnapshots().length ? `
+          <div class="recent-list">
+            ${[...partnerWithdrawalSnapshots()].sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 12).map(snapshot => `
+              <span><b>${formatIsoDateBr(snapshot.date)} · base ajustada ${money(snapshot.adjustedBase)}</b><small>Caixa real ${money(snapshot.physicalCash)} · reserva ${money(snapshot.companyReserve)} · fechado por ${escapeHtml(snapshot.closedBy || "Sistema")}</small></span>
+            `).join("")}
+          </div>
+        ` : `<p class="muted">Nenhuma quebra nova consolidada neste módulo.</p>`}
+      </section>
+    </section>
+  `;
+}
+
+function detachPartnerCashEntry(movement = {}) {
+  if (!movement.cashEntryId) return;
+  const index = state.cash.findIndex(entry => String(entry.id) === String(movement.cashEntryId));
+  if (index < 0) return;
+  const entry = state.cash[index];
+  if (entry.partnerAccountGenerated) {
+    state.cash.splice(index, 1);
+    return;
+  }
+  const original = entry.partnerAccountOriginal || {};
+  const restored = { ...entry, ...original };
+  delete restored.partnerMovementId;
+  delete restored.nonOperationalPartnerAccount;
+  delete restored.partnerAccountOriginal;
+  delete restored.partnerAccountGenerated;
+  state.cash[index] = restored;
+}
+
+function partnerCashEntryFromMovement(movement, values, existingEntry = null) {
+  const type = movement.type === "payment" ? "income" : "expense";
+  const original = existingEntry && !existingEntry.partnerAccountGenerated
+    ? existingEntry.partnerAccountOriginal || {
+        type: existingEntry.type,
+        amount: existingEntry.amount,
+        date: existingEntry.date,
+        category: existingEntry.category,
+        description: existingEntry.description,
+        cashAccount: existingEntry.cashAccount
+      }
+    : undefined;
+  return {
+    ...(existingEntry || {}),
+    id: existingEntry?.id || `partner-cash-${movement.id}`,
+    date: movement.date,
+    type,
+    category: "conta-socia",
+    description: `${movement.type === "payment" ? "Pagamento recebido" : "Uso pessoal"} - ${partnerAccountName(movement.partnerId)} - ${movement.description}`,
+    amount: Number(movement.amount).toFixed(2),
+    cashAccount: normalizedCashAccount(values.cashAccount || existingEntry?.cashAccount || "pj"),
+    partnerMovementId: movement.id,
+    nonOperationalPartnerAccount: true,
+    partnerAccountGenerated: !existingEntry || Boolean(existingEntry.partnerAccountGenerated),
+    ...(original ? { partnerAccountOriginal: original } : {})
+  };
+}
+
+function updatePartnerMovementFormVisibility(form) {
+  if (!form) return;
+  const type = form.elements.type.value;
+  const cashMode = form.elements.cashMode.value;
+  const isAdjustment = type === "manual_adjustment";
+  form.querySelector("[data-partner-adjustment-direction]").hidden = !isAdjustment;
+  form.querySelector("[data-partner-origin]").hidden = isAdjustment;
+  form.querySelector("[data-partner-cash-mode]").hidden = isAdjustment;
+  form.querySelector("[data-partner-cash-link]").hidden = isAdjustment || cashMode !== "link";
+  form.querySelector("[data-partner-cash-account]").hidden = isAdjustment || cashMode !== "create";
+  const noCashOption = form.elements.cashMode.querySelector('option[value="none"]');
+  noCashOption.disabled = type === "payment";
+  if (type === "payment" && cashMode === "none") {
+    form.elements.cashMode.value = "create";
+    updatePartnerMovementFormVisibility(form);
+  }
+  form.elements.existingCashEntryId.innerHTML = partnerCashCandidateOptions(
+    type,
+    form.elements.existingCashEntryId.value
+  );
+}
+
+function bindPartnerAccounts() {
+  document.querySelectorAll("[data-partner-focus]").forEach(button => {
+    button.addEventListener("click", event => {
+      state.partnerAccountFocus = event.currentTarget.dataset.partnerFocus;
+      localStorage.setItem("partnerAccountFocus", JSON.stringify(state.partnerAccountFocus));
+      renderFinance();
+      setTimeout(() => document.querySelector("#partner-history-panel")?.scrollIntoView({ behavior: "smooth" }), 0);
+    });
+  });
+  const beginDraft = (partnerId, type) => {
+    state.partnerAccountFocus = partnerId;
+    state.editPartnerMovementId = null;
+    state.partnerMovementDraft = { partnerId, type };
+    renderFinance();
+    setTimeout(() => document.querySelector("#partner-movement-form-panel")?.scrollIntoView({ behavior: "smooth" }), 0);
+  };
+  document.querySelectorAll("[data-new-partner-debit]").forEach(button => {
+    button.addEventListener("click", event => beginDraft(event.currentTarget.dataset.newPartnerDebit, "debit"));
+  });
+  document.querySelectorAll("[data-new-partner-payment]").forEach(button => {
+    button.addEventListener("click", event => beginDraft(event.currentTarget.dataset.newPartnerPayment, "payment"));
+  });
+  document.querySelectorAll("[data-edit-partner-movement]").forEach(button => {
+    button.addEventListener("click", event => {
+      state.editPartnerMovementId = event.currentTarget.dataset.editPartnerMovement;
+      state.partnerMovementDraft = null;
+      renderFinance();
+      setTimeout(() => document.querySelector("#partner-movement-form-panel")?.scrollIntoView({ behavior: "smooth" }), 0);
+    });
+  });
+  const form = document.querySelector("#partner-movement-form");
+  if (form) {
+    updatePartnerMovementFormVisibility(form);
+    form.elements.type.addEventListener("change", () => updatePartnerMovementFormVisibility(form));
+    form.elements.cashMode.addEventListener("change", () => updatePartnerMovementFormVisibility(form));
+    form.addEventListener("submit", async event => {
+      event.preventDefault();
+      const values = readForm(event.currentTarget);
+      const existing = state.editPartnerMovementId
+        ? partnerAccountMovements().find(movement => String(movement.id) === String(state.editPartnerMovementId))
+        : null;
+      if (existing && partnerMovementIsConsolidated(existing.id)) {
+        showToast("Movimentação consolidada deve ser estornada.", "error");
+        return;
+      }
+      const amount = Math.max(0, parseMoneyInput(values.amount));
+      if (amount <= 0) {
+        showToast("Informe um valor maior que zero.", "error");
+        return;
+      }
+      if (values.type === "manual_adjustment" && (!canUser("managePartnerAdjustments") || !String(values.observation || "").trim())) {
+        showToast("Ajuste manual exige autorização e observação.", "error");
+        return;
+      }
+      if (values.type === "debit" && !values.origin) {
+        showToast("Informe a origem do débito.", "error");
+        return;
+      }
+      if (values.type === "payment" && values.cashMode === "none") {
+        showToast("Pagamento recebido precisa de entrada real no caixa.", "error");
+        return;
+      }
+      if (blockClosedPeriod(values.date, existing ? "editar movimentação da sócia" : "registrar movimentação da sócia")) return;
+      if (existing && existing.date !== values.date && blockClosedPeriod(existing.date, "editar movimentação da sócia")) return;
+      const movement = {
+        id: existing?.id || `partner-movement-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        partnerId: values.partnerId,
+        date: values.date,
+        type: values.type,
+        description: String(values.description || "").trim(),
+        amount: amount.toFixed(2),
+        origin: values.type === "manual_adjustment" ? "" : values.origin,
+        observation: String(values.observation || "").trim(),
+        direction: values.type === "manual_adjustment" ? values.direction : "",
+        cashImpact: values.type === "payment" || (values.type === "debit" && values.cashMode !== "none"),
+        createdAt: existing?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        createdBy: existing?.createdBy || state.currentUser?.name || state.currentUser?.username || "Sistema"
+      };
+      const projectedBalance = roundedMoneyValue(
+        partnerAccountBalance(movement.partnerId)
+        - (existing?.partnerId === movement.partnerId ? partnerMovementEffect(existing) : 0)
+        + partnerMovementEffect(movement)
+      );
+      if (projectedBalance < -0.009) {
+        showToast("O pagamento ou ajuste não pode deixar o saldo devedor negativo.", "error");
+        return;
+      }
+      if (existing?.cashEntryId) detachPartnerCashEntry(existing);
+      if (movement.cashImpact) {
+        let cashEntry = null;
+        if (values.cashMode === "link") {
+          cashEntry = state.cash.find(entry => String(entry.id) === String(values.existingCashEntryId));
+          if (!cashEntry) {
+            showToast("Selecione o lançamento de caixa existente.", "error");
+            return;
+          }
+        }
+        const nextCashEntry = partnerCashEntryFromMovement(movement, values, cashEntry);
+        const cashIndex = state.cash.findIndex(entry => String(entry.id) === String(nextCashEntry.id));
+        if (cashIndex >= 0) state.cash[cashIndex] = nextCashEntry;
+        else state.cash.push(nextCashEntry);
+        movement.cashEntryId = nextCashEntry.id;
+      } else {
+        movement.cashEntryId = "";
+      }
+      const rows = partnerAccountMovements().filter(row => String(row.id) !== String(movement.id));
+      state.partnerAccounts = {
+        ...normalizePartnerAccounts(state.partnerAccounts),
+        movements: [movement, ...rows]
+      };
+      recordAudit(existing ? "Movimentação de sócia editada" : "Movimentação de sócia registrada", `${partnerAccountName(movement.partnerId)} · ${partnerMovementTypeLabel(movement.type)} · ${money(amount)} · ${movement.description}`);
+      state.partnerAccountFocus = movement.partnerId;
+      state.editPartnerMovementId = null;
+      state.partnerMovementDraft = null;
+      if (await persistState()) {
+        showToast("Conta-corrente atualizada.", "success");
+        renderFinance();
+      }
+    });
+  }
+  document.querySelector("#cancel-partner-movement")?.addEventListener("click", () => {
+    state.editPartnerMovementId = null;
+    state.partnerMovementDraft = null;
+    renderFinance();
+  });
+  document.querySelectorAll("[data-delete-partner-movement]").forEach(button => {
+    button.addEventListener("click", async event => {
+      const movement = partnerAccountMovements().find(row => String(row.id) === event.currentTarget.dataset.deletePartnerMovement);
+      if (!movement || partnerMovementIsConsolidated(movement.id)) {
+        showToast("Movimentação consolidada deve ser estornada.", "error");
+        return;
+      }
+      if (!confirm(`Excluir ${partnerMovementTypeLabel(movement.type).toLowerCase()} de ${money(movement.amount)}?`)) return;
+      if (blockClosedPeriod(movement.date, "excluir movimentação da sócia")) return;
+      detachPartnerCashEntry(movement);
+      state.partnerAccounts = {
+        ...normalizePartnerAccounts(state.partnerAccounts),
+        movements: partnerAccountMovements().filter(row => String(row.id) !== String(movement.id))
+      };
+      recordAudit("Movimentação de sócia excluída", `${partnerAccountName(movement.partnerId)} · ${partnerMovementTypeLabel(movement.type)} · ${money(movement.amount)}`);
+      if (await persistState()) renderFinance();
+    });
+  });
+  document.querySelectorAll("[data-reverse-partner-movement]").forEach(button => {
+    button.addEventListener("click", async event => {
+      if (!canUser("managePartnerAdjustments")) return;
+      const original = partnerAccountMovements().find(row => String(row.id) === event.currentTarget.dataset.reversePartnerMovement);
+      if (!original) return;
+      const reason = prompt("Motivo obrigatório do estorno:");
+      if (!String(reason || "").trim()) return;
+      const date = isoDate(new Date());
+      if (blockClosedPeriod(date, "estornar movimentação consolidada")) return;
+      const effect = partnerMovementEffect(original);
+      const reversal = {
+        id: `partner-reversal-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        partnerId: original.partnerId,
+        date,
+        type: "manual_adjustment",
+        direction: effect > 0 ? "decrease" : "increase",
+        description: `Estorno de ${original.description}`,
+        amount: Math.abs(effect).toFixed(2),
+        origin: "",
+        observation: String(reason).trim(),
+        cashImpact: false,
+        reversalOf: original.id,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        createdBy: state.currentUser?.name || state.currentUser?.username || "Sistema"
+      };
+      state.partnerAccounts = {
+        ...normalizePartnerAccounts(state.partnerAccounts),
+        movements: [reversal, ...partnerAccountMovements()]
+      };
+      recordAudit("Movimentação de sócia estornada", `${partnerAccountName(original.partnerId)} · ${money(original.amount)} · ${reason}`);
+      if (await persistState()) renderFinance();
+    });
+  });
+  document.querySelector("#partner-account-filter")?.addEventListener("submit", event => {
+    event.preventDefault();
+    state.partnerAccountFilter = readForm(event.currentTarget);
+    localStorage.setItem("partnerAccountFilter", JSON.stringify(state.partnerAccountFilter));
+    renderFinance();
+  });
+  document.querySelector("#clear-partner-account-filter")?.addEventListener("click", () => {
+    state.partnerAccountFilter = { start: "", end: "" };
+    localStorage.setItem("partnerAccountFilter", JSON.stringify(state.partnerAccountFilter));
+    renderFinance();
+  });
+}
+
 function financialSummary(cashEntries = []) {
   const summary = {
     income: 0,
@@ -4132,6 +4725,9 @@ function financialSummary(cashEntries = []) {
 
   accountingCashEntries(cashEntries).forEach(entry => {
     const amount = Number(entry.amount || 0);
+    if (isPartnerCashEntry(entry)) {
+      return;
+    }
     if (isAccountAdjustmentEntry(entry)) {
       if (entry.type === "expense") {
         summary.accountAdjustments.expenses += amount;
@@ -5851,7 +6447,7 @@ async function renderCash() {
     ? withdrawalHistoryGroups(state.cash).find(group => group.key === state.editWithdrawalGroup)
     : null;
   const routeCashEntries = isExpensesRoute
-    ? state.cash.filter(entry => entry.type === "expense" && !isWithdrawalEntry(entry) && !isAccountAdjustmentEntry(entry))
+    ? state.cash.filter(entry => entry.type === "expense" && !isWithdrawalEntry(entry) && !isAccountAdjustmentEntry(entry) && !isPartnerCashEntry(entry))
     : state.cash;
   const routeFilterOverrides = isExpensesRoute ? { type: "expense", quick: "" } : {};
   const filteredEntries = filterCashEntries(routeCashEntries, routeFilterOverrides);
@@ -5943,10 +6539,25 @@ async function renderCash() {
   const withdrawalBalanceDifference = roundedMoneyValue(
     withdrawalAccountBalance - calculatedWithdrawalAccountBalance
   );
+  const withdrawalDebtBalances = partnerBalances(state.partnerAccounts, withdrawalDate);
+  const withdrawalDebtVanessa = editingWithdrawal
+    ? Number(editingWithdrawal.priorVanessa || 0)
+    : Number(withdrawalDebtBalances.vanessa || 0);
+  const withdrawalDebtRaquel = editingWithdrawal
+    ? Number(editingWithdrawal.priorRaquel || 0)
+    : Number(withdrawalDebtBalances.raquel || 0);
   const automaticWithdrawal = withdrawalDistributionCalculation(
     withdrawalAccountBalance,
-    editingWithdrawal?.priorVanessa || 0,
-    editingWithdrawal?.priorRaquel || 0
+    withdrawalDebtVanessa,
+    withdrawalDebtRaquel,
+    editingWithdrawal
+      ? {
+          compensationVanessa: editingWithdrawal.paidToCashVanessa || 0,
+          compensationRaquel: editingWithdrawal.paidToCashRaquel || 0,
+          realPaymentVanessa: editingWithdrawal.realPaymentVanessa || 0,
+          realPaymentRaquel: editingWithdrawal.realPaymentRaquel || 0
+        }
+      : undefined
   );
   const withdrawalFormValues = editingWithdrawal || automaticWithdrawal;
   const previewAccountAfterWithdrawal = roundedMoneyValue(
@@ -6237,7 +6848,7 @@ async function renderCash() {
         ${activeCashPanel === "withdrawals" ? `
         <div class="cash-tab-section withdrawal-panel">
         <h2>${editingWithdrawal ? "Editar retirada" : "Retiradas"}</h2>
-        <p class="muted-inline">O saldo real mostra somente o dinheiro que existe na conta. Dívidas de Vanessa ou Raquel entram separadamente na distribuição e são compensadas sem criar uma nova saída de caixa.</p>
+        <p class="muted-inline">O saldo real mostra somente o dinheiro que existe na conta. Os valores a receber das sócias vêm da conta-corrente e nunca criam entrada bancária fictícia.</p>
         <div class="partners-dashboard">
           <section>
             <h3>Valores compensados ao caixa · ${formatMonthKeyBr(partnersPeriod)}</h3>
@@ -6275,23 +6886,21 @@ async function renderCash() {
             </select>
           </label>
           <div class="withdrawal-value-group">
-            <strong>1. Dinheiro que não está mais na conta</strong>
-            <p class="muted-inline">Confira o saldo real no banco e informe dívidas de Vanessa ou Raquel que serão compensadas nesta divisão. A compensação entra na distribuição, mas não sai novamente da conta.</p>
+            <strong>1. Caixa real e valores a receber</strong>
+            <p class="muted-inline">Confira o saldo real antes de qualquer pagamento registrado nesta quebra. As dívidas abaixo são calculadas pelo histórico individual das sócias.</p>
             <div class="withdrawal-fields">
-              <label>Saldo real da conta agora
+              <label>Caixa real disponível
                 <input name="accountBalanceBefore" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalAccountBalance)}">
               </label>
-              <label>Dívida da Vanessa com o caixa
-                <input name="priorVanessa" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.priorVanessa)}">
-              </label>
-              <label>Dívida da Raquel com o caixa
-                <input name="priorRaquel" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.priorRaquel)}">
-              </label>
+              <div class="partner-debt-readonly" data-withdrawal-debt="vanessa"><span>Valor a receber de Vanessa</span><strong>${money(withdrawalDebtVanessa)}</strong><small>Não está no banco</small></div>
+              <div class="partner-debt-readonly" data-withdrawal-debt="raquel"><span>Valor a receber de Raquel</span><strong>${money(withdrawalDebtRaquel)}</strong><small>Não está no banco</small></div>
+              <input name="priorVanessa" type="hidden" value="${withdrawalDebtVanessa}">
+              <input name="priorRaquel" type="hidden" value="${withdrawalDebtRaquel}">
             </div>
           </div>
           <div class="withdrawal-value-group">
             <strong>2. Divisão automática</strong>
-            <p class="muted-inline">Base = saldo real da conta + valores já retirados. O sistema separa 10% para o cofrinho e divide o restante em 70% para Vanessa e 30% para Raquel.</p>
+            <p class="muted-inline">Base ajustada = caixa real + valores a receber. O sistema usa a configuração central: ${Number(state.appConfig.splitSavingsPercent || 0)}% para o cofrinho e, no restante, ${Number(state.appConfig.splitVanessaPercent || 0)}% para Vanessa / ${Number(state.appConfig.splitRaquelPercent || 0)}% para Raquel.</p>
             <div class="withdrawal-fields">
               <label>Cofrinho - direito
                 <input name="expectedSavings" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.expectedSavings)}" readonly>
@@ -6305,8 +6914,36 @@ async function renderCash() {
             </div>
           </div>
           <div class="withdrawal-value-group">
-            <strong>3. Quanto realmente sairá da conta agora</strong>
-            <p class="muted-inline">Os valores já retirados são descontados da parte da pessoa. O total informado abaixo nunca pode ultrapassar o saldo real da conta.</p>
+            <strong>3. Tratamento da dívida de cada sócia</strong>
+            <p class="muted-inline">Pagamento recebido aumenta o caixa real. Compensação reduz a dívida e a retirada, sem entrada no banco. O saldo mantido segue automaticamente para a próxima semana.</p>
+            <div class="withdrawal-fields partner-settlement-fields">
+              <label>Vanessa
+                <select name="partnerActionVanessa">
+                  <option value="discount" ${withdrawalDebtVanessa > 0 ? "selected" : ""}>Descontar toda a dívida da retirada</option>
+                  <option value="partial">Compensar parcialmente</option>
+                  <option value="pay">Pagar agora</option>
+                  <option value="keep" ${withdrawalDebtVanessa <= 0 ? "selected" : ""}>Manter para a próxima semana</option>
+                </select>
+              </label>
+              <label data-partner-settlement-amount="vanessa">Valor Vanessa
+                <input name="partnerSettlementVanessa" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalDebtVanessa)}">
+              </label>
+              <label>Raquel
+                <select name="partnerActionRaquel">
+                  <option value="discount" ${withdrawalDebtRaquel > 0 ? "selected" : ""}>Descontar toda a dívida da retirada</option>
+                  <option value="partial">Compensar parcialmente</option>
+                  <option value="pay">Pagar agora</option>
+                  <option value="keep" ${withdrawalDebtRaquel <= 0 ? "selected" : ""}>Manter para a próxima semana</option>
+                </select>
+              </label>
+              <label data-partner-settlement-amount="raquel">Valor Raquel
+                <input name="partnerSettlementRaquel" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalDebtRaquel)}">
+              </label>
+            </div>
+          </div>
+          <div class="withdrawal-value-group">
+            <strong>4. Quanto realmente sairá da conta agora</strong>
+            <p class="muted-inline">O total abaixo considera somente dinheiro físico transferido. Compensações não aparecem como entrada bancária.</p>
             <div class="withdrawal-fields">
               <label>Cofrinho agora
                 <input name="savings" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.savings)}">
@@ -6323,8 +6960,8 @@ async function renderCash() {
             <span><b>Saldo calculado pelo sistema</b>${money(calculatedWithdrawalAccountBalance)}</span>
             <span><b>Saldo real da conta</b>${money(withdrawalAccountBalance)}</span>
             <span><b>Ajuste para igualar ao banco</b>${money(withdrawalBalanceDifference)}</span>
-            <span><b>Retirado antes da divisão</b>${money(Number(withdrawalFormValues.priorVanessa || 0) + Number(withdrawalFormValues.priorRaquel || 0))}</span>
-            <span><b>Base da divisão</b>${money(withdrawalFormValues.distributionBase)}</span>
+            <span><b>Valores a receber das sócias</b>${money(withdrawalDebtVanessa + withdrawalDebtRaquel)}<small>Não estão no banco</small></span>
+            <span><b>Base ajustada para a quebra</b>${money(withdrawalFormValues.distributionBase)}</span>
             <span><b>Total que sai agora</b>${money(withdrawalFormValues.total)}</span>
             <span><b>Saldo da conta depois</b>${money(previewAccountAfterWithdrawal)}</span>
             <span><b>Vanessa - distribuição total</b>${money(Number(withdrawalFormValues.vanessa || 0) + Number(withdrawalFormValues.paidToCashVanessa || 0))}</span>
@@ -7468,10 +8105,48 @@ async function renderCash() {
       return accountBalanceUntilDate(date, editingWithdrawalIds, cashAccount);
     };
 
+    const withdrawalSettlementOptions = () => {
+      const options = {};
+      ["Vanessa", "Raquel"].forEach(name => {
+        const key = name.toLowerCase();
+        const action = withdrawalForm.elements[`partnerAction${name}`].value;
+        const amount = Math.max(
+          0,
+          parseMoneyInput(withdrawalForm.elements[`partnerSettlement${name}`].value)
+        );
+        options[`realPayment${name}`] = action === "pay" ? amount : 0;
+        options[`compensation${name}`] = action === "discount"
+          ? parseMoneyInput(withdrawalForm.elements[`prior${name}`].value)
+          : action === "partial" ? amount : 0;
+        const amountLabel = withdrawalForm.querySelector(`[data-partner-settlement-amount="${key}"]`);
+        if (amountLabel) amountLabel.hidden = !["partial", "pay"].includes(action);
+      });
+      return options;
+    };
+
+    const syncWithdrawalDebtBalances = () => {
+      if (editingWithdrawal) return;
+      const balances = partnerBalances(
+        state.partnerAccounts,
+        withdrawalForm.elements.date.value || today
+      );
+      [["Vanessa", "vanessa"], ["Raquel", "raquel"]].forEach(([name, key]) => {
+        const amount = Number(balances[key] || 0);
+        withdrawalForm.elements[`prior${name}`].value = String(amount);
+        const target = withdrawalForm.querySelector(`[data-withdrawal-debt="${key}"] strong`);
+        if (target) target.textContent = money(amount);
+        const action = withdrawalForm.elements[`partnerAction${name}`].value;
+        if (["discount", "keep"].includes(action)) {
+          withdrawalForm.elements[`partnerSettlement${name}`].value = moneyInputValue(amount);
+        }
+      });
+    };
+
     let lastAutomaticValues = withdrawalDistributionCalculation(
       withdrawalForm.elements.accountBalanceBefore.value,
       withdrawalForm.elements.priorVanessa.value,
-      withdrawalForm.elements.priorRaquel.value
+      withdrawalForm.elements.priorRaquel.value,
+      withdrawalSettlementOptions()
     );
 
     const automaticWithdrawalValues = (
@@ -7487,7 +8162,8 @@ async function renderCash() {
       const calculation = withdrawalDistributionCalculation(
         withdrawalForm.elements.accountBalanceBefore.value,
         withdrawalForm.elements.priorVanessa.value,
-        withdrawalForm.elements.priorRaquel.value
+        withdrawalForm.elements.priorRaquel.value,
+        withdrawalSettlementOptions()
       );
       withdrawalForm.elements.expectedSavings.value = moneyInputValue(calculation.expectedSavings);
       withdrawalForm.elements.expectedVanessa.value = moneyInputValue(calculation.expectedVanessa);
@@ -7522,9 +8198,9 @@ async function renderCash() {
       };
       actual.total = roundedMoneyValue(actual.savings + actual.vanessa + actual.raquel);
       const accountAfterWithdrawal = roundedMoneyValue(
-        Math.max(0, calculation.physicalBalance - actual.total)
+        Math.max(0, calculation.cashAvailable - actual.total)
       );
-      const excess = roundedMoneyValue(Math.max(0, actual.total - calculation.physicalBalance));
+      const excess = roundedMoneyValue(Math.max(0, actual.total - calculation.cashAvailable));
       const pendingVanessa = Math.max(
         0,
         calculation.expectedVanessa - calculation.paidToCashVanessa - actual.vanessa
@@ -7538,8 +8214,10 @@ async function renderCash() {
         <span><b>Saldo calculado pelo sistema</b>${money(calculatedBalance)}</span>
         <span><b>Saldo real da conta</b>${money(calculation.physicalBalance)}</span>
         <span><b>Ajuste para igualar ao banco</b>${money(balanceDifference)}</span>
-        <span><b>Compensação de dívida</b>${money(calculation.debtVanessa + calculation.debtRaquel)}<small>Não movimenta a conta</small></span>
-        <span><b>Base da divisão</b>${money(calculation.distributionBase)}</span>
+        <span><b>Valores a receber das sócias</b>${money(calculation.debtVanessa + calculation.debtRaquel)}<small>Não estão no banco</small></span>
+        ${calculation.realPaymentVanessa + calculation.realPaymentRaquel > 0 ? `<span><b>Pagamento real recebido</b>${money(calculation.realPaymentVanessa + calculation.realPaymentRaquel)}<small>Aumenta o caixa, mas não é receita</small></span>` : ""}
+        <span><b>Compensação na distribuição</b>${money(calculation.paidToCashVanessa + calculation.paidToCashRaquel)}<small>Não movimenta a conta</small></span>
+        <span><b>Base ajustada para a quebra</b>${money(calculation.distributionBase)}</span>
         <span><b>Total que sai agora</b>${money(actual.total)}<small>${excess > 0 ? `Excede o saldo em ${money(excess)}` : "Dentro do saldo disponível"}</small></span>
         <span><b>Saldo da conta depois</b>${money(accountAfterWithdrawal)}</span>
         <span><b>Vanessa - distribuição total</b>${money(actual.vanessa + calculation.paidToCashVanessa)}<small>Recebe agora ${money(actual.vanessa)} · ${partnerCashOffsetLabel(calculation.paidToCashVanessa)} · ${partnerPendingLabel(pendingVanessa)}</small></span>
@@ -7553,12 +8231,15 @@ async function renderCash() {
     withdrawalForm.addEventListener("input", event => {
       const fieldName = event.target.name;
       if (["date", "cashAccount"].includes(fieldName)) {
+        if (fieldName === "date") syncWithdrawalDebtBalances();
         automaticWithdrawalValues(true, true);
-      } else if (["accountBalanceBefore", "priorVanessa", "priorRaquel"].includes(fieldName)) {
+      } else if (["accountBalanceBefore", "partnerActionVanessa", "partnerActionRaquel", "partnerSettlementVanessa", "partnerSettlementRaquel"].includes(fieldName)) {
         automaticWithdrawalValues(true, false);
       }
       updateWithdrawalPreview();
     });
+
+    withdrawalSettlementOptions();
 
     withdrawalForm.addEventListener("submit", async event => {
     event.preventDefault();
@@ -7576,10 +8257,12 @@ async function renderCash() {
     const calculation = withdrawalDistributionCalculation(
       values.accountBalanceBefore,
       values.priorVanessa,
-      values.priorRaquel
+      values.priorRaquel,
+      withdrawalSettlementOptions()
     );
-    const available = calculation.physicalBalance;
-    const balanceDifference = roundedMoneyValue(available - calculatedBalanceBefore);
+    const physicalBalance = calculation.physicalBalance;
+    const available = calculation.cashAvailable;
+    const balanceDifference = roundedMoneyValue(physicalBalance - calculatedBalanceBefore);
     const expected = {
       savings: calculation.expectedSavings,
       vanessa: calculation.expectedVanessa,
@@ -7619,6 +8302,65 @@ async function renderCash() {
     const idBase = previousWithdrawal
       ? previousWithdrawal.key.replace(/^withdrawal-/, "")
       : Date.now();
+    const partnerSnapshotId = previousWithdrawal
+      ? String(previousWithdrawal.partnerWithdrawalSnapshotId || "")
+      : `partner-withdrawal-snapshot-${idBase}`;
+    const openingPartnerMovements = partnerAccountMovements().filter(
+      movement => String(movement.date || "") <= values.date
+    );
+    const settlementMovements = [];
+    const buildSettlementMovement = (partnerId, type, amount) => {
+      if (Number(amount || 0) <= 0.009) return null;
+      const movement = {
+        id: `partner-${type}-${idBase}-${partnerId}`,
+        partnerId,
+        date: values.date,
+        type,
+        description: type === "payment"
+          ? `Pagamento recebido na quebra de ${formatIsoDateBr(values.date)}`
+          : `Compensação na distribuição de ${formatIsoDateBr(values.date)}`,
+        amount: Number(amount).toFixed(2),
+        origin: type === "payment" ? "pix" : "withdrawal",
+        observation: type === "payment"
+          ? "Pagamento real registrado junto com a quebra semanal."
+          : "Compensação contábil sem entrada de caixa.",
+        direction: "",
+        cashImpact: type === "payment",
+        withdrawalSnapshotId: partnerSnapshotId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        createdBy: state.currentUser?.name || state.currentUser?.username || "Sistema"
+      };
+      if (type === "payment") {
+        const cashEntry = partnerCashEntryFromMovement(movement, { cashAccount });
+        state.cash.push(cashEntry);
+        movement.cashEntryId = cashEntry.id;
+      } else {
+        movement.cashEntryId = "";
+      }
+      settlementMovements.push(movement);
+      return movement;
+    };
+    const paymentVanessaMovement = previousWithdrawal
+      ? null
+      : buildSettlementMovement("vanessa", "payment", calculation.realPaymentVanessa);
+    const paymentRaquelMovement = previousWithdrawal
+      ? null
+      : buildSettlementMovement("raquel", "payment", calculation.realPaymentRaquel);
+    const compensationVanessaMovement = previousWithdrawal
+      ? null
+      : buildSettlementMovement(
+          "vanessa",
+          "withdrawal_compensation",
+          calculation.paidToCashVanessa
+        );
+    const compensationRaquelMovement = previousWithdrawal
+      ? null
+      : buildSettlementMovement(
+          "raquel",
+          "withdrawal_compensation",
+          calculation.paidToCashRaquel
+        );
     const balanceAdjustmentEntry = Math.abs(balanceDifference) > 0.009
       ? {
         id: `withdrawal-${idBase}-balance-adjustment`,
@@ -7656,9 +8398,10 @@ async function renderCash() {
         cashAccount,
         amount: split.savings.toFixed(2),
         distributionBase: split.distributionBase.toFixed(2),
-        accountBalanceBefore: available.toFixed(2),
+        accountBalanceBefore: physicalBalance.toFixed(2),
         grossWithdrawalAmount: expected.total.toFixed(2),
-        expectedAmount: expected.savings.toFixed(2)
+        expectedAmount: expected.savings.toFixed(2),
+        partnerWithdrawalSnapshotId: partnerSnapshotId
       },
       {
         id: `withdrawal-${idBase}-vanessa`,
@@ -7669,12 +8412,15 @@ async function renderCash() {
         cashAccount,
         amount: split.vanessa.toFixed(2),
         distributionBase: split.distributionBase.toFixed(2),
-        accountBalanceBefore: available.toFixed(2),
+        accountBalanceBefore: physicalBalance.toFixed(2),
         grossWithdrawalAmount: expected.total.toFixed(2),
         cashDebtAmount: prior.vanessa.toFixed(2),
         priorWithdrawalAmount: prior.vanessa.toFixed(2),
         paidToCashAmount: calculation.paidToCashVanessa.toFixed(2),
-        expectedAmount: expected.vanessa.toFixed(2)
+        realPaymentAmount: calculation.realPaymentVanessa.toFixed(2),
+        remainingDebtAmount: calculation.remainingDebtVanessa.toFixed(2),
+        expectedAmount: expected.vanessa.toFixed(2),
+        partnerWithdrawalSnapshotId: partnerSnapshotId
       },
       {
         id: `withdrawal-${idBase}-raquel`,
@@ -7685,12 +8431,15 @@ async function renderCash() {
         cashAccount,
         amount: split.raquel.toFixed(2),
         distributionBase: split.distributionBase.toFixed(2),
-        accountBalanceBefore: available.toFixed(2),
+        accountBalanceBefore: physicalBalance.toFixed(2),
         grossWithdrawalAmount: expected.total.toFixed(2),
         cashDebtAmount: prior.raquel.toFixed(2),
         priorWithdrawalAmount: prior.raquel.toFixed(2),
         paidToCashAmount: calculation.paidToCashRaquel.toFixed(2),
-        expectedAmount: expected.raquel.toFixed(2)
+        realPaymentAmount: calculation.realPaymentRaquel.toFixed(2),
+        remainingDebtAmount: calculation.remainingDebtRaquel.toFixed(2),
+        expectedAmount: expected.raquel.toFixed(2),
+        partnerWithdrawalSnapshotId: partnerSnapshotId
       }
     ].filter(entry => entry && (Number(entry.amount || 0) > 0 || Number(entry.expectedAmount || 0) > 0));
     if (previousWithdrawal) {
@@ -7702,6 +8451,67 @@ async function renderCash() {
       state.cash = state.cash.filter(entry => !previousIds.has(String(entry.id)));
     }
     state.cash.push(...withdrawalEntries);
+    if (!previousWithdrawal) {
+      const rangeDate = new Date(`${values.date}T00:00:00`);
+      const snapshot = {
+        id: partnerSnapshotId,
+        date: values.date,
+        period: {
+          start: isoDate(startOfWeek(rangeDate)),
+          end: isoDate(endOfWeek(rangeDate))
+        },
+        cashAccount,
+        physicalCash: physicalBalance.toFixed(2),
+        receivablesTotal: roundedMoneyValue(prior.vanessa + prior.raquel).toFixed(2),
+        adjustedBase: calculation.distributionBase.toFixed(2),
+        companyReserve: expected.savings.toFixed(2),
+        companyReservePaid: split.savings.toFixed(2),
+        cashAvailableAfterPayments: calculation.cashAvailable.toFixed(2),
+        cashPaidTotal: split.total.toFixed(2),
+        accountAfterWithdrawal: roundedMoneyValue(calculation.cashAvailable - split.total).toFixed(2),
+        partners: [
+          {
+            partnerId: "vanessa",
+            openingDebt: prior.vanessa.toFixed(2),
+            openingMovementIds: openingPartnerMovements
+              .filter(movement => movement.partnerId === "vanessa")
+              .map(movement => movement.id),
+            distributionRight: expected.vanessa.toFixed(2),
+            realPayment: calculation.realPaymentVanessa.toFixed(2),
+            paymentMovementId: paymentVanessaMovement?.id || "",
+            compensation: calculation.paidToCashVanessa.toFixed(2),
+            compensationMovementId: compensationVanessaMovement?.id || "",
+            cashPaid: split.vanessa.toFixed(2),
+            pendingDistribution: calculation.pendingVanessa.toFixed(2),
+            remainingDebt: calculation.remainingDebtVanessa.toFixed(2)
+          },
+          {
+            partnerId: "raquel",
+            openingDebt: prior.raquel.toFixed(2),
+            openingMovementIds: openingPartnerMovements
+              .filter(movement => movement.partnerId === "raquel")
+              .map(movement => movement.id),
+            distributionRight: expected.raquel.toFixed(2),
+            realPayment: calculation.realPaymentRaquel.toFixed(2),
+            paymentMovementId: paymentRaquelMovement?.id || "",
+            compensation: calculation.paidToCashRaquel.toFixed(2),
+            compensationMovementId: compensationRaquelMovement?.id || "",
+            cashPaid: split.raquel.toFixed(2),
+            pendingDistribution: calculation.pendingRaquel.toFixed(2),
+            remainingDebt: calculation.remainingDebtRaquel.toFixed(2)
+          }
+        ],
+        withdrawalEntryIds: withdrawalEntries.map(entry => entry.id),
+        closedAt: new Date().toISOString(),
+        closedBy: state.currentUser?.name || state.currentUser?.username || "Sistema",
+        closedByUsername: state.currentUser?.username || ""
+      };
+      state.partnerAccounts = {
+        ...normalizePartnerAccounts(state.partnerAccounts),
+        movements: [...settlementMovements, ...partnerAccountMovements()],
+        withdrawalSnapshots: [snapshot, ...partnerWithdrawalSnapshots()]
+      };
+    }
     const savingsDifference = split.savings - Number(previousWithdrawal?.savings || 0);
     if (Math.abs(savingsDifference) > 0.009) {
       updateSavingsBalance({
@@ -7722,7 +8532,7 @@ async function renderCash() {
           : "Devolução ao cofrinho por ajuste de retirada"
       });
     }
-    const auditDetail = `${cashAccountLabel(cashAccount)} - saldo calculado ${money(calculatedBalanceBefore)} - saldo informado ${money(available)}${Math.abs(balanceDifference) > 0.009 ? ` - ajuste da conta ${money(balanceDifference)}` : ""} - dívidas Vanessa/Raquel ${money(prior.vanessa)} / ${money(prior.raquel)} - lucro bruto ${money(expected.total)} - saiu da conta ${money(split.total)} - cofrinho ${money(split.savings)}, Vanessa direito/dívida/recebe ${money(expected.vanessa)} / ${money(calculation.paidToCashVanessa)} / ${money(split.vanessa)}, Raquel direito/dívida/recebe ${money(expected.raquel)} / ${money(calculation.paidToCashRaquel)} / ${money(split.raquel)}`;
+    const auditDetail = `${cashAccountLabel(cashAccount)} - saldo calculado ${money(calculatedBalanceBefore)} - caixa real ${money(physicalBalance)}${Math.abs(balanceDifference) > 0.009 ? ` - ajuste da conta ${money(balanceDifference)}` : ""} - valores a receber Vanessa/Raquel ${money(prior.vanessa)} / ${money(prior.raquel)} - base ajustada ${money(expected.total)} - pagamentos reais ${money(calculation.realPaymentVanessa + calculation.realPaymentRaquel)} - compensações sem caixa ${money(calculation.paidToCashVanessa + calculation.paidToCashRaquel)} - saiu da conta ${money(split.total)} - cofrinho ${money(split.savings)}, Vanessa direito/recebe ${money(expected.vanessa)} / ${money(split.vanessa)}, Raquel direito/recebe ${money(expected.raquel)} / ${money(split.raquel)}`;
     recordAudit(previousWithdrawal ? "Retirada editada" : "Retirada registrada", auditDetail);
     state.editWithdrawalGroup = null;
     if (await persistState()) {
@@ -12017,7 +12827,7 @@ function reportData() {
     };
   });
   const accountAdjustmentEntries = cashEntries.filter(isAccountAdjustmentEntry);
-  const businessEntries = cashEntries.filter(entry => !isAccountAdjustmentEntry(entry));
+  const businessEntries = businessCashEntries(cashEntries);
   const incomeEntries = businessEntries.filter(entry => entry.type !== "expense");
   const expenseEntries = businessEntries.filter(entry => entry.type === "expense");
   const income = incomeEntries
@@ -12253,6 +13063,7 @@ function managementPeriodMetrics(periodKey = reportPeriodKey()) {
   const accountAdjustmentTotals = cashTotals(periodEntries.filter(isAccountAdjustmentEntry));
   const cashTotalsForPeriod = cashTotals(periodEntries.filter(entry => !isAccountAdjustmentEntry(entry)));
   const [year, month] = periodKey.split("-").map(Number);
+  const periodOpeningDate = isoDate(new Date(year, month - 1, 0));
   const periodEnd = isoDate(new Date(year, month, 0));
 
   return {
@@ -12276,6 +13087,7 @@ function managementPeriodMetrics(periodKey = reportPeriodKey()) {
     cashIncome: cashTotalsForPeriod.income,
     cashExpenses: cashTotalsForPeriod.expenses,
     accountAdjustmentTotals,
+    openingCashBalance: accountBalanceUntilDate(periodOpeningDate),
     finalCashBalance: accountBalanceUntilDate(periodEnd)
   };
 }
@@ -12410,6 +13222,7 @@ function managementExpenseGroups(metrics) {
     .filter(entry => entry.type === "expense")
     .filter(entry => !isWithdrawalEntry(entry))
     .filter(entry => !isAccountAdjustmentEntry(entry))
+    .filter(entry => !isPartnerCashEntry(entry))
     .filter(entry => !foodInputExpenseCategory(entry))
     .reduce((result, entry) => {
       const label = categoryName(entry.category);
@@ -12528,6 +13341,7 @@ function managementStatementHtml(data, { includeHeading = false } = {}) {
       <div class="statement-detail"><span>Cofrinho</span><strong>${money(data.withdrawalAmounts.savings)}</strong></div>
       <div class="statement-detail"><span>Compensação de dívida sem saída da conta</span><strong>${money(data.debtCompensation)}</strong></div>
       <div class="statement-section-label separated"><span>Movimentação de caixa</span></div>
+      <div class="statement-detail"><span>Saldo inicial</span><strong>${money(data.openingCashBalance)}</strong></div>
       <div class="statement-detail"><span>Entradas</span><strong>${money(data.cashIncome)}</strong></div>
       <div class="statement-detail"><span>Saídas</span><strong>− ${money(data.cashExpenses)}</strong></div>
       <div class="statement-detail"><span>Ajustes</span><strong class="${adjustments < 0 ? "negative" : ""}">${money(adjustments)}</strong></div>
@@ -12687,7 +13501,7 @@ function reportPdfWithdrawalRows(data) {
   const rows = [
     ["Lucro operacional", money(operationalProfitForReport(data))],
     ["Total que saiu da conta", money(data.partnerWithdrawalControl?.paidNowTotal)],
-    ["Cofrinho - direito de 10%", money(data.partnerWithdrawalControl?.expectedSavings)],
+    [`Cofrinho - direito de ${Number(state.appConfig.splitSavingsPercent || 0)}%`, money(data.partnerWithdrawalControl?.expectedSavings)],
     ["Cofrinho - transferido agora", money(data.financial.withdrawals.savings)],
     ["Vanessa - direito na divisão", money(data.partnerWithdrawalControl?.expectedVanessa)],
     ["Vanessa - dívida informada", money(data.partnerWithdrawalControl?.priorVanessa)],
@@ -13124,7 +13938,7 @@ function reportCsvRows(kind, data) {
       { seção: "produção", data: "", descrição: "Total de cumbucas vendidas", tipo: "quantidade", categoria: "total", valor: data.totalSoldQuantity },
       { seção: "retiradas", data: "", descrição: "Lucro operacional", tipo: "controle", categoria: "retirada", valor: operationalProfitForReport(data) },
       { seção: "retiradas", data: "", descrição: "Total que saiu da conta", tipo: "saída", categoria: "retirada", valor: data.partnerWithdrawalControl?.paidNowTotal || 0 },
-      { seção: "retiradas", data: "", descrição: "Cofrinho - direito de 10%", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.expectedSavings || 0 },
+      { seção: "retiradas", data: "", descrição: `Cofrinho - direito de ${Number(state.appConfig.splitSavingsPercent || 0)}%`, tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.expectedSavings || 0 },
       { seção: "retiradas", data: "", descrição: "Cofrinho - transferido agora", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.savings },
       { seção: "retiradas", data: "", descrição: "Vanessa - recebeu agora", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.vanessa },
       { seção: "retiradas", data: "", descrição: "Vanessa - distribuição total", tipo: "controle", categoria: "retirada", valor: withdrawalAmounts.vanessa },
@@ -14701,7 +15515,7 @@ function withdrawalPersonReportPanel(data) {
       </div>
       <div class="summary withdrawal-report-summary">
         <div class="metric"><span>Lucro operacional</span><strong>${money(operationalProfitForReport(data))}</strong></div>
-        <div class="metric"><span>Cofrinho (10%)</span><strong>${money(periodTotals.savings)}</strong></div>
+        <div class="metric"><span>Cofrinho (${Number(state.appConfig.splitSavingsPercent || 0)}%)</span><strong>${money(periodTotals.savings)}</strong></div>
         <div class="metric"><span>Vanessa - distribuição total</span><strong>${money(periodTotals.vanessa + periodTotals.paidToCashVanessa)}</strong></div>
         <div class="metric"><span>Raquel - distribuição total</span><strong>${money(periodTotals.raquel + periodTotals.paidToCashRaquel)}</strong></div>
         <div class="metric"><span>Dívidas compensadas</span><strong>${money(periodTotals.paidToCashVanessa + periodTotals.paidToCashRaquel)}</strong></div>
@@ -16610,17 +17424,17 @@ function withdrawalProjectionPanel(data) {
         <div class="panel dashboard-panel">
           <h2>Se retirar hoje</h2>
           <div class="recent-list">
-            <span><b>${money(projection.currentSplit.savings)}</b>Cofrinho 10%</span>
-            <span><b>${money(projection.currentSplit.vanessa)}</b>Vanessa 70%</span>
-            <span><b>${money(projection.currentSplit.raquel)}</b>Raquel 30%</span>
+            <span><b>${money(projection.currentSplit.savings)}</b>Cofrinho ${Number(state.appConfig.splitSavingsPercent || 0)}%</span>
+            <span><b>${money(projection.currentSplit.vanessa)}</b>Vanessa ${Number(state.appConfig.splitVanessaPercent || 0)}%</span>
+            <span><b>${money(projection.currentSplit.raquel)}</b>Raquel ${Number(state.appConfig.splitRaquelPercent || 0)}%</span>
           </div>
         </div>
         <div class="panel dashboard-panel">
           <h2>Projetado até ${formatIsoDateBr(projection.bounds.end)}</h2>
           <div class="recent-list">
-            <span><b>${money(projection.projectedSplit.savings)}</b>Cofrinho 10%</span>
-            <span><b>${money(projection.projectedSplit.vanessa)}</b>Vanessa 70%</span>
-            <span><b>${money(projection.projectedSplit.raquel)}</b>Raquel 30%</span>
+            <span><b>${money(projection.projectedSplit.savings)}</b>Cofrinho ${Number(state.appConfig.splitSavingsPercent || 0)}%</span>
+            <span><b>${money(projection.projectedSplit.vanessa)}</b>Vanessa ${Number(state.appConfig.splitVanessaPercent || 0)}%</span>
+            <span><b>${money(projection.projectedSplit.raquel)}</b>Raquel ${Number(state.appConfig.splitRaquelPercent || 0)}%</span>
           </div>
         </div>
       </div>
@@ -18099,6 +18913,7 @@ function renderFinance() {
     ["employees", "Funcionários"],
     ["cash", "Fluxo"],
     ["planning", "Planejamento"],
+    ["partners", "Sócias"],
     ["withdrawals", "Retiradas"],
     ["audit", "Auditoria"],
     ["closing", "Fechamento"]
@@ -18116,6 +18931,17 @@ function renderFinance() {
   const activeTab = tabs.some(([key]) => key === state.financeViewTab) ? state.financeViewTab : "summary";
   showStandardHero(activeTab === "planning" ? "Planejamento financeiro" : "Financeiro");
   setActive(activeTab === "employees" ? "funcionarios" : "financeiro");
+
+  if (activeTab === "partners") {
+    app.innerHTML = `
+      ${viewTabsHtml("financeViewTab", activeTab, tabs)}
+      ${partnerAccountsPanel()}
+    `;
+    bindViewTabs("financeViewTab", renderFinance);
+    bindPartnerAccounts();
+    enhanceResponsiveTables(app);
+    return;
+  }
 
   app.innerHTML = `
     ${viewTabsHtml("financeViewTab", activeTab, tabs)}
@@ -18189,6 +19015,7 @@ function renderFinance() {
       ${monthlyBudgetPanel()}
       ${financialPlanningPanel()}
     `)}
+    ${viewPaneHtml("partners", activeTab, partnerAccountsPanel())}
     ${viewPaneHtml("withdrawals", activeTab, `
       ${withdrawalPersonReportPanel(data)}
       ${accountAdjustmentsReportPanel(data)}
@@ -18209,6 +19036,7 @@ function renderFinance() {
   bindFinancialEmployees();
   bindFinancialAccounts();
   bindFinancialPlanning();
+  bindPartnerAccounts();
   bindMonthlyBudget();
   enhanceResponsiveTables(app);
   document.querySelectorAll("[data-export-withdrawals]").forEach(button => {
@@ -19278,8 +20106,13 @@ function renderMore() {
     ["menu-semanal", "Menu", "Cardápio, produção e pedidos"],
     ["loja", "Loja", "Vendas do balcão"],
     ["precificacao", "Preços", "Ingredientes e margem"],
+    ["fluxo-de-caixa", "Caixa", "Lançamentos e conciliação"],
+    ["financeiro", "Financeiro", "Contas, planejamento e sócias"],
+    ["despesas", "Despesas", "Saídas operacionais"],
     ["relatorios", "Relatórios", "PDF, Excel e ranking"],
     ["alertas", "Alertas", "Pendências da operação"],
+    ["financeiro?view=employees", "Funcionários", "Cadastro e despesas da equipe"],
+    ["fluxo-de-caixa?panel=categories", "Fornecedores", "Categorias e fornecedores"],
     ["configuracoes", "Config.", "Tela inicial e retiradas"],
     ["backups", "Manutenção", "Backup, usuários e banco"]
   ];
@@ -19782,6 +20615,7 @@ function renderAccount() {
       <div class="permission-summary">
         ${[
           ["editFinancial", "Editar financeiro"],
+          ["managePartnerAdjustments", "Ajustar conta-corrente de sócias"],
           ["manageClosings", "Fechar períodos"],
           ["restoreBackup", "Restaurar backups"],
           ["clearData", "Limpar dados"]
@@ -19855,6 +20689,7 @@ function usersPanelHtml(result) {
             <legend>Permissões</legend>
             ${[
               ["editFinancial", "Editar valores financeiros"],
+              ["managePartnerAdjustments", "Ajustar e estornar conta-corrente de sócias"],
               ["manageClosings", "Fechar e reabrir períodos"],
               ["restoreBackup", "Testar e restaurar backups"],
               ["clearData", "Reiniciar, limpar e excluir dados"]
@@ -19936,7 +20771,7 @@ function bindUsersPanel() {
       event.preventDefault();
       const values = readForm(event.currentTarget);
       values.permissions = Object.fromEntries(
-        ["editFinancial", "manageClosings", "restoreBackup", "clearData"]
+        ["editFinancial", "managePartnerAdjustments", "manageClosings", "restoreBackup", "clearData"]
           .map(key => [key, values[`permission_${key}`] === "on"])
       );
       const response = await fetch("/api/users", {

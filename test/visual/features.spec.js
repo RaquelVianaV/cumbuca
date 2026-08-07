@@ -245,19 +245,14 @@ test('pricing tab displays operational cost tracking', async ({ page }) => {
     .locator('a:has-text("Precificação"), a:has-text("Preços"), button:has-text("Precificação")')
     .first();
 
-  if (await pricingLink.isVisible()) {
-    await pricingLink.click();
-    await expect(
-      page.getByRole('heading', {
-        name: 'Precificação|Produtos|Serviços',
-        exact: false,
-      })
-    )
-      .toBeVisible()
-      .catch(() => {
-        console.log('Pricing section may not exist');
-      });
-  }
+  await expect(pricingLink).toBeVisible();
+  await pricingLink.click();
+  await expect(
+    page.getByRole('heading', {
+      name: 'Precificação',
+      exact: true,
+    })
+  ).toBeVisible();
 });
 
 test('backup integration displays state management options', async ({ page }) => {
@@ -333,8 +328,51 @@ test('responsive layout adapts to viewport size', async ({ page }, testInfo) => 
     // Verify mobile-optimized layout
     const sidebar = page.locator('nav.nav');
     const isSidebarVisible = await sidebar.isVisible().catch(() => false);
-    // On mobile, sidebar might be hidden or in a drawer
-    console.log('Mobile sidebar visible:', isSidebarVisible);
+    expect(isSidebarVisible).toBe(true);
+    const navigationLayout = await sidebar.evaluate((navigation) => {
+      const visibleLinks = [...navigation.querySelectorAll('a')].filter(
+        (link) => getComputedStyle(link).display !== 'none'
+      );
+      const boxes = visibleLinks.map((link) => link.getBoundingClientRect());
+      const linksOverlap = boxes.some((box, index) =>
+        boxes
+          .slice(index + 1)
+          .some(
+            (other) =>
+              box.left < other.right - 0.5 &&
+              box.right > other.left + 0.5 &&
+              box.top < other.bottom - 0.5 &&
+              box.bottom > other.top + 0.5
+          )
+      );
+      return {
+        visibleCount: visibleLinks.length,
+        visibleExtras: visibleLinks.filter((link) => link.classList.contains('nav-extra')).length,
+        height: navigation.getBoundingClientRect().height,
+        linksOverlap,
+      };
+    });
+    expect(navigationLayout.visibleCount).toBe(7);
+    expect(navigationLayout.visibleExtras).toBe(0);
+    expect(navigationLayout.height).toBeLessThanOrEqual(105);
+    expect(navigationLayout.linksOverlap).toBe(false);
+
+    await page.evaluate(() => {
+      window.showToast('Salvo no Supabase');
+      window.showToast('Conta atualizada');
+      window.showToast('Retirada registrada');
+      window.showToast('Última notificação');
+    });
+    await expect(page.locator('.toast-area .toast')).toHaveCount(1);
+    await expect(page.locator('.toast-area .toast')).toHaveText('Última notificação');
+    const toastPlacement = await page.evaluate(() => {
+      const toast = document.querySelector('.toast-area');
+      const mobileMenu = document.querySelector('.sidebar');
+      const toastBox = toast.getBoundingClientRect();
+      const menuBox = mobileMenu.getBoundingClientRect();
+      return { toastBottom: toastBox.bottom, menuTop: menuBox.top };
+    });
+    expect(toastPlacement.toastBottom).toBeLessThanOrEqual(toastPlacement.menuTop - 4);
     await page.screenshot({
       path: testInfo.outputPath('mobile-home-quote.png'),
       fullPage: true,
