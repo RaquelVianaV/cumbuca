@@ -8,7 +8,7 @@
     "dev": "node server.js",
     "check": "node --check server.js && node --check public/app.js",
     "lint": "eslint \"**/*.js\" --quiet",
-    "test": "node --test test/server.test.js test/layout.test.js test/partner-accounts.test.js",
+    "test": "node --test test/server.test.js test/layout.test.js test/partner-accounts.test.js test/account-transfers.test.js",
     "test:visual": "playwright test",
     "e2e": "npm run test:visual",
     "verify": "npm run lint && npm run check && npm test && npm run test:visual",

@@ -54,6 +54,48 @@ test('calculateCashFlow normalizes values and preserves entry IDs', () => {
   assert.equal(result.entries[1].amount, 30);
 });
 
+test('calculateCashFlow excludes transfers and partner contributions from operations', () => {
+  const result = calculateCashFlow([
+    { id: 'sale', type: 'income', category: 'venda', amount: 1000 },
+    {
+      id: 'transfer-source',
+      type: 'expense',
+      category: 'transferencia-contas',
+      cashAccount: 'pf',
+      amount: 1000,
+      transferId: 'transfer-1',
+      accountTransferId: 'transfer-1',
+      nonOperationalAccountTransfer: true,
+    },
+    {
+      id: 'transfer-destination',
+      type: 'income',
+      category: 'transferencia-contas',
+      cashAccount: 'pj',
+      amount: 1000,
+      transferId: 'transfer-1',
+      accountTransferId: 'transfer-1',
+      nonOperationalAccountTransfer: true,
+    },
+    {
+      id: 'partner-contribution',
+      type: 'income',
+      category: 'aporte-socia',
+      cashAccount: 'pj',
+      amount: 2000,
+      nonOperationalPartnerContribution: true,
+    },
+  ]);
+
+  assert.equal(result.income, 1000);
+  assert.equal(result.expenses, 0);
+  assert.equal(result.operationalIncome, 1000);
+  assert.equal(result.operationalExpenses, 0);
+  assert.equal(result.cashIncome, 4000);
+  assert.equal(result.cashExpenses, 1000);
+  assert.equal(result.balance, 3000);
+});
+
 test('normalizeState fills missing keys without replacing supplied values', () => {
   const cashEntries = [{ id: 'entry-1', amount: 50 }];
   const state = normalizeState({ cashEntries });
@@ -317,12 +359,15 @@ test('backup restore dry-run validates a complete normalized state', () => {
 test('financial integrity reports negative balance and reopened periods', () => {
   const state = normalizeState({
     cashEntries: [{ id: 'out-1', date: '2026-06-10', type: 'expense', amount: 50 }],
+    financialPlanning: { savings: 75 },
     monthlyClosings: { '2026-05': { locked: false } },
   });
   const result = financialIntegritySummary(state, null);
 
   assert.equal(result.status, 'danger');
   assert.equal(result.totals.balance, -50);
+  assert.equal(result.totals.savings, 75);
+  assert.equal(result.totals.consolidatedBalance, 25);
   assert.deepEqual(result.closings.unlockedMonths, ['2026-05']);
 });
 

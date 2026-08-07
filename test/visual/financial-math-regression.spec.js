@@ -724,8 +724,15 @@ test('painel local apresenta os indicadores financeiros corrigidos', async ({ pa
   );
   await expect(page.locator('.executive-attention')).toContainText('O que precisa da sua atenção');
   await expect(page.locator('[data-management-dre]')).toContainText('Margem após compras');
-  await expect(page.locator('[data-management-dre]')).toContainText('Saldo inicialR$ 1.000,00');
-  await expect(page.locator('[data-management-dre]')).toContainText('Saldo final-R$ 2.256,49');
+  await expect(page.locator('[data-management-dre]')).toContainText(
+    'Saldo inicial PF + PJR$ 1.000,00'
+  );
+  await expect(page.locator('[data-management-dre]')).toContainText(
+    'Saldo final PF + PJ-R$ 2.256,49'
+  );
+  await expect(page.locator('[data-management-dre]')).toContainText(
+    'Saldo consolidado finalPF + PJ + Cofrinho-R$ 1.756,49'
+  );
   await expect(page.locator('.management-comparison-panel')).toContainText(
     'Comparação com mês anterior'
   );

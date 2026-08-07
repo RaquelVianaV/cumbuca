@@ -6,6 +6,8 @@ const PDFDocument = require('pdfkit');
 const JSZip = require('jszip');
 const partnerAccountRules = require('./public/partner-accounts');
 const { normalizePartnerAccounts, validatePartnerAccountState } = partnerAccountRules;
+const accountTransferRules = require('./public/account-transfers');
+const { normalizeAccountTransfers, validateAccountTransferState } = accountTransferRules;
 let Pool = null;
 try {
   ({ Pool } = require('pg'));
@@ -106,6 +108,7 @@ const defaultState = {
     savings: '',
     savingsUpdatedAt: '',
     savingsHistory: [],
+    accountTransfers: [],
     partnersHistory: [],
     monthlyGoal: '',
     improvements: [],
@@ -149,6 +152,13 @@ function normalizeState(payload = {}) {
     ])
   );
   state.partnerAccounts = normalizePartnerAccounts(state.partnerAccounts);
+  state.financialPlanning =
+    state.financialPlanning && typeof state.financialPlanning === 'object'
+      ? state.financialPlanning
+      : cloneJson(defaultState.financialPlanning);
+  state.financialPlanning.accountTransfers = normalizeAccountTransfers(
+    state.financialPlanning.accountTransfers
+  );
   return state;
 }
 
@@ -307,6 +317,28 @@ function stateWriteViolation(
   }
   if (bypassLocks) {
     return null;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'financialPlanning')) {
+    const previousTransfers = normalizeAccountTransfers(
+      currentState.financialPlanning?.accountTransfers
+    );
+    const nextTransfers = normalizeAccountTransfers(payload.financialPlanning?.accountTransfers);
+    const transferDates = changedRecordDates(previousTransfers, nextTransfers);
+    for (const date of transferDates) {
+      const locked = lockedClosingForDate(currentState, date);
+      if (locked) {
+        const period =
+          locked.type === 'month'
+            ? locked.key
+            : locked.type === 'week'
+            ? locked.key.replace('_', ' a ')
+            : locked.key;
+        return {
+          statusCode: 409,
+          message: `O período ${period} está fechado. Reabra o período antes de alterar transferências.`,
+        };
+      }
+    }
   }
   for (const key of [
     'cashEntries',
@@ -1495,6 +1527,8 @@ function financialIntegritySummary(state, backup = null) {
     },
     { income: 0, expenses: 0, adjustments: 0, balance: 0 }
   );
+  totals.savings = Math.max(0, number(state.financialPlanning?.savings));
+  totals.consolidatedBalance = totals.balance + totals.savings;
   const unlockedMonths = Object.entries(state.monthlyClosings || {})
     .filter(([, closing]) => closing?.locked === false)
     .map(([key]) => key);
@@ -1905,6 +1939,24 @@ async function writeAppState(payload = {}, user = null, options = {}) {
       throw error;
     }
   }
+  if (
+    Object.prototype.hasOwnProperty.call(payload, 'financialPlanning') ||
+    Object.prototype.hasOwnProperty.call(payload, 'cashEntries')
+  ) {
+    const nextState = normalizeState({ ...currentBeforeWrite.state, ...payload });
+    const validation = validateAccountTransferState(
+      nextState.financialPlanning?.accountTransfers,
+      nextState.cashEntries,
+      nextState.financialPlanning?.savingsHistory
+    );
+    if (!validation.valid) {
+      const error = new Error(
+        validation.errors[0] || 'Transferências entre contas inconsistentes.'
+      );
+      error.statusCode = 409;
+      throw error;
+    }
+  }
   const entries = Object.entries(payload).filter(([key]) => stateKeys.includes(key));
 
   for (const [key, value] of entries) {
@@ -2101,6 +2153,7 @@ async function resetFinancialState(user = null) {
     savings: '',
     savingsUpdatedAt: '',
     savingsHistory: [],
+    accountTransfers: [],
     partnersHistory: [],
     cycleStartDate: '',
     openingBalance: '',
@@ -2159,20 +2212,42 @@ function calculateCashFlow(entries = []) {
       type,
       amount,
       category: String(item.category || '').trim() || 'outros',
+      cashAccount: String(item.cashAccount || ''),
+      accountTransferSide: String(item.accountTransferSide || ''),
+      transferId: String(item.transferId || item.accountTransferId || ''),
+      accountTransferId: String(item.accountTransferId || item.transferId || ''),
+      nonOperationalAccountTransfer: item.nonOperationalAccountTransfer === true,
+      nonOperationalPartnerContribution: item.nonOperationalPartnerContribution === true,
     };
   });
 
-  const income = normalized
+  const operational = normalized.filter(
+    (item) =>
+      !accountTransferRules.isAccountTransferCashEntry(item) &&
+      item.category !== 'aporte-socia' &&
+      !item.nonOperationalPartnerContribution
+  );
+  const income = operational
     .filter((item) => item.type === 'income')
     .reduce((sum, item) => sum + item.amount, 0);
-  const expenses = normalized
+  const expenses = operational
+    .filter((item) => item.type === 'expense')
+    .reduce((sum, item) => sum + item.amount, 0);
+  const cashIncome = normalized
+    .filter((item) => item.type === 'income')
+    .reduce((sum, item) => sum + item.amount, 0);
+  const cashExpenses = normalized
     .filter((item) => item.type === 'expense')
     .reduce((sum, item) => sum + item.amount, 0);
 
   return {
     income,
     expenses,
-    balance: income - expenses,
+    operationalIncome: income,
+    operationalExpenses: expenses,
+    cashIncome,
+    cashExpenses,
+    balance: cashIncome - cashExpenses,
     entries: normalized.sort((a, b) => a.date.localeCompare(b.date)),
   };
 }
@@ -2441,6 +2516,8 @@ function buildReportPdf(payload = {}) {
     ['Saldo da conta', brl(data.accountBalance)],
     ['Ajustes da conta', brl(data.accountAdjustmentBalance)],
     ['Cofrinho atual', brl(data.savingsBalance)],
+    ['Saldo consolidado', brl(data.consolidatedBalance)],
+    ['Aportes de sócias', brl(data.capitalContributionTotal)],
     ['Cumbucas', data.totalSoldQuantity || 0],
     ['Semanal', data.weeklyCashQuantity || 0],
     ['Loja', data.storeQuantity || 0],
@@ -2501,9 +2578,29 @@ function buildReportPdf(payload = {}) {
     addPdfSectionTitle(doc, 'Pacote contador por conta');
     addPdfTable(
       doc,
-      ['Conta', 'Entradas', 'Saídas', 'Ajustes', 'Saldo', 'Lançamentos'],
+      ['Conta', 'Entradas oper.', 'Saídas oper.', 'Ajustes', 'Saldo real', 'Lançamentos'],
       data.accountPackageSummaryRows || [],
       [112, 72, 72, 72, 72, 76]
+    );
+  }
+
+  if ((data.transferRows || []).length) {
+    addPdfSectionTitle(doc, 'Transferências internas');
+    addPdfTable(
+      doc,
+      ['Data', 'Origem', 'Destino', 'Valor', 'Tipo', 'Observação'],
+      data.transferRows || [],
+      [58, 78, 78, 70, 82, 120]
+    );
+  }
+
+  if ((data.capitalContributionRows || []).length) {
+    addPdfSectionTitle(doc, 'Aportes de sócias');
+    addPdfTable(
+      doc,
+      ['Data', 'Descrição', 'Conta', 'Valor'],
+      data.capitalContributionRows || [],
+      [72, 220, 90, 90]
     );
   }
 
@@ -2598,6 +2695,8 @@ async function buildReportXlsx(payload = {}) {
     ['Saldo da conta', data.accountBalance || 0],
     ['Ajustes da conta', data.accountAdjustmentBalance || 0],
     ['Cofrinho atual', data.savingsBalance || 0],
+    ['Saldo consolidado PF + PJ + Cofrinho', data.consolidatedBalance || 0],
+    ['Aportes de sócias (não operacional)', data.capitalContributionTotal || 0],
     ['Atualização cofrinho', data.savingsUpdatedAt || ''],
     ['Cumbucas semanal', data.weeklyCashQuantity || 0],
     ['Cumbucas loja', data.storeQuantity || 0],
@@ -2639,6 +2738,14 @@ async function buildReportXlsx(payload = {}) {
     ],
     ['Retiradas', [['Destino', 'Valor'], ...(data.withdrawalRows || [])]],
     [
+      'Transferencias',
+      [['Data', 'Origem', 'Destino', 'Valor', 'Tipo', 'Observação'], ...(data.transferRows || [])],
+    ],
+    [
+      'Aportes socias',
+      [['Data', 'Descrição', 'Conta', 'Valor'], ...(data.capitalContributionRows || [])],
+    ],
+    [
       'Loja',
       [
         [
@@ -2656,7 +2763,14 @@ async function buildReportXlsx(payload = {}) {
     [
       'Contas resumo',
       [
-        ['Conta', 'Entradas', 'Saídas', 'Ajustes', 'Saldo', 'Lançamentos'],
+        [
+          'Conta',
+          'Entradas operacionais',
+          'Saídas operacionais',
+          'Ajustes',
+          'Saldo real',
+          'Lançamentos',
+        ],
         ...(data.accountPackageSummaryRows || []),
       ],
     ],
@@ -3446,6 +3560,7 @@ handleRequest._test = {
   legacyBackupDate,
   normalizeState,
   normalizedPermissions,
+  accountTransferRules,
   partnerAccountDatedRecords,
   partnerAccountRules,
   partnerManualAdjustmentsChanged,

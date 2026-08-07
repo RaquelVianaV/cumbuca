@@ -107,6 +107,67 @@ test('finance menu stays between the hero and period filters', async ({ page }, 
   ).toBeVisible();
 });
 
+test('closed July can be reopened from the monthly closing panel', async ({ page }) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    monthlyClosings: {
+      '2026-07': {
+        id: '2026-07-closing',
+        periodKey: '2026-07',
+        locked: true,
+        closedAt: '2026-08-01T12:00:00.000Z',
+        closedBy: 'Raquel',
+        availableForWithdrawal: 1000,
+        suggestedWithdrawal: { savings: 100, vanessa: 630, raquel: 270 },
+      },
+    },
+  };
+  let reopenRequest = null;
+  await page.route('**/api/closings/reopen', async (route) => {
+    reopenRequest = JSON.parse(route.request().postData() || '{}');
+    database.state.monthlyClosings['2026-07'] = {
+      ...database.state.monthlyClosings['2026-07'],
+      locked: false,
+      reopenedAt: '2026-08-07T12:00:00.000Z',
+      reopenReason: reopenRequest.reason,
+    };
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        database: true,
+        saved: true,
+        key: '2026-07',
+        closing: database.state.monthlyClosings['2026-07'],
+      }),
+    });
+  });
+  page.once('dialog', async (dialog) => {
+    expect(dialog.type()).toBe('prompt');
+    expect(dialog.message()).toContain('julho de 2026');
+    await dialog.accept('Correção do fechamento de julho');
+  });
+
+  await page.goto('/financeiro?view=closing&ano=2026&mes=7');
+  await expect(page.getByRole('heading', { name: 'Fechamento mensal', exact: true })).toBeVisible();
+  await expect(page.locator('#close-month')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Reabrir mês', exact: true }).click();
+
+  await expect
+    .poll(() => reopenRequest)
+    .toEqual({
+      type: 'month',
+      key: '2026-07',
+      reason: 'Correção do fechamento de julho',
+    });
+  await expect(page.locator('.closing-record')).toContainText('StatusDestravado');
+  await expect(page.getByRole('button', { name: 'Fechar novamente', exact: true })).toBeVisible();
+  await expect(page.locator('.closing-record')).toContainText(
+    'Motivo da reaberturaCorreção do fechamento de julho'
+  );
+  await expectNoHorizontalOverflow(page);
+});
+
 test('grouped navigation opens the menu and saves new orders', async ({ page }, testInfo) => {
   const database = await mockOnlineDatabase(page);
   const pageErrors = [];
@@ -1521,6 +1582,208 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
   });
 });
 
+test('linked transfers preserve PF PJ savings totals and stay outside results', async ({
+  page,
+}, testInfo) => {
+  const database = await mockOnlineDatabase(page);
+  const today = localDateKey();
+  database.state = {
+    cashEntries: [
+      {
+        id: 'transfer-opening-pf',
+        date: today,
+        description: 'Saldo inicial PF',
+        type: 'income',
+        category: 'venda',
+        cashAccount: 'pf',
+        amount: '3000.00',
+      },
+      {
+        id: 'transfer-opening-pj',
+        date: today,
+        description: 'Saldo inicial PJ',
+        type: 'income',
+        category: 'venda',
+        cashAccount: 'pj',
+        amount: '2000.00',
+      },
+    ],
+    financialPlanning: {
+      savings: '500.00',
+      savingsExpectedBalance: '500.00',
+      accountTransfers: [],
+      savingsHistory: [
+        {
+          id: 'transfer-opening-savings',
+          date: today,
+          type: 'set',
+          amount: '500.00',
+          balance: '500.00',
+          description: 'Saldo inicial do Cofrinho',
+        },
+      ],
+    },
+  };
+
+  await page.goto('/fluxo-de-caixa?panel=transfers');
+  await expect(
+    page.getByRole('heading', { name: 'Transferência entre contas', exact: true })
+  ).toBeVisible();
+  const transferForm = page.locator('#account-transfer-form');
+  const balances = page.locator('.account-transfer-balances');
+  await expect(balances).toContainText('Conta PFR$ 3.000,00');
+  await expect(balances).toContainText('Conta PJR$ 2.000,00');
+  await expect(balances).toContainText('CofrinhoR$ 500,00');
+  await expect(balances).toContainText('Saldo consolidadoR$ 5.500,00');
+
+  await transferForm.locator('select[name="origin"]').selectOption('pf');
+  await transferForm.locator('select[name="destination"]').selectOption('pj');
+  await transferForm.locator('input[name="amount"]').fill('1.000,00');
+  await transferForm.locator('input[name="description"]').fill('Transferência para PJ');
+  await transferForm.getByRole('button', { name: 'Transferir', exact: true }).click();
+
+  await expect.poll(() => database.state.financialPlanning?.accountTransfers?.length).toBe(1);
+  const firstTransfer = database.state.financialPlanning.accountTransfers[0];
+  const firstTransferCash = database.state.cashEntries.filter(
+    (entry) => entry.transferId === firstTransfer.id
+  );
+  expect(firstTransferCash).toHaveLength(2);
+  expect(firstTransferCash.map((entry) => entry.accountTransferSide).sort()).toEqual([
+    'destination',
+    'source',
+  ]);
+  expect(new Set(firstTransferCash.map((entry) => entry.transferId))).toEqual(
+    new Set([firstTransfer.id])
+  );
+  await expect(balances).toContainText('Conta PFR$ 2.000,00');
+  await expect(balances).toContainText('Conta PJR$ 3.000,00');
+  await expect(balances).toContainText('Saldo consolidadoR$ 5.500,00');
+
+  await transferForm.locator('select[name="origin"]').selectOption('pj');
+  await transferForm.locator('select[name="destination"]').selectOption('savings');
+  await transferForm.locator('input[name="amount"]').fill('300,00');
+  await transferForm.locator('input[name="description"]').fill('Guardar no Cofrinho');
+  await transferForm.getByRole('button', { name: 'Transferir', exact: true }).click();
+  await expect.poll(() => database.state.financialPlanning?.accountTransfers?.length).toBe(2);
+  await expect(balances).toContainText('Conta PJR$ 2.700,00');
+  await expect(balances).toContainText('CofrinhoR$ 800,00');
+  await expect(balances).toContainText('Saldo consolidadoR$ 5.500,00');
+
+  await transferForm.locator('select[name="origin"]').selectOption('savings');
+  await transferForm.locator('select[name="destination"]').selectOption('pj');
+  await transferForm.locator('input[name="amount"]').fill('100,00');
+  await transferForm.locator('input[name="description"]').fill('Volta para PJ');
+  await transferForm.getByRole('button', { name: 'Transferir', exact: true }).click();
+  await expect.poll(() => database.state.financialPlanning?.accountTransfers?.length).toBe(3);
+  await expect(balances).toContainText('Conta PJR$ 2.800,00');
+  await expect(balances).toContainText('CofrinhoR$ 700,00');
+  await expect(balances).toContainText('Saldo consolidadoR$ 5.500,00');
+
+  const financialBeforeContribution = await page.evaluate(() => {
+    const data = window.reportData();
+    return {
+      income: data.financial.income,
+      expenses: data.financial.operationalExpenses,
+      profit: window.operationalProfitForReport(data),
+      sales: window.salesRevenueForPeriod(data.periodKey).total,
+      purchases: window.productionPurchasesForPeriod(data.periodKey).combinedTotal,
+      purchasesSalesPercent: window.productionPurchasesForPeriod(data.periodKey)
+        .purchasesSalesPercent,
+      purchasesPerBowl: window.productionPurchasesForPeriod(data.periodKey).purchasesPerBowl,
+    };
+  });
+  expect(financialBeforeContribution).toEqual({
+    income: 5000,
+    expenses: 0,
+    profit: 5000,
+    sales: 5000,
+    purchases: 0,
+    purchasesSalesPercent: 0,
+    purchasesPerBowl: 0,
+  });
+
+  await page.goto('/fluxo-de-caixa?panel=entry');
+  const cashForm = page.locator('#cash-form');
+  await cashForm.locator('input[name="description"]').fill('Aporte pessoal da Raquel');
+  await page.locator('#cash-type').selectOption('income');
+  await page.locator('#cash-category').selectOption('aporte-socia');
+  await expect(page.locator('#cash-capital-contribution-hint')).toBeVisible();
+  await page.locator('#cash-account').selectOption('pj');
+  await cashForm.locator('input[name="amount"]').fill('2.000,00');
+  await cashForm.getByRole('button', { name: 'Adicionar', exact: true }).click();
+  await expect
+    .poll(
+      () =>
+        database.state.cashEntries?.find((entry) => entry.category === 'aporte-socia')
+          ?.nonOperationalPartnerContribution
+    )
+    .toBe(true);
+
+  const reportPayload = await page.evaluate(() => {
+    const data = window.reportData();
+    const payload = window.reportExportPayload(data).data;
+    return {
+      accountBalance: data.accountBalance,
+      savingsBalance: data.savingsBalance,
+      consolidatedBalance: data.consolidatedBalance,
+      income: data.financial.income,
+      expenses: data.financial.operationalExpenses,
+      profit: window.operationalProfitForReport(data),
+      sales: window.salesRevenueForPeriod(data.periodKey).total,
+      contributionTotal: data.capitalContributionTotal,
+      contributionIsTransfer: Boolean(
+        data.capitalContributionEntries[0]?.transferId ||
+          data.capitalContributionEntries[0]?.accountTransferId
+      ),
+      transferRows: payload.transferRows,
+      contributionRows: payload.capitalContributionRows,
+      unifiedTransferRows: payload.accountPackageUnifiedRows.filter(
+        (row) => row[4] === 'Transferência entre contas'
+      ),
+      pfTransferRows: payload.accountPackagePfRows.filter(
+        (row) => row[4] === 'Transferência entre contas'
+      ),
+      pjTransferRows: payload.accountPackagePjRows.filter(
+        (row) => row[4] === 'Transferência entre contas'
+      ),
+    };
+  });
+  expect(reportPayload).toMatchObject({
+    accountBalance: 6800,
+    savingsBalance: 700,
+    consolidatedBalance: 7500,
+    income: 5000,
+    expenses: 0,
+    profit: 5000,
+    sales: 5000,
+    contributionTotal: 2000,
+    contributionIsTransfer: false,
+  });
+  expect(reportPayload.transferRows).toHaveLength(3);
+  expect(reportPayload.contributionRows).toHaveLength(1);
+  expect(reportPayload.unifiedTransferRows).toHaveLength(0);
+  expect(reportPayload.pfTransferRows.length).toBeGreaterThan(0);
+  expect(reportPayload.pjTransferRows.length).toBeGreaterThan(0);
+
+  await page.goto('/fluxo-de-caixa?panel=transfers');
+  const originalRow = page.locator('tr', { hasText: 'Transferência para PJ' });
+  page.once('dialog', (dialog) => dialog.accept());
+  await originalRow.getByRole('button', { name: 'Estornar', exact: true }).click();
+  await expect.poll(() => database.state.financialPlanning?.accountTransfers?.length).toBe(4);
+  const reversal = database.state.financialPlanning.accountTransfers.find(
+    (item) => item.reversalOf === firstTransfer.id
+  );
+  expect(reversal).toMatchObject({ origin: 'pj', destination: 'pf', amount: '1000.00' });
+  await expect(page.locator('.account-transfer-balances')).toContainText(
+    'Saldo consolidadoR$ 7.500,00'
+  );
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath('linked-account-transfers.png'),
+    fullPage: true,
+  });
+});
+
 test('withdrawals automatically apply cash debts and never exceed the account balance', async ({
   page,
 }, testInfo) => {
@@ -2746,7 +3009,12 @@ test('home dashboard prioritizes projected balance and actions', async ({ page }
   await expect(page.locator('[data-management-dre]')).toContainText(
     /Lucro operacional\s*R\$\s*140,00/
   );
-  await expect(page.locator('[data-management-dre]')).toContainText(/Saldo final\s*R\$\s*140,00/);
+  await expect(page.locator('[data-management-dre]')).toContainText(
+    /Saldo final PF \+ PJ\s*R\$\s*140,00/
+  );
+  await expect(page.locator('[data-management-dre]')).toContainText(
+    /Saldo consolidado final(?:PF \+ PJ \+ Cofrinho)?\s*R\$\s*140,00/
+  );
   await expect(
     page.getByRole('heading', { name: 'Comparação com mês anterior', exact: true })
   ).toBeVisible();

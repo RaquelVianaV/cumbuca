@@ -12,11 +12,12 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/logo-cumbuca-original.png">
-    <link rel="preload" href="/partner-accounts.js?v=20260807-08" as="script">
-    <link rel="preload" href="/app.js?v=20260807-08" as="script">
+    <link rel="preload" href="/partner-accounts.js?v=20260807-09" as="script">
+    <link rel="preload" href="/account-transfers.js?v=20260807-09" as="script">
+    <link rel="preload" href="/app.js?v=20260807-09" as="script">
     <link rel="preload" href="/logo-cumbuca-original.png" as="image">
     <link rel="preload" href="/mapa-cumbuca.png" as="image">
-    <link rel="stylesheet" href="/styles.css?v=20260807-08">
+    <link rel="stylesheet" href="/styles.css?v=20260807-09">
     <script>
       (function () {
         const storedTheme = localStorage.getItem('cumbuca-theme');
@@ -126,12 +127,14 @@
         <a href="/fluxo-de-caixa?novo=insumos"><b>Compra de insumos</b><small>Supermercado, frigorífico ou boleto</small></a>
         <a href="/menu-semanal?view=production"><b>Produção</b><small>Lista da semana</small></a>
         <a href="/fluxo-de-caixa?panel=withdrawals"><b>Retirada</b><small>Vanessa, Raquel ou cofrinho</small></a>
+        <a href="/fluxo-de-caixa?panel=transfers"><b>Transferência</b><small>Entre PF, PJ e Cofrinho</small></a>
         <a href="/fluxo-de-caixa?novo=desperdicio"><b>Perda/desperdício</b><small>Registrar impacto no caixa</small></a>
       </div>
     </dialog>
 
-    <script src="/partner-accounts.js?v=20260807-08" defer></script>
-    <script src="/app.js?v=20260807-08" defer></script>
+    <script src="/partner-accounts.js?v=20260807-09" defer></script>
+    <script src="/account-transfers.js?v=20260807-09" defer></script>
+    <script src="/app.js?v=20260807-09" defer></script>
     <script src="/sw-register.js" defer></script>
   </body>
 </html>

@@ -15,6 +15,7 @@ const globalNewButton = document.querySelector('#global-new-button');
 const globalNewDialog = document.querySelector('#global-new-dialog');
 const globalNewClose = document.querySelector('#global-new-close');
 const partnerAccountRules = window.CumbucaPartnerAccounts;
+const accountTransferRules = window.CumbucaAccountTransfers;
 const {
   calculateWithdrawalDistribution: calculatePartnerWithdrawalDistribution,
   consolidatedMovementIds: consolidatedPartnerMovementIds,
@@ -25,6 +26,15 @@ const {
   partnerAccountSummary,
   partnerBalances
 } = partnerAccountRules;
+const {
+  accountLabel: accountTransferAccountLabel,
+  accountTransferCashEntries,
+  accountTransferSavingsEntry,
+  isAccountTransferCashEntry,
+  normalizeAccountTransfers,
+  normalizedAccount: normalizedAccountTransferAccount,
+  normalizedAccountTransfer
+} = accountTransferRules;
 const navLinks = [...document.querySelectorAll('[data-route]')];
 let systemStatus = {
   server: false,
@@ -836,6 +846,7 @@ const defaultIncomeCategories = [
   ["cofrinho", "Cofrinho"],
   ["diferenca", "Diferença"],
   ["conta-socia", "Conta-corrente de sócia"],
+  ["aporte-socia", "Aporte de sócia"],
   ["ajuste-conta", "Ajuste da conta"]
 ];
 const channelDefinitions = [
@@ -878,7 +889,8 @@ const defaultExpenseCategories = [
   ["outros", "Outros"]
 ];
 const legacyCategoryLabels = [
-  ["99", "99 Food"]
+  ["99", "99 Food"],
+  ["transferencia-contas", "Transferência entre contas"]
 ];
 const defaultExpenseReasons = [
   "Supermercado",
@@ -1067,6 +1079,8 @@ const state = {
   editCashId: null,
   editReconciliationId: null,
   editSavingsEntryId: null,
+  editAccountTransferId: null,
+  accountTransferDraft: { origin: "pj", destination: "pf" },
   cashSort: { key: "date", direction: "desc" },
   editWithdrawalGroup: null,
   editPartnerMovementId: null,
@@ -1093,6 +1107,7 @@ const state = {
     savings: "",
     savingsUpdatedAt: "",
     savingsHistory: [],
+    accountTransfers: [],
     partnersHistory: [],
     monthlyGoal: "",
     improvements: [],
@@ -1225,6 +1240,7 @@ function applyPayloadToState(saved = {}) {
     savings: "",
     savingsUpdatedAt: "",
     savingsHistory: [],
+    accountTransfers: [],
     partnersHistory: [],
     monthlyGoal: "",
     improvements: [],
@@ -1240,6 +1256,9 @@ function applyPayloadToState(saved = {}) {
     monthlyBudgets: {},
     ...(saved.financialPlanning || {})
   };
+  state.financialPlanning.accountTransfers = normalizeAccountTransfers(
+    state.financialPlanning.accountTransfers
+  );
   const savedAppConfig = saved.appConfig || {};
   state.appConfig = {
     ...defaultAppConfig,
@@ -2993,9 +3012,17 @@ function accountAdjustmentTotals(entries = state.cash) {
   return cashTotals(accountAdjustmentEntries(entries));
 }
 
+function isPartnerCapitalContributionEntry(entry = {}) {
+  return normalizedCategory(entry.category) === "aporte-socia"
+    || entry.nonOperationalPartnerContribution === true;
+}
+
 function businessCashEntries(entries = state.cash) {
   return accountingCashEntries(entries).filter(
-    entry => !isAccountAdjustmentEntry(entry) && !isPartnerCashEntry(entry)
+    entry => !isAccountAdjustmentEntry(entry)
+      && !isPartnerCashEntry(entry)
+      && !isAccountTransferCashEntry(entry)
+      && !isPartnerCapitalContributionEntry(entry)
   );
 }
 
@@ -4132,8 +4159,7 @@ function recalculateSavingsHistory(rows = savingsHistoryRows()) {
       const dateCompare = String(right.date || "").localeCompare(String(left.date || ""));
       return dateCompare || (left.__index - right.__index);
     })
-    .map(({ __index, ...entry }) => entry)
-    .slice(0, 40);
+    .map(({ __index, ...entry }) => entry);
 }
 
 function applySavingsHistory(rows = savingsHistoryRows()) {
@@ -4247,6 +4273,7 @@ function partnerCashCandidateOptions(type, selectedId = "") {
   const rows = accountingCashEntries(state.cash)
     .filter(entry => entry.type === expectedType)
     .filter(entry => !isWithdrawalEntry(entry) && !isAccountAdjustmentEntry(entry))
+    .filter(entry => !isAccountTransferCashEntry(entry) && !isPartnerCapitalContributionEntry(entry))
     .filter(entry => !entry.partnerMovementId || String(entry.id) === String(selectedId))
     .sort((left, right) => String(right.date || "").localeCompare(String(left.date || "")));
   return [
@@ -4725,7 +4752,7 @@ function financialSummary(cashEntries = []) {
 
   accountingCashEntries(cashEntries).forEach(entry => {
     const amount = Number(entry.amount || 0);
-    if (isPartnerCashEntry(entry)) {
+    if (isPartnerCashEntry(entry) || isAccountTransferCashEntry(entry) || isPartnerCapitalContributionEntry(entry)) {
       return;
     }
     if (isAccountAdjustmentEntry(entry)) {
@@ -5183,8 +5210,8 @@ function homeMetricData() {
   const weekExpenses = weekBusinessCash
     .filter(entry => entry.type === "expense")
     .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-  const recentExpenses = accountingCashEntries(state.cash)
-    .filter(entry => entry.type === "expense" && !isAccountAdjustmentEntry(entry))
+  const recentExpenses = businessCashEntries(state.cash)
+    .filter(entry => entry.type === "expense")
     .sort((a, b) => cashAccountingDate(b).localeCompare(cashAccountingDate(a)))
     .slice(0, 3);
   const topMonthExpenses = [...monthBusinessCash]
@@ -6400,6 +6427,9 @@ async function renderCash() {
   }
   const requestedEditCashId = cashParams.get("edit");
   ensureCashEntryIds();
+  const requestedEditCashEntry = requestedEditCashId
+    ? state.cash.find(entry => String(entry.id) === String(requestedEditCashId))
+    : null;
   const today = isoDate(new Date());
   const yesterdayDate = (() => {
     const date = new Date();
@@ -6409,7 +6439,11 @@ async function renderCash() {
   if (state.cashFilter?.period === "all" && !state.cashFilter.manualAll) {
     state.cashFilter = { period: "month", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", cashAccount: "all", search: "" };
   }
-  if (requestedEditCashId && state.cash.some(entry => String(entry.id) === String(requestedEditCashId))) {
+  if (requestedEditCashEntry && isAccountTransferCashEntry(requestedEditCashEntry)) {
+    state.editCashId = null;
+    state.cashPanelTab = "transfers";
+    state.editAccountTransferId = requestedEditCashEntry.accountTransferId || requestedEditCashEntry.transferId;
+  } else if (requestedEditCashId && state.cash.some(entry => String(entry.id) === String(requestedEditCashId))) {
     state.editCashId = requestedEditCashId;
     state.cashPanelTab = "entry";
   } else if (requestedEmployee) {
@@ -6584,6 +6618,7 @@ async function renderCash() {
       ["ledger", "Extrato"],
       ["reconciliation", "Conferência"],
       ["day-closing", "Fechamento"],
+      ["transfers", "Transferências"],
       ["savings", "Cofrinho"],
       ["withdrawals", "Retiradas"],
       ["categories", "Categorias"]
@@ -6677,6 +6712,7 @@ async function renderCash() {
               ${cashCategoryOptions(cashEntryType, cashEntryCategory)}
             </select>
           </label>
+          <p class="muted-inline wide" id="cash-capital-contribution-hint" hidden>Aporte de sócia aumenta o saldo da empresa, mas não entra em vendas, faturamento ou lucro operacional.</p>
           <label id="cash-employee-field">
             Funcionário
             <select name="employeeId" id="cash-employee">
@@ -6768,9 +6804,17 @@ async function renderCash() {
         </div>
         ` : ""}
         ${activeCashPanel === "day-closing" ? dailyClosingPanelHtml(dailyClosingData, dailyClosingRecord) : ""}
+        ${activeCashPanel === "transfers" ? accountTransferPanelHtml(today) : ""}
         ${activeCashPanel === "savings" ? `
         <div class="cash-tab-section savings-panel">
         <h2>${editingSavingsEntry ? "Editar registro do cofrinho" : "Cofrinho"}</h2>
+        <div class="inline-callout savings-transfer-callout">
+          <div>
+            <strong>Vai mover dinheiro entre o Cofrinho e PF/PJ?</strong>
+            <small>Use uma transferência vinculada para não duplicar receita ou despesa.</small>
+          </div>
+          <button class="secondary" type="button" id="open-savings-transfer">Transferir saldo</button>
+        </div>
         <form id="savings-form" class="form-grid single">
           <input name="savingsEntryId" type="hidden" value="${escapeHtml(editingSavingsEntry?.id || "")}">
           <div class="summary compact-summary">
@@ -7147,6 +7191,9 @@ async function renderCash() {
       }
       if (state.cashPanelTab !== "savings") {
         state.editSavingsEntryId = null;
+      }
+      if (state.cashPanelTab !== "transfers") {
+        state.editAccountTransferId = null;
       }
       if (state.cashPanelTab !== "reconciliation") {
         state.editReconciliationId = null;
@@ -7585,6 +7632,11 @@ async function renderCash() {
           cashAccount,
           amount: amount.toFixed(2)
         };
+        if (values.type === "income" && normalizedCategory(values.category) === "aporte-socia") {
+          entry.nonOperationalPartnerContribution = true;
+        } else {
+          delete entry.nonOperationalPartnerContribution;
+        }
         if (isEmployeeExpense) {
           entry.employeeId = String(values.employeeId || "");
         } else {
@@ -7651,6 +7703,7 @@ async function renderCash() {
   const cashEntryDateField = document.querySelector("#cash-entry-date");
   const cashDueDateField = document.querySelector("#cash-due-date-field");
   const cashPaidField = document.querySelector("#cash-paid-field");
+  const cashCapitalContributionHint = document.querySelector("#cash-capital-contribution-hint");
   if (cashTypeField && cashCategoryField && cashDueDateField && cashPaidField) {
     const updateCashBillFieldsVisibility = () => {
       const shouldShow = cashTypeField.value === "expense" && isBillCategory(cashCategoryField.value);
@@ -7682,6 +7735,12 @@ async function renderCash() {
         cashEmployeeSelect.value = "";
       }
     };
+    const updateCapitalContributionHint = () => {
+      if (!cashCapitalContributionHint) return;
+      cashCapitalContributionHint.hidden = !(
+        cashTypeField.value === "income" && normalizedCategory(cashCategoryField.value) === "aporte-socia"
+      );
+    };
     cashTypeField.addEventListener("change", event => {
       const type = event.currentTarget.value;
       cashCategoryField.innerHTML = cashCategoryOptions(type, type === "expense" ? "outros" : "venda");
@@ -7699,6 +7758,7 @@ async function renderCash() {
       }
       updateCashBillFieldsVisibility();
       updateCashEmployeeFieldVisibility();
+      updateCapitalContributionHint();
     });
     cashAccountField?.addEventListener("change", () => {
       if (!editing) {
@@ -7714,6 +7774,7 @@ async function renderCash() {
       }
       updateCashBillFieldsVisibility();
       updateCashEmployeeFieldVisibility();
+      updateCapitalContributionHint();
     });
     cashPaidField.querySelector("input").addEventListener("change", event => {
       if (!event.currentTarget.checked && cashAccountField) {
@@ -7730,6 +7791,7 @@ async function renderCash() {
     });
     updateCashBillFieldsVisibility();
     updateCashEmployeeFieldVisibility();
+    updateCapitalContributionHint();
   }
 
   if (!editing && cashEntryDateField) {
@@ -7930,6 +7992,174 @@ async function renderCash() {
       persistState();
       renderCash();
     });
+  });
+
+  const accountTransferForm = document.querySelector("#account-transfer-form");
+  if (accountTransferForm) {
+    const originField = accountTransferForm.elements.origin;
+    const destinationField = accountTransferForm.elements.destination;
+    const rememberTransferDraft = () => {
+      state.accountTransferDraft = {
+        origin: normalizedAccountTransferAccount(originField.value, "pj"),
+        destination: normalizedAccountTransferAccount(destinationField.value, "pf")
+      };
+    };
+    const keepAccountsDifferent = changedField => {
+      if (originField.value !== destinationField.value) {
+        rememberTransferDraft();
+        return;
+      }
+      const replacement = ["pf", "pj", "savings"].find(account => account !== changedField.value);
+      if (changedField === originField) {
+        destinationField.value = replacement;
+      } else {
+        originField.value = replacement;
+      }
+      rememberTransferDraft();
+    };
+    originField.addEventListener("change", () => keepAccountsDifferent(originField));
+    destinationField.addEventListener("change", () => keepAccountsDifferent(destinationField));
+
+    on("#cancel-account-transfer-edit", "click", () => {
+      state.editAccountTransferId = null;
+      renderCash();
+    });
+
+    accountTransferForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      const releaseSubmission = lockFormSubmission(event.currentTarget);
+      if (!releaseSubmission) return;
+      try {
+        if (!canUser("editFinancial")) {
+          showToast("Seu usuário não tem permissão para transferir valores.", "warning");
+          return;
+        }
+        const values = readForm(event.currentTarget);
+        const existing = values.transferId
+          ? accountTransferRows().find(transfer => String(transfer.id) === String(values.transferId))
+          : null;
+        const amount = parseMoneyInput(values.amount);
+        const origin = normalizedAccountTransferAccount(values.origin);
+        const destination = normalizedAccountTransferAccount(values.destination);
+        if (!values.date || amount <= 0) {
+          showToast("Informe data e valor maior que zero.", "error");
+          return;
+        }
+        if (!origin || !destination || origin === destination) {
+          showToast("Escolha contas de origem e destino diferentes.", "error");
+          return;
+        }
+        if (existing && (existing.reversalOf || accountTransferRows().some(
+          transfer => String(transfer.reversalOf || "") === String(existing.id)
+        ))) {
+          showToast("Transferências estornadas não podem ser editadas.", "warning");
+          return;
+        }
+        if (blockClosedPeriod(values.date, existing ? "editar transferência" : "registrar transferência")) return;
+        if (existing && existing.date !== values.date && blockClosedPeriod(existing.date, "mover transferência")) return;
+        const duplicate = !existing && accountTransferRows().some(transfer => (
+          !transfer.reversalOf &&
+          transfer.date === values.date &&
+          transfer.origin === origin &&
+          transfer.destination === destination &&
+          Number(transfer.amount || 0) === amount
+        ));
+        if (duplicate && !confirm("Já existe uma transferência igual nesta data. Confirmar outra operação?")) {
+          return;
+        }
+        const now = new Date().toISOString();
+        const transfer = normalizedAccountTransfer({
+          ...(existing || {}),
+          id: existing?.id || accountTransferId(),
+          date: values.date,
+          origin,
+          destination,
+          amount,
+          description: values.description || "Transferência interna",
+          createdAt: existing?.createdAt || now,
+          updatedAt: now,
+          createdBy: existing?.createdBy || state.currentUser?.name || state.currentUser?.username || "Sistema",
+          createdByUsername: existing?.createdByUsername || state.currentUser?.username || ""
+        });
+        const applied = applyAccountTransferToState(transfer, existing?.id || "");
+        if (!applied.ok) {
+          showToast(applied.error, "error");
+          return;
+        }
+        state.editAccountTransferId = null;
+        state.accountTransferDraft = { origin: destination, destination: origin };
+        recordAudit(existing ? "Transferência editada" : "Transferência criada", `${accountTransferAccountLabel(origin)} → ${accountTransferAccountLabel(destination)} - ${money(amount)}`, {
+          entityId: transfer.id,
+          before: existing || null,
+          after: transfer
+        });
+        if (await persistState()) {
+          showToast(existing ? "Transferência atualizada." : "Transferência concluída sem alterar o resultado operacional.", "success");
+          renderCash();
+        }
+      } finally {
+        releaseSubmission();
+      }
+    });
+
+    document.querySelectorAll("[data-edit-account-transfer]").forEach(button => {
+      button.addEventListener("click", event => {
+        state.editAccountTransferId = event.currentTarget.dataset.editAccountTransfer;
+        state.cashPanelTab = "transfers";
+        renderCash();
+      });
+    });
+
+    document.querySelectorAll("[data-reverse-account-transfer]").forEach(button => {
+      button.addEventListener("click", async event => {
+        const originalId = event.currentTarget.dataset.reverseAccountTransfer;
+        const transfers = accountTransferRows();
+        const original = transfers.find(transfer => String(transfer.id) === String(originalId));
+        if (!original || original.reversalOf || transfers.some(
+          transfer => String(transfer.reversalOf || "") === String(original.id)
+        )) return;
+        const reversalDate = isoDate(new Date());
+        if (blockClosedPeriod(reversalDate, "estornar transferência")) return;
+        if (!confirm(`Estornar a transferência de ${money(original.amount)} de ${accountTransferAccountLabel(original.origin)} para ${accountTransferAccountLabel(original.destination)}?`)) {
+          return;
+        }
+        const now = new Date().toISOString();
+        const reversal = normalizedAccountTransfer({
+          id: accountTransferId(),
+          date: reversalDate,
+          origin: original.destination,
+          destination: original.origin,
+          amount: original.amount,
+          description: `Estorno da transferência de ${formatIsoDateBr(original.date)}`,
+          reversalOf: original.id,
+          createdAt: now,
+          updatedAt: now,
+          createdBy: state.currentUser?.name || state.currentUser?.username || "Sistema",
+          createdByUsername: state.currentUser?.username || ""
+        });
+        const applied = applyAccountTransferToState(reversal);
+        if (!applied.ok) {
+          showToast(applied.error, "error");
+          return;
+        }
+        recordAudit("Transferência estornada", `${accountTransferAccountLabel(original.destination)} → ${accountTransferAccountLabel(original.origin)} - ${money(original.amount)}`, {
+          entityId: original.id,
+          before: original,
+          after: reversal
+        });
+        if (await persistState()) {
+          showToast("Estorno concluído e vinculado à transferência original.", "success");
+          renderCash();
+        }
+      });
+    });
+  }
+
+  on("#open-savings-transfer", "click", () => {
+    state.accountTransferDraft = { origin: "savings", destination: "pj" };
+    state.cashPanelTab = "transfers";
+    state.editSavingsEntryId = null;
+    renderCash();
   });
 
   const savingsForm = document.querySelector("#savings-form");
@@ -8671,6 +8901,14 @@ async function renderCash() {
     });
   });
 
+  document.querySelectorAll("[data-open-account-transfer]").forEach(button => {
+    button.addEventListener("click", event => {
+      state.editAccountTransferId = event.currentTarget.dataset.openAccountTransfer;
+      state.cashPanelTab = "transfers";
+      renderCash();
+    });
+  });
+
   document.querySelectorAll("[data-reverse-cash]").forEach(button => {
     button.addEventListener("click", async event => {
       const id = event.currentTarget.dataset.reverseCash;
@@ -8832,6 +9070,7 @@ function cashTable(entries) {
           ${sortedEntries.map(item => {
             const accountAdjustment = isAccountAdjustmentEntry(item);
             const automaticCoverage = isCashSavingsCoverageEntry(item) || item.automaticSavingsCoverageReversal;
+            const internalTransfer = isAccountTransferCashEntry(item);
             const employee = financialEmployeeForEntry(item);
             return `
             <tr class="cash-row ${item.type === "income" ? "income-row" : "expense-row"} ${accountAdjustment ? "account-adjustment-row" : ""}">
@@ -8839,6 +9078,7 @@ function cashTable(entries) {
               <td>
                 ${item.description}
                 ${employee ? `<br><small>Funcionário: ${escapeHtml(employee.name)}</small>` : ""}
+                ${internalTransfer ? `<br><small>Operação vinculada · ${escapeHtml(item.accountTransferId || item.transferId || "")}</small>` : ""}
               </td>
               <td><span class="cash-type-badge ${item.type === "income" ? "income" : "expense"}">${item.type === "income" ? "Entrada" : "Saída"}</span></td>
               <td><span class="cash-category-badge ${accountAdjustment ? "account-adjustment" : ""}">${cashDisplayCategoryName(item)}</span></td>
@@ -8850,7 +9090,7 @@ function cashTable(entries) {
               <td class="${item.type === "income" ? "positive" : "negative"}">${money(item.amount)}</td>
               <td>
                 <div class="table-actions">
-                  ${automaticCoverage ? `<small>Cobertura automática</small>` : `
+                  ${internalTransfer ? `<button class="secondary table-action" type="button" data-open-account-transfer="${escapeHtml(item.accountTransferId || item.transferId || "")}">Ver transferência</button>` : automaticCoverage ? `<small>Cobertura automática</small>` : `
                     ${isPendingBill(item) ? `<button class="secondary table-action" type="button" data-pay-bill="${item.id || ""}">Marcar pago</button>` : ""}
                     <button class="secondary table-action" type="button" data-edit-cash="${item.id || ""}">Editar</button>
                     ${!item.reversedBy && !item.reversalOf ? `<button class="secondary table-action" type="button" data-reverse-cash="${item.id || ""}">Estornar</button>` : ""}
@@ -12849,6 +13089,14 @@ function reportData() {
         })();
   const accountBalances = accountBalanceBreakdownUntilDate(accountBalanceDate);
   const accountBalance = accountBalances.unified;
+  const reportSavingsBalance = savingsBalanceUntilDate(accountBalanceDate);
+  const consolidatedBalance = roundedMoneyValue(accountBalance + reportSavingsBalance);
+  const accountTransfers = accountTransfersForCashEntries(cashEntries);
+  const capitalContributionEntries = cashEntries.filter(isPartnerCapitalContributionEntry);
+  const capitalContributionTotal = capitalContributionEntries.reduce(
+    (sum, entry) => sum + Number(entry.amount || 0),
+    0
+  );
   const partnerWithdrawalControl = partnerPeriodTotals(withdrawalHistoryGroups(cashEntries));
   const orderRevenue = orders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
   const soldOrders = productionOrders(orders);
@@ -12874,6 +13122,10 @@ function reportData() {
     accountAdjustmentTotals,
     accountBalance,
     accountBalances,
+    consolidatedBalance,
+    accountTransfers,
+    capitalContributionEntries,
+    capitalContributionTotal,
     storeSales,
     channelReceipts,
     incomeEntries,
@@ -12884,7 +13136,7 @@ function reportData() {
     expenses,
     financial,
     partnerWithdrawalControl,
-    savingsBalance: savingsBalance(),
+    savingsBalance: reportSavingsBalance,
     savingsUpdatedAt: state.financialPlanning?.savingsUpdatedAt || "",
     partnersRecord: partnersRecordForPeriod(periodKey),
     totalIncome,
@@ -13061,7 +13313,13 @@ function managementPeriodMetrics(periodKey = reportPeriodKey()) {
   const partnerWithdrawalControl = partnerPeriodTotals(withdrawalHistoryGroups(periodEntries));
   const purchases = productionPurchasesForPeriod(periodKey);
   const accountAdjustmentTotals = cashTotals(periodEntries.filter(isAccountAdjustmentEntry));
-  const cashTotalsForPeriod = cashTotals(periodEntries.filter(entry => !isAccountAdjustmentEntry(entry)));
+  const accountTransferTotals = cashTotals(periodEntries.filter(isAccountTransferCashEntry));
+  const cashTotalsForPeriod = cashTotals(periodEntries.filter(
+    entry => !isAccountAdjustmentEntry(entry) && !isAccountTransferCashEntry(entry)
+  ));
+  const capitalContributionTotal = periodEntries
+    .filter(isPartnerCapitalContributionEntry)
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
   const [year, month] = periodKey.split("-").map(Number);
   const periodOpeningDate = isoDate(new Date(year, month - 1, 0));
   const periodEnd = isoDate(new Date(year, month, 0));
@@ -13086,9 +13344,15 @@ function managementPeriodMetrics(periodKey = reportPeriodKey()) {
     debtCompensation: debtCompensationForReport({ financial, partnerWithdrawalControl }),
     cashIncome: cashTotalsForPeriod.income,
     cashExpenses: cashTotalsForPeriod.expenses,
+    accountTransferCashNet: accountTransferTotals.balance,
+    capitalContributionTotal,
     accountAdjustmentTotals,
     openingCashBalance: accountBalanceUntilDate(periodOpeningDate),
-    finalCashBalance: accountBalanceUntilDate(periodEnd)
+    finalCashBalance: accountBalanceUntilDate(periodEnd),
+    openingSavingsBalance: savingsBalanceUntilDate(periodOpeningDate),
+    finalSavingsBalance: savingsBalanceUntilDate(periodEnd),
+    openingConsolidatedBalance: consolidatedBalanceUntilDate(periodOpeningDate),
+    finalConsolidatedBalance: consolidatedBalanceUntilDate(periodEnd)
   };
 }
 
@@ -13223,6 +13487,8 @@ function managementExpenseGroups(metrics) {
     .filter(entry => !isWithdrawalEntry(entry))
     .filter(entry => !isAccountAdjustmentEntry(entry))
     .filter(entry => !isPartnerCashEntry(entry))
+    .filter(entry => !isAccountTransferCashEntry(entry))
+    .filter(entry => !isPartnerCapitalContributionEntry(entry))
     .filter(entry => !foodInputExpenseCategory(entry))
     .reduce((result, entry) => {
       const label = categoryName(entry.category);
@@ -13329,7 +13595,7 @@ function managementStatementHtml(data, { includeHeading = false } = {}) {
       ` : ""}
       ${Math.abs(data.financialIncomeReconciliation) >= 0.005 ? `
         <div class="statement-detail management-reconciliation">
-          <span>Conciliação com entradas do Financeiro<small>Entradas do Caixa não classificadas como venda, como aportes ou diferenças.</small></span>
+          <span>Conciliação com entradas do Financeiro<small>Entradas operacionais do Caixa não classificadas como venda.</small></span>
           <strong class="${data.financialIncomeReconciliation < 0 ? "negative" : "positive"}">${data.financialIncomeReconciliation > 0 ? "+ " : "− "}${money(Math.abs(data.financialIncomeReconciliation))}</strong>
         </div>
       ` : ""}
@@ -13341,11 +13607,17 @@ function managementStatementHtml(data, { includeHeading = false } = {}) {
       <div class="statement-detail"><span>Cofrinho</span><strong>${money(data.withdrawalAmounts.savings)}</strong></div>
       <div class="statement-detail"><span>Compensação de dívida sem saída da conta</span><strong>${money(data.debtCompensation)}</strong></div>
       <div class="statement-section-label separated"><span>Movimentação de caixa</span></div>
-      <div class="statement-detail"><span>Saldo inicial</span><strong>${money(data.openingCashBalance)}</strong></div>
+      <div class="statement-detail"><span>Saldo inicial PF + PJ</span><strong>${money(data.openingCashBalance)}</strong></div>
+      <div class="statement-detail"><span>Cofrinho inicial</span><strong>${money(data.openingSavingsBalance)}</strong></div>
+      <div class="statement-detail"><span>Saldo consolidado inicial</span><strong>${money(data.openingConsolidatedBalance)}</strong></div>
       <div class="statement-detail"><span>Entradas</span><strong>${money(data.cashIncome)}</strong></div>
       <div class="statement-detail"><span>Saídas</span><strong>− ${money(data.cashExpenses)}</strong></div>
+      ${Math.abs(data.accountTransferCashNet) >= 0.005 ? `<div class="statement-detail"><span>Transferências internas — efeito líquido em PF + PJ</span><strong class="${data.accountTransferCashNet < 0 ? "negative" : "positive"}">${data.accountTransferCashNet > 0 ? "+ " : "− "}${money(Math.abs(data.accountTransferCashNet))}</strong></div>` : ""}
+      ${data.capitalContributionTotal >= 0.005 ? `<div class="statement-detail"><span>Aportes de sócias<small>Entrada de caixa não operacional; não compõe vendas nem lucro.</small></span><strong>${money(data.capitalContributionTotal)}</strong></div>` : ""}
       <div class="statement-detail"><span>Ajustes</span><strong class="${adjustments < 0 ? "negative" : ""}">${money(adjustments)}</strong></div>
-      <div class="total"><span>Saldo final</span><strong class="${data.finalCashBalance < 0 ? "negative" : "positive"}">${money(data.finalCashBalance)}</strong></div>
+      <div class="statement-detail"><span>Saldo final PF + PJ</span><strong class="${data.finalCashBalance < 0 ? "negative" : "positive"}">${money(data.finalCashBalance)}</strong></div>
+      <div class="statement-detail"><span>Cofrinho final</span><strong>${money(data.finalSavingsBalance)}</strong></div>
+      <div class="total"><span>Saldo consolidado final<small>PF + PJ + Cofrinho</small></span><strong class="${data.finalConsolidatedBalance < 0 ? "negative" : "positive"}">${money(data.finalConsolidatedBalance)}</strong></div>
     </div>
   `;
 }
@@ -13535,7 +13807,9 @@ function reportAccountPackageEntries(data, cashAccount = "all") {
   const selected = reconciliationCashAccount(cashAccount);
   const entries = accountingCashEntries(data.cashEntries || []);
   if (selected === "all") {
-    return entries.filter(entry => ["pf", "pj"].includes(normalizedCashAccount(entry.cashAccount, "")));
+    return entries
+      .filter(entry => ["pf", "pj"].includes(normalizedCashAccount(entry.cashAccount, "")))
+      .filter(entry => !isAccountTransferCashEntry(entry));
   }
   if (selected === "unassigned") {
     return entries.filter(entry => !normalizedCashAccount(entry.cashAccount, ""));
@@ -13551,7 +13825,10 @@ function reportAccountPackageSummaryRows(data) {
     ["unassigned", "Sem conta informada"]
   ].map(([key, label]) => {
     const entries = reportAccountPackageEntries(data, key);
-    const businessEntries = entries.filter(entry => !isAccountAdjustmentEntry(entry));
+    const actualEntries = key === "all"
+      ? accountingCashEntries(data.cashEntries || []).filter(entry => ["pf", "pj"].includes(normalizedCashAccount(entry.cashAccount, "")))
+      : entries;
+    const businessEntries = businessCashEntries(entries);
     const adjustmentEntries = entries.filter(isAccountAdjustmentEntry);
     const income = businessEntries
       .filter(entry => entry.type !== "expense")
@@ -13560,13 +13837,14 @@ function reportAccountPackageSummaryRows(data) {
       .filter(entry => entry.type === "expense")
       .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
     const adjustments = cashTotals(adjustmentEntries).balance;
+    const actualBalance = cashTotals(actualEntries).balance;
     return [
       label,
       money(income),
       money(expenses),
       money(adjustments),
-      money(income - expenses + adjustments),
-      entries.length
+      money(actualBalance),
+      actualEntries.length
     ];
   }).filter(([, , , , , count]) => count > 0);
 }
@@ -13580,6 +13858,272 @@ function reportAccountPackageSummaryNumericRows(data) {
     parseMoneyInput(balance),
     count
   ]);
+}
+
+function accountTransferRows() {
+  return normalizeAccountTransfers(state.financialPlanning?.accountTransfers);
+}
+
+function accountTransferId() {
+  return `account-transfer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function accountTransferOptionsHtml(selected = "") {
+  const normalized = normalizedAccountTransferAccount(selected, "");
+  return ["pf", "pj", "savings"].map(account => `
+    <option value="${account}" ${normalized === account ? "selected" : ""}>${accountTransferAccountLabel(account)}</option>
+  `).join("");
+}
+
+function savingsHistoryBalanceValidation(rows = []) {
+  const normalized = rows
+    .filter(Boolean)
+    .map((entry, index) => ({ ...entry, __index: index }))
+    .sort((left, right) => {
+      const dateCompare = String(left.date || "").localeCompare(String(right.date || ""));
+      return dateCompare || (right.__index - left.__index);
+    });
+  let balance = 0;
+  for (const entry of normalized) {
+    const amount = Math.max(0, Number(entry.amount || 0));
+    if (entry.type === "set") {
+      balance = amount;
+    } else if (entry.type === "withdrawal") {
+      balance = roundedMoneyValue(balance - amount);
+    } else {
+      balance = roundedMoneyValue(balance + amount);
+    }
+    if (balance < -0.009) {
+      return {
+        valid: false,
+        balance,
+        date: String(entry.date || ""),
+        entry
+      };
+    }
+  }
+  return { valid: true, balance: roundedMoneyValue(balance), date: "", entry: null };
+}
+
+function savingsBalanceUntilDate(dateKey = isoDate(new Date())) {
+  const end = String(dateKey || "").slice(0, 10);
+  const allRows = savingsHistoryRows();
+  if (!allRows.length) return Math.max(0, savingsBalance());
+  const rows = allRows.filter(entry => !end || String(entry.date || "") <= end);
+  if (!rows.length) return Math.max(0, Number(state.financialPlanning?.openingSavings || 0));
+  return Math.max(0, savingsHistoryBalanceValidation(rows).balance);
+}
+
+function consolidatedBalanceUntilDate(dateKey = isoDate(new Date())) {
+  return roundedMoneyValue(accountBalanceUntilDate(dateKey) + savingsBalanceUntilDate(dateKey));
+}
+
+function accountTransfersForCashEntries(entries = []) {
+  const ids = new Set(entries
+    .filter(isAccountTransferCashEntry)
+    .map(entry => String(entry.accountTransferId || entry.transferId || ""))
+    .filter(Boolean));
+  return accountTransferRows().filter(transfer => ids.has(String(transfer.id)));
+}
+
+function accountTransferReportRows(transfers = [], numeric = false) {
+  return transfers.map(transfer => [
+    transfer.date || "",
+    accountTransferAccountLabel(transfer.origin),
+    accountTransferAccountLabel(transfer.destination),
+    numeric ? Number(transfer.amount || 0) : money(transfer.amount),
+    transfer.reversalOf ? "Estorno" : "Transferência interna",
+    transfer.description || ""
+  ]);
+}
+
+function internalTransfersReportPanel(data) {
+  const transfers = data.accountTransfers || [];
+  const transferTotal = transfers.reduce((sum, transfer) => sum + Number(transfer.amount || 0), 0);
+  return `
+    <section class="panel report-section internal-transfers-report" data-internal-transfers-report>
+      <div class="section-heading">
+        <div>
+          <h2>Transferências internas e aportes</h2>
+          <p class="muted-inline">Movimentos informativos, excluídos de faturamento, receita operacional, despesas e lucro.</p>
+        </div>
+        <a class="secondary" href="/fluxo-de-caixa?panel=transfers">Transferir entre contas</a>
+      </div>
+      <div class="summary">
+        <div class="metric"><span>Transferências internas</span><strong>${money(transferTotal)}</strong><small>${transfers.length} operação(ões)</small></div>
+        <div class="metric"><span>Aportes de sócias</span><strong>${money(data.capitalContributionTotal)}</strong><small>Entrada de caixa não operacional</small></div>
+        <div class="metric total"><span>Saldo consolidado</span><strong>${money(data.consolidatedBalance)}</strong><small>PF + PJ + Cofrinho</small></div>
+      </div>
+      ${transfers.length ? `
+        <div class="table-wrap report-table">
+          <table>
+            <thead><tr><th>Data</th><th>Origem</th><th>Destino</th><th>Valor</th><th>Tipo</th><th>Observação</th></tr></thead>
+            <tbody>${accountTransferReportRows(transfers).map(row => `<tr>${row.map(value => `<td>${escapeHtml(value)}</td>`).join("")}</tr>`).join("")}</tbody>
+          </table>
+        </div>
+      ` : `<p class="muted">Nenhuma transferência interna no período.</p>`}
+    </section>
+  `;
+}
+
+function prospectiveSavingsHistoryForTransfer(transfer, replacedTransferId = "") {
+  const previousId = String(replacedTransferId || "");
+  let remaining = savingsHistoryRows().filter(
+    entry => !previousId || String(entry.accountTransferId || entry.transferId || "") !== previousId
+  );
+  const savingsEntry = accountTransferSavingsEntry(transfer);
+  if (savingsEntry && !remaining.length && savingsBalance() > 0) {
+    remaining = [{
+      id: "savings-opening-preserved-for-transfers",
+      date: transfer.date || isoDate(new Date()),
+      type: "set",
+      amount: savingsBalance().toFixed(2),
+      balance: savingsBalance().toFixed(2),
+      description: "Saldo anterior preservado ao iniciar transferências"
+    }];
+  }
+  return savingsEntry ? [savingsEntry, ...remaining] : remaining;
+}
+
+function applyAccountTransferToState(transfer, replacedTransferId = "") {
+  const normalized = normalizedAccountTransfer(transfer);
+  const previousId = String(replacedTransferId || "");
+  if (normalized.origin !== "savings") {
+    const replacedCashIds = state.cash
+      .filter(entry => previousId && String(entry.accountTransferId || entry.transferId || "") === previousId)
+      .map(entry => entry.id);
+    const available = accountBalanceUntilDate(
+      normalized.date,
+      replacedCashIds,
+      normalized.origin
+    );
+    if (Number(normalized.amount || 0) > available + 0.009) {
+      return {
+        ok: false,
+        error: `${accountTransferAccountLabel(normalized.origin)} possui ${money(available)} disponível nessa data.`
+      };
+    }
+  }
+  const prospectiveSavings = prospectiveSavingsHistoryForTransfer(normalized, previousId);
+  const savingsValidation = savingsHistoryBalanceValidation(prospectiveSavings);
+  if (!savingsValidation.valid) {
+    return {
+      ok: false,
+      error: `O Cofrinho não possui saldo suficiente em ${formatIsoDateBr(savingsValidation.date)} para concluir a transferência.`
+    };
+  }
+  state.cash = state.cash.filter(
+    entry => !previousId || String(entry.accountTransferId || entry.transferId || "") !== previousId
+  );
+  state.cash.push(...accountTransferCashEntries(normalized));
+  applySavingsHistory(prospectiveSavings);
+  const previousRows = accountTransferRows();
+  const nextRows = previousId
+    ? previousRows.map(row => String(row.id) === previousId ? normalized : row)
+    : [normalized, ...previousRows];
+  state.financialPlanning = {
+    ...(state.financialPlanning || {}),
+    accountTransfers: normalizeAccountTransfers(nextRows)
+  };
+  return { ok: true, transfer: normalized };
+}
+
+function accountTransferPanelHtml(today = isoDate(new Date())) {
+  const transfers = accountTransferRows();
+  const editing = state.editAccountTransferId
+    ? transfers.find(transfer => String(transfer.id) === String(state.editAccountTransferId))
+    : null;
+  const draft = editing || state.accountTransferDraft || { origin: "pj", destination: "pf" };
+  const origin = normalizedAccountTransferAccount(draft.origin, "pj");
+  let destination = normalizedAccountTransferAccount(draft.destination, origin === "pj" ? "pf" : "pj");
+  if (destination === origin) destination = origin === "pj" ? "pf" : "pj";
+  const rows = [...transfers].sort((left, right) => (
+    String(right.date || "").localeCompare(String(left.date || "")) ||
+    String(right.createdAt || "").localeCompare(String(left.createdAt || ""))
+  ));
+  return `
+    <div class="cash-tab-section account-transfer-panel" data-account-transfer-panel>
+      <div class="section-heading account-transfer-heading">
+        <div>
+          <span class="executive-eyebrow">Movimentação interna</span>
+          <h2>${editing ? "Editar transferência" : "Transferência entre contas"}</h2>
+          <p class="muted-inline">Move dinheiro entre PF, PJ e Cofrinho sem criar receita, despesa ou lucro.</p>
+        </div>
+      </div>
+      <div class="summary account-transfer-balances">
+        <div class="metric"><span>Conta PF</span><strong>${money(accountBalanceUntilDate(today, [], "pf"))}</strong></div>
+        <div class="metric"><span>Conta PJ</span><strong>${money(accountBalanceUntilDate(today, [], "pj"))}</strong></div>
+        <div class="metric"><span>Cofrinho</span><strong>${money(savingsBalance())}</strong></div>
+        <div class="metric"><span>Caixa PF + PJ</span><strong>${money(accountBalanceUntilDate(today))}</strong></div>
+        <div class="metric total"><span>Saldo consolidado</span><strong>${money(accountBalanceUntilDate(today) + savingsBalance())}</strong><small>PF + PJ + Cofrinho</small></div>
+      </div>
+      <form id="account-transfer-form" class="form-grid account-transfer-form">
+        <input name="transferId" type="hidden" value="${escapeHtml(editing?.id || "")}">
+        <label>Data
+          <input name="date" type="date" value="${escapeHtml(editing?.date || today)}" required>
+        </label>
+        <label>Conta de origem
+          <select name="origin" required>${accountTransferOptionsHtml(origin)}</select>
+        </label>
+        <div class="account-transfer-arrow" aria-hidden="true">→</div>
+        <label>Conta de destino
+          <select name="destination" required>${accountTransferOptionsHtml(destination)}</select>
+        </label>
+        <label>Valor
+          <input name="amount" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(editing?.amount)}" required>
+        </label>
+        <label class="wide">Descrição ou observação
+          <input name="description" placeholder="Ex.: transferência para despesas da Conta PJ" value="${escapeHtml(editing?.description || "")}">
+        </label>
+        <p class="muted-inline wide account-transfer-explanation">A origem diminui e o destino aumenta pelo mesmo valor. Transferências internas ficam fora da DRE e do lucro operacional.</p>
+        <div class="actions wide">
+          <button type="submit" ${canUser("editFinancial") ? "" : "disabled"}>${editing ? "Salvar transferência" : "Transferir"}</button>
+          ${editing ? `<button class="secondary" type="button" id="cancel-account-transfer-edit">Cancelar</button>` : ""}
+        </div>
+      </form>
+      <section class="account-transfer-history">
+        <div class="section-heading">
+          <div>
+            <h3>Histórico de transferências</h3>
+            <p class="muted-inline">Cada registro mantém os dois lados vinculados. Estornos preservam o histórico original.</p>
+          </div>
+        </div>
+        ${rows.length ? `
+          <div class="table-wrap report-table">
+            <table>
+              <thead><tr><th>Data</th><th>Movimento</th><th>Valor</th><th>Observação</th><th>Status</th><th>Ações</th></tr></thead>
+              <tbody>
+                ${rows.map(transfer => {
+                  const reversal = rows.find(row => String(row.reversalOf || "") === String(transfer.id));
+                  const reversed = Boolean(transfer.reversedBy || reversal);
+                  return `
+                  <tr class="${transfer.reversalOf ? "account-transfer-reversal" : ""}">
+                    <td>${formatIsoDateBr(transfer.date)}</td>
+                    <td><strong>${accountTransferAccountLabel(transfer.origin)} → ${accountTransferAccountLabel(transfer.destination)}</strong></td>
+                    <td><strong>${money(transfer.amount)}</strong></td>
+                    <td>${escapeHtml(transfer.description || "—")}</td>
+                    <td>${transfer.reversalOf
+                      ? `<span class="status-pill">Estorno</span>`
+                      : reversed
+                        ? `<span class="status-pill">Estornada</span>`
+                        : `<span class="status-pill status-ready">Concluída</span>`}</td>
+                    <td>
+                      <div class="table-actions">
+                        ${canUser("editFinancial") && !transfer.reversalOf && !reversed ? `
+                          <button class="secondary table-action" type="button" data-edit-account-transfer="${escapeHtml(transfer.id)}">Editar</button>
+                          <button class="secondary table-action" type="button" data-reverse-account-transfer="${escapeHtml(transfer.id)}">Estornar</button>
+                        ` : `<small>Histórico preservado</small>`}
+                      </div>
+                    </td>
+                  </tr>
+                `; }).join("")}
+              </tbody>
+            </table>
+          </div>
+        ` : `<p class="muted">Nenhuma transferência registrada.</p>`}
+      </section>
+    </div>
+  `;
 }
 
 function reportAccountPackageCashRows(data, cashAccount = "all", numeric = false) {
@@ -13920,7 +14464,7 @@ function reportCsvRows(kind, data) {
   if (kind === "financial") {
     const withdrawalAmounts = withdrawalBreakdownAmounts(data.financial.withdrawals, data.partnerWithdrawalControl);
     const rows = [
-      { seção: "resumo", data: "", descrição: "Entradas no caixa", tipo: "entrada", categoria: "", valor: data.financial.income },
+      { seção: "resumo", data: "", descrição: "Entradas operacionais no caixa", tipo: "entrada", categoria: "", valor: data.financial.income },
       { seção: "resumo", data: "", descrição: "Saídas operacionais", tipo: "saída", categoria: "operacional", valor: data.financial.operationalExpenses },
       { seção: "resumo", data: "", descrição: "Lucro operacional", tipo: "saldo", categoria: "", valor: operationalProfitForReport(data) },
       { seção: "resumo", data: "", descrição: "Vanessa - distribuição total", tipo: "distribuição", categoria: "retirada", valor: withdrawalAmounts.vanessa },
@@ -13934,6 +14478,8 @@ function reportCsvRows(kind, data) {
       { seção: "ajustes da conta", data: "", descrição: "Saldo dos ajustes", tipo: "saldo", categoria: "ajuste da conta", valor: data.accountAdjustmentTotals.balance },
       { seção: "ajustes da conta", data: "", descrição: "Saldo da conta no período", tipo: "saldo", categoria: "conta", valor: data.accountBalance },
       { seção: "resumo", data: data.savingsUpdatedAt || "", descrição: "Valor atual do cofrinho", tipo: "saldo", categoria: "cofrinho", valor: data.savingsBalance },
+      { seção: "resumo", data: "", descrição: "Saldo consolidado PF + PJ + Cofrinho", tipo: "saldo", categoria: "consolidado", valor: data.consolidatedBalance },
+      { seção: "aportes", data: "", descrição: "Aportes de sócias", tipo: "entrada não operacional", categoria: "aporte de sócia", valor: data.capitalContributionTotal },
       { seção: "produção", data: "", descrição: "Cumbucas vendidas na loja", tipo: "quantidade", categoria: "loja", valor: data.storeQuantity },
       { seção: "produção", data: "", descrição: "Total de cumbucas vendidas", tipo: "quantidade", categoria: "total", valor: data.totalSoldQuantity },
       { seção: "retiradas", data: "", descrição: "Lucro operacional", tipo: "controle", categoria: "retirada", valor: operationalProfitForReport(data) },
@@ -13959,8 +14505,18 @@ function reportCsvRows(kind, data) {
       { seção: "retiradas", data: data.partnersRecord?.periodKey || "", descrição: "Compensação manual antiga", tipo: "controle", categoria: "retirada", valor: data.partnersRecord?.difference || 0 }
     ];
 
-    return rows.concat(data.cashEntries.map(entry => ({
-      seção: isAccountAdjustmentEntry(entry) ? "lançamento ajuste da conta" : isWithdrawalEntry(entry) ? "lançamento retirada" : "lançamento caixa",
+    const transferRows = (data.accountTransfers || []).map(transfer => ({
+      seção: "transferências internas",
+      data: transfer.date || "",
+      descrição: `${accountTransferAccountLabel(transfer.origin)} → ${accountTransferAccountLabel(transfer.destination)}${transfer.description ? ` - ${transfer.description}` : ""}`,
+      tipo: transfer.reversalOf ? "estorno" : "transferência interna",
+      conta: "Consolidado",
+      categoria: "Transferência entre contas",
+      valor: Number(transfer.amount || 0)
+    }));
+
+    return rows.concat(transferRows, data.cashEntries.map(entry => ({
+      seção: isAccountTransferCashEntry(entry) ? "ponta vinculada de transferência" : isAccountAdjustmentEntry(entry) ? "lançamento ajuste da conta" : isWithdrawalEntry(entry) ? "lançamento retirada" : "lançamento caixa",
       data: entry.date || "",
       descrição: entry.description || "",
       tipo: entry.type === "expense" ? "saída" : "entrada",
@@ -14310,6 +14866,15 @@ async function downloadReportPdf(options = {}) {
       accountAdjustmentBalance: data.accountAdjustmentTotals.balance,
       accountBalance: data.accountBalance,
       savingsBalance: data.savingsBalance,
+      consolidatedBalance: data.consolidatedBalance,
+      capitalContributionTotal: data.capitalContributionTotal,
+      transferRows: accountTransferReportRows(data.accountTransfers),
+      capitalContributionRows: data.capitalContributionEntries.map(entry => [
+        entry.date || "",
+        entry.description || "Aporte de sócia",
+        cashAccountLabel(entry.cashAccount),
+        money(entry.amount)
+      ]),
       savingsUpdatedAt: data.savingsUpdatedAt,
       withdrawalVanessa: withdrawalAmounts.vanessa,
       withdrawalSavings: withdrawalAmounts.savings,
@@ -14406,6 +14971,15 @@ async function downloadReportXlsx(options = {}) {
       accountAdjustmentBalance: data.accountAdjustmentTotals.balance,
       accountBalance: data.accountBalance,
       savingsBalance: data.savingsBalance,
+      consolidatedBalance: data.consolidatedBalance,
+      capitalContributionTotal: data.capitalContributionTotal,
+      transferRows: accountTransferReportRows(data.accountTransfers, true),
+      capitalContributionRows: data.capitalContributionEntries.map(entry => [
+        entry.date || "",
+        entry.description || "Aporte de sócia",
+        cashAccountLabel(entry.cashAccount),
+        Number(entry.amount || 0)
+      ]),
       savingsUpdatedAt: data.savingsUpdatedAt,
       withdrawalVanessa: withdrawalAmounts.vanessa,
       withdrawalSavings: withdrawalAmounts.savings,
@@ -14562,6 +15136,8 @@ function exportReport(kind) {
         accountBalance: data.accountBalance,
         totalIncome: data.totalIncome,
         savingsBalance: data.savingsBalance,
+        consolidatedBalance: data.consolidatedBalance,
+        capitalContributionTotal: data.capitalContributionTotal,
         savingsUpdatedAt: data.savingsUpdatedAt,
         weeklyCashQuantity: data.weeklyCashQuantity,
         storeQuantity: data.storeQuantity,
@@ -14575,6 +15151,8 @@ function exportReport(kind) {
         clients: state.clients.length
       },
       cashEntries: data.cashEntries,
+      accountTransfers: data.accountTransfers,
+      capitalContributionEntries: data.capitalContributionEntries,
       orders: data.orders,
       clients: state.clients,
       menuWeeks: data.menuWeeks,
@@ -17011,6 +17589,9 @@ function accountsManagementPanel() {
           <h2>${editing ? "Editar conta registrada" : "Contas a pagar e receber"}</h2>
           <p class="muted-inline">O compromisso não altera o saldo. Somente pagamentos e recebimentos registrados entram no caixa.</p>
         </div>
+        <div class="actions">
+          <a class="secondary" href="/fluxo-de-caixa?panel=transfers">Transferir entre contas</a>
+        </div>
       </div>
       <div class="summary">
         <div class="metric"><span>A pagar</span><strong>${money(summary.payable)}</strong></div>
@@ -18553,18 +19134,16 @@ function bindMonthlyClosing(data, renderFn) {
   }
 
   const closeMonthButton = document.querySelector("#close-month");
-  if (!closeMonthButton) {
-    return;
+  if (closeMonthButton) {
+    closeMonthButton.addEventListener("click", async () => {
+      if (!confirm(`Fechar ${formatMonthKeyBr(data.periodKey)}?`)) {
+        return;
+      }
+
+      const closing = monthlyClosingPayload(data);
+      await saveClosing("month", data.periodKey, closing);
+    });
   }
-
-  closeMonthButton.addEventListener("click", async () => {
-    if (!confirm(`Fechar ${formatMonthKeyBr(data.periodKey)}?`)) {
-      return;
-    }
-
-    const closing = monthlyClosingPayload(data);
-    await saveClosing("month", data.periodKey, closing);
-  });
 
   const unlockMonthButton = document.querySelector("#unlock-month");
   if (unlockMonthButton) {
@@ -18596,7 +19175,8 @@ function financialIntegrityHtml(result) {
       <small>${result.status === "ok" ? "Sem pendências críticas" : "Revise os itens marcados abaixo"}</small>
     </div>
     <div class="integrity-metrics">
-      <div class="integrity-metric"><span>Saldo acumulado</span><strong class="${result.totals?.balance < 0 ? "negative" : "positive"}">${money(result.totals?.balance || 0)}</strong></div>
+      <div class="integrity-metric"><span>Saldo PF + PJ</span><strong class="${result.totals?.balance < 0 ? "negative" : "positive"}">${money(result.totals?.balance || 0)}</strong></div>
+      <div class="integrity-metric"><span>Saldo consolidado</span><strong class="${result.totals?.consolidatedBalance < 0 ? "negative" : "positive"}">${money(result.totals?.consolidatedBalance || 0)}</strong></div>
       <div class="integrity-metric"><span>Último backup</span><strong>${backupLabel}</strong></div>
       <div class="integrity-metric"><span>Períodos reabertos</span><strong>${reopenedCount}</strong></div>
     </div>
@@ -19117,15 +19697,18 @@ function renderReports() {
     <section class="report-grid">
       <div class="metric report-metric"><span>Receita de pedidos</span><strong>${money(data.orderRevenue)}</strong></div>
       <div class="metric report-metric"><span>Total cumbucas</span><strong>${data.totalSoldQuantity}</strong></div>
-      <div class="metric report-metric"><span>Entradas no caixa</span><strong>${money(data.income)}</strong></div>
+      <div class="metric report-metric"><span>Entradas operacionais no caixa</span><strong>${money(data.income)}</strong></div>
       <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
       <div class="metric report-metric"><span>Saldo da conta</span><strong class="${data.accountBalance < 0 ? "negative" : "positive"}">${money(data.accountBalance)}</strong></div>
+      <div class="metric report-metric"><span>Cofrinho</span><strong>${money(data.savingsBalance)}</strong></div>
+      <div class="metric report-metric total"><span>Saldo consolidado</span><strong class="${data.consolidatedBalance < 0 ? "negative" : "positive"}">${money(data.consolidatedBalance)}</strong><small>PF + PJ + Cofrinho</small></div>
       <div class="metric report-metric"><span>Lucro operacional</span><strong class="${operationalProfitForReport(data) < 0 ? "negative" : "positive"}">${money(operationalProfitForReport(data))}</strong></div>
       ${withdrawalBreakdownMetrics(data.financial.withdrawals, "metric report-metric", data.partnerWithdrawalControl)}
       <div class="metric report-metric"><span>Resultado após retiradas</span><strong class="${operationalResultForReport(data) < 0 ? "negative" : "positive"}">${money(operationalResultForReport(data))}</strong></div>
     </section>
     ${viewTabsHtml("reportViewTab", activeTab, tabs)}
     ${viewPaneHtml("summary", activeTab, `
+      ${internalTransfersReportPanel(data)}
       ${cashForecastPanel(data)}
       ${["month", "week"].includes(reportType) ? monthlyOriginCategoryPanel(data) : ""}
       ${["month", "week"].includes(reportType) ? comparisonReportPanel(data) : ""}
@@ -19696,6 +20279,15 @@ function reportExportPayload(data = reportData()) {
       accountAdjustmentBalance: data.accountAdjustmentTotals.balance,
       accountBalance: data.accountBalance,
       savingsBalance: data.savingsBalance,
+      consolidatedBalance: data.consolidatedBalance,
+      capitalContributionTotal: data.capitalContributionTotal,
+      transferRows: accountTransferReportRows(data.accountTransfers),
+      capitalContributionRows: data.capitalContributionEntries.map(entry => [
+        entry.date || "",
+        entry.description || "Aporte de sócia",
+        cashAccountLabel(entry.cashAccount),
+        money(entry.amount)
+      ]),
       savingsUpdatedAt: data.savingsUpdatedAt,
       withdrawalVanessa: withdrawalAmounts.vanessa,
       withdrawalSavings: withdrawalAmounts.savings,

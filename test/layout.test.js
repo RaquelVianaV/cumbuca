@@ -528,11 +528,30 @@ test('HTML and service worker use the same asset versions', () => {
   const cssVersion = html.match(/styles\.css\?v=([^"]+)/)?.[1];
   const appVersion = html.match(/app\.js\?v=([^"]+)/)?.[1];
   const partnerAccountsVersion = html.match(/partner-accounts\.js\?v=([^"]+)/)?.[1];
+  const accountTransfersVersion = html.match(/account-transfers\.js\?v=([^"]+)/)?.[1];
 
   assert.ok(cssVersion);
   assert.ok(appVersion);
   assert.ok(partnerAccountsVersion);
+  assert.ok(accountTransfersVersion);
   assert.match(serviceWorker, new RegExp(`styles\\.css\\?v=${cssVersion}`));
   assert.match(serviceWorker, new RegExp(`app\\.js\\?v=${appVersion}`));
   assert.match(serviceWorker, new RegExp(`partner-accounts\\.js\\?v=${partnerAccountsVersion}`));
+  assert.match(serviceWorker, new RegExp(`account-transfers\\.js\\?v=${accountTransfersVersion}`));
+});
+
+test('account transfers stay linked and outside operational results', () => {
+  assert.match(app, /Transferência entre contas/);
+  assert.match(app, /data-account-transfer-panel/);
+  assert.match(app, /accountTransferCashEntries/);
+  assert.match(app, /isAccountTransferCashEntry/);
+  assert.match(app, /Saldo consolidado/);
+  assert.match(app, /Aporte de sócia/);
+  assert.match(app, /isPartnerCapitalContributionEntry/);
+  assert.match(server, /validateAccountTransferState/);
+  assert.match(css, /\.account-transfer-form/);
+  assert.match(
+    css,
+    /@media \(max-width: 820px\)[\s\S]*?\.account-transfer-form \{[\s\S]*?grid-template-columns: 1fr/
+  );
 });
