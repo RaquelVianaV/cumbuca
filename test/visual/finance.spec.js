@@ -1983,7 +1983,7 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   });
 });
 
-test('finance divides the supermarket cash balance and paid bills by all plates sold', async ({
+test('finance divides total supermarket expenses and paid bills by all plates sold', async ({
   page,
 }, testInfo) => {
   const database = await mockOnlineDatabase(page);
@@ -2101,14 +2101,14 @@ test('finance divides the supermarket cash balance and paid bills by all plates 
   await page.goto('/financeiro?ano=2026&mes=8');
   const panel = page.locator('[data-finance-food-cost]');
   await expect(panel).toBeVisible();
-  await expect(panel.locator('[data-finance-supermarket-total]')).toHaveText('R$ 900,00');
-  await expect(panel).toContainText('Saídas R$ 999,00 - Entradas R$ 99,00');
+  await expect(panel.locator('[data-finance-supermarket-total]')).toHaveText('R$ 999,00');
+  await expect(panel).toContainText('Todas as saídas lançadas como Supermercado no Caixa');
   await expect(panel.locator('[data-finance-bills-total]')).toHaveText('R$ 120,00');
   await expect(panel.locator('[data-finance-sold-plates]')).toContainText('32');
   await expect(
     panel.locator('.metric').filter({ hasText: 'Total de pratos vendidos' })
   ).toContainText('Menu 10 + Loja 22');
-  await expect(panel.locator('[data-finance-cost-per-plate]')).toContainText('R$ 31,88');
+  await expect(panel.locator('[data-finance-cost-per-plate]')).toContainText('R$ 34,97');
   await expect(panel).not.toContainText('sem custo de supermercado identificado');
   await expectNoHorizontalOverflow(page);
   await page.screenshot({

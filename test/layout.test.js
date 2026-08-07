@@ -315,7 +315,7 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /function weeklyMenuProductionCost/);
   assert.match(app, /function monthlyFoodAndBillsCost/);
   assert.match(app, /function financeFoodAndBillsCostPanel/);
-  assert.match(app, /Supermercado do Caixa e boletos por prato/);
+  assert.match(app, /Gasto total de supermercado e boletos por prato/);
   assert.match(app, /data-menu-weekly-quantity/);
   assert.match(app, /data-week-summary/);
   assert.match(app, /Valor que sobra na semana/);

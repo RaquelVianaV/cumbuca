@@ -11872,6 +11872,7 @@ function monthlySupermarketAllocation(periodKey = reportPeriodKey()) {
 
 function monthlyFoodAndBillsCost(periodKey = reportPeriodKey()) {
   const supermarket = monthlySupermarketAllocation(periodKey);
+  const supermarketTotal = supermarket.expenses;
 
   const billEntries = accountingCashEntries(state.cash).filter(entry => {
     return entry.type === "expense"
@@ -11881,10 +11882,11 @@ function monthlyFoodAndBillsCost(periodKey = reportPeriodKey()) {
       && (isBillEntry(entry) || Boolean(entry.financialAccountId));
   });
   const billsTotal = billEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-  const combinedTotal = supermarket.supermarketTotal + billsTotal;
+  const combinedTotal = supermarketTotal + billsTotal;
 
   return {
     ...supermarket,
+    supermarketTotal,
     billsTotal,
     combinedTotal,
     costPerPlate: supermarket.totalQuantity > 0
@@ -11899,12 +11901,12 @@ function financeFoodAndBillsCostPanel(periodKey = reportPeriodKey()) {
     <section class="panel report-section finance-food-cost" data-finance-food-cost>
       <div class="section-heading">
         <div>
-          <h2>Supermercado do Caixa e boletos por prato</h2>
-          <p class="muted-inline">${formatMonthKeyBr(periodKey)} · (saídas menos entradas de Supermercado no Caixa + boletos pagos) ÷ total de pratos vendidos.</p>
+          <h2>Gasto total de supermercado e boletos por prato</h2>
+          <p class="muted-inline">${formatMonthKeyBr(periodKey)} · (todas as saídas de Supermercado no Caixa + boletos pagos) ÷ total de pratos vendidos.</p>
         </div>
       </div>
       <div class="summary">
-        <div class="metric report-metric"><span>Supermercado do Caixa</span><strong data-finance-supermarket-total>${money(costs.supermarketTotal)}</strong><small>Saídas ${money(costs.expenses)} - Entradas ${money(costs.income)}</small></div>
+        <div class="metric report-metric"><span>Total gasto em supermercado</span><strong data-finance-supermarket-total>${money(costs.supermarketTotal)}</strong><small>Todas as saídas lançadas como Supermercado no Caixa</small></div>
         <div class="metric report-metric"><span>Boletos pagos</span><strong data-finance-bills-total>${money(costs.billsTotal)}</strong></div>
         <div class="metric report-metric"><span>Total de pratos vendidos</span><strong data-finance-sold-plates>${costs.totalQuantity}</strong><small>Menu ${costs.menuQuantity} + Loja ${costs.storeQuantity}</small></div>
         <div class="metric report-metric total"><span>Custo por prato</span><strong data-finance-cost-per-plate>${costs.totalQuantity > 0 ? money(costs.costPerPlate) : "—"}</strong><small>${money(costs.combinedTotal)} ÷ ${costs.totalQuantity || 0}</small></div>
