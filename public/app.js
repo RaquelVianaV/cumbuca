@@ -1231,11 +1231,6 @@ function applyPayloadToState(saved = {}) {
   }
 }
 
-function renderCurrentRoute() {
-  const render = routes[routeName()] || home;
-  render();
-}
-
 function rollbackUnsavedChange() {
   if (!lastConfirmedPayload) {
     return;
@@ -1902,7 +1897,7 @@ function routeName() {
 }
 
 function setActive(route) {
-  const moreRoutes = new Set(["menu-semanal", "loja", "precificacao", "relatorios", "alertas", "configuracoes", "backups"]);
+  const moreRoutes = new Set(["menu-semanal"]);
   navLinks.forEach(link => {
     link.classList.toggle("active", link.dataset.route === route || (link.dataset.route === "mais" && moreRoutes.has(route)));
   });
@@ -2512,6 +2507,15 @@ function cardapioPaymentAmount(entry = {}, paymentKey) {
   return paymentKey === "pix" ? channelReceiptAmount(entry, "cardapioWeb", "net") : 0;
 }
 
+function cardapioDeliveryFeeAmount(entry = {}) {
+  const amount = Number(entry.cardapioWebDeliveryFee || 0);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function cardapioDeliveryFeeTotal(entries = []) {
+  return entries.reduce((sum, entry) => sum + cardapioDeliveryFeeAmount(entry), 0);
+}
+
 function channelReceiptFeeTotal(entry = {}) {
   return channelDefinitions.reduce((sum, [key]) => sum + channelReceiptAmount(entry, key, "fee"), 0);
 }
@@ -2586,6 +2590,7 @@ function channelReceiptTable(entries = []) {
           <tr>
             <th>Data</th>
             ${cardapioPaymentDefinitions.map(([, label]) => `<th>${label}</th>`).join("")}
+            <th>Taxas de entrega</th>
             <th>iFood</th>
             <th>99 Food</th>
             <th>Total</th>
@@ -2598,6 +2603,7 @@ function channelReceiptTable(entries = []) {
             <tr>
               <td>${formatIsoDateBr(item.date)}</td>
               ${cardapioPaymentDefinitions.map(([paymentKey]) => `<td>${money(cardapioPaymentAmount(item, paymentKey))}</td>`).join("")}
+              <td>${money(cardapioDeliveryFeeAmount(item))}</td>
               <td>${money(channelReceiptAmount(item, "ifood", "net"))}</td>
               <td>${money(channelReceiptAmount(item, "food99", "net"))}</td>
               <td><strong>${money(channelReceiptTotal(item))}</strong></td>
@@ -2640,6 +2646,10 @@ function channelReceiptsPanel(editing = null) {
                 <input name="cardapioWeb${capitalize(paymentKey)}" type="text" inputmode="decimal" placeholder="0,00" value="${editing ? moneyInputValue(cardapioPaymentAmount(editing, paymentKey)) : ""}">
               </label>
             `).join("")}
+            <label>Taxas de entrega arrecadadas
+              <input name="cardapioWebDeliveryFee" type="text" inputmode="decimal" placeholder="0,00" value="${editing ? moneyInputValue(cardapioDeliveryFeeAmount(editing)) : ""}">
+              <small>Somente para registro e conferência. Não entra no Caixa nem no total das vendas.</small>
+            </label>
           </div>
         </div>
         ${channelDefinitions.filter(([key]) => key !== "cardapioWeb").map(([key, label]) => `
@@ -2678,6 +2688,7 @@ function channelReceiptsPanel(editing = null) {
         ${channelDefinitions.map(([key, label]) => `
           <div class="metric"><span>${label}</span><strong>${money(totals[`${key}Net`])}</strong></div>
         `).join("")}
+        <div class="metric"><span>Taxas de entrega (conferência)</span><strong>${money(cardapioDeliveryFeeTotal(filteredEntries))}</strong></div>
         <div class="metric"><span>Total</span><strong>${money(totals.total)}</strong></div>
       </div>
       <h3>${channelFilterTitle(channelFilter)}</h3>
@@ -2712,6 +2723,8 @@ function bindChannelReceipts(renderFn, editingChannelReceipt = null) {
       receipt.cardapioWebGross = cardapioTotal.toFixed(2);
       receipt.cardapioWebFee = "0.00";
       receipt.cardapioWebNet = cardapioTotal.toFixed(2);
+      const cardapioDeliveryFee = parseMoneyInput(values.cardapioWebDeliveryFee);
+      receipt.cardapioWebDeliveryFee = cardapioDeliveryFee.toFixed(2);
       ["ifood", "food99"].forEach(key => {
         const amount = parseMoneyInput(values[`${key}Net`]);
         receipt[`${key}Gross`] = amount.toFixed(2);
@@ -2720,7 +2733,7 @@ function bindChannelReceipts(renderFn, editingChannelReceipt = null) {
       });
 
       const total = channelReceiptTotal(receipt);
-      if (total <= 0) {
+      if (total <= 0 && cardapioDeliveryFee <= 0) {
         showToast("Informe pelo menos um valor de canal.", "error");
         return;
       }
@@ -5766,8 +5779,9 @@ function bindTodayForms(today) {
 }
 
 async function renderCash() {
-  showStandardHero("Fluxo de Caixa");
-  setActive("fluxo-de-caixa");
+  const isExpensesRoute = routeName() === "despesas";
+  showStandardHero(isExpensesRoute ? "Despesas" : "Fluxo de Caixa");
+  setActive(isExpensesRoute ? "despesas" : "fluxo-de-caixa");
   const cashParams = new URLSearchParams(location.search);
   const requestedCashPanel = cashParams.get("panel");
   const requestedQuickEntry = cashParams.get("novo");
@@ -5812,11 +5826,13 @@ async function renderCash() {
   const cashEntryDate = editing?.date || state.cashEntryDraft.date || today;
   const cashEntryType = editing?.type
     || (requestedEmployee ? "expense" : "")
+    || (isExpensesRoute ? "expense" : "")
     || requestedQuickDraft?.type
     || state.cashEntryDraft.type
     || "income";
   const cashEntryCategory = editing?.category
     || (requestedEmployee ? "funcionarios" : "")
+    || (isExpensesRoute ? "outros" : "")
     || requestedQuickDraft?.category
     || state.cashEntryDraft.category
     || (cashEntryType === "expense" ? "outros" : "venda");
@@ -5834,12 +5850,17 @@ async function renderCash() {
   const editingWithdrawal = state.editWithdrawalGroup
     ? withdrawalHistoryGroups(state.cash).find(group => group.key === state.editWithdrawalGroup)
     : null;
-  const filteredEntries = filterCashEntries(state.cash);
-  const categoryMenuEntries = filterCashEntries(state.cash, {
+  const routeCashEntries = isExpensesRoute
+    ? state.cash.filter(entry => entry.type === "expense" && !isWithdrawalEntry(entry) && !isAccountAdjustmentEntry(entry))
+    : state.cash;
+  const routeFilterOverrides = isExpensesRoute ? { type: "expense", quick: "" } : {};
+  const filteredEntries = filterCashEntries(routeCashEntries, routeFilterOverrides);
+  const categoryMenuEntries = filterCashEntries(routeCashEntries, {
     search: "",
-    type: "all",
+    type: isExpensesRoute ? "expense" : "all",
     category: "all",
-    quick: ""
+    quick: "",
+    cashAccount: "all"
   });
   const accountedEntries = accountingCashEntries(filteredEntries);
   const categoryMenuAccountedEntries = accountingCashEntries(categoryMenuEntries);
@@ -5860,7 +5881,7 @@ async function renderCash() {
       || (["pf", "pj"].includes(currentCashFilter.cashAccount) ? currentCashFilter.cashAccount : "")
       || state.cashEntryDraft.cashAccount
   );
-  const selectedFilterType = currentCashFilter.type || "all";
+  const selectedFilterType = isExpensesRoute ? "expense" : (currentCashFilter.type || "all");
   const selectedFilterCategory = currentCashFilter.category || "all";
   const selectedFilterAccount = currentCashFilter.cashAccount || "all";
   const selectedQuickFilter = currentCashFilter.quick || "";
@@ -5942,15 +5963,20 @@ async function renderCash() {
   const partnersPeriod = state.cashFilter?.month || today.slice(0, 7);
   const partnersRecord = partnersRecordForPeriod(partnersPeriod);
   const partnersDashboard = partnerDashboard(selectedDate, partnersPeriod);
-  const cashPanelTabs = [
-    ["entry", editing ? "Editar" : "Lançamento"],
-    ["ledger", "Extrato"],
-    ["reconciliation", "Conferência"],
-    ["day-closing", "Fechamento"],
-    ["savings", "Cofrinho"],
-    ["withdrawals", "Retiradas"],
-    ["categories", "Categorias"]
-  ];
+  const cashPanelTabs = isExpensesRoute
+    ? [
+      ["entry", editing ? "Editar despesa" : "Nova despesa"],
+      ["ledger", "Despesas lançadas"]
+    ]
+    : [
+      ["entry", editing ? "Editar" : "Lançamento"],
+      ["ledger", "Extrato"],
+      ["reconciliation", "Conferência"],
+      ["day-closing", "Fechamento"],
+      ["savings", "Cofrinho"],
+      ["withdrawals", "Retiradas"],
+      ["categories", "Categorias"]
+    ];
   if (state.cashPanelTab === "partners") {
     state.cashPanelTab = "withdrawals";
   }
@@ -5965,8 +5991,8 @@ async function renderCash() {
   app.innerHTML = `
     <section class="cash-hero">
       <div>
-        <span>Saldo geral da conta</span>
-        <h2>${money(displayedCashBalance)}</h2>
+        <span>${isExpensesRoute ? "Despesas operacionais do período" : "Saldo geral da conta"}</span>
+        <h2>${money(isExpensesRoute ? filteredTotals.expenses : displayedCashBalance)}</h2>
       </div>
       <div class="cash-hero-metrics">
         <span data-cash-filter-income><b>${money(filteredTotals.income)}</b>Entradas do filtro<small>Lançamentos contabilizados</small></span>
@@ -5997,13 +6023,13 @@ async function renderCash() {
         </div>
       </div>
     </section>
-    <section class="account-check-card">
+    ${isExpensesRoute ? "" : `<section class="account-check-card">
       <div>
         <span>Conferência da conta</span>
         <strong class="${displayedCashBalance < 0 ? "negative" : "positive"}">${money(displayedCashBalance)}</strong>
         <small>${adjustmentLabel}</small>
       </div>
-    </section>
+    </section>`}
     <div class="cash-layout">
       <section class="panel cash-command-panel">
         <div class="cash-panel-tabs" role="tablist" aria-label="Ferramentas do caixa">
@@ -6013,7 +6039,7 @@ async function renderCash() {
         </div>
         ${activeCashPanel === "entry" ? `
         <div class="cash-tab-section">
-          <h2>${editing ? "Editar lançamento" : "Novo lançamento"}</h2>
+          <h2>${isExpensesRoute ? (editing ? "Editar despesa" : "Nova despesa") : (editing ? "Editar lançamento" : "Novo lançamento")}</h2>
         <form id="cash-form" class="form-grid single">
           <label>Descrição
             <input name="description" placeholder="Venda, iFood, supermercado, entregador" value="${escapeHtml(cashEntryDescription)}" required>
@@ -6029,12 +6055,12 @@ async function renderCash() {
               </div>
             `}
           </div>
-          <label>Tipo
+          ${isExpensesRoute ? `<input name="type" type="hidden" value="expense">` : `<label>Tipo
             <select name="type" id="cash-type">
               <option value="income" ${cashEntryType === "income" ? "selected" : ""}>Entrada</option>
               <option value="expense" ${cashEntryType === "expense" ? "selected" : ""}>Saída</option>
             </select>
-          </label>
+          </label>`}
           <label>Origem / categoria
             <select name="category" id="cash-category">
               ${cashCategoryOptions(cashEntryType, cashEntryCategory)}
@@ -6352,8 +6378,8 @@ async function renderCash() {
         <div class="cash-tab-section cash-ledger-panel">
         <div class="cash-ledger-header">
           <div>
-            <h2>Extrato</h2>
-            <p class="muted-inline">Filtre, confira categorias e edite lançamentos.</p>
+            <h2>${isExpensesRoute ? "Despesas lançadas" : "Extrato"}</h2>
+            <p class="muted-inline">${isExpensesRoute ? "Consulte e edite somente as despesas operacionais." : "Filtre, confira categorias e edite lançamentos."}</p>
           </div>
         </div>
         <details class="cash-filter-disclosure" ${advancedCashFilterActive ? "open" : ""}>
@@ -6383,13 +6409,13 @@ async function renderCash() {
           <label class="filter-control filter-year">Ano
             <input name="year" type="number" min="2000" max="2100" step="1" value="${selectedYear}">
           </label>
-          <label>Tipo
+          ${isExpensesRoute ? `<input name="type" type="hidden" value="expense">` : `<label>Tipo
             <select name="type" id="cash-filter-type">
               <option value="all" ${selectedFilterType === "all" ? "selected" : ""}>Entradas e saídas</option>
               <option value="income" ${selectedFilterType === "income" ? "selected" : ""}>Entradas</option>
               <option value="expense" ${selectedFilterType === "expense" ? "selected" : ""}>Saídas</option>
             </select>
-          </label>
+          </label>`}
           <label>Origem / categoria
             <select name="category" id="cash-filter-category">
               ${cashFilterCategoryOptions(selectedFilterCategory, selectedFilterType)}
@@ -8318,9 +8344,23 @@ function menuCatalogPanel() {
 }
 
 async function renderMenu() {
-  showStandardHero("Menu Semanal");
+  const currentMenuRoute = routeName();
   const requestedMenuView = new URLSearchParams(location.search).get("view");
-  setActive(routeName() === "pedidos" ? "pedidos" : requestedMenuView === "production" ? "menu-semanal" : "cardapio");
+  const isLegacyMenuOverview = currentMenuRoute === "menu-semanal" && !requestedMenuView;
+  const activeMenuRoute = currentMenuRoute === "pedidos" || ["form", "orders", "delivery"].includes(requestedMenuView)
+    ? "pedidos"
+    : requestedMenuView === "production"
+      ? "producao"
+      : "cardapio";
+  const menuPageTitle = isLegacyMenuOverview
+    ? "Menu Semanal"
+    : activeMenuRoute === "pedidos"
+    ? "Semanal"
+    : activeMenuRoute === "producao"
+      ? "Produção"
+      : "Cardápio";
+  showStandardHero(menuPageTitle);
+  setActive(isLegacyMenuOverview ? "menu-semanal" : activeMenuRoute);
   const currentWeek = state.menuWeek || 1;
   const currentKey = menuKey(currentWeek);
   const savedMenu = state.menus[currentKey] || [];
@@ -10058,8 +10098,35 @@ async function renderQuickOrders() {
   state.showPlanning = false;
   state.showMonthSummary = false;
   state.showMenuCatalog = false;
-  if (!["orders", "production", "delivery", "form"].includes(state.orderTab)) {
-    state.orderTab = "orders";
+  state.orderTab = "orders";
+  await renderMenu();
+}
+
+async function renderProduction() {
+  state.showOrders = true;
+  state.showClients = false;
+  state.showPlanning = false;
+  state.showMonthSummary = false;
+  state.showMenuCatalog = false;
+  state.orderTab = "production";
+  await renderMenu();
+}
+
+async function renderLegacyMenuRoute() {
+  const requestedView = new URLSearchParams(location.search).get("view");
+  if (requestedView === "production") {
+    await renderProduction();
+    return;
+  }
+  if (["form", "orders", "delivery"].includes(requestedView)) {
+    state.showOrders = true;
+    state.showClients = false;
+    state.showPlanning = false;
+    state.showMonthSummary = false;
+    state.showMenuCatalog = false;
+    state.orderTab = requestedView;
+    await renderMenu();
+    return;
   }
   await renderMenu();
 }
@@ -12882,11 +12949,13 @@ function channelReportPanel(data) {
   const previous = channelPeriodSummary(previousChannelEntries(data));
   const delta = current.totals.total - previous.totals.total;
   const paymentTotals = channelPaymentTotals(data.channelReceipts);
+  const deliveryFeeTotal = cardapioDeliveryFeeTotal(data.channelReceipts);
   const dailyRows = [...data.channelReceipts]
     .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")))
     .map(entry => [
       formatIsoDateBr(entry.date),
       ...cardapioPaymentDefinitions.map(([paymentKey]) => money(cardapioPaymentAmount(entry, paymentKey))),
+      money(cardapioDeliveryFeeAmount(entry)),
       money(channelReceiptAmount(entry, "ifood", "net")),
       money(channelReceiptAmount(entry, "food99", "net")),
       money(channelReceiptTotal(entry))
@@ -12908,6 +12977,7 @@ function channelReportPanel(data) {
             ${cardapioPaymentDefinitions.map(([paymentKey, label]) => `
               <div class="metric"><span>${label}</span><strong>${money(paymentTotals[paymentKey])}</strong></div>
             `).join("")}
+            <div class="metric"><span>Taxas de entrega (conferência)</span><strong>${money(deliveryFeeTotal)}</strong></div>
           </div>
         </div>
         ${channelDefinitions.filter(([key]) => key !== "cardapioWeb").map(([key, label]) => `
@@ -12922,7 +12992,7 @@ function channelReportPanel(data) {
       ${dailyRows.length ? `
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Dia</th>${cardapioPaymentDefinitions.map(([, label]) => `<th>${label}</th>`).join("")}<th>iFood</th><th>99 Food</th><th>Total</th></tr></thead>
+            <thead><tr><th>Dia</th>${cardapioPaymentDefinitions.map(([, label]) => `<th>${label}</th>`).join("")}<th>Taxas de entrega</th><th>iFood</th><th>99 Food</th><th>Total</th></tr></thead>
             <tbody>${dailyRows.map(row => `<tr>${row.map(cell => `<td>${cell}</td>`).join("")}</tr>`).join("")}</tbody>
           </table>
         </div>
@@ -13122,6 +13192,7 @@ function reportCsvRows(kind, data) {
         cardapio_credito_online: cardapioPaymentAmount(entry, "onlineCredit"),
         cardapio_pix: cardapioPaymentAmount(entry, "pix"),
         cardapio_dinheiro: cardapioPaymentAmount(entry, "cash"),
+        cardapio_taxas_entrega: cardapioDeliveryFeeAmount(entry),
         ifood: channelReceiptAmount(entry, "ifood", "net"),
         food99: channelReceiptAmount(entry, "food99", "net"),
         total: channelReceiptTotal(entry)
@@ -13457,6 +13528,7 @@ async function downloadReportPdf(options = {}) {
       channelRows: data.channelReceipts.map(entry => [
         entry.date || "",
         ...cardapioPaymentDefinitions.map(([paymentKey]) => money(cardapioPaymentAmount(entry, paymentKey))),
+        money(cardapioDeliveryFeeAmount(entry)),
         money(channelReceiptAmount(entry, "ifood", "net")),
         money(channelReceiptAmount(entry, "food99", "net")),
         money(channelReceiptTotal(entry))
@@ -13557,6 +13629,7 @@ async function downloadReportXlsx(options = {}) {
       channelRows: data.channelReceipts.map(entry => [
         entry.date || "",
         ...cardapioPaymentDefinitions.map(([paymentKey]) => cardapioPaymentAmount(entry, paymentKey)),
+        cardapioDeliveryFeeAmount(entry),
         channelReceiptAmount(entry, "ifood", "net"),
         channelReceiptAmount(entry, "food99", "net"),
         channelReceiptTotal(entry)
@@ -18016,8 +18089,6 @@ function financeDashboardPanel(data) {
 }
 
 function renderFinance() {
-  showStandardHero("Financeiro");
-  setActive("financeiro");
   const data = reportData();
   const reportType = state.reportPeriod.type || "month";
   const weekRange = reportWeekRange();
@@ -18043,6 +18114,8 @@ function renderFinance() {
     state.editFinancialAccountId = requestedAccountId;
   }
   const activeTab = tabs.some(([key]) => key === state.financeViewTab) ? state.financeViewTab : "summary";
+  showStandardHero(activeTab === "planning" ? "Planejamento financeiro" : "Financeiro");
+  setActive(activeTab === "employees" ? "funcionarios" : "financeiro");
 
   app.innerHTML = `
     ${viewTabsHtml("financeViewTab", activeTab, tabs)}
@@ -18831,6 +18904,7 @@ function reportExportPayload(data = reportData()) {
       channelRows: data.channelReceipts.map(entry => [
         entry.date || "",
         ...cardapioPaymentDefinitions.map(([paymentKey]) => money(cardapioPaymentAmount(entry, paymentKey))),
+        money(cardapioDeliveryFeeAmount(entry)),
         money(channelReceiptAmount(entry, "ifood", "net")),
         money(channelReceiptAmount(entry, "food99", "net")),
         money(channelReceiptTotal(entry))
@@ -19224,12 +19298,19 @@ function renderMore() {
   `;
 }
 
+async function renderExpenses() {
+  const requestedView = new URLSearchParams(location.search).get("view");
+  state.cashPanelTab = requestedView === "list" ? "ledger" : "entry";
+  await renderCash();
+}
+
 const routes = {
   home,
   "fluxo-de-caixa": renderCash,
+  despesas: renderExpenses,
   hoje: renderToday,
   pedidos: renderQuickOrders,
-  "menu-semanal": renderMenu,
+  "menu-semanal": renderLegacyMenuRoute,
   loja: renderStoreSales,
   financeiro: renderFinance,
   precificacao: renderPricing,
@@ -19240,6 +19321,67 @@ const routes = {
   backups: renderBackups,
   "minha-conta": renderAccount
 };
+
+let routeRenderPromise = Promise.resolve();
+
+function renderCurrentRoute({ scrollToTop = false } = {}) {
+  const requestedUrl = location.href;
+  routeRenderPromise = routeRenderPromise
+    .catch(() => {})
+    .then(async () => {
+      if (location.href !== requestedUrl) {
+        return;
+      }
+      applyRouteParams();
+      app.setAttribute("aria-busy", "true");
+      try {
+        const renderRoute = routes[routeName()] || home;
+        await renderRoute();
+        if (scrollToTop) {
+          window.scrollTo({ top: 0, behavior: "auto" });
+        }
+      } finally {
+        app.removeAttribute("aria-busy");
+      }
+    });
+  return routeRenderPromise;
+}
+
+function internalAppUrl(anchor) {
+  if (!anchor || anchor.target || anchor.hasAttribute("download")) {
+    return null;
+  }
+  const url = new URL(anchor.href, location.href);
+  if (url.origin !== location.origin || !["http:", "https:"].includes(url.protocol)) {
+    return null;
+  }
+  const route = url.pathname.replace(/^\/+|\/+$/g, "") || "home";
+  if (!routes[route] || url.pathname.startsWith("/api/")) {
+    return null;
+  }
+  return url;
+}
+
+document.addEventListener("click", event => {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+    return;
+  }
+  const anchor = event.target.closest("a[href]");
+  const url = internalAppUrl(anchor);
+  if (!url) {
+    return;
+  }
+  event.preventDefault();
+  history.pushState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  if (globalNewDialog?.open) {
+    globalNewDialog.close();
+  }
+  renderCurrentRoute({ scrollToTop: true });
+});
+
+window.addEventListener("popstate", () => {
+  renderCurrentRoute({ scrollToTop: true });
+});
 
 function applyRouteParams() {
   const params = new URLSearchParams(location.search);
@@ -19861,12 +20003,11 @@ Promise.all([hydrateSession(), hydrateState()]).then(() => {
   }, {
     remember: Boolean(state.globalPeriod)
   });
-  applyRouteParams();
   if (routeName() === "home") {
     const defaultRoute = configuredDefaultRoute();
     if (defaultRoute !== "home" && routes[defaultRoute]) {
       history.replaceState(null, "", `/${defaultRoute}`);
     }
   }
-  routes[routeName()] ? routes[routeName()]() : home();
+  renderCurrentRoute();
 });

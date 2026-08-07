@@ -23,7 +23,12 @@ function localDateKey(date = new Date()) {
 }
 
 async function mockOnlineDatabase(page) {
-  const holder = { state: {}, statePostCount: 0, statePostDelayMs: 0 };
+  const holder = {
+    state: {},
+    stateGetCount: 0,
+    statePostCount: 0,
+    statePostDelayMs: 0,
+  };
   const json = (body) => ({
     status: 200,
     contentType: 'application/json',
@@ -58,6 +63,7 @@ async function mockOnlineDatabase(page) {
       await route.fulfill(json({ database: true, saved: true }));
       return;
     }
+    holder.stateGetCount += 1;
     await route.fulfill(json({ database: true, state: holder.state }));
   });
   return holder;
@@ -132,15 +138,13 @@ test('grouped navigation opens the menu and saves new orders', async ({ page }, 
     orders: [],
   };
 
-  await page.goto('/menu-semanal?ano=2026&mes=8&semana=1');
+  await page.goto('/pedidos?ano=2026&mes=8&semana=1');
   const navigation = page.locator('nav.nav');
-  await expect(navigation.getByRole('link', { name: 'Cardápio', exact: true })).toHaveCount(1);
-  await expect(navigation.getByRole('link', { name: 'Pedidos', exact: true })).toHaveCount(1);
-  await expect(navigation.getByRole('link', { name: 'Cardápio', exact: true })).toHaveClass(
+  await expect(navigation.getByRole('link', { name: 'Semanal', exact: true })).toHaveCount(1);
+  await expect(navigation.getByRole('link', { name: 'Semanal', exact: true })).toHaveClass(
     /active/
   );
 
-  await page.locator('#order-toggle').click();
   await page.locator('[data-order-tab="form"]').click();
   const orderForm = page.locator('#order-form');
   await orderForm.locator('select[name="clientPhone"]').selectOption('85999999999');
@@ -166,9 +170,117 @@ test('grouped navigation opens the menu and saves new orders', async ({ page }, 
 
   await page.goto('/pedidos?ano=2026&mes=8&semana=1');
   await expect(page).toHaveURL(/\/pedidos\?ano=2026&mes=8&semana=1$/);
-  await expect(navigation.getByRole('link', { name: 'Pedidos', exact: true })).toHaveClass(
+  await expect(navigation.getByRole('link', { name: 'Semanal', exact: true })).toHaveClass(
     /active/
   );
+});
+
+test('operation menu exposes Semanal, Loja and Precificação while expenses stays separate', async ({
+  page,
+}) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    weeklyMenusByPeriod: {
+      '2026-08-semana-1': [
+        {
+          slot: 1,
+          dish: 'Cumbuca teste',
+          dishCost: 12,
+          status: 'planejado',
+          notes: '',
+        },
+      ],
+    },
+    menuWeek: 1,
+    menuPeriod: { year: 2026, month: 8 },
+    menuDatesByPeriod: {},
+    clients: [],
+    orders: [],
+    cashEntries: [
+      {
+        id: 'expense-navigation',
+        date: '2026-08-01',
+        type: 'expense',
+        category: 'aluguel',
+        description: 'Despesa operacional teste',
+        amount: '100.00',
+        cashAccount: 'pj',
+      },
+      {
+        id: 'income-navigation',
+        date: '2026-08-01',
+        type: 'income',
+        category: 'venda',
+        description: 'Venda que não é despesa',
+        amount: '250.00',
+        cashAccount: 'pj',
+      },
+    ],
+  };
+
+  await page.goto('/home');
+  const navigation = page.locator('nav.nav');
+  await expect.poll(() => database.stateGetCount).toBe(1);
+  await page.evaluate(() => {
+    window.__cumbucaNavigationMarker = 'preserved';
+  });
+  const operationLinks = await navigation
+    .locator('.nav-section-label', { hasText: 'Operação' })
+    .evaluate((label) => {
+      const links = [];
+      let sibling = label.nextElementSibling;
+      while (sibling && !sibling.classList.contains('nav-section-label')) {
+        if (sibling.tagName === 'A') {
+          links.push({ label: sibling.textContent.trim(), href: sibling.getAttribute('href') });
+        }
+        sibling = sibling.nextElementSibling;
+      }
+      return links;
+    });
+  expect(operationLinks).toEqual([
+    { label: '▤ Semanal', href: '/pedidos' },
+    { label: '↗ Loja', href: '/loja?view=sales' },
+    { label: '% Precificação', href: '/precificacao' },
+  ]);
+
+  await navigation.getByRole('link', { name: 'Semanal', exact: true }).click();
+  await expect(page).toHaveURL(/\/pedidos$/);
+  await expect(page.locator('#page-title')).toHaveText('Semanal');
+  await expect(page.locator('[data-order-tab="orders"]')).toHaveClass(/active/);
+  await expect(page.getByRole('heading', { name: 'Pedidos', exact: true })).toBeVisible();
+
+  await navigation.getByRole('link', { name: 'Loja', exact: true }).click();
+  await expect(page).toHaveURL(/\/loja\?view=sales$/);
+  await expect(page.locator('#page-title')).toHaveText('Loja');
+
+  await navigation.getByRole('link', { name: 'Precificação', exact: true }).click();
+  await expect(page).toHaveURL(/\/precificacao$/);
+  await expect(page.locator('#page-title')).toHaveText('Precificação');
+
+  await navigation.getByRole('link', { name: 'Despesas', exact: true }).click();
+  await expect(page).toHaveURL(/\/despesas$/);
+  await expect(page.locator('#page-title')).toHaveText('Despesas');
+  await expect(page.getByRole('heading', { name: 'Nova despesa', exact: true })).toBeVisible();
+  await expect(page.locator('#cash-form input[name="type"]')).toHaveValue('expense');
+  await expect(page.locator('#cash-type')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Despesas lançadas', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Despesas lançadas', exact: true })).toBeVisible();
+  await expect(page.getByText('Despesa operacional teste', { exact: true })).toBeVisible();
+  await expect(page.getByText('Venda que não é despesa', { exact: true })).toHaveCount(0);
+
+  await navigation.getByRole('link', { name: 'Financeiro', exact: true }).click();
+  await expect(page).toHaveURL(/\/financeiro$/);
+  await page.getByRole('button', { name: 'Planejamento', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Orçamento mensal por categoria', exact: true })
+  ).toBeVisible();
+
+  await navigation.getByRole('link', { name: 'Manutenção', exact: true }).click();
+  await expect(page).toHaveURL(/\/backups$/);
+  await expect(page.locator('#page-title')).toHaveText('Manutenção');
+  await expect.poll(() => database.stateGetCount).toBe(1);
+  expect(await page.evaluate(() => window.__cumbucaNavigationMarker)).toBe('preserved');
 });
 
 test('monthly orders allow manual fees and only account for entered values', async ({ page }) => {
@@ -1543,6 +1655,38 @@ test('channels tab lives in store and old cash link redirects', async ({ page })
   await expect(
     page.getByRole('heading', { name: 'Entradas por canal', exact: true })
   ).toBeVisible();
+});
+
+test('Cardápio Web delivery fees are saved only for conference', async ({ page }) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = { cashEntries: [], channelReceipts: [] };
+
+  await page.goto('/loja?view=channels');
+  const form = page.locator('#channel-receipt-form');
+  await form.locator('input[name="date"]').fill('2026-08-07');
+  await form.locator('input[name="cardapioWebDebit"]').fill('100,00');
+  await form.locator('input[name="cardapioWebDeliveryFee"]').fill('15,00');
+  await form.getByRole('button', { name: 'Salvar dia', exact: true }).click();
+
+  await expect.poll(() => database.state.channelReceipts?.length).toBe(1);
+  expect(database.state.channelReceipts[0]).toMatchObject({
+    cardapioWebDebit: '100.00',
+    cardapioWebDeliveryFee: '15.00',
+    cardapioWebNet: '100.00',
+  });
+  expect(database.state.cashEntries || []).toHaveLength(0);
+
+  const row = page.locator('.channel-receipts-panel tbody tr').first();
+  await expect(row.locator('td').nth(6)).toContainText('15,00');
+  await expect(row.locator('td').nth(9)).toContainText('100,00');
+  const feeMetric = page.locator('.channel-summary .metric', {
+    hasText: 'Taxas de entrega (conferência)',
+  });
+  await expect(feeMetric).toContainText('15,00');
+  const totalMetric = page.locator('.channel-summary .metric').filter({
+    has: page.locator('span', { hasText: /^Total$/ }),
+  });
+  await expect(totalMetric).toContainText('100,00');
 });
 
 test('store sale supports unit and combo quantities', async ({ page }, testInfo) => {

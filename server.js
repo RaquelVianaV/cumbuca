@@ -2554,6 +2554,7 @@ async function buildReportXlsx(payload = {}) {
           'Cartão de crédito online',
           'Pix',
           'Dinheiro',
+          'Taxas de entrega (conferência)',
           'iFood',
           '99 Food',
           'Total',
@@ -2807,7 +2808,11 @@ function serveStatic(req, res, pathname) {
     const headers = {
       'Content-Type': mimeTypes[extension] || 'application/octet-stream',
     };
-    if (['.html', '.js', '.css'].includes(extension)) {
+    const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const versionedAsset = requestUrl.searchParams.has('v') && ['.js', '.css'].includes(extension);
+    if (versionedAsset) {
+      headers['Cache-Control'] = 'public, max-age=31536000, immutable';
+    } else if (['.html', '.js', '.css'].includes(extension)) {
       headers['Cache-Control'] = 'no-cache';
     }
     res.writeHead(200, mergeHeaders(headers));

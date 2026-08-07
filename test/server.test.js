@@ -412,6 +412,17 @@ test('authenticated HTTP flow serves session, finance calculation and reports', 
   assert.equal(sessionPayload.user.role, 'admin');
   assert.equal(sessionPayload.user.permissions.clearData, true);
 
+  const versionedApp = await fetch(`${baseUrl}/app.js?v=performance-test`, {
+    headers: { Cookie: cookie },
+  });
+  assert.equal(versionedApp.status, 200);
+  assert.match(versionedApp.headers.get('cache-control'), /max-age=31536000/);
+  assert.match(versionedApp.headers.get('cache-control'), /immutable/);
+
+  const unversionedApp = await fetch(`${baseUrl}/app.js`, { headers: { Cookie: cookie } });
+  assert.equal(unversionedApp.status, 200);
+  assert.equal(unversionedApp.headers.get('cache-control'), 'no-cache');
+
   const integrations = await fetch(`${baseUrl}/api/integrations`, { headers: { Cookie: cookie } });
   const integrationsPayload = await integrations.json();
   assert.equal(integrations.status, 200);

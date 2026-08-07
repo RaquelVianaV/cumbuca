@@ -417,8 +417,8 @@ test('narrow desktop window activates compact mode', async ({ page }, testInfo) 
   expect(compactLayout.navDisplay).toBe('grid');
   expect(compactLayout.navColumns.split(' ')).toHaveLength(5);
   expect(compactLayout.headerWrap).toBe('wrap');
-  await expect(page.locator('.nav > a:visible')).toHaveCount(5);
-  await expect(page.locator('.nav-extra:visible')).toHaveCount(0);
+  await expect(page.locator('.nav > a:visible')).toHaveCount(15);
+  await expect(page.locator('.nav-extra:visible')).toHaveCount(8);
   await expect(page.locator('.nav-more')).toBeVisible();
   await expect(page.locator('.hero-motto')).toContainText('Pitada do dia:');
   const dailyCashMotto = await page.locator('#hero-motto').textContent();
@@ -456,6 +456,31 @@ test('narrow desktop window activates compact mode', async ({ page }, testInfo) 
     path: testInfo.outputPath('compact-desktop-more.png'),
     fullPage: true,
   });
+});
+
+test('desktop sidebar scrolls independently from the page', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'The mobile layout uses the fixed bottom menu.');
+  await page.setViewportSize({ width: 1440, height: 620 });
+  await page.goto('/home');
+
+  const nav = page.locator('.nav');
+  const initial = await nav.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+    overflowY: getComputedStyle(element).overflowY,
+    pageScrollY: window.scrollY,
+  }));
+  expect(initial.overflowY).toBe('auto');
+  expect(initial.scrollHeight).toBeGreaterThan(initial.clientHeight);
+
+  await nav.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
+  await expect(page.locator('.nav a[data-route="backups"]')).toBeVisible();
+  const finalPosition = await nav.evaluate((element) => ({
+    menuScrollTop: element.scrollTop,
+    pageScrollY: window.scrollY,
+  }));
+  expect(finalPosition.menuScrollTop).toBeGreaterThan(0);
+  expect(finalPosition.pageScrollY).toBe(initial.pageScrollY);
 });
 
 test('cash advanced filters align fields and actions without clipping', async ({

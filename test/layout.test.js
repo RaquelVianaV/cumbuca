@@ -96,11 +96,19 @@ test('narrow browser windows keep horizontal page scrolling available', () => {
 test('navigation, finance, reports and maintenance expose the expected views', () => {
   const mainNavigation = html.match(/<nav class="nav">([\s\S]*?)<\/nav>/)?.[1] || '';
   assert.match(mainNavigation, /href="\/home"[^>]*>[\s\S]*?Visão geral<\/a>/);
-  assert.match(mainNavigation, /href="\/menu-semanal"[^>]*>[\s\S]*?Cardápio<\/a>/);
-  assert.match(mainNavigation, /href="\/pedidos"/);
+  assert.match(mainNavigation, /href="\/hoje"[^>]*>[\s\S]*?Hoje<\/a>/);
+  assert.match(mainNavigation, /href="\/pedidos"[^>]*>[\s\S]*?Semanal<\/a>/);
+  assert.match(mainNavigation, /href="\/loja\?view=sales"[^>]*>[\s\S]*?Loja<\/a>/);
+  assert.match(mainNavigation, /href="\/precificacao"[^>]*>[\s\S]*?Precificação<\/a>/);
+  assert.doesNotMatch(mainNavigation, /href="\/producao"/);
+  assert.doesNotMatch(mainNavigation, /href="\/cardapio"/);
+  assert.match(mainNavigation, /href="\/financeiro"[^>]*>[\s\S]*?Financeiro<\/a>/);
+  assert.match(mainNavigation, /href="\/despesas"[^>]*>[\s\S]*?Despesas<\/a>/);
+  assert.match(mainNavigation, /href="\/alertas"[^>]*>[\s\S]*?Alertas<\/a>/);
+  assert.match(mainNavigation, /href="\/backups"[^>]*>[\s\S]*?Manutenção<\/a>/);
   assert.match(mainNavigation, /nav-section-label">Financeiro/);
   assert.match(mainNavigation, /nav-section-label">Gestão/);
-  assert.equal((mainNavigation.match(/href="\/menu-semanal"/g) || []).length, 1);
+  assert.equal((mainNavigation.match(/href="\/fluxo-de-caixa\?novo=despesa"/g) || []).length, 0);
   assert.match(app, /const editingOrder = state\.editOrderId/);
   assert.doesNotMatch(app, /paidAmount: editing\?\.paidAmount/);
   assert.match(app, /const orderValue = parseMoneyInput\(data\.get\("orderValue"\)\)/);
@@ -111,7 +119,12 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /Só entra na contabilidade quando você informar o valor recebido/);
   assert.doesNotMatch(app, /planValueField\.required = isMonthly/);
   assert.doesNotMatch(app, /amount: client\.plan === "mensalista"/);
-  assert.match(app, /setActive\(routeName\(\) === "pedidos" \? "pedidos"/);
+  assert.match(app, /const activeMenuRoute = currentMenuRoute === "pedidos"/);
+  assert.match(app, /despesas: renderExpenses/);
+  assert.match(app, /"menu-semanal": renderLegacyMenuRoute/);
+  assert.match(app, /function renderCurrentRoute/);
+  assert.match(app, /function internalAppUrl/);
+  assert.match(app, /window\.addEventListener\("popstate"/);
   assert.doesNotMatch(
     app,
     /history\.replaceState\(null, "", `\/menu-semanal\$\{location\.search\}`\)/
@@ -259,7 +272,9 @@ test('navigation, finance, reports and maintenance expose the expected views', (
     server,
     /\[\s*'Data',\s*'Produto',\s*'Tipo',\s*'Quantidade',\s*'Unidades por combo',\s*'Total de unidades'/
   );
-  const cashTabs = app.match(/const cashPanelTabs = \[([\s\S]*?)\];/);
+  const cashTabs = app.match(
+    /const cashPanelTabs = isExpensesRoute[\s\S]*?\n\s{4}: \[([\s\S]*?)\n\s{4}\];/
+  );
   const storeTabs = app.match(/const storeTabs = \[([\s\S]*?)\];/);
   assert.ok(cashTabs);
   assert.ok(storeTabs);
@@ -472,6 +487,29 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(css, /\.menu-recipe-summary/);
   assert.match(css, /\.plan-vs-actual-grid/);
   assert.match(css, /\.maintenance-health-grid/);
+});
+
+test('desktop navigation has its own vertical scroll area', () => {
+  assert.match(
+    css,
+    /@media \(min-width: 1101px\)[\s\S]*?\.nav \{[\s\S]*?max-height: calc\(100vh - 116px\)/
+  );
+  assert.match(css, /@media \(min-width: 1101px\)[\s\S]*?overflow-y: auto/);
+  assert.match(css, /@media \(min-width: 1101px\)[\s\S]*?overscroll-behavior: contain/);
+  assert.match(css, /@media \(min-width: 1101px\)[\s\S]*?scrollbar-gutter: stable/);
+});
+
+test('Cardápio Web delivery fees stay outside channel sales totals and cash', () => {
+  assert.match(app, /function cardapioDeliveryFeeAmount/);
+  assert.match(app, /name="cardapioWebDeliveryFee"/);
+  assert.match(
+    app,
+    /Somente para registro e conferência\. Não entra no Caixa nem no total das vendas\./
+  );
+  const channelTotal =
+    app.match(/function channelReceiptTotal\(entry = \{\}\) \{[\s\S]*?\n\}/)?.[0] || '';
+  assert.doesNotMatch(channelTotal, /cardapioDeliveryFee/);
+  assert.match(app, /if \(total <= 0 && cardapioDeliveryFee <= 0\)/);
 });
 
 test('mobile tables receive column labels', () => {

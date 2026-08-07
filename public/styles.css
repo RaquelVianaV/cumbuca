@@ -10635,4 +10635,46 @@ html.dark-mode .nav a:hover {
   .nav .nav-divider {
     display: none;
   }
+
+  .nav a.nav-extra {
+    display: inline-flex;
+  }
+}
+
+@media (min-width: 1101px) {
+  .nav {
+    max-height: calc(100vh - 116px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-color: rgba(91, 107, 100, 0.48) transparent;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+  }
+
+  .nav::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .nav::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .nav::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: rgba(91, 107, 100, 0.48);
+    background-clip: padding-box;
+  }
+
+  .nav::-webkit-scrollbar-thumb:hover {
+    background: rgba(8, 127, 91, 0.68);
+    background-clip: padding-box;
+  }
+}
+
+@media (max-width: 560px) {
+  body {
+    padding-bottom: 190px;
+  }
 }
