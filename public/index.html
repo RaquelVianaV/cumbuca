@@ -12,10 +12,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/logo-cumbuca-original.png">
-    <link rel="preload" href="/app.js?v=20260807-05" as="script">
+    <link rel="preload" href="/app.js?v=20260807-06" as="script">
     <link rel="preload" href="/logo-cumbuca-original.png" as="image">
     <link rel="preload" href="/mapa-cumbuca.png" as="image">
-    <link rel="stylesheet" href="/styles.css?v=20260807-05">
+    <link rel="stylesheet" href="/styles.css?v=20260807-06">
     <script>
       (function () {
         const storedTheme = localStorage.getItem('cumbuca-theme');
@@ -52,6 +52,7 @@
         <div class="header-actions">
           <span class="current-user" id="current-user"></span>
           <time class="today-date" id="today-date"></time>
+          <button class="global-new-button" type="button" id="global-new-button">+ Novo</button>
           <button class="secondary theme-toggle" type="button" id="theme-toggle-button" title="Ativar modo escuro" aria-label="Ativar modo escuro" aria-pressed="false">
             <span class="theme-toggle-icon" aria-hidden="true">&#127769;</span>
             <span class="theme-toggle-label">Claro</span>
@@ -69,17 +70,26 @@
     <div class="app-frame">
       <aside class="sidebar" aria-label="Ferramentas">
         <nav class="nav">
-          <a href="/fluxo-de-caixa" data-route="fluxo-de-caixa">Caixa</a>
-          <a href="/hoje" data-route="hoje">Operação</a>
-          <a href="/menu-semanal" data-route="menu-semanal">Menu</a>
-          <a class="nav-extra" href="/loja" data-route="loja">Loja</a>
-          <a href="/financeiro" data-route="financeiro">Financeiro</a>
-          <a class="nav-extra" href="/precificacao" data-route="precificacao">Preços</a>
-          <a class="nav-extra" href="/relatorios" data-route="relatorios">Relatórios</a>
-          <a class="nav-extra" href="/alertas" data-route="alertas">Alertas</a>
-          <a class="nav-extra" href="/configuracoes" data-route="configuracoes">Config.</a>
-          <a class="nav-extra" href="/backups" data-route="backups">Manutenção</a>
-          <a class="nav-more" href="/mais" data-route="mais">Mais</a>
+          <span class="nav-brand">Cumbuca</span>
+          <a class="nav-overview" href="/home" data-route="home"><span aria-hidden="true">▣</span> Visão geral</a>
+
+          <span class="nav-section-label">Operação</span>
+          <a href="/pedidos" data-route="pedidos"><span aria-hidden="true">▤</span> Pedidos</a>
+          <a class="nav-extra" href="/menu-semanal?view=production" data-route="menu-semanal"><span aria-hidden="true">◫</span> Produção</a>
+          <a href="/menu-semanal" data-route="cardapio"><span aria-hidden="true">▦</span> Cardápio</a>
+          <span class="nav-section-label">Financeiro</span>
+          <a href="/fluxo-de-caixa" data-route="fluxo-de-caixa"><span aria-hidden="true">$</span> Caixa</a>
+          <a class="nav-extra" href="/loja?view=sales" data-route="loja"><span aria-hidden="true">↗</span> Vendas</a>
+          <a class="nav-extra" href="/fluxo-de-caixa?novo=despesa" data-route="despesas"><span aria-hidden="true">↘</span> Despesas</a>
+          <a class="nav-extra" href="/relatorios" data-route="relatorios"><span aria-hidden="true">▥</span> Relatórios</a>
+
+          <span class="nav-section-label">Gestão</span>
+          <a class="nav-extra" href="/financeiro?view=employees" data-route="funcionarios"><span aria-hidden="true">♙</span> Funcionários</a>
+          <a class="nav-extra" href="/fluxo-de-caixa?panel=categories" data-route="fornecedores"><span aria-hidden="true">◇</span> Fornecedores</a>
+
+          <span class="nav-divider" aria-hidden="true"></span>
+          <a class="nav-extra" href="/configuracoes" data-route="configuracoes"><span aria-hidden="true">⚙</span> Configurações</a>
+          <a class="nav-more" href="/mais" data-route="mais">Mais ferramentas</a>
         </nav>
       </aside>
 
@@ -98,7 +108,25 @@
       </main>
     </div>
 
-    <script src="/app.js?v=20260807-05" defer></script>
+    <dialog class="global-new-dialog" id="global-new-dialog" aria-labelledby="global-new-title">
+      <div class="global-new-heading">
+        <div>
+          <span>Registro rápido</span>
+          <h2 id="global-new-title">O que deseja registrar?</h2>
+        </div>
+        <button class="dialog-close" type="button" id="global-new-close" aria-label="Fechar">×</button>
+      </div>
+      <div class="global-new-options">
+        <a href="/loja?view=sales"><b>Venda</b><small>Loja, combo ou unidade</small></a>
+        <a href="/fluxo-de-caixa?novo=despesa"><b>Despesa</b><small>Saída operacional</small></a>
+        <a href="/fluxo-de-caixa?novo=insumos"><b>Compra de insumos</b><small>Supermercado, frigorífico ou boleto</small></a>
+        <a href="/menu-semanal?view=production"><b>Produção</b><small>Lista da semana</small></a>
+        <a href="/fluxo-de-caixa?panel=withdrawals"><b>Retirada</b><small>Vanessa, Raquel ou cofrinho</small></a>
+        <a href="/fluxo-de-caixa?novo=desperdicio"><b>Perda/desperdício</b><small>Registrar impacto no caixa</small></a>
+      </div>
+    </dialog>
+
+    <script src="/app.js?v=20260807-06" defer></script>
     <script src="/sw-register.js" defer></script>
   </body>
 </html>

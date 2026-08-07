@@ -104,7 +104,7 @@ test('main navigation menu is accessible and complete', async ({ page }) => {
 
   // Check for key sections
   const hasHome = await page
-    .locator('a:has-text("Home"), a:has-text("Início")')
+    .locator('a:has-text("Home"), a:has-text("Início"), a:has-text("Visão geral")')
     .isVisible()
     .catch(() => false);
   const hasFinance = await page
@@ -112,7 +112,7 @@ test('main navigation menu is accessible and complete', async ({ page }) => {
     .isVisible()
     .catch(() => false);
   const hasCashFlow = await page
-    .locator('a:has-text("Fluxo")')
+    .locator('a:has-text("Fluxo"), a:has-text("Caixa")')
     .isVisible()
     .catch(() => false);
 

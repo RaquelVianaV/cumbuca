@@ -101,7 +101,7 @@ test('finance menu stays between the hero and period filters', async ({ page }, 
   ).toBeVisible();
 });
 
-test('menu is the single navigation entry and saves new orders', async ({ page }, testInfo) => {
+test('grouped navigation opens the menu and saves new orders', async ({ page }, testInfo) => {
   const database = await mockOnlineDatabase(page);
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
@@ -134,9 +134,11 @@ test('menu is the single navigation entry and saves new orders', async ({ page }
 
   await page.goto('/menu-semanal?ano=2026&mes=8&semana=1');
   const navigation = page.locator('nav.nav');
-  await expect(navigation.getByRole('link', { name: 'Menu', exact: true })).toHaveCount(1);
-  await expect(navigation.getByRole('link', { name: 'Pedidos', exact: true })).toHaveCount(0);
-  await expect(navigation.getByRole('link', { name: 'Menu', exact: true })).toHaveClass(/active/);
+  await expect(navigation.getByRole('link', { name: 'Cardápio', exact: true })).toHaveCount(1);
+  await expect(navigation.getByRole('link', { name: 'Pedidos', exact: true })).toHaveCount(1);
+  await expect(navigation.getByRole('link', { name: 'Cardápio', exact: true })).toHaveClass(
+    /active/
+  );
 
   await page.locator('#order-toggle').click();
   await page.locator('[data-order-tab="form"]').click();
@@ -163,8 +165,10 @@ test('menu is the single navigation entry and saves new orders', async ({ page }
   });
 
   await page.goto('/pedidos?ano=2026&mes=8&semana=1');
-  await expect(page).toHaveURL(/\/menu-semanal\?ano=2026&mes=8&semana=1$/);
-  await expect(navigation.getByRole('link', { name: 'Menu', exact: true })).toHaveClass(/active/);
+  await expect(page).toHaveURL(/\/pedidos\?ano=2026&mes=8&semana=1$/);
+  await expect(navigation.getByRole('link', { name: 'Pedidos', exact: true })).toHaveClass(
+    /active/
+  );
 });
 
 test('monthly orders allow manual fees and only account for entered values', async ({ page }) => {
@@ -1368,10 +1372,10 @@ test('withdrawals automatically apply cash debts and never exceed the account ba
   await expect(form.locator('.withdrawal-preview')).toContainText('R$ 5.000,00');
   await expect(form.locator('.withdrawal-preview')).toContainText('Total que sai agoraR$ 4.750,00');
   await expect(form.locator('.withdrawal-preview')).toContainText(
-    'Vanessa total retiradoR$ 3.150,00'
+    'Vanessa - distribuição totalR$ 3.150,00'
   );
   await expect(form.locator('.withdrawal-preview')).toContainText(
-    'Raquel total retiradoR$ 1.350,00'
+    'Raquel - distribuição totalR$ 1.350,00'
   );
   await form.locator('input[name="vanessa"]').fill('5.000,00');
   await expect(form.locator('.withdrawal-preview')).toContainText('Excede o saldo');
@@ -1425,8 +1429,8 @@ test('withdrawals automatically apply cash debts and never exceed the account ba
     hasText: 'Lucro operacional',
   });
   await expect(monthSummary).toContainText('Lucro operacionalR$ 5.000,00');
-  await expect(monthSummary).toContainText('Vanessa total retiradoR$ 3.150,00');
-  await expect(monthSummary).toContainText('Raquel total retiradoR$ 1.350,00');
+  await expect(monthSummary).toContainText('Vanessa - distribuiçãoR$ 3.150,00');
+  await expect(monthSummary).toContainText('Raquel - distribuiçãoR$ 1.350,00');
   expect(
     await page.evaluate((dateKey) => window.accountBalanceUntilDate(dateKey), today)
   ).toBeCloseTo(0, 2);
@@ -1438,19 +1442,19 @@ test('withdrawals automatically apply cash debts and never exceed the account ba
   const withdrawalReport = page.locator('.withdrawal-person-panel');
   await expect(withdrawalReport).toContainText('Lucro operacionalR$ 5.000,00');
   await expect(withdrawalReport).toContainText('Cofrinho (10%)R$ 500,00');
-  await expect(withdrawalReport).toContainText('Vanessa total retiradoR$ 3.150,00');
-  await expect(withdrawalReport).toContainText('Raquel total retiradoR$ 1.350,00');
+  await expect(withdrawalReport).toContainText('Vanessa - distribuição totalR$ 3.150,00');
+  await expect(withdrawalReport).toContainText('Raquel - distribuição totalR$ 1.350,00');
   await expect(withdrawalReport).toContainText('Dívidas compensadasR$ 250,00');
   await expect(withdrawalReport).toContainText('Total que saiu da contaR$ 4.750,00');
-  await expect(withdrawalReport).toContainText('Total retirado na semana');
-  await expect(withdrawalReport).toContainText('Total retirado no mês');
+  await expect(withdrawalReport).toContainText('Distribuição na semana');
+  await expect(withdrawalReport).toContainText('Distribuição no mês');
   await expect(withdrawalReport).toContainText(
     'R$ 3.150,00Recebeu agora R$ 2.950,00 · dívida compensada R$ 200,00'
   );
   await expect(withdrawalReport).toContainText(
     'R$ 1.350,00Recebeu agora R$ 1.300,00 · dívida compensada R$ 50,00'
   );
-  await expect(page.locator('.report-grid')).toContainText('Resultado após retiradasR$ 0,00');
+  await expect(page.locator('.report-grid')).toContainText('Resultado após retiradasR$ 250,00');
   await page.screenshot({
     path: testInfo.outputPath('withdrawal-report-breakdown.png'),
     fullPage: true,
@@ -2383,9 +2387,30 @@ test('home dashboard prioritizes projected balance and actions', async ({ page }
   const tomorrow = localDateKey(tomorrowDate);
   database.state = {
     cashEntries: [
-      { id: 'home-pf-income', date: today, type: 'income', cashAccount: 'pf', amount: '100.00' },
-      { id: 'home-pj-income', date: today, type: 'income', cashAccount: 'pj', amount: '50.00' },
-      { id: 'home-pj-expense', date: today, type: 'expense', cashAccount: 'pj', amount: '10.00' },
+      {
+        id: 'home-pf-income',
+        date: today,
+        type: 'income',
+        category: 'venda',
+        cashAccount: 'pf',
+        amount: '100.00',
+      },
+      {
+        id: 'home-pj-income',
+        date: today,
+        type: 'income',
+        category: 'venda',
+        cashAccount: 'pj',
+        amount: '50.00',
+      },
+      {
+        id: 'home-pj-expense',
+        date: today,
+        type: 'expense',
+        category: 'outros',
+        cashAccount: 'pj',
+        amount: '10.00',
+      },
       {
         id: 'home-cash-bill',
         date: tomorrow,
@@ -2419,47 +2444,40 @@ test('home dashboard prioritizes projected balance and actions', async ({ page }
         },
       ],
     },
+    orders: [
+      {
+        id: 'home-order',
+        menuKey: `${today.slice(0, 7)}-semana-1`,
+        totalQuantity: 2,
+        amount: '80.00',
+      },
+    ],
+    storeSales: [{ id: 'home-store-sale', date: today, quantity: 1 }],
   };
   await page.goto('/');
   await expect(
-    page.getByRole('heading', { name: 'Visão geral financeira', exact: true })
+    page.getByRole('heading', { name: 'Situação da empresa', exact: true })
   ).toBeVisible();
-  const balanceCard = page.locator('[data-home-balance]');
-  await expect(balanceCard).toContainText('R$ 140,00');
-  const balanceSummary = page.locator('.home-balance-summary');
-  await expect(balanceSummary).toContainText('Saldo unificado das contas');
-  await expect(balanceSummary).toContainText('Conta PF R$ 100,00');
-  await expect(balanceSummary).toContainText('Conta PJ R$ 40,00');
-  const projectionCard = page.locator('[data-home-projection]');
-  await expect(projectionCard).toContainText('R$ 150,00');
-  await expect(projectionCard).toContainText('Conta PF R$ 80,00');
-  await expect(projectionCard).toContainText('Conta PJ R$ 70,00');
-  await expect(projectionCard).toContainText('A pagar R$ 20,00');
-  await expect(projectionCard).toContainText('receber R$ 30,00');
-  await expect(page.locator('[data-home-priorities]')).toBeVisible();
+  const indicators = page.locator('.executive-kpi-grid .executive-kpi');
+  await expect(indicators).toHaveCount(6);
+  await expect(page.locator('[data-home-projection]')).toContainText('Vendas');
+  await expect(page.locator('[data-home-projection]')).toContainText('R$ 150,00');
+  await expect(page.locator('[data-home-volume]')).toContainText('3');
+  await expect(page.locator('[data-home-priorities]').first()).toBeVisible();
   await expect(page.locator('[data-home-budget]')).toBeVisible();
   await expect(page.locator('[data-home-volume]')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Prioridades', exact: true })).toBeVisible();
   await expect(
-    page.getByRole('heading', { name: 'Próximos vencimentos', exact: true })
+    page.getByRole('heading', { name: 'O que precisa da sua atenção', exact: true })
   ).toBeVisible();
-  const upcomingPanel = page
-    .getByRole('heading', { name: 'Próximos vencimentos', exact: true })
-    .locator('..')
-    .locator('..');
-  await expect(upcomingPanel).toContainText('Fornecedor PF');
-  await expect(upcomingPanel).toContainText('Cliente PJ');
-  await expect(upcomingPanel).toContainText('Boleto futuro do caixa');
-  await expect(upcomingPanel).toContainText('Conta a pagar');
-  await expect(upcomingPanel).toContainText('Conta a receber');
-  await expect(upcomingPanel).toContainText('Boleto do Fluxo de Caixa');
+  await expect(page.getByRole('heading', { name: 'DRE gerencial simplificada' })).toBeVisible();
+  await expect(page.locator('[data-management-dre]')).toContainText(
+    /Lucro operacional\s*R\$\s*140,00/
+  );
+  await expect(page.locator('[data-management-dre]')).toContainText(/Saldo final\s*R\$\s*140,00/);
   await expect(
-    upcomingPanel.locator('a[href="/financeiro?view=accounts&account=home-pf-payable"]')
+    page.getByRole('heading', { name: 'Comparação com mês anterior', exact: true })
   ).toBeVisible();
-  await expect(
-    upcomingPanel.locator('a[href="/fluxo-de-caixa?edit=home-cash-bill"]')
-  ).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Ações principais', exact: true })).toBeVisible();
+  await expect(page.locator('#global-new-button')).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await page.screenshot({ path: testInfo.outputPath('home-dashboard.png'), fullPage: true });
 });
@@ -2508,10 +2526,10 @@ test('home period applies the selected month across monthly views', async ({ pag
   await page.goto('/home');
   const globalForm = page.locator('#global-period-form');
   await expect(globalForm).toBeVisible();
-  await globalForm.locator('input[name="year"]').fill('2026');
-  await globalForm.locator('select[name="month"]').selectOption('7');
+  await globalForm.locator('input[name="period"]').fill('2026-07');
   await globalForm.getByRole('button', { name: 'Aplicar em todo o sistema', exact: true }).click();
-  await expect(page.locator('.dashboard-copy > span')).toContainText('julho de 2026');
+  await expect(page.locator('.executive-toolbar')).toContainText('julho de 2026');
+  await expect(page.locator('#global-period-form input[name="period"]')).toHaveValue('2026-07');
   await expect(
     page.locator('#global-period-form').getByRole('button', {
       name: 'Aplicar em todo o sistema',
@@ -2672,13 +2690,4 @@ test('monthly category budget compares limits with operational expenses', async 
   await expect(page.locator('.budget-row').filter({ hasText: 'Supermercado' })).toContainText(
     'Excedeu R$ 10,00'
   );
-
-  await page.goto('/');
-  await expect(
-    page.getByRole('heading', { name: 'Orçamento por categoria', exact: true })
-  ).toBeVisible();
-  await expect(page.locator('.budget-mini-list').filter({ hasText: 'Supermercado' })).toContainText(
-    '113%'
-  );
-  await expect(page.getByText('Orçamento excedido', { exact: true })).toBeVisible();
 });

@@ -93,10 +93,13 @@ test('narrow browser windows keep horizontal page scrolling available', () => {
   assert.equal(fs.existsSync(path.join(root, 'public', 'mapa-cumbuca.png')), true);
 });
 
-test('finance, reports and maintenance expose the expected view tabs', () => {
+test('navigation, finance, reports and maintenance expose the expected views', () => {
   const mainNavigation = html.match(/<nav class="nav">([\s\S]*?)<\/nav>/)?.[1] || '';
-  assert.match(mainNavigation, /href="\/menu-semanal"[^>]*>Menu<\/a>/);
-  assert.doesNotMatch(mainNavigation, /href="\/pedidos"/);
+  assert.match(mainNavigation, /href="\/home"[^>]*>[\s\S]*?Visão geral<\/a>/);
+  assert.match(mainNavigation, /href="\/menu-semanal"[^>]*>[\s\S]*?Cardápio<\/a>/);
+  assert.match(mainNavigation, /href="\/pedidos"/);
+  assert.match(mainNavigation, /nav-section-label">Financeiro/);
+  assert.match(mainNavigation, /nav-section-label">Gestão/);
   assert.equal((mainNavigation.match(/href="\/menu-semanal"/g) || []).length, 1);
   assert.match(app, /const editingOrder = state\.editOrderId/);
   assert.doesNotMatch(app, /paidAmount: editing\?\.paidAmount/);
@@ -108,7 +111,11 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /Só entra na contabilidade quando você informar o valor recebido/);
   assert.doesNotMatch(app, /planValueField\.required = isMonthly/);
   assert.doesNotMatch(app, /amount: client\.plan === "mensalista"/);
-  assert.match(app, /history\.replaceState\(null, "", `\/menu-semanal\$\{location\.search\}`\)/);
+  assert.match(app, /setActive\(routeName\(\) === "pedidos" \? "pedidos"/);
+  assert.doesNotMatch(
+    app,
+    /history\.replaceState\(null, "", `\/menu-semanal\$\{location\.search\}`\)/
+  );
   assert.match(app, /Cadastre os custos do menu diretamente no Planejamento/);
   assert.match(app, /Gasto total de supermercado desta semana/);
   assert.match(app, /será dividido somente pelas/);
@@ -314,10 +321,17 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /weeklyMenuSupermarketCostsByPeriod/);
   assert.match(app, /function weeklyMenuProductionCost/);
   assert.match(app, /function monthlyFoodAndBillsCost/);
+  assert.match(app, /function productionPurchasesForPeriod/);
+  assert.match(app, /function managementPeriodMetrics/);
+  assert.match(app, /function managementMovingAverage/);
+  assert.match(app, /function managementAttentionItems/);
+  assert.match(app, /function managementDreData/);
   assert.match(app, /function financeFoodAndBillsCostPanel/);
   assert.match(app, /function foodInputExpenseCategory/);
-  assert.match(app, /Compras de insumos por cumbuca/);
-  assert.match(app, /Supermercado \+ Frigorífico \+ Boleto pagos/);
+  assert.match(app, /Compras de insumos/);
+  assert.match(app, /Boleto \+ Supermercado \+ Frigorífico pagos/);
+  assert.match(app, /Compras por cumbuca/);
+  assert.match(app, /Não representa CMV contábil/);
   assert.match(app, /Somente lançamentos na categoria Boleto/);
   assert.match(app, /data-menu-weekly-quantity/);
   assert.match(app, /data-week-summary/);
@@ -399,8 +413,8 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /Quanto realmente sairá da conta agora/);
   assert.match(app, /Lucro operacional/);
   assert.match(app, /Total que sai agora/);
-  assert.match(app, /Vanessa - total retirado/);
-  assert.match(app, /Raquel - total retirado/);
+  assert.match(app, /Vanessa - distribuição total/);
+  assert.match(app, /Raquel - distribuição total/);
   assert.match(app, /vanessa_total_retirado/);
   assert.match(app, /raquel_total_retirado/);
   assert.match(app, /partnerCashOffsetLabel/);
@@ -431,7 +445,7 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(css, /\.linked-action-row/);
   assert.match(css, /\.withdrawal-value-group/);
   assert.match(app, /reportViewTab/);
-  assert.match(html, />Operação<\/a>/);
+  assert.match(html, /nav-section-label">Operação/);
   assert.match(app, /function operationAgendaItems/);
   assert.match(app, /function actionableManagementAlerts/);
   assert.match(app, /data-alert-category/);

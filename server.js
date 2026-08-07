@@ -2323,9 +2323,9 @@ function buildReportPdf(payload = {}) {
     .font('Helvetica')
     .fontSize(11)
     .text(`Lucro operacional: ${brl(data.profitBeforeWithdrawals)}`, 62, 358)
-    .text(`Vanessa total retirado: ${brl(data.withdrawalVanessa)}`, 62, 382)
-    .text(`Cofrinho: ${brl(data.withdrawalSavings)}`, 62, 406)
-    .text(`Raquel total retirado: ${brl(data.withdrawalRaquel)}`, 62, 430);
+    .text(`Distribuição societária: ${brl(data.withdrawalGrossTotal)}`, 62, 382)
+    .text(`Dinheiro que saiu da conta: ${brl(data.withdrawalTotal)}`, 62, 406)
+    .text(`Compensação sem saída de caixa: ${brl(data.withdrawalDebtCompensation)}`, 62, 430);
   doc
     .fillColor('#69707d')
     .fontSize(9)
@@ -2349,13 +2349,30 @@ function buildReportPdf(payload = {}) {
       align: 'right',
     });
 
+  const managementSummary =
+    data.productionPurchases == null
+      ? []
+      : [
+          ['Vendas registradas no Caixa', brl(data.salesRevenue)],
+          ['Compras de insumos', brl(data.productionPurchases)],
+          [
+            'Compras / Vendas',
+            `${Number(data.purchasesSalesPercent || 0).toLocaleString('pt-BR', {
+              maximumFractionDigits: 1,
+            })}%`,
+          ],
+          ['Compras por cumbuca', brl(data.purchasesPerBowl)],
+        ];
   const summary = [
     ['Entradas operacionais', brl(data.totalIncome)],
     ['Saídas operacionais', brl(data.operationalExpenses)],
     ['Lucro operacional', brl(data.profitBeforeWithdrawals)],
-    ['Vanessa total retirado', brl(data.withdrawalVanessa)],
-    ['Cofrinho', brl(data.withdrawalSavings)],
-    ['Raquel total retirado', brl(data.withdrawalRaquel)],
+    ...managementSummary,
+    ['Vanessa - distribuição', brl(data.withdrawalVanessa)],
+    ['Cofrinho transferido', brl(data.withdrawalSavings)],
+    ['Raquel - distribuição', brl(data.withdrawalRaquel)],
+    ['Saiu da conta', brl(data.withdrawalTotal)],
+    ['Compensação sem caixa', brl(data.withdrawalDebtCompensation)],
     ['Resultado após retiradas', brl(data.availableForWithdrawal)],
     ['Saldo da conta', brl(data.accountBalance)],
     ['Ajustes da conta', brl(data.accountAdjustmentBalance)],
@@ -2490,14 +2507,29 @@ function buildReportPdf(payload = {}) {
 async function buildReportXlsx(payload = {}) {
   const data = payload.data || {};
   const zip = new JSZip();
+  const managementSummaryRows =
+    data.productionPurchases == null
+      ? []
+      : [
+          ['Vendas registradas no Caixa', data.salesRevenue || 0],
+          ['Compras de insumos', data.productionPurchases || 0],
+          ['Boleto para produção', data.productionPurchasesBills || 0],
+          ['Supermercado para produção', data.productionPurchasesSupermarket || 0],
+          ['Frigorífico para produção', data.productionPurchasesButcher || 0],
+          ['Compras / Vendas (%)', data.purchasesSalesPercent || 0],
+          ['Compras por cumbuca', data.purchasesPerBowl || 0],
+        ];
   const summaryRows = [
     ['Período', payload.periodLabel || data.periodKey || ''],
     ['Entradas operacionais', data.totalIncome || 0],
     ['Saídas operacionais', data.operationalExpenses || 0],
     ['Lucro operacional', data.profitBeforeWithdrawals || 0],
-    ['Vanessa total retirado', data.withdrawalVanessa || 0],
-    ['Cofrinho', data.withdrawalSavings || 0],
-    ['Raquel total retirado', data.withdrawalRaquel || 0],
+    ...managementSummaryRows,
+    ['Vanessa - distribuição total', data.withdrawalVanessa || 0],
+    ['Cofrinho transferido', data.withdrawalSavings || 0],
+    ['Raquel - distribuição total', data.withdrawalRaquel || 0],
+    ['Dinheiro que saiu da conta', data.withdrawalTotal || 0],
+    ['Compensação sem saída de caixa', data.withdrawalDebtCompensation || 0],
     ['Resultado após retiradas', data.availableForWithdrawal || 0],
     ['Saldo da conta', data.accountBalance || 0],
     ['Ajustes da conta', data.accountAdjustmentBalance || 0],

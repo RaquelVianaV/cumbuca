@@ -11,6 +11,9 @@ const backupButton = document.querySelector('#backup-button');
 const logoutButton = document.querySelector('#logout-button');
 const themeToggleButton = document.querySelector('#theme-toggle-button');
 const currentUserBadge = document.querySelector('#current-user');
+const globalNewButton = document.querySelector('#global-new-button');
+const globalNewDialog = document.querySelector('#global-new-dialog');
+const globalNewClose = document.querySelector('#global-new-close');
 const navLinks = [...document.querySelectorAll('[data-route]')];
 let systemStatus = {
   server: false,
@@ -1873,6 +1876,16 @@ function cleanupPreviewHtml(year, preview) {
 
 if (backupButton) {
   backupButton.addEventListener("click", downloadBackup);
+}
+
+if (globalNewButton && globalNewDialog) {
+  globalNewButton.addEventListener("click", () => globalNewDialog.showModal());
+  globalNewClose?.addEventListener("click", () => globalNewDialog.close());
+  globalNewDialog.addEventListener("click", event => {
+    if (event.target === globalNewDialog) {
+      globalNewDialog.close();
+    }
+  });
 }
 
 updateServerStatus();
@@ -3850,7 +3863,7 @@ function partnerPeriodTotals(groups = []) {
     totals.expectedRaquel += Number(group.expectedRaquel || 0);
     totals.expectedTotal += Number(group.expectedTotal || 0);
     totals.paidNowTotal += Number(group.total || 0);
-    totals.operationalProfit += Number(group.savings || 0)
+    totals.distributionTotal += Number(group.savings || 0)
       + Number(group.vanessa || 0)
       + Number(group.paidToCashVanessa || 0)
       + Number(group.raquel || 0)
@@ -3875,7 +3888,7 @@ function partnerPeriodTotals(groups = []) {
     expectedRaquel: 0,
     expectedTotal: 0,
     paidNowTotal: 0,
-    operationalProfit: 0,
+    distributionTotal: 0,
     priorVanessa: 0,
     priorRaquel: 0,
     paidToCashVanessa: 0,
@@ -3909,7 +3922,7 @@ function partnerDashboard(referenceDate, monthKey) {
   const elapsedDays = Math.max(1, daysBetweenInclusive(monthStart, projectionEnd));
   const totalDays = daysBetweenInclusive(monthStart, monthEnd);
   const projectedProfit = (financial.profitBeforeWithdrawals / elapsedDays) * totalDays;
-  const projectedAvailable = projectedProfit - financial.withdrawals.total;
+  const projectedAvailable = projectedProfit - Number(financial.withdrawals.total || 0);
 
   return {
     weekStart,
@@ -3918,6 +3931,7 @@ function partnerDashboard(referenceDate, monthKey) {
     monthEnd,
     week,
     month: monthTotals,
+    monthOperationalProfit: financial.profitBeforeWithdrawals,
     accumulated,
     projection: withdrawalSplit(Math.max(0, projectedAvailable))
   };
@@ -3931,14 +3945,14 @@ function withdrawalHistoryHtml(monthKey = currentMonthKey()) {
   return `
     <div class="table-wrap report-table">
       <table>
-        <thead><tr><th>Data</th><th>Conta</th><th>Saldo disponível</th><th>Lucro operacional</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Saiu da conta</th><th></th></tr></thead>
+        <thead><tr><th>Data</th><th>Conta</th><th>Saldo disponível</th><th>Distribuição societária</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Saiu da conta</th><th></th></tr></thead>
         <tbody>
           ${groups.map(group => `
             <tr>
               <td>${formatIsoDateBr(group.date)}</td>
               <td>${group.mixedCashAccounts ? "Mais de uma conta" : cashAccountLabel(group.cashAccount)}</td>
               <td>${money(group.accountBalanceBefore)}</td>
-              <td><strong>${money(group.savings + group.vanessa + group.paidToCashVanessa + group.raquel + group.paidToCashRaquel)}</strong><br><small>Total retirado</small></td>
+              <td><strong>${money(group.savings + group.vanessa + group.paidToCashVanessa + group.raquel + group.paidToCashRaquel)}</strong><br><small>Inclui compensações</small></td>
               <td>${money(group.savings)}<br><small>10% bruto ${money(group.expectedSavings)}</small></td>
               <td><strong>${money(group.vanessa + group.paidToCashVanessa)}</strong><br><small>Recebeu agora ${money(group.vanessa)} · dívida compensada ${money(group.paidToCashVanessa)} · direito ${money(group.expectedVanessa)}</small></td>
               <td><strong>${money(group.raquel + group.paidToCashRaquel)}</strong><br><small>Recebeu agora ${money(group.raquel)} · dívida compensada ${money(group.paidToCashRaquel)} · direito ${money(group.expectedRaquel)}</small></td>
@@ -4162,37 +4176,50 @@ function withdrawalBreakdownAmounts(withdrawals = {}, control = {}) {
 }
 
 function operationalProfitForReport(data = {}) {
-  const withdrawals = data.financial?.withdrawals || {};
-  const entries = data.financial?.withdrawalEntries || [];
-  if (!entries.length) {
-    return Number(data.financial?.profitBeforeWithdrawals || 0);
-  }
-  return withdrawalBreakdownAmounts(withdrawals, data.partnerWithdrawalControl).total;
+  return Number(data.financial?.profitBeforeWithdrawals || 0);
+}
+
+function cashWithdrawalsForReport(data = {}) {
+  return Number(data.financial?.withdrawals?.total || 0);
+}
+
+function debtCompensationForReport(data = {}) {
+  return Number(data.partnerWithdrawalControl?.paidToCashVanessa || 0)
+    + Number(data.partnerWithdrawalControl?.paidToCashRaquel || 0);
+}
+
+function profitDistributionForReport(data = {}) {
+  return withdrawalBreakdownAmounts(
+    data.financial?.withdrawals || {},
+    data.partnerWithdrawalControl
+  ).total;
 }
 
 function operationalResultForReport(data = {}) {
-  const withdrawalAmounts = withdrawalBreakdownAmounts(
-    data.financial?.withdrawals || {},
-    data.partnerWithdrawalControl
-  );
-  return operationalProfitForReport(data) - withdrawalAmounts.total;
+  return operationalProfitForReport(data) - cashWithdrawalsForReport(data);
 }
 
 function withdrawalBreakdownMetrics(withdrawals = {}, className = "metric", control = {}) {
   const amounts = withdrawalBreakdownAmounts(withdrawals, control);
   return `
-    <div class="${className}"><span>Vanessa total retirado</span><strong>${money(amounts.vanessa)}</strong></div>
-    <div class="${className}"><span>Cofrinho</span><strong>${money(amounts.savings)}</strong></div>
-    <div class="${className}"><span>Raquel total retirado</span><strong>${money(amounts.raquel)}</strong></div>
+    <div class="${className}"><span>Vanessa - distribuição total</span><strong>${money(amounts.vanessa)}</strong></div>
+    <div class="${className}"><span>Cofrinho transferido</span><strong>${money(amounts.savings)}</strong></div>
+    <div class="${className}"><span>Raquel - distribuição total</span><strong>${money(amounts.raquel)}</strong></div>
   `;
 }
 
 function withdrawalBreakdownStatement(withdrawals = {}, control = {}) {
   const amounts = withdrawalBreakdownAmounts(withdrawals, control);
+  const cashTotal = Number(withdrawals.total || 0);
+  const debtCompensation = Number(amounts.paidToCashVanessa || 0)
+    + Number(amounts.paidToCashRaquel || 0);
   return `
-    <div class="statement-line"><span>(-) Vanessa total retirado</span><strong>${money(amounts.vanessa)}</strong></div>
-    <div class="statement-line"><span>(-) Cofrinho</span><strong>${money(amounts.savings)}</strong></div>
-    <div class="statement-line"><span>(-) Raquel total retirado</span><strong>${money(amounts.raquel)}</strong></div>
+    <div class="statement-line"><span>(-) Vanessa recebeu da conta</span><strong>${money(amounts.receivedNowVanessa)}</strong></div>
+    <div class="statement-line"><span>(-) Cofrinho transferido</span><strong>${money(amounts.savings)}</strong></div>
+    <div class="statement-line"><span>(-) Raquel recebeu da conta</span><strong>${money(amounts.receivedNowRaquel)}</strong></div>
+    <div class="statement-line statement-note"><span>Dinheiro que saiu da conta</span><strong>${money(cashTotal)}</strong></div>
+    <div class="statement-line statement-note"><span>Compensação de dívida (sem saída de caixa)</span><strong>${money(debtCompensation)}</strong></div>
+    <div class="statement-line statement-note"><span>Distribuição societária total</span><strong>${money(amounts.total)}</strong></div>
   `;
 }
 
@@ -4857,7 +4884,7 @@ function dashboardAccountBreakdown(values = {}) {
   `;
 }
 
-function home() {
+function legacyHome() {
   showHomeHero();
   setActive("");
   const metrics = homeMetricData();
@@ -5016,6 +5043,174 @@ function home() {
     const selectedKey = `${selected.year}-${String(selected.month).padStart(2, "0")}`;
     showToast(`${formatMonthKeyBr(selectedKey)} aplicado em todo o sistema.`, "success");
     home();
+  });
+}
+
+function home() {
+  showHomeHero();
+  setActive("home");
+  document.body.classList.add("home-route");
+  const globalPeriod = normalizedGlobalPeriod(state.globalPeriod || state.menuPeriod);
+  const periodKey = `${globalPeriod.year}-${String(globalPeriod.month).padStart(2, "0")}`;
+  const previousKey = previousMonthKeyFromPeriod(periodKey);
+  const current = managementDreData(periodKey);
+  const previous = managementPeriodMetrics(previousKey);
+  const average = managementMovingAverage(periodKey, 3);
+  const comparisonRows = managementComparisonRows(periodKey);
+  const attentionItems = managementAttentionItems(current, previous, average);
+  const comparePrevious = localStorage.getItem("managementComparePrevious") !== "false";
+  const comparison = (value, previousValue, options = {}) => comparePrevious
+    ? managementDeltaHtml(value, previousValue, options)
+    : "";
+  const averageLabel = (label, value, kind = "money") => average.monthsUsed
+    ? `<small class="management-average">Média ${average.monthsUsed} mês(es): ${managementValueLabel(value, kind)}</small>`
+    : `<small class="management-average">Sem histórico para média</small>`;
+
+  app.innerHTML = `
+    <div class="executive-home">
+      <section class="home-command-grid executive-toolbar" aria-labelledby="global-period-title">
+        <div>
+          <span class="executive-eyebrow">Visão geral</span>
+          <h2 id="global-period-title">Situação da empresa</h2>
+          <p>${formatMonthKeyBr(periodKey)}${comparePrevious ? ` comparado com ${formatMonthKeyBr(previousKey)}` : ""}</p>
+        </div>
+        <form id="global-period-form" class="global-period-form executive-period-form">
+          <button class="secondary executive-period-shift" type="button" data-home-period-shift="-1" aria-label="Mês anterior">‹</button>
+          <label>
+            <span>Período</span>
+            <input name="period" type="month" value="${periodKey}" required>
+          </label>
+          <button class="secondary executive-period-shift" type="button" data-home-period-shift="1" aria-label="Próximo mês">›</button>
+          <label class="management-compare-toggle">
+            <input name="comparePrevious" type="checkbox" ${comparePrevious ? "checked" : ""}>
+            <span>Comparar com mês anterior</span>
+          </label>
+          <button type="submit">Aplicar <span class="sr-only">em todo o sistema</span></button>
+        </form>
+      </section>
+
+      <section class="home-overview-band executive-kpi-grid home-dashboard-kpis" aria-label="Indicadores principais">
+        <a class="executive-kpi" href="/financeiro" data-home-projection>
+          <span>Vendas</span>
+          <strong>${money(current.sales)}</strong>
+          <small>Lançamentos de venda no Caixa</small>
+          ${comparison(current.sales, previous.sales)}
+          ${averageLabel("Vendas", average.sales)}
+        </a>
+        <a class="executive-kpi" href="/financeiro" data-home-budget>
+          <span>Compras de insumos</span>
+          <strong>${money(current.purchasesProduction)}</strong>
+          <small>${current.purchasesSalesPercent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% das vendas</small>
+          ${comparison(current.purchasesProduction, previous.purchasesProduction, { lowerIsBetter: true })}
+          ${averageLabel("Compras", average.purchasesProduction)}
+        </a>
+        <div class="executive-kpi">
+          <span>Compras / Vendas</span>
+          <strong>${current.purchasesSalesPercent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%</strong>
+          <small>${money(current.purchasesProduction)} em compras</small>
+          ${comparison(current.purchasesSalesPercent, previous.purchasesSalesPercent, { lowerIsBetter: true, kind: "percent" })}
+          ${averageLabel("Compras / Vendas", average.purchasesSalesPercent, "percent")}
+        </div>
+        <a class="executive-kpi" href="/menu-semanal?resumo=mes" data-home-volume>
+          <span>Cumbucas vendidas</span>
+          <strong>${current.bowls.toLocaleString("pt-BR")}</strong>
+          <small>Menu ${current.menuBowls} + Loja ${current.storeBowls}</small>
+          ${comparison(current.bowls, previous.bowls)}
+          ${averageLabel("Cumbucas", average.bowls, "count")}
+        </a>
+        <a class="executive-kpi" href="/financeiro" data-home-cost-per-bowl>
+          <span>Compras por cumbuca</span>
+          <strong>${money(current.purchasesPerBowl)}</strong>
+          <small title="Compras de insumos do período divididas pelas cumbucas vendidas. Não representa CMV contábil porque não considera estoque inicial e final.">Compras de insumos ÷ cumbucas</small>
+          ${comparison(current.purchasesPerBowl, previous.purchasesPerBowl, { lowerIsBetter: true })}
+          ${averageLabel("Compras por cumbuca", average.purchasesPerBowl)}
+        </a>
+        <a class="executive-kpi" href="/relatorios" data-home-priorities>
+          <span>Lucro operacional</span>
+          <strong class="${current.operationalProfit < 0 ? "negative" : "positive"}">${money(current.operationalProfit)}</strong>
+          <small>Entradas operacionais − despesas operacionais</small>
+          ${comparison(current.operationalProfit, previous.operationalProfit)}
+        </a>
+      </section>
+
+      <section class="panel executive-attention" data-home-priorities>
+        <div class="executive-card-heading">
+          <div>
+            <span class="executive-eyebrow">Leitura automática</span>
+            <h2>O que precisa da sua atenção</h2>
+          </div>
+          <a href="/alertas">Ver todos os alertas</a>
+        </div>
+        <div class="executive-attention-grid">
+          ${attentionItems.length ? attentionItems.map(item => `
+            <article class="${item.tone === "positive" ? "good" : "warning"}">
+              <span>${item.tone === "positive" ? "Melhoria" : "Atenção"}</span>
+              <strong>${escapeHtml(item.title)}</strong>
+              <small>${escapeHtml(item.value)} · ${escapeHtml(item.reference)}</small>
+              <p>${escapeHtml(item.detail)}</p>
+            </article>
+          `).join("") : `
+            <article class="good management-all-clear">
+              <span>Leitura do período</span>
+              <strong>Nenhuma variação relevante encontrada</strong>
+              <small>Comparação com ${formatMonthKeyBr(previousKey)} e média disponível.</small>
+              <p>Continue acompanhando vendas, compras e produção.</p>
+            </article>
+          `}
+        </div>
+      </section>
+
+      <section class="panel executive-result-card">
+        ${managementStatementHtml(current, { includeHeading: true })}
+      </section>
+
+      <section class="panel executive-production management-comparison-panel">
+        <div class="executive-card-heading">
+          <div>
+            <span class="executive-eyebrow">Evolução mensal</span>
+            <h2>Comparação com mês anterior</h2>
+          </div>
+          <span>${formatMonthKeyBr(periodKey)} × ${formatMonthKeyBr(previousKey)}</span>
+        </div>
+        <div class="management-comparison-grid">
+          ${comparisonRows.map(row => {
+            const improved = row.lowerIsBetter ? row.delta < 0 : row.delta > 0;
+            const tone = Math.abs(row.delta) < 0.005 ? "neutral" : improved ? "positive" : "warning";
+            return `
+              <article class="${tone}">
+                <span>${row.label}</span>
+                <strong>${managementComparisonValue(row, row.current)}</strong>
+                <small>Anterior: ${managementComparisonValue(row, row.previous)}</small>
+                <b>${managementComparisonDelta(row)}${row.kind !== "percent" && Math.abs(row.previous) >= 0.005 ? ` · ${row.variationPercent > 0 ? "+" : ""}${row.variationPercent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%` : ""}</b>
+              </article>
+            `;
+          }).join("")}
+        </div>
+      </section>
+    </div>
+  `;
+
+  on("#global-period-form", "submit", event => {
+    event.preventDefault();
+    const values = readForm(event.currentTarget);
+    const [year, month] = String(values.period || periodKey).split("-").map(Number);
+    localStorage.setItem("managementComparePrevious", values.comparePrevious === "on" ? "true" : "false");
+    const selected = applyGlobalPeriodToViews({ year, month });
+    history.replaceState(null, "", "/home");
+    const selectedKey = `${selected.year}-${String(selected.month).padStart(2, "0")}`;
+    showToast(`${formatMonthKeyBr(selectedKey)} aplicado em todo o sistema.`, "success");
+    home();
+  });
+
+  document.querySelectorAll("[data-home-period-shift]").forEach(button => {
+    button.addEventListener("click", event => {
+      const shift = Number(event.currentTarget.dataset.homePeriodShift || 0);
+      const [year, month] = periodKey.split("-").map(Number);
+      const target = new Date(year, month - 1 + shift, 1);
+      applyGlobalPeriodToViews({ year: target.getFullYear(), month: target.getMonth() + 1 });
+      history.replaceState(null, "", "/home");
+      home();
+    });
   });
 }
 
@@ -5575,12 +5770,23 @@ async function renderCash() {
   setActive("fluxo-de-caixa");
   const cashParams = new URLSearchParams(location.search);
   const requestedCashPanel = cashParams.get("panel");
+  const requestedQuickEntry = cashParams.get("novo");
+  const quickEntryDrafts = {
+    despesa: { type: "expense", category: "outros", description: "" },
+    insumos: { type: "expense", category: "supermercado", description: "Compra de insumos" },
+    desperdicio: { type: "expense", category: "outros", description: "Perda/desperdício" }
+  };
+  const requestedQuickDraft = quickEntryDrafts[requestedQuickEntry] || null;
   const requestedEmployeeId = cashParams.get("employee");
   const requestedEmployee = financialEmployeeById(requestedEmployeeId);
   if (requestedCashPanel === "channels") {
     state.storeViewTab = "channels";
     location.replace("/loja?view=channels");
     return;
+  }
+  if (requestedQuickDraft) {
+    state.editCashId = null;
+    state.cashPanelTab = "entry";
   }
   const requestedEditCashId = cashParams.get("edit");
   ensureCashEntryIds();
@@ -5606,15 +5812,19 @@ async function renderCash() {
   const cashEntryDate = editing?.date || state.cashEntryDraft.date || today;
   const cashEntryType = editing?.type
     || (requestedEmployee ? "expense" : "")
+    || requestedQuickDraft?.type
     || state.cashEntryDraft.type
     || "income";
   const cashEntryCategory = editing?.category
     || (requestedEmployee ? "funcionarios" : "")
+    || requestedQuickDraft?.category
     || state.cashEntryDraft.category
     || (cashEntryType === "expense" ? "outros" : "venda");
   const cashEntryEmployeeId = String(editing?.employeeId || requestedEmployee?.id || "");
   const cashEntryDescription = editing?.description
-    || (requestedEmployee ? `Pagamento - ${requestedEmployee.name}` : "");
+    || (requestedEmployee ? `Pagamento - ${requestedEmployee.name}` : "")
+    || requestedQuickDraft?.description
+    || "";
   const cashEntryIsPendingBill = cashEntryType === "expense"
     && isBillCategory(cashEntryCategory)
     && !editing?.paidAt;
@@ -6001,7 +6211,7 @@ async function renderCash() {
         ${activeCashPanel === "withdrawals" ? `
         <div class="cash-tab-section withdrawal-panel">
         <h2>${editingWithdrawal ? "Editar retirada" : "Retiradas"}</h2>
-        <p class="muted-inline">O saldo real mostra somente o dinheiro que existe na conta. Valores já retirados entram separadamente na base da divisão e são compensados da parte de Vanessa ou Raquel.</p>
+        <p class="muted-inline">O saldo real mostra somente o dinheiro que existe na conta. Dívidas de Vanessa ou Raquel entram separadamente na distribuição e são compensadas sem criar uma nova saída de caixa.</p>
         <div class="partners-dashboard">
           <section>
             <h3>Valores compensados ao caixa · ${formatMonthKeyBr(partnersPeriod)}</h3>
@@ -6013,17 +6223,17 @@ async function renderCash() {
           <section>
             <h3>Semana de ${formatIsoDateBr(partnersDashboard.weekStart)} a ${formatIsoDateBr(partnersDashboard.weekEnd)}</h3>
             <div class="summary">
-              <div class="metric"><span>Vanessa total retirado</span><strong>${money(partnersDashboard.week.vanessa + partnersDashboard.week.paidToCashVanessa)}</strong></div>
-              <div class="metric"><span>Raquel total retirado</span><strong>${money(partnersDashboard.week.raquel + partnersDashboard.week.paidToCashRaquel)}</strong></div>
-              <div class="metric"><span>Cofrinho</span><strong>${money(partnersDashboard.week.savings)}</strong></div>
+              <div class="metric"><span>Vanessa - distribuição</span><strong>${money(partnersDashboard.week.vanessa + partnersDashboard.week.paidToCashVanessa)}</strong></div>
+              <div class="metric"><span>Raquel - distribuição</span><strong>${money(partnersDashboard.week.raquel + partnersDashboard.week.paidToCashRaquel)}</strong></div>
+              <div class="metric"><span>Cofrinho transferido</span><strong>${money(partnersDashboard.week.savings)}</strong></div>
             </div>
           </section>
           <section>
             <h3>${formatMonthKeyBr(partnersPeriod)}</h3>
             <div class="summary">
-              <div class="metric"><span>Lucro operacional</span><strong>${money(partnersDashboard.month.operationalProfit)}</strong></div>
-              <div class="metric"><span>Vanessa total retirado</span><strong>${money(partnersDashboard.month.vanessa + partnersDashboard.month.paidToCashVanessa)}</strong></div>
-              <div class="metric"><span>Raquel total retirado</span><strong>${money(partnersDashboard.month.raquel + partnersDashboard.month.paidToCashRaquel)}</strong></div>
+              <div class="metric"><span>Lucro operacional</span><strong>${money(partnersDashboard.monthOperationalProfit)}</strong></div>
+              <div class="metric"><span>Vanessa - distribuição</span><strong>${money(partnersDashboard.month.vanessa + partnersDashboard.month.paidToCashVanessa)}</strong></div>
+              <div class="metric"><span>Raquel - distribuição</span><strong>${money(partnersDashboard.month.raquel + partnersDashboard.month.paidToCashRaquel)}</strong></div>
               <div class="metric"><span>Cofrinho no mês</span><strong>${money(partnersDashboard.month.expectedSavings)}</strong></div>
             </div>
           </section>
@@ -6040,15 +6250,15 @@ async function renderCash() {
           </label>
           <div class="withdrawal-value-group">
             <strong>1. Dinheiro que não está mais na conta</strong>
-            <p class="muted-inline">Confira o saldo real no banco e informe o que Vanessa ou Raquel já retiraram antes desta divisão. O valor já retirado entra na base, mas não será retirado novamente.</p>
+            <p class="muted-inline">Confira o saldo real no banco e informe dívidas de Vanessa ou Raquel que serão compensadas nesta divisão. A compensação entra na distribuição, mas não sai novamente da conta.</p>
             <div class="withdrawal-fields">
               <label>Saldo real da conta agora
                 <input name="accountBalanceBefore" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalAccountBalance)}">
               </label>
-              <label>Vanessa já retirou antes
+              <label>Dívida da Vanessa com o caixa
                 <input name="priorVanessa" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.priorVanessa)}">
               </label>
-              <label>Raquel já retirou antes
+              <label>Dívida da Raquel com o caixa
                 <input name="priorRaquel" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.priorRaquel)}">
               </label>
             </div>
@@ -6091,8 +6301,8 @@ async function renderCash() {
             <span><b>Base da divisão</b>${money(withdrawalFormValues.distributionBase)}</span>
             <span><b>Total que sai agora</b>${money(withdrawalFormValues.total)}</span>
             <span><b>Saldo da conta depois</b>${money(previewAccountAfterWithdrawal)}</span>
-            <span><b>Vanessa total retirado</b>${money(Number(withdrawalFormValues.vanessa || 0) + Number(withdrawalFormValues.paidToCashVanessa || 0))}</span>
-            <span><b>Raquel total retirado</b>${money(Number(withdrawalFormValues.raquel || 0) + Number(withdrawalFormValues.paidToCashRaquel || 0))}</span>
+            <span><b>Vanessa - distribuição total</b>${money(Number(withdrawalFormValues.vanessa || 0) + Number(withdrawalFormValues.paidToCashVanessa || 0))}</span>
+            <span><b>Raquel - distribuição total</b>${money(Number(withdrawalFormValues.raquel || 0) + Number(withdrawalFormValues.paidToCashRaquel || 0))}</span>
           </div>
           <div class="actions">
             <button type="submit">${editingWithdrawal ? "Salvar retirada" : "Registrar retiradas"}</button>
@@ -7302,12 +7512,12 @@ async function renderCash() {
         <span><b>Saldo calculado pelo sistema</b>${money(calculatedBalance)}</span>
         <span><b>Saldo real da conta</b>${money(calculation.physicalBalance)}</span>
         <span><b>Ajuste para igualar ao banco</b>${money(balanceDifference)}</span>
-        <span><b>Retirado antes da divisão</b>${money(calculation.debtVanessa + calculation.debtRaquel)}</span>
+        <span><b>Compensação de dívida</b>${money(calculation.debtVanessa + calculation.debtRaquel)}<small>Não movimenta a conta</small></span>
         <span><b>Base da divisão</b>${money(calculation.distributionBase)}</span>
         <span><b>Total que sai agora</b>${money(actual.total)}<small>${excess > 0 ? `Excede o saldo em ${money(excess)}` : "Dentro do saldo disponível"}</small></span>
         <span><b>Saldo da conta depois</b>${money(accountAfterWithdrawal)}</span>
-        <span><b>Vanessa total retirado</b>${money(actual.vanessa + calculation.paidToCashVanessa)}<small>${partnerCashOffsetLabel(calculation.paidToCashVanessa)} · ${partnerPendingLabel(pendingVanessa)}</small></span>
-        <span><b>Raquel total retirado</b>${money(actual.raquel + calculation.paidToCashRaquel)}<small>${partnerCashOffsetLabel(calculation.paidToCashRaquel)} · ${partnerPendingLabel(pendingRaquel)}</small></span>
+        <span><b>Vanessa - distribuição total</b>${money(actual.vanessa + calculation.paidToCashVanessa)}<small>Recebe agora ${money(actual.vanessa)} · ${partnerCashOffsetLabel(calculation.paidToCashVanessa)} · ${partnerPendingLabel(pendingVanessa)}</small></span>
+        <span><b>Raquel - distribuição total</b>${money(actual.raquel + calculation.paidToCashRaquel)}<small>Recebe agora ${money(actual.raquel)} · ${partnerCashOffsetLabel(calculation.paidToCashRaquel)} · ${partnerPendingLabel(pendingRaquel)}</small></span>
         ${calculation.remainingDebtVanessa > 0 || calculation.remainingDebtRaquel > 0
           ? `<span><b>Dívida que continua pendente</b>Vanessa ${money(calculation.remainingDebtVanessa)} · Raquel ${money(calculation.remainingDebtRaquel)}</span>`
           : ""}
@@ -8109,7 +8319,8 @@ function menuCatalogPanel() {
 
 async function renderMenu() {
   showStandardHero("Menu Semanal");
-  setActive("menu-semanal");
+  const requestedMenuView = new URLSearchParams(location.search).get("view");
+  setActive(routeName() === "pedidos" ? "pedidos" : requestedMenuView === "production" ? "menu-semanal" : "cardapio");
   const currentWeek = state.menuWeek || 1;
   const currentKey = menuKey(currentWeek);
   const savedMenu = state.menus[currentKey] || [];
@@ -9850,7 +10061,6 @@ async function renderQuickOrders() {
   if (!["orders", "production", "delivery", "form"].includes(state.orderTab)) {
     state.orderTab = "orders";
   }
-  history.replaceState(null, "", `/menu-semanal${location.search}`);
   await renderMenu();
 }
 
@@ -11726,16 +11936,17 @@ function reportData() {
     const key = `${periodKey}-semana-${week}`;
     const dishes = state.menus[key] || [];
     const weekOrders = state.orders.filter(order => order.menuKey === key);
+    const weekProductionOrders = productionOrders(weekOrders);
 
     return {
       week,
       key,
       dishes,
-      orders: weekOrders,
-      menuCost: weeklyMenuProductionCost(dishes, weekOrders, null, periodKey),
+      orders: weekProductionOrders,
+      menuCost: weeklyMenuProductionCost(dishes, weekProductionOrders, null, periodKey),
       orderAmount: weekOrders.reduce((sum, order) => sum + Number(order.amount || 0), 0),
-      deliveryFee: weekOrders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0),
-      quantity: weekOrders.reduce((sum, order) => sum + orderQuantity(order), 0)
+      deliveryFee: weekProductionOrders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0),
+      quantity: weekProductionOrders.reduce((sum, order) => sum + orderQuantity(order), 0)
     };
   });
   const accountAdjustmentEntries = cashEntries.filter(isAccountAdjustmentEntry);
@@ -11763,12 +11974,13 @@ function reportData() {
   const accountBalance = accountBalances.unified;
   const partnerWithdrawalControl = partnerPeriodTotals(withdrawalHistoryGroups(cashEntries));
   const orderRevenue = orders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
-  const deliveryRevenue = orders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0);
-  const totalQuantity = orders.reduce((sum, order) => sum + orderQuantity(order), 0);
+  const soldOrders = productionOrders(orders);
+  const deliveryRevenue = soldOrders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0);
+  const totalQuantity = soldOrders.reduce((sum, order) => sum + orderQuantity(order), 0);
   const storeQuantity = storeSales.reduce((sum, entry) => sum + storeSaleUnitQuantity(entry), 0);
   const weeklyCashQuantity = totalQuantity;
   const totalIncome = income;
-  const paidOrders = orders.filter(order => {
+  const paidOrders = soldOrders.filter(order => {
     const client = clientByPhone(order.clientPhone);
     return client.plan === "mensalista" ? Number(order.amount || 0) > 0 : isOrderPaid(order);
   }).length;
@@ -11808,7 +12020,7 @@ function reportData() {
     totalSoldQuantity: weeklyCashQuantity + storeQuantity,
     averageTicket: orders.length ? orderRevenue / orders.length : 0,
     paidOrders,
-    pendingOrders: orders.length - paidOrders,
+    pendingOrders: soldOrders.length - paidOrders,
     menuCost: menuWeeks.reduce((sum, item) => sum + item.menuCost, 0),
     topExpenses: [...expenseEntries]
       .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
@@ -11825,6 +12037,36 @@ function supermarketExpenseEntry(entry = {}) {
 function foodInputExpenseCategory(entry = {}) {
   return ["supermercado", "frigorifico", "boleto"]
     .includes(slugifyCategory(categoryName(entry.category)));
+}
+
+const managementSalesCategorySlugs = new Set([
+  "venda",
+  "vendas",
+  "cardapio-web",
+  "ifood",
+  "99-food"
+]);
+
+function salesIncomeEntry(entry = {}) {
+  if (entry.type === "expense" || isAccountAdjustmentEntry(entry) || isWithdrawalEntry(entry)) {
+    return false;
+  }
+  const rawCategory = slugifyCategory(entry.category);
+  const namedCategory = slugifyCategory(categoryName(entry.category));
+  return managementSalesCategorySlugs.has(rawCategory)
+    || managementSalesCategorySlugs.has(namedCategory);
+}
+
+function salesRevenueForPeriod(periodKey = reportPeriodKey()) {
+  const cashSales = accountingCashEntries(state.cash)
+    .filter(entry => String(cashAccountingDate(entry)).startsWith(periodKey))
+    .filter(salesIncomeEntry)
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  return {
+    periodKey,
+    cashSales,
+    total: cashSales
+  };
 }
 
 function monthlySoldQuantities(periodKey = reportPeriodKey()) {
@@ -11874,8 +12116,9 @@ function monthlySupermarketAllocation(periodKey = reportPeriodKey()) {
   };
 }
 
-function monthlyFoodAndBillsCost(periodKey = reportPeriodKey()) {
+function productionPurchasesForPeriod(periodKey = reportPeriodKey()) {
   const quantities = monthlySoldQuantities(periodKey);
+  const sales = salesRevenueForPeriod(periodKey);
   const inputEntries = accountingCashEntries(state.cash).filter(entry => {
     return entry.type === "expense"
       && String(cashAccountingDate(entry)).startsWith(periodKey)
@@ -11893,34 +12136,358 @@ function monthlyFoodAndBillsCost(periodKey = reportPeriodKey()) {
   return {
     periodKey,
     ...quantities,
+    salesRevenue: sales.total,
+    cashSalesRevenue: sales.cashSales,
     supermarketTotal,
     butcherTotal,
     billsTotal,
     combinedTotal,
+    purchasesProduction: combinedTotal,
     costPerPlate: quantities.totalQuantity > 0
       ? combinedTotal / quantities.totalQuantity
+      : 0,
+    purchasesPerBowl: quantities.totalQuantity > 0
+      ? combinedTotal / quantities.totalQuantity
+      : 0,
+    purchasesSalesPercent: sales.total > 0
+      ? (combinedTotal / sales.total) * 100
       : 0
   };
 }
 
+function monthlyFoodAndBillsCost(periodKey = reportPeriodKey()) {
+  return productionPurchasesForPeriod(periodKey);
+}
+
+function managementMonthKeys(periodKey, count = 3) {
+  const keys = [];
+  let currentKey = periodKey;
+  for (let index = 0; index < count; index += 1) {
+    keys.push(currentKey);
+    currentKey = previousMonthKeyFromPeriod(currentKey);
+  }
+  return keys;
+}
+
+function managementPeriodHasData(periodKey) {
+  return accountingCashEntries(state.cash)
+    .some(entry => String(cashAccountingDate(entry)).startsWith(periodKey))
+    || state.orders.some(order => menuPeriodKeyFromKey(order.menuKey) === periodKey)
+    || state.storeSales.some(entry => String(entry.date || "").startsWith(periodKey));
+}
+
+function managementPeriodMetrics(periodKey = reportPeriodKey()) {
+  const periodEntries = accountingCashEntries(state.cash).filter(entry => {
+    return String(cashAccountingDate(entry)).startsWith(periodKey);
+  });
+  const financial = financialSummary(periodEntries);
+  const partnerWithdrawalControl = partnerPeriodTotals(withdrawalHistoryGroups(periodEntries));
+  const purchases = productionPurchasesForPeriod(periodKey);
+  const accountAdjustmentTotals = cashTotals(periodEntries.filter(isAccountAdjustmentEntry));
+  const cashTotalsForPeriod = cashTotals(periodEntries.filter(entry => !isAccountAdjustmentEntry(entry)));
+  const [year, month] = periodKey.split("-").map(Number);
+  const periodEnd = isoDate(new Date(year, month, 0));
+
+  return {
+    periodKey,
+    hasData: managementPeriodHasData(periodKey),
+    entries: periodEntries,
+    financial,
+    partnerWithdrawalControl,
+    purchases,
+    sales: purchases.salesRevenue,
+    purchasesProduction: purchases.combinedTotal,
+    purchasesPerBowl: purchases.purchasesPerBowl,
+    purchasesSalesPercent: purchases.purchasesSalesPercent,
+    bowls: purchases.totalQuantity,
+    menuBowls: purchases.menuQuantity,
+    storeBowls: purchases.storeQuantity,
+    operationalProfit: operationalProfitForReport({ financial, partnerWithdrawalControl }),
+    distribution: profitDistributionForReport({ financial, partnerWithdrawalControl }),
+    cashWithdrawals: cashWithdrawalsForReport({ financial, partnerWithdrawalControl }),
+    debtCompensation: debtCompensationForReport({ financial, partnerWithdrawalControl }),
+    cashIncome: cashTotalsForPeriod.income,
+    cashExpenses: cashTotalsForPeriod.expenses,
+    accountAdjustmentTotals,
+    finalCashBalance: accountBalanceUntilDate(periodEnd)
+  };
+}
+
+function managementMovingAverage(periodKey = reportPeriodKey(), count = 3) {
+  const months = managementMonthKeys(periodKey, count)
+    .filter(managementPeriodHasData)
+    .map(managementPeriodMetrics);
+  const average = key => months.length
+    ? months.reduce((sum, item) => sum + Number(item[key] || 0), 0) / months.length
+    : 0;
+  return {
+    periodKey,
+    monthKeys: months.map(item => item.periodKey),
+    monthsUsed: months.length,
+    sales: average("sales"),
+    purchasesProduction: average("purchasesProduction"),
+    purchasesPerBowl: average("purchasesPerBowl"),
+    purchasesSalesPercent: average("purchasesSalesPercent"),
+    bowls: average("bowls")
+  };
+}
+
+function managementVariation(current, previous) {
+  const currentValue = Number(current || 0);
+  const previousValue = Number(previous || 0);
+  return {
+    absolute: currentValue - previousValue,
+    percent: Math.abs(previousValue) > 0.005
+      ? ((currentValue - previousValue) / Math.abs(previousValue)) * 100
+      : 0
+  };
+}
+
+function managementComparisonRows(periodKey = reportPeriodKey()) {
+  const current = managementPeriodMetrics(periodKey);
+  const previous = managementPeriodMetrics(previousMonthKeyFromPeriod(periodKey));
+  const row = (label, key, kind = "money", lowerIsBetter = false) => {
+    const variation = managementVariation(current[key], previous[key]);
+    return {
+      label,
+      key,
+      kind,
+      lowerIsBetter,
+      current: current[key],
+      previous: previous[key],
+      delta: variation.absolute,
+      variationPercent: variation.percent,
+      percentagePointDelta: kind === "percent" ? variation.absolute : null
+    };
+  };
+  return [
+    row("Vendas", "sales"),
+    row("Compras de insumos", "purchasesProduction", "money", true),
+    row("Compras por cumbuca", "purchasesPerBowl", "money", true),
+    row("Compras / Vendas", "purchasesSalesPercent", "percent", true),
+    row("Cumbucas vendidas", "bowls", "count"),
+    row("Lucro operacional", "operationalProfit")
+  ];
+}
+
+function managementAttentionItems(current, previous, average) {
+  const items = [];
+  const change = (value, reference) => managementVariation(value, reference);
+  const perBowlPrevious = change(current.purchasesPerBowl, previous.purchasesPerBowl);
+  const perBowlAverage = change(current.purchasesPerBowl, average.purchasesPerBowl);
+  const purchasesChange = change(current.purchasesProduction, previous.purchasesProduction);
+  const bowlsChange = change(current.bowls, previous.bowls);
+  const salesChange = change(current.sales, previous.sales);
+  const ratioPointDifference = current.purchasesSalesPercent - previous.purchasesSalesPercent;
+
+  if (current.purchasesPerBowl > 0 && (
+    (previous.purchasesPerBowl > 0 && perBowlPrevious.percent >= 5)
+    || (average.purchasesPerBowl > 0 && perBowlAverage.percent >= 5)
+  )) {
+    const reference = previous.purchasesPerBowl > 0 ? previous.purchasesPerBowl : average.purchasesPerBowl;
+    const variation = change(current.purchasesPerBowl, reference);
+    items.push({
+      tone: "warning",
+      title: "Compras por cumbuca aumentaram",
+      value: money(current.purchasesPerBowl),
+      reference: `Referência ${money(reference)}`,
+      detail: `Alta de ${Math.abs(variation.percent).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`
+    });
+  }
+
+  if (previous.purchasesSalesPercent > 0 && ratioPointDifference > 0.05) {
+    items.push({
+      tone: "warning",
+      title: "Compras estão consumindo uma parcela maior das vendas",
+      value: `${current.purchasesSalesPercent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`,
+      reference: `Anterior ${previous.purchasesSalesPercent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`,
+      detail: `+${ratioPointDifference.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} p.p.`
+    });
+  }
+
+  if (purchasesChange.absolute > 0.005 && bowlsChange.absolute < -0.005) {
+    items.push({
+      tone: "warning",
+      title: "Compras aumentaram enquanto as cumbucas vendidas caíram",
+      value: `${money(purchasesChange.absolute)} a mais em compras`,
+      reference: `${Math.abs(bowlsChange.absolute).toLocaleString("pt-BR", { maximumFractionDigits: 0 })} cumbuca(s) a menos`,
+      detail: "Pode indicar estoque, compra antecipada, desperdício ou redução de eficiência; confira a operação."
+    });
+  }
+
+  if (previous.purchasesPerBowl > 0 && perBowlPrevious.percent <= -5) {
+    items.push({
+      tone: "positive",
+      title: `Compras por cumbuca caíram ${Math.abs(perBowlPrevious.percent).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`,
+      value: money(current.purchasesPerBowl),
+      reference: `Anterior ${money(previous.purchasesPerBowl)}`,
+      detail: "Melhora no valor de compras distribuído por cumbuca."
+    });
+  }
+
+  if (salesChange.absolute > 0.005 && purchasesChange.absolute < -0.005) {
+    items.push({
+      tone: "positive",
+      title: "Vendas cresceram enquanto as compras caíram",
+      value: `${money(salesChange.absolute)} a mais em vendas`,
+      reference: `${money(Math.abs(purchasesChange.absolute))} a menos em compras`,
+      detail: "Movimento positivo no período; acompanhe para confirmar a tendência."
+    });
+  }
+
+  return items;
+}
+
+function managementExpenseGroups(metrics) {
+  const groups = metrics.entries
+    .filter(entry => entry.type === "expense")
+    .filter(entry => !isWithdrawalEntry(entry))
+    .filter(entry => !isAccountAdjustmentEntry(entry))
+    .filter(entry => !foodInputExpenseCategory(entry))
+    .reduce((result, entry) => {
+      const label = categoryName(entry.category);
+      result.set(label, Number(result.get(label) || 0) + Number(entry.amount || 0));
+      return result;
+    }, new Map());
+  return [...groups.entries()]
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value);
+}
+
+function managementDreData(periodKey = reportPeriodKey()) {
+  const metrics = managementPeriodMetrics(periodKey);
+  const withdrawalAmounts = withdrawalBreakdownAmounts(
+    metrics.financial.withdrawals,
+    metrics.partnerWithdrawalControl
+  );
+  return {
+    ...metrics,
+    marginAfterPurchases: metrics.sales - metrics.purchasesProduction,
+    financialIncomeReconciliation: metrics.financial.income - metrics.sales,
+    otherOperationalExpenses: Math.max(
+      0,
+      metrics.financial.operationalExpenses - metrics.purchasesProduction
+    ),
+    otherExpenseGroups: managementExpenseGroups(metrics),
+    withdrawalAmounts
+  };
+}
+
+function managementValueLabel(value, kind = "money") {
+  if (kind === "count") {
+    return Number(value || 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+  }
+  if (kind === "percent") {
+    return `${Number(value || 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
+  }
+  return money(value);
+}
+
+function managementDeltaHtml(current, previous, options = {}) {
+  const { lowerIsBetter = false, kind = "money" } = options;
+  const variation = managementVariation(current, previous);
+  const hasPrevious = Math.abs(Number(previous || 0)) >= 0.005;
+  if (!hasPrevious) {
+    return `<small class="executive-delta neutral">Sem base anterior</small>`;
+  }
+  const improved = lowerIsBetter ? variation.absolute < 0 : variation.absolute > 0;
+  const tone = Math.abs(variation.absolute) < 0.005
+    ? "neutral"
+    : improved
+      ? "positive"
+      : "negative";
+  const direction = variation.absolute > 0 ? "↑" : variation.absolute < 0 ? "↓" : "";
+  const detail = kind === "percent"
+    ? `${variation.absolute > 0 ? "+" : ""}${variation.absolute.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} p.p.`
+    : `${direction} ${Math.abs(variation.percent).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
+  return `<small class="executive-delta ${tone}">${detail} <span>vs. mês anterior</span></small>`;
+}
+
+function managementComparisonValue(row, value) {
+  return managementValueLabel(value, row.kind);
+}
+
+function managementComparisonDelta(row) {
+  if (row.kind === "percent") {
+    return `${row.delta > 0 ? "+" : ""}${row.delta.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} p.p.`;
+  }
+  if (row.kind === "count") {
+    return `${row.delta > 0 ? "+" : ""}${Number(row.delta || 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}`;
+  }
+  return `${row.delta > 0 ? "+" : row.delta < 0 ? "−" : ""}${money(Math.abs(row.delta))}`;
+}
+
+function managementStatementHtml(data, { includeHeading = false } = {}) {
+  const visibleExpenses = data.otherExpenseGroups.slice(0, 7);
+  const visibleExpenseTotal = visibleExpenses.reduce((sum, item) => sum + item.value, 0);
+  const remainingExpenses = Math.max(0, data.otherOperationalExpenses - visibleExpenseTotal);
+  const adjustments = data.accountAdjustmentTotals.balance;
+  return `
+    ${includeHeading ? `
+      <div class="executive-card-heading">
+        <div>
+          <span class="executive-eyebrow">Resultado do mês</span>
+          <h2>DRE gerencial simplificada</h2>
+        </div>
+        <a href="/relatorios">Ver relatório</a>
+      </div>
+    ` : ""}
+    <div class="executive-statement management-statement" data-management-dre>
+      <div class="statement-section-label"><span>Vendas</span></div>
+      <div><span>Receita de vendas</span><strong>${money(data.sales)}</strong></div>
+      <div class="statement-section-label"><span>(−) Compras para produção</span></div>
+      <div class="expense statement-detail"><span>Boleto</span><strong>− ${money(data.purchases.billsTotal)}</strong></div>
+      <div class="expense statement-detail"><span>Supermercado</span><strong>− ${money(data.purchases.supermarketTotal)}</strong></div>
+      <div class="expense statement-detail"><span>Frigorífico</span><strong>− ${money(data.purchases.butcherTotal)}</strong></div>
+      <div class="subtotal"><span>Margem após compras</span><strong>${money(data.marginAfterPurchases)}</strong></div>
+      <div class="statement-section-label"><span>(−) Outras despesas operacionais</span></div>
+      ${visibleExpenses.map(item => `
+        <div class="expense statement-detail"><span>${escapeHtml(item.label)}</span><strong>− ${money(item.value)}</strong></div>
+      `).join("")}
+      ${remainingExpenses >= 0.005 ? `
+        <div class="expense statement-detail"><span>Demais despesas operacionais</span><strong>− ${money(remainingExpenses)}</strong></div>
+      ` : ""}
+      ${Math.abs(data.financialIncomeReconciliation) >= 0.005 ? `
+        <div class="statement-detail management-reconciliation">
+          <span>Conciliação com entradas do Financeiro<small>Entradas do Caixa não classificadas como venda, como aportes ou diferenças.</small></span>
+          <strong class="${data.financialIncomeReconciliation < 0 ? "negative" : "positive"}">${data.financialIncomeReconciliation > 0 ? "+ " : "− "}${money(Math.abs(data.financialIncomeReconciliation))}</strong>
+        </div>
+      ` : ""}
+      <div class="total"><span>Lucro operacional</span><strong class="${data.operationalProfit < 0 ? "negative" : "positive"}">${money(data.operationalProfit)}</strong></div>
+      <p class="management-statement-note">O lucro operacional preserva a fonte do Financeiro: entradas operacionais menos despesas operacionais. Retiradas não alteram esse valor.</p>
+      <div class="statement-section-label separated"><span>Distribuições</span></div>
+      <div class="statement-detail"><span>Vanessa — distribuição total</span><strong>${money(data.withdrawalAmounts.vanessa)}</strong></div>
+      <div class="statement-detail"><span>Raquel — distribuição total</span><strong>${money(data.withdrawalAmounts.raquel)}</strong></div>
+      <div class="statement-detail"><span>Cofrinho</span><strong>${money(data.withdrawalAmounts.savings)}</strong></div>
+      <div class="statement-detail"><span>Compensação de dívida sem saída da conta</span><strong>${money(data.debtCompensation)}</strong></div>
+      <div class="statement-section-label separated"><span>Movimentação de caixa</span></div>
+      <div class="statement-detail"><span>Entradas</span><strong>${money(data.cashIncome)}</strong></div>
+      <div class="statement-detail"><span>Saídas</span><strong>− ${money(data.cashExpenses)}</strong></div>
+      <div class="statement-detail"><span>Ajustes</span><strong class="${adjustments < 0 ? "negative" : ""}">${money(adjustments)}</strong></div>
+      <div class="total"><span>Saldo final</span><strong class="${data.finalCashBalance < 0 ? "negative" : "positive"}">${money(data.finalCashBalance)}</strong></div>
+    </div>
+  `;
+}
+
 function financeFoodAndBillsCostPanel(periodKey = reportPeriodKey()) {
-  const costs = monthlyFoodAndBillsCost(periodKey);
+  const costs = productionPurchasesForPeriod(periodKey);
   return `
     <section class="panel report-section finance-food-cost" data-finance-food-cost>
       <div class="section-heading">
         <div>
-          <h2>Compras de insumos por cumbuca</h2>
-          <p class="muted-inline">${formatMonthKeyBr(periodKey)} · (Supermercado + Frigorífico + Boleto pagos) ÷ total de cumbucas vendidas.</p>
+          <h2>Compras de insumos</h2>
+          <p class="muted-inline">${formatMonthKeyBr(periodKey)} · Boleto + Supermercado + Frigorífico pagos no período.</p>
         </div>
       </div>
       <div class="summary">
         <div class="metric report-metric"><span>Supermercado</span><strong data-finance-supermarket-total>${money(costs.supermarketTotal)}</strong></div>
         <div class="metric report-metric"><span>Frigorífico</span><strong data-finance-butcher-total>${money(costs.butcherTotal)}</strong></div>
         <div class="metric report-metric"><span>Boleto</span><strong data-finance-bills-total>${money(costs.billsTotal)}</strong><small>Somente lançamentos na categoria Boleto</small></div>
-        <div class="metric report-metric"><span>Total de insumos</span><strong data-finance-input-total>${money(costs.combinedTotal)}</strong></div>
+        <div class="metric report-metric"><span>Compras para produção</span><strong data-finance-input-total>${money(costs.combinedTotal)}</strong><small>${costs.purchasesSalesPercent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% das vendas</small></div>
         <div class="metric report-metric"><span>Total de cumbucas vendidas</span><strong data-finance-sold-plates>${costs.totalQuantity}</strong><small>Menu ${costs.menuQuantity} + Loja ${costs.storeQuantity}</small></div>
-        <div class="metric report-metric total"><span>Insumos por cumbuca</span><strong data-finance-cost-per-plate>${costs.totalQuantity > 0 ? money(costs.costPerPlate) : "—"}</strong><small>${money(costs.combinedTotal)} ÷ ${costs.totalQuantity || 0}</small></div>
+        <div class="metric report-metric total"><span>Compras por cumbuca</span><strong data-finance-cost-per-plate>${money(costs.purchasesPerBowl)}</strong><small title="Compras de insumos do período divididas pelas cumbucas vendidas. Não representa CMV contábil porque não considera estoque inicial e final.">${money(costs.combinedTotal)} ÷ ${costs.totalQuantity || 0}</small></div>
       </div>
+      <p class="muted">Compras de insumos do período divididas pelas cumbucas vendidas. Não representa CMV contábil porque não considera estoque inicial e final.</p>
       ${costs.combinedTotal > 0 && costs.totalQuantity === 0 ? `
         <p class="form-hint warning-text">Existem compras de insumos no Caixa, mas ainda não há cumbucas vendidas neste mês para fazer o rateio.</p>
       ` : ""}
@@ -12036,9 +12603,9 @@ function reportPdfNegativeDifferenceRows(data) {
     .filter(row => Number(row.delta || 0) < 0)
     .map(row => [
       row.label,
-      row.label === "Pedidos" || row.label === "Cumbucas" ? row.current : money(row.current),
-      row.label === "Pedidos" || row.label === "Cumbucas" ? row.previous : money(row.previous),
-      row.label === "Pedidos" || row.label === "Cumbucas" ? row.delta : `-${money(Math.abs(row.delta))}`
+      managementComparisonValue(row, row.current),
+      managementComparisonValue(row, row.previous),
+      managementComparisonDelta(row)
     ]);
 }
 
@@ -12059,14 +12626,14 @@ function reportPdfWithdrawalRows(data) {
     ["Vanessa - dívida informada", money(data.partnerWithdrawalControl?.priorVanessa)],
     ["Vanessa - dívida compensada", money(data.partnerWithdrawalControl?.paidToCashVanessa)],
     ["Vanessa - recebeu agora", money(data.financial.withdrawals.vanessa)],
-    ["Vanessa - total retirado", money(Number(data.financial.withdrawals.vanessa || 0) + Number(data.partnerWithdrawalControl?.paidToCashVanessa || 0))],
+    ["Vanessa - distribuição total", money(Number(data.financial.withdrawals.vanessa || 0) + Number(data.partnerWithdrawalControl?.paidToCashVanessa || 0))],
     ["Vanessa - dívida restante", money(data.partnerWithdrawalControl?.remainingDebtVanessa)],
     ["Vanessa - ainda não retirou", money(data.partnerWithdrawalControl?.pendingVanessa)],
     ["Raquel - direito na divisão", money(data.partnerWithdrawalControl?.expectedRaquel)],
     ["Raquel - dívida informada", money(data.partnerWithdrawalControl?.priorRaquel)],
     ["Raquel - dívida compensada", money(data.partnerWithdrawalControl?.paidToCashRaquel)],
     ["Raquel - recebeu agora", money(data.financial.withdrawals.raquel)],
-    ["Raquel - total retirado", money(Number(data.financial.withdrawals.raquel || 0) + Number(data.partnerWithdrawalControl?.paidToCashRaquel || 0))],
+    ["Raquel - distribuição total", money(Number(data.financial.withdrawals.raquel || 0) + Number(data.partnerWithdrawalControl?.paidToCashRaquel || 0))],
     ["Raquel - dívida restante", money(data.partnerWithdrawalControl?.remainingDebtRaquel)],
     ["Raquel - ainda não retirou", money(data.partnerWithdrawalControl?.pendingRaquel)]
   ];
@@ -12472,9 +13039,11 @@ function reportCsvRows(kind, data) {
       { seção: "resumo", data: "", descrição: "Entradas no caixa", tipo: "entrada", categoria: "", valor: data.financial.income },
       { seção: "resumo", data: "", descrição: "Saídas operacionais", tipo: "saída", categoria: "operacional", valor: data.financial.operationalExpenses },
       { seção: "resumo", data: "", descrição: "Lucro operacional", tipo: "saldo", categoria: "", valor: operationalProfitForReport(data) },
-      { seção: "resumo", data: "", descrição: "Vanessa - total retirado", tipo: "saída", categoria: "retirada", valor: withdrawalAmounts.vanessa },
-      { seção: "resumo", data: "", descrição: "Cofrinho", tipo: "saída", categoria: "retirada", valor: withdrawalAmounts.savings },
-      { seção: "resumo", data: "", descrição: "Raquel - total retirado", tipo: "saída", categoria: "retirada", valor: withdrawalAmounts.raquel },
+      { seção: "resumo", data: "", descrição: "Vanessa - distribuição total", tipo: "distribuição", categoria: "retirada", valor: withdrawalAmounts.vanessa },
+      { seção: "resumo", data: "", descrição: "Cofrinho transferido", tipo: "saída", categoria: "retirada", valor: withdrawalAmounts.savings },
+      { seção: "resumo", data: "", descrição: "Raquel - distribuição total", tipo: "distribuição", categoria: "retirada", valor: withdrawalAmounts.raquel },
+      { seção: "resumo", data: "", descrição: "Dinheiro que saiu da conta", tipo: "saída", categoria: "retirada", valor: cashWithdrawalsForReport(data) },
+      { seção: "resumo", data: "", descrição: "Compensação de dívida sem saída de caixa", tipo: "compensação", categoria: "retirada", valor: debtCompensationForReport(data) },
       { seção: "resumo", data: "", descrição: "Resultado após retiradas", tipo: "saldo", categoria: "", valor: operationalResultForReport(data) },
       { seção: "ajustes da conta", data: "", descrição: "Entradas de ajuste", tipo: "entrada", categoria: "ajuste da conta", valor: data.accountAdjustmentTotals.income },
       { seção: "ajustes da conta", data: "", descrição: "Saídas de ajuste", tipo: "saída", categoria: "ajuste da conta", valor: data.accountAdjustmentTotals.expenses },
@@ -12483,14 +13052,14 @@ function reportCsvRows(kind, data) {
       { seção: "resumo", data: data.savingsUpdatedAt || "", descrição: "Valor atual do cofrinho", tipo: "saldo", categoria: "cofrinho", valor: data.savingsBalance },
       { seção: "produção", data: "", descrição: "Cumbucas vendidas na loja", tipo: "quantidade", categoria: "loja", valor: data.storeQuantity },
       { seção: "produção", data: "", descrição: "Total de cumbucas vendidas", tipo: "quantidade", categoria: "total", valor: data.totalSoldQuantity },
-      { seção: "retiradas", data: "", descrição: "Lucro operacional", tipo: "controle", categoria: "retirada", valor: withdrawalAmounts.total },
+      { seção: "retiradas", data: "", descrição: "Lucro operacional", tipo: "controle", categoria: "retirada", valor: operationalProfitForReport(data) },
       { seção: "retiradas", data: "", descrição: "Total que saiu da conta", tipo: "saída", categoria: "retirada", valor: data.partnerWithdrawalControl?.paidNowTotal || 0 },
       { seção: "retiradas", data: "", descrição: "Cofrinho - direito de 10%", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.expectedSavings || 0 },
       { seção: "retiradas", data: "", descrição: "Cofrinho - transferido agora", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.savings },
       { seção: "retiradas", data: "", descrição: "Vanessa - recebeu agora", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.vanessa },
-      { seção: "retiradas", data: "", descrição: "Vanessa - total retirado", tipo: "controle", categoria: "retirada", valor: withdrawalAmounts.vanessa },
+      { seção: "retiradas", data: "", descrição: "Vanessa - distribuição total", tipo: "controle", categoria: "retirada", valor: withdrawalAmounts.vanessa },
       { seção: "retiradas", data: "", descrição: "Raquel - recebeu agora", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.raquel },
-      { seção: "retiradas", data: "", descrição: "Raquel - total retirado", tipo: "controle", categoria: "retirada", valor: withdrawalAmounts.raquel },
+      { seção: "retiradas", data: "", descrição: "Raquel - distribuição total", tipo: "controle", categoria: "retirada", valor: withdrawalAmounts.raquel },
       { seção: "retiradas", data: "", descrição: "Vanessa - direito na divisão", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.expectedVanessa || 0 },
       { seção: "retiradas", data: "", descrição: "Vanessa - dívida informada", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.priorVanessa || 0 },
       { seção: "retiradas", data: "", descrição: "Vanessa - dívida compensada", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.paidToCashVanessa || 0 },
@@ -12623,9 +13192,11 @@ function reportPdfHtml(data) {
     ["Entradas", money(data.totalIncome)],
     ["Saídas", money(data.expenses)],
     ["Lucro operacional", money(operationalProfitForReport(data))],
-    ["Vanessa total retirado", money(withdrawalAmounts.vanessa)],
-    ["Cofrinho", money(withdrawalAmounts.savings)],
-    ["Raquel total retirado", money(withdrawalAmounts.raquel)],
+    ["Vanessa - distribuição total", money(withdrawalAmounts.vanessa)],
+    ["Cofrinho transferido", money(withdrawalAmounts.savings)],
+    ["Raquel - distribuição total", money(withdrawalAmounts.raquel)],
+    ["Dinheiro que saiu da conta", money(cashWithdrawalsForReport(data))],
+    ["Compensação sem saída de caixa", money(debtCompensationForReport(data))],
     ["Resultado após retiradas", money(operationalResultForReport(data))],
     ["Ajustes da conta", money(data.accountAdjustmentTotals.balance)],
     ["Saldo da conta", money(data.accountBalance)],
@@ -12809,6 +13380,26 @@ function oldPrintReportPdfWithPopup() {
   printWindow.print();
 }
 
+function reportFinancialPayloadMetrics(data) {
+  const purchases = data.type === "month"
+    ? productionPurchasesForPeriod(data.periodKey)
+    : null;
+  return {
+    profitBeforeWithdrawals: operationalProfitForReport(data),
+    availableForWithdrawal: operationalResultForReport(data),
+    withdrawalTotal: cashWithdrawalsForReport(data),
+    withdrawalGrossTotal: profitDistributionForReport(data),
+    withdrawalDebtCompensation: debtCompensationForReport(data),
+    salesRevenue: purchases?.salesRevenue ?? null,
+    productionPurchases: purchases?.purchasesProduction ?? null,
+    productionPurchasesBills: purchases?.billsTotal ?? null,
+    productionPurchasesSupermarket: purchases?.supermarketTotal ?? null,
+    productionPurchasesButcher: purchases?.butcherTotal ?? null,
+    purchasesPerBowl: purchases?.purchasesPerBowl ?? null,
+    purchasesSalesPercent: purchases?.purchasesSalesPercent ?? null
+  };
+}
+
 async function downloadReportPdf(options = {}) {
   const data = reportData();
   const accountantPackage = Boolean(options.accountantPackage);
@@ -12828,16 +13419,13 @@ async function downloadReportPdf(options = {}) {
       totalIncome: data.totalIncome,
       expenses: data.expenses,
       operationalExpenses: data.financial.operationalExpenses,
-      profitBeforeWithdrawals: withdrawalAmounts.total,
-      availableForWithdrawal: operationalResultForReport(data),
+      ...reportFinancialPayloadMetrics(data),
       accountAdjustmentIncome: data.accountAdjustmentTotals.income,
       accountAdjustmentExpenses: data.accountAdjustmentTotals.expenses,
       accountAdjustmentBalance: data.accountAdjustmentTotals.balance,
       accountBalance: data.accountBalance,
       savingsBalance: data.savingsBalance,
       savingsUpdatedAt: data.savingsUpdatedAt,
-      withdrawalTotal: data.financial.withdrawals.total,
-      withdrawalGrossTotal: withdrawalAmounts.total,
       withdrawalVanessa: withdrawalAmounts.vanessa,
       withdrawalSavings: withdrawalAmounts.savings,
       withdrawalRaquel: withdrawalAmounts.raquel,
@@ -12860,9 +13448,9 @@ async function downloadReportPdf(options = {}) {
       dishRows: dishRankingRows(data).map((item, index) => [index + 1, item.name, item.quantity]),
       comparisonRows: comparisonReportRows(data).map(row => [
         row.label,
-        row.label === "Pedidos" || row.label === "Cumbucas" ? row.current : money(row.current),
-        row.label === "Pedidos" || row.label === "Cumbucas" ? row.previous : money(row.previous),
-        row.label === "Pedidos" || row.label === "Cumbucas" ? row.delta : money(row.delta)
+        managementComparisonValue(row, row.current),
+        managementComparisonValue(row, row.previous),
+        managementComparisonDelta(row)
       ]),
       incomeRows: data.incomeEntries.map(entry => [entry.date || "", entry.description || "", money(entry.amount)]),
       expenseRows: reportPdfTopExpenseRows(data),
@@ -12926,15 +13514,13 @@ async function downloadReportXlsx(options = {}) {
       totalIncome: data.totalIncome,
       expenses: data.expenses,
       operationalExpenses: data.financial.operationalExpenses,
-      profitBeforeWithdrawals: withdrawalAmounts.total,
-      availableForWithdrawal: operationalResultForReport(data),
+      ...reportFinancialPayloadMetrics(data),
       accountAdjustmentIncome: data.accountAdjustmentTotals.income,
       accountAdjustmentExpenses: data.accountAdjustmentTotals.expenses,
       accountAdjustmentBalance: data.accountAdjustmentTotals.balance,
       accountBalance: data.accountBalance,
       savingsBalance: data.savingsBalance,
       savingsUpdatedAt: data.savingsUpdatedAt,
-      withdrawalTotal: data.financial.withdrawals.total,
       withdrawalVanessa: withdrawalAmounts.vanessa,
       withdrawalSavings: withdrawalAmounts.savings,
       withdrawalRaquel: withdrawalAmounts.raquel,
@@ -12943,12 +13529,12 @@ async function downloadReportXlsx(options = {}) {
         ["Vanessa - direito na divisão", Number(data.partnerWithdrawalControl?.expectedVanessa || 0)],
         ["Vanessa - retirou agora", Number(data.financial.withdrawals.vanessa || 0)],
         ["Vanessa - pagou ao caixa", Number(data.partnerWithdrawalControl?.paidToCashVanessa || 0)],
-        ["Vanessa - total retirado", Number(withdrawalAmounts.vanessa || 0)],
+        ["Vanessa - distribuição total", Number(withdrawalAmounts.vanessa || 0)],
         ["Vanessa - ainda não retirou", Number(data.partnerWithdrawalControl?.pendingVanessa || 0)],
         ["Raquel - direito na divisão", Number(data.partnerWithdrawalControl?.expectedRaquel || 0)],
         ["Raquel - retirou agora", Number(data.financial.withdrawals.raquel || 0)],
         ["Raquel - pagou ao caixa", Number(data.partnerWithdrawalControl?.paidToCashRaquel || 0)],
-        ["Raquel - total retirado", Number(withdrawalAmounts.raquel || 0)],
+        ["Raquel - distribuição total", Number(withdrawalAmounts.raquel || 0)],
         ["Raquel - ainda não retirou", Number(data.partnerWithdrawalControl?.pendingRaquel || 0)],
         ["Vanessa informada", Number(data.partnersRecord?.vanessa || 0)],
         ["Raquel informada", Number(data.partnersRecord?.raquel || 0)],
@@ -13077,6 +13663,12 @@ function exportReport(kind) {
         income: data.income,
         expenses: data.expenses,
         balance: data.balance,
+        operationalProfit: operationalProfitForReport(data),
+        resultAfterWithdrawals: operationalResultForReport(data),
+        withdrawalGrossTotal: withdrawalBreakdownAmounts(
+          data.financial.withdrawals,
+          data.partnerWithdrawalControl
+        ).total,
         accountAdjustmentIncome: data.accountAdjustmentTotals.income,
         accountAdjustmentExpenses: data.accountAdjustmentTotals.expenses,
         accountAdjustmentBalance: data.accountAdjustmentTotals.balance,
@@ -13546,33 +14138,43 @@ function clientReportPanel(data) {
 }
 
 function comparisonReportRows(data) {
+  if (data.type === "month") {
+    return managementComparisonRows(data.periodKey);
+  }
   const previousCash = businessCashEntries(previousReportCashEntries(data));
   const previousOrders = previousReportOrders(data);
   const previousStore = previousReportStoreSales(data);
   const previousTotals = cashTotals(previousCash);
   const previousFinancial = financialSummary(previousCash);
-  const currentWithdrawalAmounts = withdrawalBreakdownAmounts(data.financial.withdrawals, data.partnerWithdrawalControl);
   const previousWithdrawalControl = partnerPeriodTotals(withdrawalHistoryGroups(previousCash));
   const previousWithdrawalAmounts = withdrawalBreakdownAmounts(previousFinancial.withdrawals, previousWithdrawalControl);
-  const previousOrderQuantity = previousOrders.reduce((sum, order) => sum + orderQuantity(order), 0);
+  const currentWithdrawalAmounts = withdrawalBreakdownAmounts(data.financial.withdrawals, data.partnerWithdrawalControl);
+  const previousOrderQuantity = productionOrders(previousOrders)
+    .reduce((sum, order) => sum + orderQuantity(order), 0);
   const previousStoreQuantity = previousStore.reduce((sum, entry) => sum + storeSaleUnitQuantity(entry), 0);
   const previousOrderRevenue = previousOrders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
   const previousAverageTicket = previousOrders.length ? previousOrderRevenue / previousOrders.length : 0;
   return [
     ["Entradas", data.income, previousTotals.income],
     ["Saídas", data.expenses, previousTotals.expenses],
-    ["Lucro operacional", currentWithdrawalAmounts.total, previousWithdrawalAmounts.total],
-    ["Vanessa total retirado", currentWithdrawalAmounts.vanessa, previousWithdrawalAmounts.vanessa],
+    ["Lucro operacional", operationalProfitForReport(data), operationalProfitForReport({ financial: previousFinancial, partnerWithdrawalControl: previousWithdrawalControl })],
+    ["Vanessa - distribuição total", currentWithdrawalAmounts.vanessa, previousWithdrawalAmounts.vanessa],
     ["Cofrinho", currentWithdrawalAmounts.savings, previousWithdrawalAmounts.savings],
-    ["Raquel total retirado", currentWithdrawalAmounts.raquel, previousWithdrawalAmounts.raquel],
+    ["Raquel - distribuição total", currentWithdrawalAmounts.raquel, previousWithdrawalAmounts.raquel],
     ["Pedidos", data.orders.length, previousOrders.length],
     ["Cumbucas", data.totalSoldQuantity, previousOrderQuantity + previousStoreQuantity],
     ["Ticket médio", data.averageTicket, previousAverageTicket]
   ].map(([label, current, previous]) => ({
     label,
+    kind: label === "Pedidos" || label === "Cumbucas" ? "count" : "money",
+    lowerIsBetter: label === "Saídas",
     current,
     previous,
-    delta: Number(current || 0) - Number(previous || 0)
+    delta: Number(current || 0) - Number(previous || 0),
+    variationPercent: Math.abs(Number(previous || 0)) >= 0.005
+      ? ((Number(current || 0) - Number(previous || 0)) / Math.abs(Number(previous || 0))) * 100
+      : 0,
+    percentagePointDelta: null
   }));
 }
 
@@ -13586,8 +14188,8 @@ function comparisonReportPanel(data) {
         ${rows.map(row => `
           <div class="metric">
             <span>${row.label}</span>
-            <strong class="comparison-value ${row.delta < 0 ? "negative" : "positive"}"><i>${row.delta < 0 ? "-" : "+"}</i>${row.label === "Pedidos" || row.label === "Cumbucas" ? Math.abs(row.delta) : money(Math.abs(row.delta))}</strong>
-            <small>Atual: ${row.label === "Pedidos" || row.label === "Cumbucas" ? row.current : money(row.current)} | Anterior: ${row.label === "Pedidos" || row.label === "Cumbucas" ? row.previous : money(row.previous)}</small>
+            <strong class="comparison-value ${row.delta < 0 ? "negative" : "positive"}">${managementComparisonDelta(row)}</strong>
+            <small>Atual: ${managementComparisonValue(row, row.current)} | Anterior: ${managementComparisonValue(row, row.previous)}</small>
           </div>
         `).join("")}
       </div>
@@ -14025,16 +14627,16 @@ function withdrawalPersonReportPanel(data) {
         <button class="secondary" type="button" data-export-withdrawals>Exportar CSV</button>
       </div>
       <div class="summary withdrawal-report-summary">
-        <div class="metric"><span>Lucro operacional</span><strong>${money(periodTotals.operationalProfit)}</strong></div>
+        <div class="metric"><span>Lucro operacional</span><strong>${money(operationalProfitForReport(data))}</strong></div>
         <div class="metric"><span>Cofrinho (10%)</span><strong>${money(periodTotals.savings)}</strong></div>
-        <div class="metric"><span>Vanessa total retirado</span><strong>${money(periodTotals.vanessa + periodTotals.paidToCashVanessa)}</strong></div>
-        <div class="metric"><span>Raquel total retirado</span><strong>${money(periodTotals.raquel + periodTotals.paidToCashRaquel)}</strong></div>
+        <div class="metric"><span>Vanessa - distribuição total</span><strong>${money(periodTotals.vanessa + periodTotals.paidToCashVanessa)}</strong></div>
+        <div class="metric"><span>Raquel - distribuição total</span><strong>${money(periodTotals.raquel + periodTotals.paidToCashRaquel)}</strong></div>
         <div class="metric"><span>Dívidas compensadas</span><strong>${money(periodTotals.paidToCashVanessa + periodTotals.paidToCashRaquel)}</strong></div>
         <div class="metric"><span>Total que saiu da conta</span><strong>${money(periodTotals.paidNowTotal)}</strong></div>
       </div>
       <div class="table-wrap report-table">
         <table>
-          <thead><tr><th>Destino</th><th>Direito na semana</th><th>Recebeu agora</th><th>Dívida descontada</th><th>Total retirado na semana</th><th>Pendente</th><th>Direito no mês</th><th>Recebeu agora no mês</th><th>Dívida descontada no mês</th><th>Total retirado no mês</th><th>Pendente no mês</th></tr></thead>
+          <thead><tr><th>Destino</th><th>Direito na semana</th><th>Recebeu agora</th><th>Dívida descontada</th><th>Distribuição na semana</th><th>Pendente</th><th>Direito no mês</th><th>Recebeu agora no mês</th><th>Dívida descontada no mês</th><th>Distribuição no mês</th><th>Pendente no mês</th></tr></thead>
           <tbody>
             ${rows.map(row => `
               <tr>
@@ -14058,13 +14660,13 @@ function withdrawalPersonReportPanel(data) {
       ${groups.length ? `
         <div class="table-wrap report-table">
           <table>
-            <thead><tr><th>Data</th><th>Saldo disponível</th><th>Lucro operacional</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Dívidas compensadas</th><th>Saiu da conta</th></tr></thead>
+            <thead><tr><th>Data</th><th>Saldo disponível</th><th>Distribuição societária</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Dívidas compensadas</th><th>Saiu da conta</th></tr></thead>
             <tbody>
               ${groups.map(group => `
                 <tr>
                   <td>${formatIsoDateBr(group.date)}</td>
                   <td>${money(group.accountBalanceBefore)}</td>
-                  <td><strong>${money(group.savings + group.vanessa + group.paidToCashVanessa + group.raquel + group.paidToCashRaquel)}</strong><br><small>Total retirado</small></td>
+                  <td><strong>${money(group.savings + group.vanessa + group.paidToCashVanessa + group.raquel + group.paidToCashRaquel)}</strong><br><small>Inclui compensações</small></td>
                   <td>${money(group.savings)}<br><small>Direito ${money(group.expectedSavings)}</small></td>
                   <td><strong>${money(group.vanessa + group.paidToCashVanessa)}</strong><br><small>Recebeu agora ${money(group.vanessa)} · dívida compensada ${money(group.paidToCashVanessa)} · direito ${money(group.expectedVanessa)}</small></td>
                   <td><strong>${money(group.raquel + group.paidToCashRaquel)}</strong><br><small>Recebeu agora ${money(group.raquel)} · dívida compensada ${money(group.paidToCashRaquel)} · direito ${money(group.expectedRaquel)}</small></td>
@@ -14102,7 +14704,7 @@ function exportWithdrawalReport(data = reportData()) {
     raquel_total_retirado: group.raquel + group.paidToCashRaquel,
     raquel_divida_restante: group.remainingDebtRaquel,
     raquel_ainda_nao_retirou: group.pendingRaquel,
-    lucro_operacional: group.savings + group.vanessa + group.paidToCashVanessa + group.raquel + group.paidToCashRaquel,
+    distribuicao_societaria: group.savings + group.vanessa + group.paidToCashVanessa + group.raquel + group.paidToCashRaquel,
     total_que_saiu_da_conta: group.total
   }));
   const suffix = data.type === "day" ? data.date : data.type === "week" ? data.weekKey : data.periodKey;
@@ -14121,9 +14723,9 @@ function weeklyClosingPayload(data) {
     closedAt: new Date().toISOString(),
     income: data.financial.income,
     operationalExpenses: data.financial.operationalExpenses,
-    profitBeforeWithdrawals: data.financial.profitBeforeWithdrawals,
+    profitBeforeWithdrawals: operationalProfitForReport(data),
     withdrawals: data.financial.withdrawals,
-    availableForWithdrawal: data.financial.availableForWithdrawal,
+    availableForWithdrawal: operationalResultForReport(data),
     accountAdjustmentBalance: data.accountAdjustmentTotals.balance,
     accountBalance: data.accountBalance,
     cashEntries: data.cashEntries.length,
@@ -14180,9 +14782,9 @@ function monthlyClosingPayload(data) {
     closedAt: new Date().toISOString(),
     income: data.financial.income,
     operationalExpenses: data.financial.operationalExpenses,
-    profitBeforeWithdrawals: data.financial.profitBeforeWithdrawals,
+    profitBeforeWithdrawals: operationalProfitForReport(data),
     withdrawals: data.financial.withdrawals,
-    availableForWithdrawal: data.financial.availableForWithdrawal,
+    availableForWithdrawal: operationalResultForReport(data),
     suggestedWithdrawal: data.financial.suggestedWithdrawal,
     cashEntries: data.cashEntries.length,
     locked: true
@@ -15843,12 +16445,17 @@ function accountAdjustmentsReportPanel(data) {
 }
 
 function simplifiedStatementPanel(data) {
+  if (data.type === "month") {
+    const managementData = managementDreData(data.periodKey);
+    return `
+      <section class="panel report-section simplified-statement">
+        <h2>DRE gerencial simplificada</h2>
+        ${managementStatementHtml(managementData)}
+      </section>
+    `;
+  }
   const operationalProfit = operationalProfitForReport(data);
-  const withdrawalAmounts = withdrawalBreakdownAmounts(
-    data.financial.withdrawals,
-    data.partnerWithdrawalControl
-  );
-  const finalResult = operationalProfit - withdrawalAmounts.total;
+  const finalResult = operationalResultForReport(data);
   return `
     <section class="panel report-section simplified-statement">
       <h2>Demonstrativo financeiro</h2>
@@ -15890,7 +16497,8 @@ function withdrawalProjection(data) {
   const remainingDays = Math.max(0, totalDays - elapsedDays);
   const dailyProfit = data.financial.profitBeforeWithdrawals / elapsedDays;
   const projectedProfitBeforeWithdrawals = dailyProfit * totalDays;
-  const projectedAvailableForWithdrawal = projectedProfitBeforeWithdrawals - data.financial.withdrawals.total;
+  const withdrawnTotal = cashWithdrawalsForReport(data);
+  const projectedAvailableForWithdrawal = projectedProfitBeforeWithdrawals - withdrawnTotal;
   const currentAccountBalance = accountBalanceUntilDate(today);
   const currentSplit = withdrawalSplit(Math.max(0, currentAccountBalance));
   const projectedSplit = withdrawalSplit(Math.max(0, projectedAvailableForWithdrawal));
@@ -16753,6 +17361,7 @@ function financeFilterPanel(reportType, weekRange) {
 
 function financeMonthPendingItems(data, locked) {
   const withdrawalAmounts = withdrawalBreakdownAmounts(data.financial.withdrawals, data.partnerWithdrawalControl);
+  const operationalResult = operationalResultForReport(data);
   const daysWithEntries = [...new Set(
     data.cashEntries
       .map(entry => cashAccountingDate(entry))
@@ -16774,11 +17383,11 @@ function financeMonthPendingItems(data, locked) {
     });
   }
 
-  if (data.financial.availableForWithdrawal < -0.009) {
+  if (operationalResult < -0.009) {
     items.push({
       level: "danger",
       title: "Resultado negativo",
-      detail: `Resultado após retiradas em ${money(data.financial.availableForWithdrawal)}.`,
+      detail: `Resultado após retiradas em ${money(operationalResult)}.`,
       action: "view-cash",
       actionLabel: "ver lançamento"
     });
@@ -16794,11 +17403,11 @@ function financeMonthPendingItems(data, locked) {
     });
   }
 
-  if (data.financial.withdrawals.total > data.financial.profitBeforeWithdrawals + 0.009) {
+  if (cashWithdrawalsForReport(data) > operationalProfitForReport(data) + 0.009) {
     items.push({
       level: "warning",
       title: "Retiradas acima do lucro",
-      detail: `${money(data.financial.withdrawals.total)} retirado para ${money(data.financial.profitBeforeWithdrawals)} de lucro.`,
+      detail: `${money(cashWithdrawalsForReport(data))} saiu da conta para ${money(operationalProfitForReport(data))} de lucro.`,
       action: "view-withdrawals",
       actionLabel: "corrigir"
     });
@@ -17342,7 +17951,8 @@ function financeDashboardPanel(data) {
   const monthlyGoal = Number(state.financialPlanning?.monthlyGoal || 0);
   const projectedVsGoal = monthlyGoal > 0 ? projection.projectedProfitBeforeWithdrawals - monthlyGoal : 0;
   const goalProgress = monthlyGoal > 0 ? Math.min(999, Math.round((data.financial.profitBeforeWithdrawals / monthlyGoal) * 100)) : 0;
-  const availableAfterSavings = data.financial.availableForWithdrawal + savings;
+  const resultAfterWithdrawals = operationalResultForReport(data);
+  const availableAfterSavings = resultAfterWithdrawals + savings;
   const dueSoon = state.cash
     .filter(entry => entry.type === "expense" && entry.dueDate && !entry.paidAt)
     .filter(entry => entry.dueDate <= addDays(isoDate(new Date()), 7))
@@ -17357,7 +17967,7 @@ function financeDashboardPanel(data) {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
   const alerts = [
-    data.financial.availableForWithdrawal < 0 ? ["Retirada negativa", "As saídas e retiradas passaram do lucro do período."] : null,
+    resultAfterWithdrawals < 0 ? ["Retirada negativa", "As saídas e retiradas passaram do lucro do período."] : null,
     Math.abs(data.accountAdjustmentTotals.balance || 0) >= 0.01 ? ["Conta ajustada", `Ajustes da conta no período: ${money(data.accountAdjustmentTotals.balance)}.`] : null,
     dueSoon.length ? ["Contas próximas", `${dueSoon.length} conta(s) vencidas ou vencendo em até 7 dias.`] : null,
     projection.dailyProfit < 0 ? ["Média negativa", "O período está fechando com prejuízo médio diário."] : null
@@ -18179,15 +18789,13 @@ function reportExportPayload(data = reportData()) {
       totalIncome: data.totalIncome,
       expenses: data.expenses,
       operationalExpenses: data.financial.operationalExpenses,
-      profitBeforeWithdrawals: withdrawalAmounts.total,
-      availableForWithdrawal: operationalResultForReport(data),
+      ...reportFinancialPayloadMetrics(data),
       accountAdjustmentIncome: data.accountAdjustmentTotals.income,
       accountAdjustmentExpenses: data.accountAdjustmentTotals.expenses,
       accountAdjustmentBalance: data.accountAdjustmentTotals.balance,
       accountBalance: data.accountBalance,
       savingsBalance: data.savingsBalance,
       savingsUpdatedAt: data.savingsUpdatedAt,
-      withdrawalTotal: data.financial.withdrawals.total,
       withdrawalVanessa: withdrawalAmounts.vanessa,
       withdrawalSavings: withdrawalAmounts.savings,
       withdrawalRaquel: withdrawalAmounts.raquel,
@@ -18214,9 +18822,9 @@ function reportExportPayload(data = reportData()) {
       dishRows: dishRankingRows(data).map((item, index) => [index + 1, item.name, item.quantity]),
       comparisonRows: comparisonReportRows(data).map(row => [
         row.label,
-        row.label === "Pedidos" || row.label === "Cumbucas" ? row.current : money(row.current),
-        row.label === "Pedidos" || row.label === "Cumbucas" ? row.previous : money(row.previous),
-        row.label === "Pedidos" || row.label === "Cumbucas" ? row.delta : money(row.delta)
+        managementComparisonValue(row, row.current),
+        managementComparisonValue(row, row.previous),
+        managementComparisonDelta(row)
       ]),
       incomeRows: data.incomeEntries.map(entry => [entry.date || "", entry.description || "", money(entry.amount)]),
       expenseRows: reportPdfTopExpenseRows(data),
@@ -18635,6 +19243,10 @@ const routes = {
 
 function applyRouteParams() {
   const params = new URLSearchParams(location.search);
+  const requestedMenuView = params.get("view");
+  if (routeName() === "menu-semanal" && ["form", "orders", "production", "delivery"].includes(requestedMenuView)) {
+    state.orderTab = requestedMenuView;
+  }
   const weekParam = params.get("semana");
   if (weekParam && Number(weekParam) >= 1 && Number(weekParam) <= 5) {
     state.menuWeek = Number(weekParam);
