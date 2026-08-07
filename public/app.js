@@ -7964,8 +7964,10 @@ function menuItemUnitCost(item = {}, periodKey = currentMenuPeriodKey()) {
   ).totalCost;
 }
 
-function menuCatalogRecordedCosts(item = {}, periodKey = currentMenuPeriodKey()) {
-  const supermarket = monthlySupermarketAllocation(periodKey);
+function menuCatalogRecordedCosts(item = {}, keyOrPeriod = menuKey(state.menuWeek || 1)) {
+  const supermarket = String(keyOrPeriod || "").includes("-semana-")
+    ? weeklyMenuSupermarketAllocation(keyOrPeriod)
+    : monthlySupermarketAllocation(keyOrPeriod);
   const costs = menuPlanningCosts(
     item,
     pricingSharedCosts().totalPerUnit,
@@ -7991,12 +7993,13 @@ function menuCatalogStatusLabel(status = "") {
 
 function menuCatalogRows() {
   return [1, 2, 3, 4, 5].flatMap(week => {
-    return (state.menus[menuKey(week)] || [])
+    const currentKey = menuKey(week);
+    return (state.menus[currentKey] || [])
       .filter(menuItemHasPlanningContent)
       .map(item => ({
         week,
         item,
-        costs: menuCatalogRecordedCosts(item),
+        costs: menuCatalogRecordedCosts(item, currentKey),
         ingredients: (item.ingredients || [])
           .map(ingredient => String(ingredient.name || "").trim())
           .filter(Boolean)
@@ -8085,9 +8088,9 @@ function menuCatalogPanel() {
                 <span class="pricing-status ${row.costs.costConfigured ? "profitable" : "pending"}">${row.costs.costConfigured ? menuCatalogStatusLabel(row.item.status) : "Custo pendente"}</span>
               </div>
               <h3>${escapeHtml(row.item.dish || `Cumbuca ${row.item.slot || ""}`)}</h3>
-              <p>Supermercado do Caixa rateado automaticamente entre as cumbucas vendidas no mês.</p>
+              <p>Supermercado registrado na semana dividido pelas cumbucas vendidas na mesma semana.</p>
               <div class="menu-cost-breakdown">
-                <span><small>Supermercado do Caixa</small><strong>${money(row.costs.supermarketCost)}</strong></span>
+                <span><small>Supermercado por cumbuca</small><strong>${money(row.costs.supermarketCost)}</strong></span>
                 <span><small>Outros custos rateados</small><strong>${money(row.costs.sharedCost)}</strong></span>
                 <span><small>Embalagem</small><strong>${money(row.costs.packagingCost)}</strong></span>
                 <span class="total"><small>Custo por cumbuca</small><strong>${row.costs.costConfigured ? money(row.costs.totalCost) : "Pendente"}</strong></span>

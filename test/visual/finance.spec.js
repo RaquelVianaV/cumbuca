@@ -773,6 +773,11 @@ test('monthly menu catalog filters offered dishes and shows recorded costs', asy
         },
       ],
     },
+    weeklyMenuSupermarketCostsByPeriod: {
+      '2026-08-semana-1': '40.00',
+      '2026-08-semana-2': '30.00',
+      '2026-08-semana-3': '30.00',
+    },
     menuWeek: 1,
     menuPeriod: { year: 2026, month: 8 },
     menuDatesByPeriod: {},
@@ -803,7 +808,7 @@ test('monthly menu catalog filters offered dishes and shows recorded costs', asy
         date: '2026-08-08',
         type: 'expense',
         category: 'supermercado',
-        amount: '100.00',
+        amount: '9999.00',
       },
     ],
   };
@@ -827,6 +832,10 @@ test('monthly menu catalog filters offered dishes and shows recorded costs', asy
   const result = page.locator('[data-menu-catalog-card]');
   await expect(result).toContainText('Semana 3');
   await expect(result).toContainText('Frango cremoso');
+  await expect(result).toContainText(
+    'Supermercado registrado na semana dividido pelas cumbucas vendidas na mesma semana'
+  );
+  await expect(result).toContainText('Supermercado por cumbuca');
   await expect(result).toContainText('R$ 10,00');
   await expect(result).toContainText('R$ 1,00');
   await expect(result).toContainText('R$ 1,60');

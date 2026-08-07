@@ -324,6 +324,11 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /function menuCatalogRows/);
   assert.match(app, /function filteredMenuCatalogRows/);
   assert.match(app, /function menuCatalogRecordedCosts/);
+  assert.match(
+    app,
+    /Supermercado registrado na semana dividido pelas cumbucas vendidas na mesma semana/
+  );
+  assert.match(app, /Supermercado por cumbuca/);
   assert.match(app, /Cumbucas do mês/);
   assert.match(app, /catalogo=cumbucas/);
   assert.match(app, /Buscar cumbuca/);
