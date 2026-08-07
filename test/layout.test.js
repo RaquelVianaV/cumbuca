@@ -318,6 +318,8 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /Gasto total de supermercado e boletos por prato/);
   assert.match(app, /data-menu-weekly-quantity/);
   assert.match(app, /data-week-summary/);
+  assert.match(app, /Supermercado registrado na semana/);
+  assert.match(app, /somente o gasto total de supermercado informado em cada semana/);
   assert.match(app, /Valor que sobra na semana/);
   assert.match(app, /function menuCatalogRows/);
   assert.match(app, /function filteredMenuCatalogRows/);

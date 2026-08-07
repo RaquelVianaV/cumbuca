@@ -637,7 +637,7 @@ test('monthly menu summary includes each manual weekly supermarket total', async
         {
           slot: 1,
           dish: 'Moqueca de peixe',
-          dishCost: '0.00',
+          dishCost: '9.50',
           ingredients: [{ name: 'Custo legado que não deve ser usado', value: '999.00' }],
           ingredientCost: '999.00',
           sharedCost: '0.00',
@@ -688,11 +688,11 @@ test('monthly menu summary includes each manual weekly supermarket total', async
   await expect(week).toContainText('Semana 1');
   await expect(week).toContainText('Moqueca de peixe');
   await expect(week).toContainText('175');
-  await expect(week).toContainText('R$ 2.688,00');
+  await expect(week).toContainText('R$ 2.408,00');
   await expect(week).toContainText('R$ 4.375,00');
-  await expect(week).toContainText('R$ 1.687,00');
+  await expect(week).toContainText('R$ 1.967,00');
   await expect(page.locator('.month-summary-note')).toContainText(
-    'custo unitário de cada prato multiplicado pela quantidade pedida'
+    'somente o gasto total de supermercado informado em cada semana'
   );
   await expectNoHorizontalOverflow(page);
   await page.screenshot({

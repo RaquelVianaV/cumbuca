@@ -9557,20 +9557,16 @@ function monthSummaryPanel(currentKey) {
     const key = `${periodKey}-semana-${week}`;
     const dishes = state.menus[key] || [];
     const weekOrders = weeklyOrders(key);
-    const menuCost = weeklyMenuProductionCost(
-      dishes,
-      weekOrders,
-      item => weeklyMenuPlanningCosts(item, key).totalCost
-    );
+    const supermarketCost = weeklyMenuSupermarketTotal(key);
     const orderAmount = weekOrders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
 
     return {
       week,
       dishes: dishes.map(item => item.dish).filter(Boolean).join(", "),
       quantity: weekOrders.reduce((sum, order) => sum + orderQuantity(order), 0),
-      menuCost,
+      supermarketCost,
       orderAmount,
-      result: orderAmount - menuCost
+      result: orderAmount - supermarketCost
     };
   });
 
@@ -9582,16 +9578,16 @@ function monthSummaryPanel(currentKey) {
         <div class="metric"><span>Frete arrecadado</span><strong>${money(totalDeliveryFee)}</strong></div>
       </div>
       <div class="table-wrap month-summary-table">
-        <p class="muted-inline month-summary-note">O custo total soma o custo unitário de cada prato multiplicado pela quantidade pedida. O valor que sobra é o total dos pedidos menos esse custo.</p>
+        <p class="muted-inline month-summary-note">O custo considera somente o gasto total de supermercado informado em cada semana. O valor que sobra é o total dos pedidos menos esse gasto de supermercado.</p>
         <table>
-          <thead><tr><th>Semana</th><th>Prato feito no mês</th><th>Cumbucas pedidas</th><th>Custo total da semana</th><th>Valor total dos pedidos</th><th>Valor que sobra na semana</th></tr></thead>
+          <thead><tr><th>Semana</th><th>Prato feito no mês</th><th>Cumbucas pedidas</th><th>Supermercado registrado na semana</th><th>Valor total dos pedidos</th><th>Valor que sobra na semana</th></tr></thead>
           <tbody>
             ${weeklySummary.map(item => `
               <tr data-week-summary="${item.week}">
                 <td>Semana ${item.week}</td>
                 <td>${item.dishes || "Nenhum prato registrado."}</td>
                 <td>${item.quantity}</td>
-                <td>${money(item.menuCost)}</td>
+                <td>${money(item.supermarketCost)}</td>
                 <td>${money(item.orderAmount)}</td>
                 <td class="${item.result < 0 ? "negative" : "positive"}">${money(item.result)}</td>
               </tr>
