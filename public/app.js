@@ -11822,6 +11822,11 @@ function supermarketExpenseEntry(entry = {}) {
   return slugifyCategory(categoryName(entry.category)) === "supermercado";
 }
 
+function foodInputExpenseCategory(entry = {}) {
+  return ["supermercado", "frigorifico", "boleto"]
+    .includes(slugifyCategory(categoryName(entry.category)));
+}
+
 function monthlySoldQuantities(periodKey = reportPeriodKey()) {
   const menuQuantity = productionOrders(state.orders.filter(order => {
     return menuPeriodKeyFromKey(order.menuKey) === periodKey;
@@ -11870,26 +11875,30 @@ function monthlySupermarketAllocation(periodKey = reportPeriodKey()) {
 }
 
 function monthlyFoodAndBillsCost(periodKey = reportPeriodKey()) {
-  const supermarket = monthlySupermarketAllocation(periodKey);
-  const supermarketTotal = supermarket.expenses;
-
-  const billEntries = accountingCashEntries(state.cash).filter(entry => {
+  const quantities = monthlySoldQuantities(periodKey);
+  const inputEntries = accountingCashEntries(state.cash).filter(entry => {
     return entry.type === "expense"
       && String(cashAccountingDate(entry)).startsWith(periodKey)
       && !isAccountAdjustmentEntry(entry)
-      && !supermarketExpenseEntry(entry)
-      && (isBillEntry(entry) || Boolean(entry.financialAccountId));
+      && foodInputExpenseCategory(entry);
   });
-  const billsTotal = billEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-  const combinedTotal = supermarketTotal + billsTotal;
+  const totalForCategory = category => inputEntries
+    .filter(entry => slugifyCategory(categoryName(entry.category)) === category)
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const supermarketTotal = totalForCategory("supermercado");
+  const butcherTotal = totalForCategory("frigorifico");
+  const billsTotal = totalForCategory("boleto");
+  const combinedTotal = supermarketTotal + butcherTotal + billsTotal;
 
   return {
-    ...supermarket,
+    periodKey,
+    ...quantities,
     supermarketTotal,
+    butcherTotal,
     billsTotal,
     combinedTotal,
-    costPerPlate: supermarket.totalQuantity > 0
-      ? combinedTotal / supermarket.totalQuantity
+    costPerPlate: quantities.totalQuantity > 0
+      ? combinedTotal / quantities.totalQuantity
       : 0
   };
 }
@@ -11900,18 +11909,20 @@ function financeFoodAndBillsCostPanel(periodKey = reportPeriodKey()) {
     <section class="panel report-section finance-food-cost" data-finance-food-cost>
       <div class="section-heading">
         <div>
-          <h2>Gasto total de supermercado e boletos por prato</h2>
-          <p class="muted-inline">${formatMonthKeyBr(periodKey)} · (todas as saídas de Supermercado no Caixa + boletos pagos) ÷ total de pratos vendidos.</p>
+          <h2>Compras de insumos por cumbuca</h2>
+          <p class="muted-inline">${formatMonthKeyBr(periodKey)} · (Supermercado + Frigorífico + Boleto pagos) ÷ total de cumbucas vendidas.</p>
         </div>
       </div>
       <div class="summary">
-        <div class="metric report-metric"><span>Total gasto em supermercado</span><strong data-finance-supermarket-total>${money(costs.supermarketTotal)}</strong><small>Todas as saídas lançadas como Supermercado no Caixa</small></div>
-        <div class="metric report-metric"><span>Boletos pagos</span><strong data-finance-bills-total>${money(costs.billsTotal)}</strong></div>
-        <div class="metric report-metric"><span>Total de pratos vendidos</span><strong data-finance-sold-plates>${costs.totalQuantity}</strong><small>Menu ${costs.menuQuantity} + Loja ${costs.storeQuantity}</small></div>
-        <div class="metric report-metric total"><span>Custo por prato</span><strong data-finance-cost-per-plate>${costs.totalQuantity > 0 ? money(costs.costPerPlate) : "—"}</strong><small>${money(costs.combinedTotal)} ÷ ${costs.totalQuantity || 0}</small></div>
+        <div class="metric report-metric"><span>Supermercado</span><strong data-finance-supermarket-total>${money(costs.supermarketTotal)}</strong></div>
+        <div class="metric report-metric"><span>Frigorífico</span><strong data-finance-butcher-total>${money(costs.butcherTotal)}</strong></div>
+        <div class="metric report-metric"><span>Boleto</span><strong data-finance-bills-total>${money(costs.billsTotal)}</strong><small>Somente lançamentos na categoria Boleto</small></div>
+        <div class="metric report-metric"><span>Total de insumos</span><strong data-finance-input-total>${money(costs.combinedTotal)}</strong></div>
+        <div class="metric report-metric"><span>Total de cumbucas vendidas</span><strong data-finance-sold-plates>${costs.totalQuantity}</strong><small>Menu ${costs.menuQuantity} + Loja ${costs.storeQuantity}</small></div>
+        <div class="metric report-metric total"><span>Insumos por cumbuca</span><strong data-finance-cost-per-plate>${costs.totalQuantity > 0 ? money(costs.costPerPlate) : "—"}</strong><small>${money(costs.combinedTotal)} ÷ ${costs.totalQuantity || 0}</small></div>
       </div>
-      ${costs.supermarketTotal > 0 && costs.totalQuantity === 0 ? `
-        <p class="form-hint warning-text">O valor de Supermercado está no Caixa, mas ainda não há cumbucas vendidas neste mês para fazer o rateio.</p>
+      ${costs.combinedTotal > 0 && costs.totalQuantity === 0 ? `
+        <p class="form-hint warning-text">Existem compras de insumos no Caixa, mas ainda não há cumbucas vendidas neste mês para fazer o rateio.</p>
       ` : ""}
     </section>
   `;

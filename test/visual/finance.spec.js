@@ -1992,7 +1992,7 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   });
 });
 
-test('finance divides total supermarket expenses and paid bills by all plates sold', async ({
+test('finance divides only supermarket, butcher and boleto expenses by all plates sold', async ({
   page,
 }, testInfo) => {
   const database = await mockOnlineDatabase(page);
@@ -2081,6 +2081,32 @@ test('finance divides total supermarket expenses and paid bills by all plates so
         financialAccountId: 'account-1',
       },
       {
+        id: 'butcher-expense',
+        date: '2026-08-07',
+        dueDate: '2026-08-07',
+        paidAt: '2026-08-07T12:00:00.000Z',
+        type: 'expense',
+        category: 'reason:Frigorífico',
+        amount: '60.00',
+      },
+      {
+        id: 'energy-account',
+        date: '2026-08-07',
+        type: 'expense',
+        category: 'enel',
+        amount: '40.00',
+        financialAccountId: 'account-2',
+      },
+      {
+        id: 'generic-account',
+        date: '2026-08-07',
+        dueDate: '2026-08-07',
+        paidAt: '2026-08-07T12:00:00.000Z',
+        type: 'expense',
+        category: 'conta',
+        amount: '70.00',
+      },
+      {
         id: 'separate-supermarket-entry',
         date: '2026-08-08',
         dueDate: '2026-08-08',
@@ -2111,13 +2137,15 @@ test('finance divides total supermarket expenses and paid bills by all plates so
   const panel = page.locator('[data-finance-food-cost]');
   await expect(panel).toBeVisible();
   await expect(panel.locator('[data-finance-supermarket-total]')).toHaveText('R$ 999,00');
-  await expect(panel).toContainText('Todas as saídas lançadas como Supermercado no Caixa');
-  await expect(panel.locator('[data-finance-bills-total]')).toHaveText('R$ 120,00');
+  await expect(panel.locator('[data-finance-butcher-total]')).toHaveText('R$ 60,00');
+  await expect(panel.locator('[data-finance-bills-total]')).toHaveText('R$ 90,00');
+  await expect(panel.locator('[data-finance-input-total]')).toHaveText('R$ 1.149,00');
+  await expect(panel).toContainText('Somente lançamentos na categoria Boleto');
   await expect(panel.locator('[data-finance-sold-plates]')).toContainText('32');
   await expect(
-    panel.locator('.metric').filter({ hasText: 'Total de pratos vendidos' })
+    panel.locator('.metric').filter({ hasText: 'Total de cumbucas vendidas' })
   ).toContainText('Menu 10 + Loja 22');
-  await expect(panel.locator('[data-finance-cost-per-plate]')).toContainText('R$ 34,97');
+  await expect(panel.locator('[data-finance-cost-per-plate]')).toContainText('R$ 35,91');
   await expect(panel).not.toContainText('sem custo de supermercado identificado');
   await expectNoHorizontalOverflow(page);
   await page.screenshot({

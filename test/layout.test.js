@@ -315,7 +315,10 @@ test('finance, reports and maintenance expose the expected view tabs', () => {
   assert.match(app, /function weeklyMenuProductionCost/);
   assert.match(app, /function monthlyFoodAndBillsCost/);
   assert.match(app, /function financeFoodAndBillsCostPanel/);
-  assert.match(app, /Gasto total de supermercado e boletos por prato/);
+  assert.match(app, /function foodInputExpenseCategory/);
+  assert.match(app, /Compras de insumos por cumbuca/);
+  assert.match(app, /Supermercado \+ Frigorífico \+ Boleto pagos/);
+  assert.match(app, /Somente lançamentos na categoria Boleto/);
   assert.match(app, /data-menu-weekly-quantity/);
   assert.match(app, /data-week-summary/);
   assert.match(app, /Supermercado registrado na semana/);
