@@ -472,7 +472,7 @@ test('monthly clients renew quantities manually and choose whether to launch the
   });
 });
 
-test('menu planning combines manual costs, packaging, allocated costs and profit', async ({
+test('menu planning rates the supermarket cash total with packaging, other costs and profit', async ({
   page,
 }, testInfo) => {
   const database = await mockOnlineDatabase(page);
@@ -507,6 +507,22 @@ test('menu planning combines manual costs, packaging, allocated costs and profit
         createdAt: '2026-08-03T12:00:00.000Z',
       },
     ],
+    cashEntries: [
+      {
+        id: 'supermarket-expense',
+        date: '2026-08-02',
+        type: 'expense',
+        category: 'supermercado',
+        amount: '24.00',
+      },
+      {
+        id: 'supermarket-income',
+        date: '2026-08-03',
+        type: 'income',
+        category: 'supermercado',
+        amount: '4.00',
+      },
+    ],
   };
 
   await page.goto('/menu-semanal?ano=2026&mes=8&semana=1');
@@ -515,17 +531,20 @@ test('menu planning combines manual costs, packaging, allocated costs and profit
     'Cadastre as cumbucas diretamente no Planejamento'
   );
   await expect(
-    page.getByRole('link', { name: 'Configurar custos rateados', exact: true })
-  ).toHaveAttribute('href', '/precificacao?view=costs');
+    page.getByRole('link', { name: 'Abrir Supermercado no Caixa', exact: true })
+  ).toHaveAttribute('href', '/fluxo-de-caixa');
+  await expect(page.locator('.menu-pricing-source')).toContainText(
+    'R$ 20,00 de saídas líquidas, rateadas por 2 cumbuca(s) vendida(s) no mês, ou R$ 10,00 por unidade'
+  );
   await expect(page.locator('[data-menu-packaging="0"]')).toHaveValue('1,60');
   await expect(page.locator('[data-menu-profit-percent="0"]')).toHaveValue('30,00');
+  await expect(page.locator('[data-menu-supermarket-cost="0"]')).toHaveCount(0);
 
-  await page.locator('[data-menu-dish="0"]').fill('Cumbuca manual da semana');
+  await page.locator('[data-menu-dish="0"]').fill('Cumbuca da semana');
   await expect(page.locator('[data-ingredient-row][data-menu-index="0"]')).toHaveCount(0);
-  await page.locator('[data-menu-supermarket-cost="0"]').fill('10,00');
 
   const breakdown = page.locator('[data-menu-cost-breakdown="0"]');
-  await expect(breakdown.locator('[data-menu-ingredient-cost]')).toHaveText('R$ 10,00');
+  await expect(breakdown.locator('[data-menu-supermarket-rate]')).toHaveText('R$ 10,00');
   await expect(breakdown.locator('[data-menu-shared-cost]')).toHaveText('R$ 10,00');
   await expect(breakdown.locator('[data-menu-packaging-cost]')).toHaveText('R$ 1,60');
   await expect(breakdown.locator('[data-menu-total-cost]')).toHaveText('R$ 21,60');
@@ -543,24 +562,26 @@ test('menu planning combines manual costs, packaging, allocated costs and profit
 
   await expect
     .poll(() => database.state.weeklyMenusByPeriod?.['2026-08-semana-1']?.[0]?.dish)
-    .toBe('Cumbuca manual da semana');
+    .toBe('Cumbuca da semana');
   expect(database.state.weeklyMenusByPeriod['2026-08-semana-1'][0]).toMatchObject({
-    dish: 'Cumbuca manual da semana',
-    ingredientCost: '10.00',
+    dish: 'Cumbuca da semana',
+    supermarketCost: '10.00',
     sharedCost: '10.00',
     packagingCost: '1.60',
     profitPercent: '30.00',
     cost: '21.60',
     profit: '6.48',
     suggestedPrice: '28.08',
-    ingredients: [],
   });
+  expect(database.state.weeklyMenusByPeriod['2026-08-semana-1'][0]).not.toHaveProperty(
+    'ingredientCost'
+  );
 
   await page.goto('/relatorios?ano=2026&mes=8');
   await page.getByRole('button', { name: 'Rentabilidade', exact: true }).click();
   const profitability = page.locator('[data-profitability-panel]');
   await expect(profitability).toContainText(
-    'Pedidos usam o custo manual de supermercado + rateio automático do Planejamento'
+    'Pedidos usam o Supermercado do Caixa rateado pelas cumbucas vendidas'
   );
   await expect(
     profitability.getByRole('link', { name: 'Abrir custos rateados', exact: true })
@@ -571,8 +592,8 @@ test('menu planning combines manual costs, packaging, allocated costs and profit
   await expect(
     profitability.locator('.metric').filter({ hasText: 'Custo estimado' })
   ).toContainText('R$ 43,20');
-  await expect(profitability.locator('tbody tr').first()).toContainText('Cumbuca manual da semana');
-  await expect(profitability.locator('tbody tr').first()).toContainText('Planejamento');
+  await expect(profitability.locator('tbody tr').first()).toContainText('Cumbuca da semana');
+  await expect(profitability.locator('tbody tr').first()).toContainText('Planejamento + Caixa');
   await expect(profitability.locator('tbody tr').first()).toContainText('R$ 43,20');
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
@@ -592,8 +613,8 @@ test('monthly menu summary multiplies unit cost by ordered quantities and shows 
         {
           slot: 1,
           dish: 'Moqueca de peixe',
-          ingredients: [{ name: 'Ingredientes', value: '13.76' }],
-          ingredientCost: '13.76',
+          ingredients: [{ name: 'Custo legado que não deve ser usado', value: '999.00' }],
+          ingredientCost: '999.00',
           sharedCost: '0.00',
           packagingCost: '1.60',
           profitPercent: '30.00',
@@ -623,6 +644,15 @@ test('monthly menu summary multiplies unit cost by ordered quantities and shows 
         amount: 1875,
       },
     ],
+    cashEntries: [
+      {
+        id: 'monthly-supermarket',
+        date: '2026-08-05',
+        type: 'expense',
+        category: 'supermercado',
+        amount: '2408.00',
+      },
+    ],
   };
 
   await page.goto('/menu-semanal?ano=2026&mes=8&resumo=mes');
@@ -650,8 +680,8 @@ test('monthly menu catalog filters offered dishes and shows recorded costs', asy
   database.state = {
     pricingConfig: {
       sharedCosts: {
-        averageMonthlyUnits: 1,
-        rent: 99,
+        averageMonthlyUnits: 100,
+        rent: 100,
       },
     },
     weeklyMenusByPeriod: {
@@ -719,7 +749,35 @@ test('monthly menu catalog filters offered dishes and shows recorded costs', asy
     menuPeriod: { year: 2026, month: 8 },
     menuDatesByPeriod: {},
     clients: [],
-    orders: [],
+    orders: [
+      {
+        id: 'catalog-order-1',
+        menuKey: '2026-08-semana-1',
+        dishes: [{ slot: 1, quantity: 4 }],
+        totalQuantity: 4,
+      },
+      {
+        id: 'catalog-order-2',
+        menuKey: '2026-08-semana-2',
+        dishes: [{ slot: 1, quantity: 3 }],
+        totalQuantity: 3,
+      },
+      {
+        id: 'catalog-order-3',
+        menuKey: '2026-08-semana-3',
+        dishes: [{ slot: 2, quantity: 3 }],
+        totalQuantity: 3,
+      },
+    ],
+    cashEntries: [
+      {
+        id: 'catalog-supermarket',
+        date: '2026-08-08',
+        type: 'expense',
+        category: 'supermercado',
+        amount: '100.00',
+      },
+    ],
   };
 
   await page.goto('/menu-semanal?ano=2026&mes=8&catalogo=cumbucas');
@@ -1375,6 +1433,7 @@ test('store sales filter by day, week and month with previous month comparison',
     ],
   };
   await page.evaluate(() => {
+    localStorage.setItem('globalPeriod', JSON.stringify({ year: 2026, month: 7 }));
     localStorage.setItem(
       'storeSalesFilter',
       JSON.stringify({ period: 'month', date: '2026-07-15', month: '2026-07' })
@@ -1544,6 +1603,7 @@ test('store sales can filter combos and count combos separately from units', asy
     ],
   };
   await page.evaluate(() => {
+    localStorage.setItem('globalPeriod', JSON.stringify({ year: 2026, month: 7 }));
     localStorage.setItem(
       'storeSalesFilter',
       JSON.stringify({
@@ -1895,7 +1955,7 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   });
 });
 
-test('finance divides supermarket and paid bills by all plates sold in the month', async ({
+test('finance divides the supermarket cash balance and paid bills by all plates sold', async ({
   page,
 }, testInfo) => {
   const database = await mockOnlineDatabase(page);
@@ -1993,6 +2053,13 @@ test('finance divides supermarket and paid bills by all plates sold in the month
         amount: '999.00',
       },
       {
+        id: 'supermarket-refund',
+        date: '2026-08-08',
+        type: 'income',
+        category: 'supermercado',
+        amount: '99.00',
+      },
+      {
         id: 'pending-bill',
         date: '2026-08-09',
         dueDate: '2026-08-09',
@@ -2006,14 +2073,15 @@ test('finance divides supermarket and paid bills by all plates sold in the month
   await page.goto('/financeiro?ano=2026&mes=8');
   const panel = page.locator('[data-finance-food-cost]');
   await expect(panel).toBeVisible();
-  await expect(panel.locator('[data-finance-supermarket-total]')).toHaveText('R$ 180,00');
+  await expect(panel.locator('[data-finance-supermarket-total]')).toHaveText('R$ 900,00');
+  await expect(panel).toContainText('Saídas R$ 999,00 - Entradas R$ 99,00');
   await expect(panel.locator('[data-finance-bills-total]')).toHaveText('R$ 120,00');
   await expect(panel.locator('[data-finance-sold-plates]')).toContainText('32');
   await expect(
     panel.locator('.metric').filter({ hasText: 'Total de pratos vendidos' })
   ).toContainText('Menu 10 + Loja 22');
-  await expect(panel.locator('[data-finance-cost-per-plate]')).toContainText('R$ 9,38');
-  await expect(panel).toContainText('2 prato(s) vendido(s) ainda estão sem custo');
+  await expect(panel.locator('[data-finance-cost-per-plate]')).toContainText('R$ 31,88');
+  await expect(panel).not.toContainText('sem custo de supermercado identificado');
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
     path: testInfo.outputPath('finance-food-and-bills-cost.png'),
@@ -2289,21 +2357,23 @@ test('home dashboard prioritizes projected balance and actions', async ({ page }
   };
   await page.goto('/');
   await expect(
-    page.getByRole('heading', { name: 'Operação e financeiro', exact: true })
+    page.getByRole('heading', { name: 'Visão geral financeira', exact: true })
   ).toBeVisible();
-  const balanceCard = page.locator('.dashboard-metric.is-primary');
-  await expect(balanceCard).toContainText('Saldo das contas');
-  await expect(balanceCard).toContainText('Unificado');
-  await expect(balanceCard).toContainText('Conta PF R$ 100,00');
-  await expect(balanceCard).toContainText('Conta PJ R$ 40,00');
-  const projectionCard = page
-    .locator('.dashboard-metric.has-account-breakdown')
-    .filter({ hasText: 'Projeção 30 dias' });
+  const balanceCard = page.locator('[data-home-balance]');
+  await expect(balanceCard).toContainText('R$ 140,00');
+  const balanceSummary = page.locator('.home-balance-summary');
+  await expect(balanceSummary).toContainText('Saldo unificado das contas');
+  await expect(balanceSummary).toContainText('Conta PF R$ 100,00');
+  await expect(balanceSummary).toContainText('Conta PJ R$ 40,00');
+  const projectionCard = page.locator('[data-home-projection]');
   await expect(projectionCard).toContainText('R$ 150,00');
   await expect(projectionCard).toContainText('Conta PF R$ 80,00');
   await expect(projectionCard).toContainText('Conta PJ R$ 70,00');
   await expect(projectionCard).toContainText('A pagar R$ 20,00');
   await expect(projectionCard).toContainText('receber R$ 30,00');
+  await expect(page.locator('[data-home-priorities]')).toBeVisible();
+  await expect(page.locator('[data-home-budget]')).toBeVisible();
+  await expect(page.locator('[data-home-volume]')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Prioridades', exact: true })).toBeVisible();
   await expect(
     page.getByRole('heading', { name: 'Próximos vencimentos', exact: true })
@@ -2327,6 +2397,112 @@ test('home dashboard prioritizes projected balance and actions', async ({ page }
   await expect(page.getByRole('heading', { name: 'Ações principais', exact: true })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await page.screenshot({ path: testInfo.outputPath('home-dashboard.png'), fullPage: true });
+});
+
+test('home period applies the selected month across monthly views', async ({ page }, testInfo) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    menuPeriod: { year: 2026, month: 8 },
+    menuWeek: 1,
+    weeklyMenusByPeriod: {},
+    menuDatesByPeriod: {},
+    cashFilter: {
+      period: 'month',
+      date: '2026-08-01',
+      month: '2026-08',
+      year: '2026',
+      type: 'all',
+      category: 'all',
+      cashAccount: 'all',
+      search: '',
+    },
+    cashEntries: [
+      {
+        id: 'withdrawal-july-vanessa',
+        date: '2026-07-15',
+        type: 'expense',
+        category: 'retirada',
+        description: 'Retirada - Vanessa',
+        amount: '0.00',
+        expectedAmount: '100.00',
+        cashDebtAmount: '100.00',
+      },
+      {
+        id: 'withdrawal-august-vanessa',
+        date: '2026-08-15',
+        type: 'expense',
+        category: 'retirada',
+        description: 'Retirada - Vanessa',
+        amount: '0.00',
+        expectedAmount: '200.00',
+        cashDebtAmount: '200.00',
+      },
+    ],
+  };
+
+  await page.goto('/home');
+  const globalForm = page.locator('#global-period-form');
+  await expect(globalForm).toBeVisible();
+  await globalForm.locator('input[name="year"]').fill('2026');
+  await globalForm.locator('select[name="month"]').selectOption('7');
+  await globalForm.getByRole('button', { name: 'Aplicar em todo o sistema', exact: true }).click();
+  await expect(page.locator('.dashboard-copy > span')).toContainText('julho de 2026');
+  await expect(
+    page.locator('#global-period-form').getByRole('button', {
+      name: 'Aplicar em todo o sistema',
+      exact: true,
+    })
+  ).toBeVisible();
+  await page.mouse.move(0, 0);
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath('global-period-' + testInfo.project.name + '.png'),
+    fullPage: false,
+  });
+
+  const remembered = await page.evaluate(() => ({
+    globalPeriod: JSON.parse(localStorage.getItem('globalPeriod') || 'null'),
+    menuPeriod: JSON.parse(localStorage.getItem('menuPeriod') || 'null'),
+    reportPeriod: JSON.parse(localStorage.getItem('reportPeriod') || 'null'),
+    cashFilter: JSON.parse(localStorage.getItem('cashFilter') || 'null'),
+    storeSalesFilter: JSON.parse(localStorage.getItem('storeSalesFilter') || 'null'),
+    channelFilter: JSON.parse(localStorage.getItem('channelFilter') || 'null'),
+    storeProductMonth: JSON.parse(localStorage.getItem('storeProductMonth') || 'null'),
+  }));
+  expect(remembered.globalPeriod).toEqual({ year: 2026, month: 7 });
+  expect(remembered.menuPeriod).toEqual({ year: 2026, month: 7 });
+  expect(remembered.reportPeriod).toMatchObject({ type: 'month', year: 2026, month: 7 });
+  expect(remembered.cashFilter).toMatchObject({ period: 'month', month: '2026-07' });
+  expect(remembered.storeSalesFilter).toMatchObject({ period: 'month', month: '2026-07' });
+  expect(remembered.channelFilter).toMatchObject({ period: 'month', month: '2026-07' });
+  expect(remembered.storeProductMonth).toBe('2026-07');
+
+  await page.goto('/menu-semanal');
+  await expect(page.locator('#menu-period-form input[name="year"]')).toHaveValue('2026');
+  await expect(page.locator('#menu-period-form select[name="month"]')).toHaveValue('7');
+
+  await page.goto('/financeiro');
+  await expect(page.locator('#report-filter-form select[name="type"]')).toHaveValue('month');
+  await expect(page.locator('#report-filter-form input[name="year"]')).toHaveValue('2026');
+  await expect(page.locator('#report-filter-form select[name="month"]')).toHaveValue('7');
+
+  await page.goto('/fluxo-de-caixa?panel=withdrawals');
+  const compensation = page
+    .locator('.partners-dashboard section')
+    .filter({ hasText: 'Valores compensados ao caixa' });
+  await expect(compensation).toContainText('julho de 2026');
+  await expect(compensation).toContainText('Pagou ao caixa R$ 100,00');
+  await expect(compensation).not.toContainText('R$ 300,00');
+
+  await page.goto('/loja');
+  await expect(page.locator('#store-sales-filter-form input[name="month"]')).toHaveValue('2026-07');
+
+  await page.goto('/loja?view=channels');
+  await expect(page.locator('#channel-filter-form input[name="month"]')).toHaveValue('2026-07');
+
+  await page.goto('/relatorios');
+  await expect(page.locator('#report-filter-form input[name="year"]')).toHaveValue('2026');
+  await expect(page.locator('#report-filter-form select[name="month"]')).toHaveValue('7');
 });
 
 test('finance dashboard separates PF, PJ and unified balances', async ({ page }, testInfo) => {

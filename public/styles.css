@@ -3841,6 +3841,54 @@ html.dark-mode .cash-category-summary-action {
   background: #ffffff;
 }
 
+.global-period-panel {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.72fr) minmax(430px, 1.28fr);
+  gap: 18px;
+  align-items: end;
+  padding: 16px 18px;
+  border-left: 5px solid var(--green-dark);
+  background: linear-gradient(110deg, rgba(8, 69, 55, 0.06), #ffffff 52%);
+}
+
+.global-period-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.global-period-copy span {
+  color: var(--green-dark);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.global-period-copy h2,
+.global-period-copy p {
+  margin: 0;
+}
+
+.global-period-copy p {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.global-period-form {
+  grid-template-columns: minmax(110px, 0.55fr) minmax(170px, 0.8fr) minmax(220px, auto);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+@media (max-width: 900px) {
+  .global-period-panel {
+    grid-template-columns: 1fr;
+  }
+}
+
 .store-sales-filter {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -9325,6 +9373,303 @@ html.dark-mode tbody tr:hover {
     line-height: 1.15;
     text-align: center;
     white-space: normal;
+  }
+}
+
+/* Home: comandos compactos e resumo financeiro sem espaços vazios. */
+.home-command-grid {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.82fr) minmax(0, 1.18fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.home-command-grid .global-period-panel {
+  grid-template-columns: 1fr;
+  align-content: start;
+  gap: 14px;
+  margin: 0;
+  padding: 18px;
+  border-left-width: 5px;
+  background:
+    linear-gradient(145deg, rgba(8, 127, 91, 0.09), rgba(255, 255, 255, 0.97) 58%),
+    #ffffff;
+}
+
+.home-command-grid .global-period-form {
+  grid-template-columns: minmax(96px, 0.62fr) minmax(150px, 1fr);
+  gap: 10px;
+}
+
+.home-command-grid .global-period-form button {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
+.home-start-panel {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  margin: 0;
+  padding: 18px;
+}
+
+.home-start-panel .section-heading {
+  padding: 0 !important;
+  border: 0 !important;
+}
+
+.home-start-panel .section-heading h2 {
+  margin: 2px 0 0;
+  font-size: 1.08rem;
+}
+
+.home-section-kicker {
+  color: var(--green-dark);
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.home-start-panel .start-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.home-start-panel .start-actions a {
+  min-height: 68px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-content: center;
+  column-gap: 8px;
+  padding: 10px 11px;
+  border-color: rgba(8, 127, 91, 0.17);
+  border-left: 3px solid rgba(8, 127, 91, 0.58);
+  background: linear-gradient(145deg, #ffffff, #f5faf7);
+  color: var(--ink);
+  text-align: left;
+  box-shadow: none;
+}
+
+.home-start-panel .start-actions a::after {
+  content: "→";
+  grid-column: 2;
+  grid-row: 1 / 3;
+  align-self: center;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(8, 127, 91, 0.09);
+  color: var(--green-dark);
+  font-size: 0.9rem;
+}
+
+.home-start-panel .start-actions a b,
+.home-start-panel .start-actions a small {
+  grid-column: 1;
+}
+
+.home-start-panel .start-actions a b {
+  font-size: 0.82rem;
+}
+
+.home-start-panel .start-actions a small {
+  font-size: 0.68rem;
+  line-height: 1.25;
+}
+
+.home-start-panel .start-actions a:hover {
+  border-left-color: #ffffff;
+}
+
+.home-start-panel .start-actions a:hover::after {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+}
+
+.home-overview-band {
+  grid-template-columns: minmax(300px, 0.78fr) minmax(0, 1.22fr);
+  gap: 22px;
+  align-items: stretch;
+}
+
+.home-balance-summary {
+  align-content: start;
+  gap: 14px;
+}
+
+.home-balance-heading {
+  display: grid;
+  gap: 6px;
+}
+
+.home-balance-heading h2,
+.home-balance-heading p {
+  margin: 0;
+}
+
+.home-balance-heading h2 {
+  font-size: clamp(1.35rem, 2vw, 1.85rem);
+}
+
+.home-balance-heading p {
+  font-size: 0.82rem;
+}
+
+.home-balance-main {
+  display: grid;
+  gap: 4px;
+  padding: 15px 0 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.home-balance-main small {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.home-balance-main strong {
+  color: #ffffff;
+  font-size: clamp(2.35rem, 4vw, 3.5rem);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.045em;
+  line-height: 0.96;
+}
+
+.home-balance-main strong.negative {
+  color: #fecaca;
+}
+
+.home-balance-main strong.positive {
+  color: #d1fae5;
+}
+
+.home-balance-summary > .dashboard-account-breakdown {
+  margin: 0;
+}
+
+.home-balance-summary .dashboard-account-breakdown span {
+  width: auto;
+  min-height: 54px;
+  padding: 9px 10px;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.09);
+  text-transform: none;
+}
+
+.home-balance-summary .dashboard-account-breakdown em {
+  color: rgba(255, 255, 255, 0.66);
+}
+
+.home-balance-summary .dashboard-account-breakdown b,
+.home-balance-summary .dashboard-account-breakdown b.positive {
+  color: #ffffff;
+}
+
+.home-balance-summary .dashboard-account-breakdown b.negative {
+  color: #fecaca;
+}
+
+.home-overview-link {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: auto;
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.home-overview-link:hover {
+  color: #d1fae5;
+}
+
+.home-dashboard-kpis {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: stretch;
+}
+
+.home-dashboard-kpis > .dashboard-metric:nth-child(n) {
+  grid-column: auto;
+  min-height: 124px;
+  align-content: center;
+  color: var(--ink);
+  text-decoration: none;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.home-dashboard-kpis > .dashboard-metric.has-account-breakdown {
+  min-height: 178px;
+}
+
+.home-dashboard-kpis > .dashboard-metric:hover {
+  border-color: rgba(8, 127, 91, 0.28);
+  background: #ffffff;
+  transform: translateY(-2px);
+}
+
+.home-dashboard-kpis > .dashboard-metric strong {
+  font-size: clamp(1.2rem, 1.8vw, 1.55rem) !important;
+}
+
+.home-dashboard-kpis > [data-home-volume] strong {
+  white-space: normal !important;
+}
+
+.home-dashboard-kpis > .dashboard-metric small {
+  color: var(--muted);
+}
+
+html.dark-mode .home-command-grid .global-period-panel {
+  background:
+    linear-gradient(145deg, rgba(8, 127, 91, 0.16), rgba(24, 22, 18, 0.96) 62%),
+    #181612;
+}
+
+html.dark-mode .home-start-panel .start-actions a {
+  border-color: rgba(167, 243, 208, 0.12);
+  border-left-color: rgba(52, 211, 153, 0.55);
+  background: linear-gradient(145deg, rgba(245, 243, 240, 0.07), rgba(8, 127, 91, 0.08));
+  color: #f5f3f0;
+}
+
+@media (max-width: 1000px) {
+  .home-command-grid,
+  .home-overview-band {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .home-start-panel .start-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .home-command-grid .global-period-form,
+  .home-dashboard-kpis {
+    grid-template-columns: 1fr;
+  }
+
+  .home-command-grid .global-period-form button {
+    grid-column: auto;
+  }
+
+  .home-start-panel .start-actions a {
+    min-height: 72px;
+  }
+
+  .home-dashboard-kpis > .dashboard-metric.has-account-breakdown {
+    min-height: 168px;
   }
 }
 
