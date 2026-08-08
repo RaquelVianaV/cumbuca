@@ -3193,6 +3193,17 @@ function latestCashEntryForAccount(cashAccount, dateKey) {
     ))[0]?.entry || null;
 }
 
+function latestSavingsEntryUntilDate(dateKey) {
+  const date = String(dateKey || isoDate(new Date())).slice(0, 10);
+  return savingsHistoryRows()
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => String(entry.date || "") <= date)
+    .sort((left, right) => (
+      String(right.entry.date || "").localeCompare(String(left.entry.date || ""))
+      || right.index - left.index
+    ))[0]?.entry || null;
+}
+
 async function zeroAccountBalanceAtDate(dateKey, cashAccount = "pf") {
   const date = String(dateKey || isoDate(new Date())).slice(0, 10);
   const selectedCashAccount = normalizedCashAccount(cashAccount);
@@ -5222,8 +5233,12 @@ function homeMetricData() {
   const storeToday = state.storeSales
     .filter(entry => entry.date === todayKey)
     .reduce((sum, entry) => sum + storeSaleUnitQuantity(entry), 0);
-  const accountBalances = accountBalanceBreakdownUntilDate(todayKey);
+  const accountBalances = {
+    ...accountBalanceBreakdownUntilDate(todayKey),
+    savings: savingsBalanceUntilDate(todayKey)
+  };
   const accountBalance = accountBalances.unified;
+  const consolidatedBalance = roundedMoneyValue(accountBalance + accountBalances.savings);
   const forecastEnd = addDays(todayKey, 30);
   const accountForecast = financialAccounts()
     .filter(account => accountOpenAmount(account) >= 0.01)
@@ -5251,14 +5266,19 @@ function homeMetricData() {
       accountBalances[cashAccount] + accountForecast[cashAccount].receivable - accountForecast[cashAccount].payable
     ])
   );
+  projectedBalances30.savings = accountBalances.savings;
+  projectedBalances30.consolidated = roundedMoneyValue(
+    projectedBalances30.unified + projectedBalances30.savings
+  );
   const accountNotifications = financialAccountNotifications(7);
   const budget = budgetSummary(monthKey);
 
   return {
     balance: income - expenses,
     accountBalance,
+    consolidatedBalance,
     accountBalances,
-    projectedBalance30: projectedBalances30.unified,
+    projectedBalance30: projectedBalances30.consolidated,
     projectedBalances30,
     accountForecast30: accountForecast,
     payable30: accountForecast.unified.payable,
@@ -5505,6 +5525,9 @@ function dashboardAccountBreakdown(values = {}) {
     ["Conta PF", Number(values.pf || 0)],
     ["Conta PJ", Number(values.pj || 0)]
   ];
+  if (Object.prototype.hasOwnProperty.call(values, "savings")) {
+    rows.push(["Cofrinho — Reserva", Number(values.savings || 0)]);
+  }
   if (Math.abs(Number(values.unassigned || 0)) >= 0.005) {
     rows.push(["Sem conta", Number(values.unassigned || 0)]);
   }
@@ -5578,8 +5601,8 @@ function legacyHome() {
           <p>Saldo real das contas e os números que pedem atenção.</p>
         </div>
         <div class="home-balance-main">
-          <small>Saldo unificado das contas</small>
-          <strong data-home-balance class="${metrics.accountBalance < 0 ? "negative" : "positive"}">${money(metrics.accountBalance)}</strong>
+          <small>Saldo consolidado das contas</small>
+          <strong data-home-balance class="${metrics.consolidatedBalance < 0 ? "negative" : "positive"}">${money(metrics.consolidatedBalance)}</strong>
         </div>
         ${dashboardAccountBreakdown(metrics.accountBalances)}
         <a class="home-overview-link" href="/fluxo-de-caixa">Ver extrato completo →</a>
@@ -5588,7 +5611,7 @@ function legacyHome() {
         <a data-home-projection class="metric dashboard-metric has-account-breakdown" href="/financeiro">
           <span>Projeção 30 dias</span>
           <strong class="${metrics.projectedBalance30 < 0 ? "negative" : "positive"}">${money(metrics.projectedBalance30)}</strong>
-          <p class="dashboard-unified-label">Unificado</p>
+          <p class="dashboard-unified-label">PF + PJ + Cofrinho</p>
           ${dashboardAccountBreakdown(metrics.projectedBalances30)}
           <small class="dashboard-forecast-detail"><span>A pagar ${money(metrics.payable30)}</span><span>receber ${money(metrics.receivable30)}</span></small>
         </a>
@@ -6543,10 +6566,15 @@ async function renderCash() {
         : today;
   const displayedCashBalance = accountBalanceUntilDate(accountBalanceDate);
   const cashAccountBalances = accountBalanceBreakdownUntilDate(accountBalanceDate);
+  const savingsAccountBalance = savingsBalanceUntilDate(accountBalanceDate);
+  const consolidatedAccountBalance = roundedMoneyValue(
+    displayedCashBalance + savingsAccountBalance
+  );
   const latestPfCashEntry = latestCashEntryForAccount("pf", accountBalanceDate);
   const latestPjCashEntry = latestCashEntryForAccount("pj", accountBalanceDate);
+  const latestSavingsEntry = latestSavingsEntryUntilDate(accountBalanceDate);
   const latestUnassignedCashEntry = latestCashEntryForAccount("", accountBalanceDate);
-  const balanceLabel = "Saldo acumulado geral";
+  const balanceLabel = "Caixa PF + PJ";
   const editingWithdrawalLoan = editingWithdrawal ? withdrawalSavingsLoanEntry(editingWithdrawal) : null;
   const editingWithdrawalAdjustment = editingWithdrawal
     ? withdrawalBalanceAdjustmentEntry(editingWithdrawal)
@@ -6637,8 +6665,8 @@ async function renderCash() {
   app.innerHTML = `
     <section class="cash-hero">
       <div>
-        <span>${isExpensesRoute ? "Despesas operacionais do período" : "Saldo geral da conta"}</span>
-        <h2>${money(isExpensesRoute ? filteredTotals.expenses : displayedCashBalance)}</h2>
+        <span>${isExpensesRoute ? "Despesas operacionais do período" : "Saldo consolidado das contas"}</span>
+        <h2>${money(isExpensesRoute ? filteredTotals.expenses : consolidatedAccountBalance)}</h2>
       </div>
       <div class="cash-hero-metrics">
         <span data-cash-filter-income><b>${money(filteredTotals.income)}</b>Entradas do filtro<small>Lançamentos contabilizados</small></span>
@@ -6660,6 +6688,11 @@ async function renderCash() {
             Conta PJ
             <small>${latestPjCashEntry ? `Último lançamento em ${formatIsoDateBr(cashAccountingDate(latestPjCashEntry))}` : "Nenhum lançamento registrado"}</small>
           </span>
+          <span class="cash-account-metric is-savings" data-cash-account-summary="savings">
+            <b class="${savingsAccountBalance < 0 ? "negative" : "positive"}">${money(savingsAccountBalance)}</b>
+            Cofrinho — Reserva
+            <small>${latestSavingsEntry ? `Último movimento em ${formatIsoDateBr(latestSavingsEntry.date)}` : "Nenhum movimento registrado"}</small>
+          </span>
           <span class="cash-account-metric is-unassigned" data-cash-account-summary="unassigned">
             <b class="${cashAccountBalances.unassigned < 0 ? "negative" : "positive"}">${money(cashAccountBalances.unassigned)}</b>
             Lançamentos sem conta
@@ -6671,7 +6704,7 @@ async function renderCash() {
     </section>
     ${isExpensesRoute ? "" : `<section class="account-check-card">
       <div>
-        <span>Conferência da conta</span>
+        <span>Conferência PF + PJ</span>
         <strong class="${displayedCashBalance < 0 ? "negative" : "positive"}">${money(displayedCashBalance)}</strong>
         <small>${adjustmentLabel}</small>
       </div>
@@ -14053,7 +14086,7 @@ function accountTransferPanelHtml(today = isoDate(new Date())) {
       <div class="summary account-transfer-balances">
         <div class="metric"><span>Conta PF</span><strong>${money(accountBalanceUntilDate(today, [], "pf"))}</strong></div>
         <div class="metric"><span>Conta PJ</span><strong>${money(accountBalanceUntilDate(today, [], "pj"))}</strong></div>
-        <div class="metric"><span>Cofrinho</span><strong>${money(savingsBalance())}</strong></div>
+        <div class="metric"><span>Cofrinho — Reserva</span><strong>${money(savingsBalance())}</strong></div>
         <div class="metric"><span>Caixa PF + PJ</span><strong>${money(accountBalanceUntilDate(today))}</strong></div>
         <div class="metric total"><span>Saldo consolidado</span><strong>${money(accountBalanceUntilDate(today) + savingsBalance())}</strong><small>PF + PJ + Cofrinho</small></div>
       </div>
@@ -17802,6 +17835,7 @@ function cashForecastPanel(data) {
     ? data.financial.profitBeforeWithdrawals / averageDivisor
     : projection.dailyProfit;
   const accountBalances = accountBalanceBreakdownUntilDate(today);
+  const savingsAccountBalance = savingsBalanceUntilDate(today);
   const accountDailyAverages = {
     unified: dailyAverage,
     pf: financialSummary(data.cashEntries.filter(entry => normalizedCashAccount(entry.cashAccount, "") === "pf")).profitBeforeWithdrawals / averageDivisor,
@@ -17850,14 +17884,22 @@ function cashForecastPanel(data) {
         }];
       })
     );
+    const projectedCashBalances = Object.fromEntries(
+      Object.entries(forecasts).map(([cashAccount, forecast]) => [cashAccount, forecast.projected])
+    );
+    const projectedConsolidated = roundedMoneyValue(
+      projectedCashBalances.unified + savingsAccountBalance
+    );
     return {
       days,
       bills: forecasts.unified.bills,
       receivable: forecasts.unified.receivable,
-      projected: forecasts.unified.projected,
-      projectedBalances: Object.fromEntries(
-        Object.entries(forecasts).map(([cashAccount, forecast]) => [cashAccount, forecast.projected])
-      )
+      projected: projectedConsolidated,
+      projectedBalances: {
+        ...projectedCashBalances,
+        savings: savingsAccountBalance,
+        consolidated: projectedConsolidated
+      }
     };
   });
   return `
@@ -17869,7 +17911,7 @@ function cashForecastPanel(data) {
           <div class="metric cash-forecast-metric has-account-breakdown">
             <span>Próximos ${item.days} dias</span>
             <strong class="${item.projected < 0 ? "negative" : "positive"}">${money(item.projected)}</strong>
-            <p class="dashboard-unified-label">Unificado</p>
+            <p class="dashboard-unified-label">PF + PJ + Cofrinho</p>
             ${dashboardAccountBreakdown(item.projectedBalances)}
             <small class="dashboard-forecast-detail">A pagar ${money(item.bills)} · a receber ${money(item.receivable)}</small>
           </div>
@@ -19543,10 +19585,10 @@ function renderFinance() {
       ${withdrawalBreakdownMetrics(data.financial.withdrawals, "metric report-metric", data.partnerWithdrawalControl)}
       <div class="metric report-metric"><span>Resultado após retiradas</span><strong class="${operationalResultForReport(data) < 0 ? "negative" : "positive"}">${money(operationalResultForReport(data))}</strong></div>
       <div class="metric report-metric account-balance-metric has-account-breakdown">
-        <span>Saldo das contas</span>
-        <strong class="${data.accountBalance < 0 ? "negative" : "positive"}">${money(data.accountBalance)}</strong>
-        <p class="dashboard-unified-label">Unificado</p>
-        ${dashboardAccountBreakdown(data.accountBalances)}
+        <span>Saldo consolidado</span>
+        <strong class="${data.consolidatedBalance < 0 ? "negative" : "positive"}">${money(data.consolidatedBalance)}</strong>
+        <p class="dashboard-unified-label">PF + PJ + Cofrinho</p>
+        ${dashboardAccountBreakdown({ ...data.accountBalances, savings: data.savingsBalance })}
       </div>
       <div class="metric report-metric"><span>Ajustes</span><strong class="${data.accountAdjustmentTotals.balance < 0 ? "negative" : "positive"}">${money(data.accountAdjustmentTotals.balance)}</strong></div>
     </section>

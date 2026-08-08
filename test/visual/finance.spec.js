@@ -1478,6 +1478,20 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
         amount: '15.00',
       },
     ],
+    financialPlanning: {
+      savings: '80.00',
+      savingsExpectedBalance: '80.00',
+      savingsHistory: [
+        {
+          id: 'cash-ledger-savings-opening',
+          date: today,
+          type: 'set',
+          amount: '80.00',
+          balance: '80.00',
+          description: 'Saldo inicial do Cofrinho',
+        },
+      ],
+    },
   };
   await page.goto('/fluxo-de-caixa?panel=ledger');
   await expect(page.getByRole('heading', { name: 'Extrato', exact: true })).toBeVisible();
@@ -1548,6 +1562,7 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
   const formattedToday = today.split('-').reverse().join('/');
   const pfAccountSummary = page.locator('[data-cash-account-summary="pf"]');
   const pjAccountSummary = page.locator('[data-cash-account-summary="pj"]');
+  const savingsAccountSummary = page.locator('[data-cash-account-summary="savings"]');
   const unassignedAccountSummary = page.locator('[data-cash-account-summary="unassigned"]');
   const filteredIncome = page.locator('[data-cash-filter-income]');
   const filteredExpenses = page.locator('[data-cash-filter-expenses]');
@@ -1559,6 +1574,9 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
   await expect(pjAccountSummary).toContainText('Conta PJ');
   await expect(pjAccountSummary).toContainText('R$ 20,00');
   await expect(pjAccountSummary).toContainText(`Último lançamento em ${formattedToday}`);
+  await expect(savingsAccountSummary).toContainText('Cofrinho — Reserva');
+  await expect(savingsAccountSummary).toContainText('R$ 80,00');
+  await expect(savingsAccountSummary).toContainText(`Último movimento em ${formattedToday}`);
   await expect(unassignedAccountSummary).toContainText('Lançamentos sem conta');
   await expect(unassignedAccountSummary).toContainText('-R$ 15,00');
   await expect(unassignedAccountSummary).toContainText(`Último lançamento em ${formattedToday}`);
@@ -1566,6 +1584,7 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
   await expect(filteredExpenses).toContainText('R$ 15,00');
   await expect(filteredResult).toContainText('R$ 45,00');
   await expect(accumulatedBalance).toContainText('R$ 45,00');
+  await expect(page.locator('.cash-hero > div:first-child')).toContainText('R$ 125,00');
 
   await page.getByRole('button', { name: 'Revisar lançamentos', exact: true }).click();
   const filterForm = page.locator('#cash-filter-form');
@@ -1633,7 +1652,7 @@ test('linked transfers preserve PF PJ savings totals and stay outside results', 
   const balances = page.locator('.account-transfer-balances');
   await expect(balances).toContainText('Conta PFR$ 3.000,00');
   await expect(balances).toContainText('Conta PJR$ 2.000,00');
-  await expect(balances).toContainText('CofrinhoR$ 500,00');
+  await expect(balances).toContainText('Cofrinho — ReservaR$ 500,00');
   await expect(balances).toContainText('Saldo consolidadoR$ 5.500,00');
 
   await transferForm.locator('select[name="origin"]').selectOption('pf');
@@ -1666,7 +1685,7 @@ test('linked transfers preserve PF PJ savings totals and stay outside results', 
   await transferForm.getByRole('button', { name: 'Transferir', exact: true }).click();
   await expect.poll(() => database.state.financialPlanning?.accountTransfers?.length).toBe(2);
   await expect(balances).toContainText('Conta PJR$ 2.700,00');
-  await expect(balances).toContainText('CofrinhoR$ 800,00');
+  await expect(balances).toContainText('Cofrinho — ReservaR$ 800,00');
   await expect(balances).toContainText('Saldo consolidadoR$ 5.500,00');
 
   await transferForm.locator('select[name="origin"]').selectOption('savings');
@@ -1676,7 +1695,7 @@ test('linked transfers preserve PF PJ savings totals and stay outside results', 
   await transferForm.getByRole('button', { name: 'Transferir', exact: true }).click();
   await expect.poll(() => database.state.financialPlanning?.accountTransfers?.length).toBe(3);
   await expect(balances).toContainText('Conta PJR$ 2.800,00');
-  await expect(balances).toContainText('CofrinhoR$ 700,00');
+  await expect(balances).toContainText('Cofrinho — ReservaR$ 700,00');
   await expect(balances).toContainText('Saldo consolidadoR$ 5.500,00');
 
   const financialBeforeContribution = await page.evaluate(() => {
@@ -2959,6 +2978,18 @@ test('home dashboard prioritizes projected balance and actions', async ({ page }
       },
     ],
     financialPlanning: {
+      savings: '60.00',
+      savingsExpectedBalance: '60.00',
+      savingsHistory: [
+        {
+          id: 'home-savings-opening',
+          date: today,
+          type: 'set',
+          amount: '60.00',
+          balance: '60.00',
+          description: 'Saldo inicial do Cofrinho',
+        },
+      ],
       accounts: [
         {
           id: 'home-pf-payable',
@@ -3013,7 +3044,7 @@ test('home dashboard prioritizes projected balance and actions', async ({ page }
     /Saldo final PF \+ PJ\s*R\$\s*140,00/
   );
   await expect(page.locator('[data-management-dre]')).toContainText(
-    /Saldo consolidado final(?:PF \+ PJ \+ Cofrinho)?\s*R\$\s*140,00/
+    /Saldo consolidado final(?:PF \+ PJ \+ Cofrinho)?\s*R\$\s*200,00/
   );
   await expect(
     page.getByRole('heading', { name: 'Comparação com mês anterior', exact: true })
@@ -3129,7 +3160,9 @@ test('home period applies the selected month across monthly views', async ({ pag
   await expect(page.locator('#report-filter-form select[name="month"]')).toHaveValue('7');
 });
 
-test('finance dashboard separates PF, PJ and unified balances', async ({ page }, testInfo) => {
+test('finance dashboard separates PF, PJ, Cofrinho and consolidated balance', async ({
+  page,
+}, testInfo) => {
   const database = await mockOnlineDatabase(page);
   const today = localDateKey();
   database.state = {
@@ -3145,6 +3178,18 @@ test('finance dashboard separates PF, PJ and unified balances', async ({ page },
       },
     ],
     financialPlanning: {
+      savings: '60.00',
+      savingsExpectedBalance: '60.00',
+      savingsHistory: [
+        {
+          id: 'finance-savings-opening',
+          date: today,
+          type: 'set',
+          amount: '60.00',
+          balance: '60.00',
+          description: 'Saldo inicial do Cofrinho',
+        },
+      ],
       accounts: [
         {
           id: 'finance-pf-payable',
@@ -3169,17 +3214,19 @@ test('finance dashboard separates PF, PJ and unified balances', async ({ page },
   };
   await page.goto('/financeiro?view=accounts');
   const balanceCard = page.locator('.account-balance-metric');
-  await expect(balanceCard).toContainText('Saldo das contas');
-  await expect(balanceCard).toContainText('Unificado');
-  await expect(balanceCard).toContainText('R$ 140,00');
+  await expect(balanceCard).toContainText('Saldo consolidado');
+  await expect(balanceCard).toContainText('PF + PJ + Cofrinho');
+  await expect(balanceCard).toContainText('R$ 200,00');
   await expect(balanceCard).toContainText('Conta PF R$ 100,00');
   await expect(balanceCard).toContainText('Conta PJ R$ 40,00');
+  await expect(balanceCard).toContainText('Cofrinho — Reserva R$ 60,00');
   const forecastCards = page.locator('[data-view-pane="accounts"] .cash-forecast-metric');
   await expect(forecastCards).toHaveCount(3);
   const projection30 = forecastCards.filter({ hasText: 'Próximos 30 dias' });
-  await expect(projection30).toContainText('Unificado');
+  await expect(projection30).toContainText('PF + PJ + Cofrinho');
   await expect(projection30).toContainText('Conta PF');
   await expect(projection30).toContainText('Conta PJ');
+  await expect(projection30).toContainText('Cofrinho — Reserva');
   await expect(projection30).toContainText('A pagar R$ 20,00');
   await expect(projection30).toContainText('a receber R$ 30,00');
   await expectNoHorizontalOverflow(page);

@@ -190,7 +190,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /financialAccountNotifications/);
   assert.match(app, /Orçamento mensal por categoria/);
   assert.match(app, /Visão geral financeira/);
-  assert.match(app, /Saldo unificado das contas/);
+  assert.match(app, /Saldo consolidado das contas/);
   assert.match(app, /home-command-grid/);
   assert.match(app, /home-overview-band/);
   assert.match(app, /data-home-balance/);
@@ -201,9 +201,12 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /dashboardAccountBreakdown/);
   assert.match(app, /accountBalanceBreakdownUntilDate/);
   assert.match(app, /latestCashEntryForAccount/);
+  assert.match(app, /latestSavingsEntryUntilDate/);
   assert.match(app, /data-cash-account-summary="pf"/);
   assert.match(app, /data-cash-account-summary="pj"/);
+  assert.match(app, /data-cash-account-summary="savings"/);
   assert.match(app, /data-cash-account-summary="unassigned"/);
+  assert.match(app, /Cofrinho — Reserva/);
   assert.match(app, /Resultado do filtro/);
   assert.match(app, /Entradas - saídas exibidas/);
   assert.doesNotMatch(app, /id="zero-account-balance/);
