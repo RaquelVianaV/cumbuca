@@ -27,6 +27,8 @@ test('narrow browser windows keep horizontal page scrolling available', () => {
   assert.match(html, /class="hero quote-mode hero-loading"/);
   assert.match(html, /<h1 id="page-title"><\/h1>/);
   assert.match(html, /<span id="hero-motto"><\/span>/);
+  assert.match(html, /id="hosting-status"[^>]*>Vercel: confira o plano<\/span>/);
+  assert.match(app, /function updateHostingStatus/);
   assert.doesNotMatch(app, /title\.textContent = "Visão Geral"/);
   assert.match(app, /dailyHeroMottos/);
   assert.match(app, /dailyHeroMessages/);

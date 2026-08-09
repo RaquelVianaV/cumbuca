@@ -12,12 +12,12 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/logo-cumbuca-original.png">
-    <link rel="preload" href="/partner-accounts.js?v=20260809-01" as="script">
-    <link rel="preload" href="/account-transfers.js?v=20260809-01" as="script">
-    <link rel="preload" href="/app.js?v=20260809-01" as="script">
+    <link rel="preload" href="/partner-accounts.js?v=20260809-02" as="script">
+    <link rel="preload" href="/account-transfers.js?v=20260809-02" as="script">
+    <link rel="preload" href="/app.js?v=20260809-02" as="script">
     <link rel="preload" href="/logo-cumbuca-original.png" as="image">
     <link rel="preload" href="/mapa-cumbuca.png" as="image">
-    <link rel="stylesheet" href="/styles.css?v=20260809-01">
+    <link rel="stylesheet" href="/styles.css?v=20260809-02">
     <script>
       (function () {
         const storedTheme = localStorage.getItem('cumbuca-theme');
@@ -49,6 +49,7 @@
             <span class="server-status" id="server-status">Servidor verificando</span>
             <span class="server-status" id="database-status">Banco verificando</span>
             <span class="server-status" id="save-status">Salvamento verificando</span>
+            <span class="server-status warning" id="hosting-status" title="A aplicação em produção é hospedada na Vercel. O plano gratuito tem limites e é destinado a uso pessoal ou não comercial.">Vercel: confira o plano</span>
           </div>
         </details>
         <div class="header-actions">
@@ -132,9 +133,9 @@
       </div>
     </dialog>
 
-    <script src="/partner-accounts.js?v=20260809-01" defer></script>
-    <script src="/account-transfers.js?v=20260809-01" defer></script>
-    <script src="/app.js?v=20260809-01" defer></script>
+    <script src="/partner-accounts.js?v=20260809-02" defer></script>
+    <script src="/account-transfers.js?v=20260809-02" defer></script>
+    <script src="/app.js?v=20260809-02" defer></script>
     <script src="/sw-register.js" defer></script>
   </body>
 </html>

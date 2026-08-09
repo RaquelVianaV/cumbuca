@@ -7,6 +7,7 @@ const systemStatusSummary = document.querySelector('#system-status-summary');
 const serverStatus = document.querySelector('#server-status');
 const databaseStatus = document.querySelector('#database-status');
 const saveStatus = document.querySelector('#save-status');
+const hostingStatus = document.querySelector('#hosting-status');
 const backupButton = document.querySelector('#backup-button');
 const logoutButton = document.querySelector('#logout-button');
 const themeToggleButton = document.querySelector('#theme-toggle-button');
@@ -610,6 +611,22 @@ async function updateServerStatus() {
     databaseStatus.classList.remove("online");
     updateSystemStatusSummary();
   }
+}
+
+function updateHostingStatus() {
+  if (!hostingStatus) {
+    return;
+  }
+
+  const hostname = String(window.location.hostname || '').toLowerCase();
+  const isVercelHost = hostname === 'vercel.app' || hostname.endsWith('.vercel.app');
+  hostingStatus.textContent = isVercelHost ? 'Vercel: confira o plano' : 'Hospedagem: ambiente local';
+  hostingStatus.title = isVercelHost
+    ? 'A aplicação em produção é hospedada na Vercel. O plano gratuito tem limites e é destinado a uso pessoal ou não comercial.'
+    : 'Este ambiente está rodando localmente no Node.js; a produção é hospedada na Vercel.';
+  hostingStatus.classList.toggle('warning', true);
+  hostingStatus.classList.toggle('online', false);
+  hostingStatus.classList.toggle('offline', false);
 }
 
 function updateSystemStatusSummary() {
@@ -1935,6 +1952,7 @@ if (globalNewButton && globalNewDialog) {
   });
 }
 
+updateHostingStatus();
 updateServerStatus();
 updatePersistenceStatus();
 setInterval(updateServerStatus, 30000);
