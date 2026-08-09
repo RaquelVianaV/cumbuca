@@ -135,7 +135,7 @@
 
   function calculateWithdrawalDistribution(input = {}) {
     const physicalBalance = positiveMoney(input.physicalBalance);
-    const savingsPercent = positiveMoney(input.savingsPercent);
+    const savingsPercent = Math.min(100, positiveMoney(input.savingsPercent));
     const partners = Array.isArray(input.partners) ? input.partners.map(partner => ({
       id: String(partner.id || "").toLowerCase(),
       name: String(partner.name || partner.id || ""),

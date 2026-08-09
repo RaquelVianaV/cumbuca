@@ -8,6 +8,7 @@ const partnerAccountRules = require('./public/partner-accounts');
 const { normalizePartnerAccounts, validatePartnerAccountState } = partnerAccountRules;
 const accountTransferRules = require('./public/account-transfers');
 const { normalizeAccountTransfers, validateAccountTransferState } = accountTransferRules;
+const PRODUCTION = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
 let Pool = null;
 try {
   ({ Pool } = require('pg'));
@@ -18,9 +19,12 @@ try {
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const AUTH_USER = process.env.CUMBUCA_USER || 'cumbuca';
-const AUTH_PASSWORD = process.env.CUMBUCA_PASSWORD || 'cumbuca2026';
-const AUTH_SECRET = process.env.CUMBUCA_AUTH_SECRET || 'cumbuca-local-secret';
+const AUTH_PASSWORD = process.env.CUMBUCA_PASSWORD || (PRODUCTION ? '' : 'cumbuca2026');
+const AUTH_SECRET = process.env.CUMBUCA_AUTH_SECRET || (PRODUCTION ? '' : 'cumbuca-local-secret');
 const SESSION_COOKIE = 'cumbuca_session';
+const MIN_PASSWORD_LENGTH = 12;
+const LOGIN_ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
+const LOGIN_BLOCK_MS = 10 * 60 * 1000;
 const DATABASE_URL =
   process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL || process.env.DATABASE_URL;
 const ALERT_WEBHOOK_URL = process.env.CUMBUCA_ALERT_WEBHOOK_URL || '';
@@ -28,6 +32,7 @@ const EXTERNAL_BACKUP_URL = process.env.CUMBUCA_EXTERNAL_BACKUP_URL || '';
 const INTEGRATION_TOKEN = process.env.CUMBUCA_INTEGRATION_TOKEN || '';
 const RESET_TOKEN = process.env.CUMBUCA_RESET_TOKEN || '';
 const loginAttempts = new Map();
+let loginAttemptTablePromise = null;
 const permissionKeys = [
   'editFinancial',
   'managePartnerAdjustments',
@@ -160,6 +165,28 @@ function normalizeState(payload = {}) {
     state.financialPlanning.accountTransfers
   );
   return state;
+}
+
+function validateAppConfig(value = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { valid: false, error: 'A configuração financeira precisa ser um objeto.' };
+  }
+  const config = { ...defaultState.appConfig, ...value };
+  const boundedPercentages = [
+    ['splitSavingsPercent', 0, 100],
+    ['splitVanessaPercent', 0, 100],
+    ['splitRaquelPercent', 0, 100],
+  ];
+  for (const [key, minimum, maximum] of boundedPercentages) {
+    const numeric = Number(config[key]);
+    if (!Number.isFinite(numeric) || numeric < minimum || numeric > maximum) {
+      return {
+        valid: false,
+        error: `A configuração ${key} deve estar entre ${minimum} e ${maximum}.`,
+      };
+    }
+  }
+  return { valid: true, error: '' };
 }
 
 function normalizedPermissions(value = {}, role = 'operator') {
@@ -498,16 +525,46 @@ const securityHeaders = {
   'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
 };
 
-// Environment security checks and flags
-const PRODUCTION = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
-if (PRODUCTION) {
-  if (!process.env.CUMBUCA_AUTH_SECRET || AUTH_SECRET === 'cumbuca-local-secret') {
-    console.warn('SECURITY WARNING: configure CUMBUCA_AUTH_SECRET in production.');
+function assertProductionAuthConfiguration() {
+  if (!PRODUCTION) {
+    return;
   }
-  if (!process.env.CUMBUCA_PASSWORD || AUTH_PASSWORD === 'cumbuca2026') {
-    console.warn('SECURITY WARNING: configure a private CUMBUCA_PASSWORD in production.');
+  if (AUTH_SECRET.length < 32) {
+    throw new Error('CUMBUCA_AUTH_SECRET deve ter pelo menos 32 caracteres em produção.');
+  }
+  const configuredUsers = String(process.env.CUMBUCA_USERS || '').trim();
+  if (!AUTH_PASSWORD && !configuredUsers) {
+    throw new Error('Configure CUMBUCA_PASSWORD ou CUMBUCA_USERS em produção.');
+  }
+  if (AUTH_PASSWORD && AUTH_PASSWORD.length < MIN_PASSWORD_LENGTH) {
+    throw new Error(
+      `CUMBUCA_PASSWORD deve ter pelo menos ${MIN_PASSWORD_LENGTH} caracteres em produção.`
+    );
+  }
+  if (configuredUsers) {
+    let parsedUsers;
+    try {
+      parsedUsers = JSON.parse(configuredUsers);
+    } catch (error) {
+      throw new Error('CUMBUCA_USERS precisa ser um JSON válido em produção.');
+    }
+    if (
+      !Array.isArray(parsedUsers) ||
+      !parsedUsers.length ||
+      parsedUsers.some(
+        (user) =>
+          !String(user?.username || '').trim() ||
+          String(user?.password || '').length < MIN_PASSWORD_LENGTH
+      )
+    ) {
+      throw new Error(
+        `CUMBUCA_USERS deve ter usuários válidos e senhas com pelo menos ${MIN_PASSWORD_LENGTH} caracteres.`
+      );
+    }
   }
 }
+
+assertProductionAuthConfiguration();
 
 function mergeHeaders(headers = {}) {
   return { ...securityHeaders, ...headers };
@@ -584,10 +641,6 @@ function userSessionToken(user) {
     .createHmac('sha256', AUTH_SECRET)
     .update(`${user.username}:${user.sessionSecret || user.password || ''}`)
     .digest('hex');
-}
-
-function sessionToken() {
-  return userSessionToken({ username: AUTH_USER, sessionSecret: AUTH_PASSWORD });
 }
 
 function passwordHash(password) {
@@ -713,7 +766,10 @@ async function currentUser(req) {
     const row = result.rows[0];
     if (
       row &&
-      token === userSessionToken({ username: row.username, sessionSecret: row.password_hash })
+      secureTokenMatches(
+        userSessionToken({ username: row.username, sessionSecret: row.password_hash }),
+        token
+      )
     ) {
       return {
         username: row.username,
@@ -725,21 +781,15 @@ async function currentUser(req) {
   }
 
   const user = envAuthUsers().find((item) => item.username === username);
-  if (user && token === userSessionToken({ ...user, sessionSecret: user.password })) {
+  if (
+    user &&
+    secureTokenMatches(userSessionToken({ ...user, sessionSecret: user.password }), token)
+  ) {
     return {
       username: user.username,
       name: user.name,
       role: user.role || 'operator',
       permissions: normalizedPermissions(user.permissions, user.role),
-    };
-  }
-
-  if (cookieValue === sessionToken()) {
-    return {
-      username: AUTH_USER,
-      name: AUTH_USER,
-      role: 'admin',
-      permissions: normalizedPermissions({}, 'admin'),
     };
   }
 
@@ -761,11 +811,67 @@ function loginAttemptKey(req, username) {
   const forwarded = String(req.headers['x-forwarded-for'] || '')
     .split(',')[0]
     .trim();
-  return `${forwarded || req.socket.remoteAddress || 'local'}:${username || ''}`;
+  return crypto
+    .createHash('sha256')
+    .update(`${forwarded || req.socket.remoteAddress || 'local'}:${username || ''}`)
+    .digest('hex');
 }
 
-function loginBlocked(req, username) {
+async function ensureLoginAttemptTable() {
+  if (!db) {
+    return false;
+  }
+  if (!loginAttemptTablePromise) {
+    loginAttemptTablePromise = db
+      .query(
+        `
+        create table if not exists cumbuca_login_attempts (
+          attempt_key text primary key,
+          failure_count integer not null default 0,
+          first_attempt_at timestamptz not null default now(),
+          blocked_until timestamptz,
+          updated_at timestamptz not null default now()
+        )
+      `
+      )
+      .then(() => true)
+      .catch((error) => {
+        loginAttemptTablePromise = null;
+        throw error;
+      });
+  }
+  return loginAttemptTablePromise;
+}
+
+async function loginBlocked(req, username) {
   const key = loginAttemptKey(req, username);
+  if (db) {
+    try {
+      await ensureLoginAttemptTable();
+      const result = await db.query(
+        `select first_attempt_at, blocked_until
+         from cumbuca_login_attempts
+         where attempt_key = $1`,
+        [key]
+      );
+      const row = result.rows[0];
+      if (!row) {
+        return false;
+      }
+      const now = Date.now();
+      const blockedUntil = row.blocked_until ? new Date(row.blocked_until).getTime() : 0;
+      const firstAttemptAt = new Date(row.first_attempt_at).getTime();
+      if (blockedUntil > now) {
+        return true;
+      }
+      if (blockedUntil || firstAttemptAt <= now - LOGIN_ATTEMPT_WINDOW_MS) {
+        await db.query('delete from cumbuca_login_attempts where attempt_key = $1', [key]);
+      }
+      return false;
+    } catch (error) {
+      console.error('Falha ao consultar bloqueio persistente de login.', error);
+    }
+  }
   const attempt = loginAttempts.get(key);
   if (!attempt || attempt.blockedUntil <= Date.now()) {
     return false;
@@ -773,18 +879,62 @@ function loginBlocked(req, username) {
   return true;
 }
 
-function registerLoginFailure(req, username) {
+async function registerLoginFailure(req, username) {
   const key = loginAttemptKey(req, username);
+  if (db) {
+    try {
+      await ensureLoginAttemptTable();
+      const result = await db.query(
+        `select failure_count, first_attempt_at, blocked_until
+         from cumbuca_login_attempts
+         where attempt_key = $1`,
+        [key]
+      );
+      const row = result.rows[0];
+      const now = Date.now();
+      const firstAttemptAt = row ? new Date(row.first_attempt_at).getTime() : 0;
+      const blockedUntil = row?.blocked_until ? new Date(row.blocked_until).getTime() : 0;
+      const reset =
+        !row || (blockedUntil <= now && firstAttemptAt <= now - LOGIN_ATTEMPT_WINDOW_MS);
+      const count = reset ? 1 : Number(row.failure_count || 0) + 1;
+      const nextFirstAttempt = new Date(reset ? now : firstAttemptAt);
+      const nextBlockedUntil = count >= 5 ? new Date(now + LOGIN_BLOCK_MS) : null;
+      await db.query(
+        `insert into cumbuca_login_attempts
+           (attempt_key, failure_count, first_attempt_at, blocked_until, updated_at)
+         values ($1, $2, $3, $4, now())
+         on conflict (attempt_key)
+         do update set
+           failure_count = excluded.failure_count,
+           first_attempt_at = excluded.first_attempt_at,
+           blocked_until = excluded.blocked_until,
+           updated_at = now()`,
+        [key, count, nextFirstAttempt, nextBlockedUntil]
+      );
+      return;
+    } catch (error) {
+      console.error('Falha ao persistir tentativa de login.', error);
+    }
+  }
   const current = loginAttempts.get(key) || { count: 0, blockedUntil: 0 };
   const count = current.count + 1;
   loginAttempts.set(key, {
     count,
-    blockedUntil: count >= 5 ? Date.now() + 10 * 60 * 1000 : 0,
+    blockedUntil: count >= 5 ? Date.now() + LOGIN_BLOCK_MS : 0,
   });
 }
 
-function clearLoginFailures(req, username) {
-  loginAttempts.delete(loginAttemptKey(req, username));
+async function clearLoginFailures(req, username) {
+  const key = loginAttemptKey(req, username);
+  loginAttempts.delete(key);
+  if (db) {
+    try {
+      await ensureLoginAttemptTable();
+      await db.query('delete from cumbuca_login_attempts where attempt_key = $1', [key]);
+    } catch (error) {
+      console.error('Falha ao limpar tentativas persistentes de login.', error);
+    }
+  }
 }
 
 function collectBody(req) {
@@ -1089,11 +1239,18 @@ async function upsertUser(payload = {}, actor = null) {
   const existing = await db.query('select username from cumbuca_app_users where username = $1', [
     username,
   ]);
-  if (!existing.rows.length && password.length < 4) {
+  if (!existing.rows.length && password.length < MIN_PASSWORD_LENGTH) {
     return {
       database: true,
       saved: false,
-      error: 'Informe uma senha com pelo menos 4 caracteres.',
+      error: `Informe uma senha com pelo menos ${MIN_PASSWORD_LENGTH} caracteres.`,
+    };
+  }
+  if (existing.rows.length && password && password.length < MIN_PASSWORD_LENGTH) {
+    return {
+      database: true,
+      saved: false,
+      error: `A nova senha precisa ter pelo menos ${MIN_PASSWORD_LENGTH} caracteres.`,
     };
   }
 
@@ -1168,11 +1325,11 @@ async function changeOwnPassword(user, payload = {}) {
 
   const currentPassword = String(payload.currentPassword || '');
   const newPassword = String(payload.newPassword || '');
-  if (newPassword.length < 4) {
+  if (newPassword.length < MIN_PASSWORD_LENGTH) {
     return {
       database: true,
       saved: false,
-      error: 'A nova senha precisa ter pelo menos 4 caracteres.',
+      error: `A nova senha precisa ter pelo menos ${MIN_PASSWORD_LENGTH} caracteres.`,
     };
   }
 
@@ -1954,6 +2111,14 @@ async function writeAppState(payload = {}, user = null, options = {}) {
         validation.errors[0] || 'Transferências entre contas inconsistentes.'
       );
       error.statusCode = 409;
+      throw error;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'appConfig')) {
+    const validation = validateAppConfig(payload.appConfig);
+    if (!validation.valid) {
+      const error = new Error(validation.error);
+      error.statusCode = 400;
       throw error;
     }
   }
@@ -3072,7 +3237,7 @@ async function handleRequest(req, res) {
       const username = String(payload.username || '')
         .trim()
         .toLowerCase();
-      if (loginBlocked(req, username)) {
+      if (await loginBlocked(req, username)) {
         sendJson(res, 429, {
           error: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.',
         });
@@ -3080,7 +3245,7 @@ async function handleRequest(req, res) {
       }
       const authUser = await findAuthUser(username, String(payload.password || ''));
       if (authUser) {
-        clearLoginFailures(req, username);
+        await clearLoginFailures(req, username);
         await writeEvent('login', `Usuário ${authUser.username} entrou no sistema.`, authUser);
         sendJson(
           res,
@@ -3103,7 +3268,7 @@ async function handleRequest(req, res) {
         );
         return;
       }
-      registerLoginFailure(req, username);
+      await registerLoginFailure(req, username);
       await writeEvent('login_falhou', `Tentativa invalida para ${username || 'usuario vazio'}.`, {
         username: username || '',
       });
@@ -3565,6 +3730,7 @@ handleRequest._test = {
   partnerAccountRules,
   partnerManualAdjustmentsChanged,
   stateWriteViolation,
+  validateAppConfig,
   userCan,
   validateBackupPayload,
   weekRangeFromDate,

@@ -16,5 +16,7 @@ module.exports = {
   globals: {
     addMonthsClamped: 'readonly'
   },
-  rules: {}
+  rules: {
+    'no-inner-declarations': 'off'
+  }
 };

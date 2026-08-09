@@ -1436,6 +1436,28 @@ test('cash form ignores repeated submits while an entry or expense is saving', a
   expect(dialogMessages).toEqual([]);
 });
 
+test('stored financial descriptions stay text instead of becoming HTML', async ({ page }) => {
+  const database = await mockOnlineDatabase(page);
+  const maliciousDescription = '<img src=x onerror=alert(1)> Caixa teste';
+  database.state = {
+    cashEntries: [
+      {
+        id: 'unsafe-description',
+        date: '2026-08-09',
+        type: 'expense',
+        amount: '10.00',
+        category: 'outros',
+        cashAccount: 'pf',
+        description: maliciousDescription,
+      },
+    ],
+  };
+  await page.goto('/fluxo-de-caixa?panel=ledger');
+  const ledger = page.locator('.cash-ledger-table');
+  await expect(ledger).toContainText(maliciousDescription);
+  await expect.poll(() => ledger.locator('img').count()).toBe(0);
+});
+
 test('cash entry can use Cofrinho as the reserve account', async ({ page }) => {
   const database = await mockOnlineDatabase(page);
   const today = localDateKey();

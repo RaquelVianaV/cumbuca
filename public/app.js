@@ -1715,8 +1715,8 @@ function databaseUsageHtml(selectedYear) {
     <div class="db-usage-card" data-level="${usage.level}">
       <div>
         <span>Status de lotacao</span>
-        <strong>${usage.label}</strong>
-        <p>${usage.message}</p>
+        <strong>${escapeHtml(usage.label)}</strong>
+        <p>${escapeHtml(usage.message)}</p>
       </div>
       <div class="db-usage-metrics">
         <div class="metric"><span>Uso estimado</span><strong>${formatBytes(usage.sizeBytes)}</strong></div>
@@ -1743,7 +1743,7 @@ function realDatabaseUsageHtml(result) {
         <tbody>
           ${result.tables.map(table => `
             <tr>
-              <td>${table.name}</td>
+              <td>${escapeHtml(table.name)}</td>
               <td>${table.rows}</td>
               <td>${formatBytes(table.totalBytes || 0)}</td>
               <td>${formatBytes(table.tableBytes || 0)}</td>
@@ -2384,24 +2384,6 @@ function cashEntriesForSelectedPeriod(entries = state.cash) {
   });
 }
 
-function focusCashFilterOnDate(dateKey) {
-  const date = String(dateKey || "");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return;
-  }
-  const period = state.cashFilter?.period || "month";
-  state.cashFilter = {
-    ...(state.cashFilter || {}),
-    date,
-    month: date.slice(0, 7),
-    year: date.slice(0, 4)
-  };
-  if (period === "all") {
-    state.cashFilter.period = "month";
-    state.cashFilter.manualAll = false;
-  }
-}
-
 function categoryName(value) {
   if (String(value || "").startsWith("supplier:")) {
     return String(value).replace(/^supplier:/, "");
@@ -2410,10 +2392,6 @@ function categoryName(value) {
     return String(value).replace(/^reason:/, "");
   }
   return allCashCategories().find(([key]) => key === value)?.[1] || "Outros";
-}
-
-function expenseReasonOptions() {
-  return [];
 }
 
 function activeExpenseReasons() {
@@ -2569,10 +2547,6 @@ function cardapioDeliveryFeeTotal(entries = []) {
   return entries.reduce((sum, entry) => sum + cardapioDeliveryFeeAmount(entry), 0);
 }
 
-function channelReceiptFeeTotal(entry = {}) {
-  return channelDefinitions.reduce((sum, [key]) => sum + channelReceiptAmount(entry, key, "fee"), 0);
-}
-
 function channelReceiptTotals(entries = []) {
   return entries.reduce((totals, entry) => {
     channelDefinitions.forEach(([key]) => {
@@ -2583,12 +2557,6 @@ function channelReceiptTotals(entries = []) {
     totals.total += channelReceiptTotal(entry);
     return totals;
   }, { total: 0 });
-}
-
-function channelReceiptMonthEntries(month) {
-  return [...(state.channelReceipts || [])]
-    .filter(entry => String(entry.date || "").startsWith(month || ""))
-    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
 }
 
 function channelFilterDefaults() {
@@ -4213,7 +4181,11 @@ function recalculateSavingsHistory(rows = savingsHistoryRows()) {
       const dateCompare = String(right.date || "").localeCompare(String(left.date || ""));
       return dateCompare || (left.__index - right.__index);
     })
-    .map(({ __index, ...entry }) => entry);
+    .map(entry => {
+      const cleaned = { ...entry };
+      delete cleaned.__index;
+      return cleaned;
+    });
 }
 
 function applySavingsHistory(rows = savingsHistoryRows()) {
@@ -4946,11 +4918,6 @@ function withdrawalBreakdownStatement(withdrawals = {}, control = {}) {
   `;
 }
 
-function lastMonthKey(date = new Date()) {
-  const copy = new Date(date.getFullYear(), date.getMonth() - 1, 1);
-  return `${copy.getFullYear()}-${String(copy.getMonth() + 1).padStart(2, "0")}`;
-}
-
 function ensureCashEntryIds() {
   let changed = false;
   state.cash = state.cash.map((entry, index) => {
@@ -5390,64 +5357,6 @@ function homeMetricData() {
   };
 }
 
-function dashboardAlerts(metrics, weeklyOrders) {
-  const alerts = [];
-  const incompleteRecipes = (state.pricingRecipes || []).filter(recipe => !pricingRecipeIsComplete(recipe));
-  const lossRecipes = (state.pricingRecipes || []).filter(recipe => {
-    if (!pricingRecipeIsComplete(recipe)) {
-      return false;
-    }
-    const recipeMetrics = pricingRecipeMetrics(recipe);
-    return recipeMetrics.practicedPrice > 0 && recipeMetrics.realProfit < 0;
-  });
-
-  if (metrics.weekBalance < 0) {
-    alerts.push(["Saldo da semana negativo", money(metrics.weekBalance)]);
-  }
-
-  if (!weeklyOrders) {
-    alerts.push(["Nenhum pedido na semana aberta", "Confira o menu"]);
-  }
-
-  if (metrics.pendingPayments.length) {
-    alerts.push(["Pagamentos pendentes", `${metrics.pendingPayments.length} pedido(s)`]);
-  }
-
-  if (metrics.pendingCashPayments.length) {
-    alerts.push(["Contas a vencer", `${metrics.pendingCashPayments.length} conta(s)`]);
-  }
-
-  if (metrics.lowMonthlyClients.length) {
-    alerts.push(["Renovação de mensalistas", `${metrics.lowMonthlyClients.length} cliente(s) com 5 ou menos`]);
-  }
-
-  if (metrics.clientsWithoutAddress.length) {
-    alerts.push(["Cliente sem endereço", `${metrics.clientsWithoutAddress.length} cadastro(s)`]);
-  }
-
-  if (metrics.menuWithoutCost.length) {
-    alerts.push(["Supermercado sem rateio", `${metrics.menuWithoutCost.length} cumbuca(s)`]);
-  }
-
-  if (incompleteRecipes.length) {
-    alerts.push(["Pratos incompletos", `${incompleteRecipes.length} prato(s) sem custo de supermercado`]);
-  }
-
-  if (lossRecipes.length) {
-    alerts.push(["Preço abaixo do custo", `${lossRecipes.length} receita(s) com prejuízo`]);
-  }
-
-  if (!metrics.storeToday) {
-    alerts.push(["Loja sem venda lançada hoje", "Atualize se já vendeu"]);
-  }
-
-  budgetStatus(metrics.monthKey)
-    .filter(item => item.percent >= 100)
-    .forEach(item => alerts.push(["Orçamento excedido", `${item.label}: ${money(item.spent)} de ${money(item.limit)}`]));
-
-  return alerts;
-}
-
 function monthlyBudgets() {
   const value = state.financialPlanning?.monthlyBudgets;
   return value && typeof value === "object" ? value : {};
@@ -5488,88 +5397,6 @@ function budgetSummary(monthKey = currentMonthKey()) {
   };
 }
 
-function monthlyClientRows(currentKey = menuKey(state.menuWeek || 1)) {
-  return state.clients
-    .filter(client => client.plan === "mensalista" && !client.inactive)
-    .map(client => {
-      const capacity = clientMonthlyCapacity(client, currentKey);
-      const remaining = clientRemainingQuantity(client, currentKey);
-      const used = Math.max(0, capacity - remaining);
-      return {
-        client,
-        capacity,
-        used,
-        remaining,
-        value: clientMonthlyRecordedValue(client, currentKey),
-        packages: clientChargedPackageCount(client, currentKey)
-      };
-    })
-    .sort((a, b) => a.remaining - b.remaining);
-}
-
-function monthlyClientsPanel(currentKey = menuKey(state.menuWeek || 1)) {
-  const rows = monthlyClientRows(currentKey);
-  return `
-    <div class="panel dashboard-panel">
-      <h2>Controle de mensalistas</h2>
-      ${rows.length ? `
-        <div class="recent-list compact">
-          ${rows.slice(0, 8).map(row => `
-            <span>
-              <b>${row.remaining} restantes</b>
-              ${row.client.name || row.client.phone}
-              <small>${row.capacity} liberadas - ${row.value > 0 ? `${money(row.value)} lançado` : "Mensalidade não lançada"} - usados ${row.used}${row.packages > 1 ? ` - ${row.packages} pacotes` : ""}</small>
-              ${row.client.phone ? `<a class="secondary table-action" href="${monthlyRenewalWhatsAppUrl(row.client, currentKey)}" target="_blank" rel="noopener">WhatsApp</a>` : ""}
-            </span>
-          `).join("")}
-        </div>
-      ` : `<p class="muted">Nenhum mensalista ativo cadastrado.</p>`}
-    </div>
-  `;
-}
-
-function growthMetrics() {
-  const currentKey = currentMonthKey();
-  const previousKey = previousMonthKeyFromPeriod(currentKey);
-  const currentOrders = state.orders.filter(order => menuPeriodKeyFromKey(order.menuKey) === currentKey);
-  const previousOrders = state.orders.filter(order => menuPeriodKeyFromKey(order.menuKey) === previousKey);
-  const currentStore = state.storeSales.filter(entry => String(entry.date || "").startsWith(currentKey));
-  const previousStore = state.storeSales.filter(entry => String(entry.date || "").startsWith(previousKey));
-  const currentRevenue = currentOrders.reduce((sum, order) => sum + Number(order.amount || 0) + Number(order.deliveryFee || 0), 0);
-  const previousRevenue = previousOrders.reduce((sum, order) => sum + Number(order.amount || 0) + Number(order.deliveryFee || 0), 0);
-  const currentBowls = currentOrders.reduce((sum, order) => sum + orderQuantity(order), 0) + currentStore.reduce((sum, entry) => sum + storeSaleUnitQuantity(entry), 0);
-  const previousBowls = previousOrders.reduce((sum, order) => sum + orderQuantity(order), 0) + previousStore.reduce((sum, entry) => sum + storeSaleUnitQuantity(entry), 0);
-  const currentClients = new Set(currentOrders.map(order => order.clientPhone).filter(Boolean)).size;
-  const previousClients = new Set(previousOrders.map(order => order.clientPhone).filter(Boolean)).size;
-  return {
-    currentKey,
-    previousKey,
-    revenue: currentRevenue,
-    revenueDelta: currentRevenue - previousRevenue,
-    bowls: currentBowls,
-    bowlsDelta: currentBowls - previousBowls,
-    clients: currentClients,
-    clientsDelta: currentClients - previousClients,
-    averageTicket: currentOrders.length ? currentRevenue / currentOrders.length : 0
-  };
-}
-
-function growthDashboardPanel() {
-  const growth = growthMetrics();
-  return `
-    <div class="panel dashboard-panel growth-panel">
-      <h2>Crescimento</h2>
-      <div class="summary">
-        <div class="metric"><span>Receita pedidos</span><strong>${money(growth.revenue)}</strong><small>${growth.revenueDelta < 0 ? "-" : "+"}${money(Math.abs(growth.revenueDelta))}</small></div>
-        <div class="metric"><span>Cumbucas</span><strong>${growth.bowls}</strong><small>${growth.bowlsDelta < 0 ? "" : "+"}${growth.bowlsDelta}</small></div>
-        <div class="metric"><span>Clientes ativos</span><strong>${growth.clients}</strong><small>${growth.clientsDelta < 0 ? "" : "+"}${growth.clientsDelta}</small></div>
-        <div class="metric"><span>Ticket medio</span><strong>${money(growth.averageTicket)}</strong></div>
-      </div>
-      <p class="muted">Comparado com ${formatMonthKeyBr(growth.previousKey)}.</p>
-    </div>
-  `;
-}
-
 function configuredBackupReminderDays() {
   const days = Number(state.appConfig?.backupReminderDays || defaultAppConfig.backupReminderDays);
   return Number.isFinite(days) ? Math.min(30, Math.max(1, Math.round(days))) : 7;
@@ -5581,19 +5408,6 @@ function backupAgeDays(backupAt) {
   }
   const timestamp = new Date(backupAt).getTime();
   return Number.isFinite(timestamp) ? Math.max(0, Math.floor((Date.now() - timestamp) / 86400000)) : null;
-}
-
-function notificationRows(metrics = homeMetricData(), weeklyOrders = 0) {
-  const backupAt = localStorage.getItem("lastManualBackupAt") || "";
-  const reminderDays = configuredBackupReminderDays();
-  const ageDays = backupAgeDays(backupAt);
-  const backupOld = ageDays === null || ageDays >= reminderDays;
-  return [
-    ...dashboardAlerts(metrics, weeklyOrders).map(([title, detail]) => ({ type: "alerta", title, detail, action: "/alertas" })),
-    ...financialAccountNotifications(7),
-    backupOld ? { type: "backup", title: "Backup precisa de atenção", detail: `Faça uma cópia a cada ${reminderDays} dia(s).`, action: "/backups" } : null,
-    ...systemIssues().slice(0, 3).map(issue => ({ type: issue.type, title: issue.message, detail: new Date(issue.createdAt).toLocaleString("pt-BR"), action: "/backups" }))
-  ].filter(Boolean);
 }
 
 function dashboardAccountBreakdown(values = {}) {
@@ -5617,168 +5431,6 @@ function dashboardAccountBreakdown(values = {}) {
       `).join("")}
     </div>
   `;
-}
-
-function legacyHome() {
-  showHomeHero();
-  setActive("");
-  const metrics = homeMetricData();
-  const weeklyOrders = state.orders.filter(order => order.menuKey === menuKey(state.menuWeek || 1)).length;
-  const alerts = dashboardAlerts(metrics, weeklyOrders);
-  const notifications = notificationRows(metrics, weeklyOrders);
-  const priorityCount = notifications.length;
-  const nextAccounts = upcomingBills(5, { includeOverdue: true });
-  const globalPeriod = normalizedGlobalPeriod(state.globalPeriod || state.menuPeriod);
-
-  app.innerHTML = `
-    <div class="home-command-grid">
-      <section class="panel global-period-panel" aria-labelledby="global-period-title">
-        <div class="global-period-copy">
-          <span>Período geral</span>
-          <h2 id="global-period-title">Todo o sistema no mesmo mês</h2>
-          <p>Escolha uma vez para atualizar os totais e filtros mensais.</p>
-        </div>
-        <form id="global-period-form" class="period-picker global-period-form">
-          <label>Ano
-            <input name="year" type="number" min="2020" max="2100" step="1" value="${globalPeriod.year}" required>
-          </label>
-          <label>Mês
-            <select name="month" required>
-              ${monthOptions(globalPeriod.month)}
-            </select>
-          </label>
-          <button type="submit">Aplicar em todo o sistema</button>
-        </form>
-      </section>
-
-      <section class="panel start-panel home-start-panel">
-        <div class="section-heading">
-          <div>
-            <span class="home-section-kicker">Atalhos</span>
-            <h2>Ações principais</h2>
-          </div>
-        </div>
-        <div class="quick-actions start-actions">
-          <a href="/menu-semanal"><b>Novo pedido</b><small>Pedido por cumbuca</small></a>
-          <a href="/fluxo-de-caixa"><b>Lançar caixa</b><small>Entrada, saída ou conciliação</small></a>
-          <a href="/loja"><b>Venda da loja</b><small>Quantidade vendida hoje</small></a>
-          <a href="/financeiro?view=accounts"><b>Contas</b><small>Pagar, receber ou estornar</small></a>
-          <a href="/financeiro?view=planning"><b>Orçamento</b><small>Limites por categoria</small></a>
-          <a href="/alertas"><b>Alertas</b><small>Pendências da operação</small></a>
-        </div>
-      </section>
-    </div>
-
-    <section class="dashboard-band home-priority-band home-overview-band">
-      <div class="dashboard-copy home-balance-summary">
-        <span>${formatMonthKeyBr(metrics.monthKey)}</span>
-        <div class="home-balance-heading">
-          <h2>Visão geral financeira</h2>
-          <p>Saldo real das contas e os números que pedem atenção.</p>
-        </div>
-        <div class="home-balance-main">
-          <small>Saldo consolidado das contas</small>
-          <strong data-home-balance class="${metrics.consolidatedBalance < 0 ? "negative" : "positive"}">${money(metrics.consolidatedBalance)}</strong>
-        </div>
-        ${dashboardAccountBreakdown(metrics.accountBalances)}
-        <a class="home-overview-link" href="/fluxo-de-caixa">Ver extrato completo →</a>
-      </div>
-      <div class="dashboard-kpis home-dashboard-kpis">
-        <a data-home-projection class="metric dashboard-metric has-account-breakdown" href="/financeiro">
-          <span>Projeção 30 dias</span>
-          <strong class="${metrics.projectedBalance30 < 0 ? "negative" : "positive"}">${money(metrics.projectedBalance30)}</strong>
-          <p class="dashboard-unified-label">PF + PJ + Cofrinho</p>
-          ${dashboardAccountBreakdown(metrics.projectedBalances30)}
-          <small class="dashboard-forecast-detail"><span>A pagar ${money(metrics.payable30)}</span><span>receber ${money(metrics.receivable30)}</span></small>
-        </a>
-        <a data-home-priorities class="metric dashboard-metric" href="/alertas">
-          <span>Pendências prioritárias</span>
-          <strong class="${priorityCount ? "negative" : "positive"}">${priorityCount}</strong>
-          <small>${priorityCount ? "itens para revisar" : "Tudo em dia"}</small>
-        </a>
-        <a data-home-budget class="metric dashboard-metric" href="/financeiro?view=planning">
-          <span>Orçamento do mês</span>
-          <strong>${metrics.budget.limit ? `${Math.round((metrics.budget.spent / metrics.budget.limit) * 100)}%` : "Sem limites"}</strong>
-          <small><span>${money(metrics.budget.spent)}</span><span>de ${money(metrics.budget.limit)}</span></small>
-        </a>
-        <a data-home-volume class="metric dashboard-metric" href="/menu-semanal?resumo=mes">
-          <span>Movimento do mês</span>
-          <strong>${metrics.bowls} cumbuca(s)</strong>
-          <small>${metrics.orders} pedido(s) no período</small>
-        </a>
-      </div>
-    </section>
-
-    <section class="dashboard-lane home-priority-lane">
-      <div class="panel dashboard-panel">
-        <div class="section-heading">
-          <h2>Prioridades</h2>
-          <a class="secondary table-action" href="/alertas">Ver todas</a>
-        </div>
-        ${notifications.length ? `
-          <div class="alert-list">
-            ${notifications.slice(0, 6).map(item => `<span><b>${item.title}</b>${item.detail}<a class="secondary table-action" href="${item.action}">Abrir</a></span>`).join("")}
-          </div>
-        ` : `<p class="muted">Nenhuma pendência prioritária agora.</p>`}
-      </div>
-      <div class="panel dashboard-panel">
-        <div class="section-heading">
-          <h2>Próximos vencimentos</h2>
-          <a class="secondary table-action" href="/financeiro?view=accounts">Ver todos</a>
-        </div>
-        ${nextAccounts.length ? `
-          <div class="recent-list compact">
-            ${nextAccounts.map(account => `
-              <span>
-                <b>${money(account.amount)}</b>
-                ${escapeHtml(account.description || categoryName(account.category))}
-                <small>${formatIsoDateBr(account.reminderDate)} · ${upcomingBillSourceLabel(account)} · ${dueDateDistanceLabel(account.reminderDate)}</small>
-                <a class="secondary table-action" href="${upcomingBillHref(account)}">Abrir</a>
-              </span>
-            `).join("")}
-          </div>
-        ` : `<p class="muted">Nenhum boleto ou conta em aberto nos próximos 30 dias.</p>`}
-      </div>
-    </section>
-
-    <section class="dashboard-lane home-secondary-lane">
-      <div class="panel dashboard-panel">
-        <h2>Hoje e semana</h2>
-        <div class="focus-list">
-          <span><strong>${metrics.todayOrders.length}</strong> pedidos hoje</span>
-          <span><strong>${money(metrics.weekIncome)}</strong> entradas da semana</span>
-          <span><strong>${money(metrics.weekExpenses)}</strong> saídas da semana</span>
-          <span><strong>${weeklyOrders}</strong> pedidos na semana</span>
-        </div>
-      </div>
-      <div class="panel dashboard-panel">
-        <h2>Orçamento por categoria</h2>
-        ${metrics.budget.rows.length ? `
-          <div class="budget-mini-list">
-            ${metrics.budget.rows.slice(0, 5).map(item => `
-              <span class="${item.percent >= 100 ? "negative" : item.percent >= 80 ? "warning-text" : ""}">
-                <b>${Math.round(item.percent)}%</b>${escapeHtml(item.label)}
-                <small>${money(item.spent)} de ${money(item.limit)}</small>
-              </span>
-            `).join("")}
-          </div>
-        ` : `<p class="muted">Defina limites no Planejamento financeiro.</p>`}
-      </div>
-    </section>
-  `;
-
-  on("#global-period-form", "submit", event => {
-    event.preventDefault();
-    const values = readForm(event.currentTarget);
-    const selected = applyGlobalPeriodToViews({
-      year: Number(values.year),
-      month: Number(values.month)
-    });
-    history.replaceState(null, "", "/home");
-    const selectedKey = `${selected.year}-${String(selected.month).padStart(2, "0")}`;
-    showToast(`${formatMonthKeyBr(selectedKey)} aplicado em todo o sistema.`, "success");
-    home();
-  });
 }
 
 function home() {
@@ -6093,10 +5745,10 @@ function renderToday() {
         <div class="operation-priority-list">
           ${agenda.map(item => `
             <article class="operation-priority-card ${item.type}">
-              <span>${item.category}</span>
-              <strong>${item.title}</strong>
-              <small>${item.detail}</small>
-              <a class="secondary table-action" href="${item.href}">${item.action}</a>
+              <span>${escapeHtml(item.category)}</span>
+              <strong>${escapeHtml(item.title)}</strong>
+              <small>${escapeHtml(item.detail)}</small>
+              <a class="secondary table-action" href="${escapeHtml(item.href)}">${escapeHtml(item.action)}</a>
             </article>
           `).join("")}
         </div>
@@ -6200,7 +5852,7 @@ function renderToday() {
               return `
                 <span class="today-order-item">
                   <b>${orderQuantity(order)}</b>
-                  ${client.name || order.clientPhone}
+                  ${escapeHtml(client.name || order.clientPhone)}
                   <small>${isOrderPaid(order) ? "Pago" : "Pagamento pendente"} - ${order.delivered ? "Entregue" : "Entrega pendente"}</small>
                   <span class="today-order-actions">
                     ${client.plan === "semanal" && !isOrderPaid(order) ? `<button class="secondary table-action" type="button" data-today-paid-order="${order.id}">Pago</button>` : ""}
@@ -6222,7 +5874,7 @@ function renderToday() {
             ${data.billsDue.slice(0, 8).map(entry => `
               <span class="today-order-item">
                 <b>${money(entry.amount)}</b>
-                ${entry.description || categoryName(entry.category)}
+                ${escapeHtml(entry.description || categoryName(entry.category))}
                 <small>${entry.dueDate ? dueDateDistanceLabel(entry.dueDate) : formatIsoDateBr(entry.date)}</small>
                 <span class="today-order-actions">
                   ${entry.id ? `<a class="secondary table-action" href="/fluxo-de-caixa?edit=${encodeURIComponent(entry.id)}">Editar</a>` : ""}
@@ -6245,7 +5897,7 @@ function renderToday() {
     </section>
   `;
 
-  bindTodayForms(data.today);
+  bindTodayForms();
   bindTodayOrderActions();
   bindBillPaymentButtons(renderToday);
 }
@@ -6341,7 +5993,8 @@ function bindBillPaymentButtons(afterPay = renderCurrentRoute) {
   });
 }
 
-function bindTodayForms(today) {
+function bindTodayForms() {
+  const quickCashAccount = normalizedCashAccount(state.cashEntryDraft.cashAccount);
   on("#today-income-form", "submit", async event => {
     event.preventDefault();
     const releaseSubmission = lockFormSubmission(event.currentTarget);
@@ -9226,7 +8879,7 @@ function cashTable(entries) {
             <tr class="cash-row ${item.type === "income" ? "income-row" : "expense-row"} ${accountAdjustment ? "account-adjustment-row" : ""}">
               <td>${formatIsoDateBr(item.date)}</td>
               <td>
-                ${item.description}
+                ${escapeHtml(item.description)}
                 ${employee ? `<br><small>Funcionário: ${escapeHtml(employee.name)}</small>` : ""}
                 ${internalTransfer ? `<br><small>Operação vinculada · ${escapeHtml(item.accountTransferId || item.transferId || "")}</small>` : ""}
               </td>
@@ -9254,42 +8907,6 @@ function cashTable(entries) {
       </table>
     </div>
   `;
-}
-
-function planningIngredients(item) {
-  const saved = Array.isArray(item.ingredients) ? item.ingredients : [];
-  return Array.from({ length: Math.max(1, saved.length) }, (_, index) => {
-    return saved[index] || { name: "", value: "" };
-  });
-}
-
-function planningIngredientRow(menuIndex, ingredientIndex, ingredient = {}) {
-  return `
-    <div class="ingredient-row" data-ingredient-row data-menu-index="${menuIndex}">
-      <input class="ingredient-name" name="ingredient-name-${menuIndex}-${ingredientIndex}" value="${ingredient.name || ""}" placeholder="Ingrediente">
-      <input class="ingredient-value" name="ingredient-value-${menuIndex}-${ingredientIndex}" type="text" inputmode="decimal" value="${moneyInputValue(ingredient.value)}" placeholder="R$">
-      <button class="ingredient-remove" type="button" data-remove-ingredient aria-label="Remover ingrediente">-</button>
-    </div>
-  `;
-}
-
-function planningIngredientRows(item, menuIndex) {
-  return planningIngredients(item)
-    .map((ingredient, ingredientIndex) => planningIngredientRow(menuIndex, ingredientIndex, ingredient))
-    .join("");
-}
-
-function readPlanningIngredients(form, menuIndex) {
-  return [...form.querySelectorAll(`[data-ingredient-row][data-menu-index="${menuIndex}"]`)]
-    .map(row => ({
-      name: String(row.querySelector(".ingredient-name")?.value || "").trim(),
-      value: parseMoneyInput(row.querySelector(".ingredient-value")?.value).toFixed(2)
-    }))
-    .filter(item => item.name || Number(item.value || 0) > 0);
-}
-
-function planningIngredientTotal(ingredients) {
-  return ingredients.reduce((sum, item) => sum + Number(item.value || 0), 0);
 }
 
 const MENU_DEFAULT_PACKAGING_COST = 1.6;
@@ -9731,7 +9348,7 @@ async function renderMenu() {
                     </select>
                   </label>
                   <label>Observação
-                    <textarea name="notes-${index}" placeholder="Compra, preparo, entrega">${item.notes}</textarea>
+                    <textarea name="notes-${index}" placeholder="Compra, preparo, entrega">${escapeHtml(item.notes || "")}</textarea>
                   </label>
                 </article>
               `; }).join("")}
@@ -10225,7 +9842,7 @@ async function renderMenu() {
     const downloadProduction = document.querySelector("[data-download-production]");
     if (downloadProduction) {
       downloadProduction.addEventListener("click", () => {
-        downloadTextFile(`cumbuca-producao-${currentKey}.txt`, productionListText(plan, currentKey), "text/plain;charset=utf-8");
+        downloadTextFile(`cumbuca-producao-${currentKey}.txt`, productionListText(result.plan, currentKey), "text/plain;charset=utf-8");
       });
     }
 
@@ -10570,16 +10187,16 @@ function clientPanel(currentKey) {
       ${activeTab === "list" ? clientList(currentKey) : `
       <form id="client-form" class="client-form">
         <label>Nome
-          <input name="name" placeholder="Nome do cliente" value="${editing?.name || ""}" required>
+          <input name="name" placeholder="Nome do cliente" value="${escapeHtml(editing?.name || "")}" required>
         </label>
         <label class="client-address">Endereço
-          <input name="address" placeholder="Rua, número, bairro" value="${editing?.address || ""}" required>
+          <input name="address" placeholder="Rua, número, bairro" value="${escapeHtml(editing?.address || "")}" required>
         </label>
         <label>Complemento
-          <input name="complement" placeholder="Apto, bloco, referência" value="${editing?.complement || ""}">
+          <input name="complement" placeholder="Apto, bloco, referência" value="${escapeHtml(editing?.complement || "")}">
         </label>
         <label>Telefone
-          <input name="phone" type="tel" placeholder="(00) 00000-0000" value="${editing?.phone || ""}" required>
+          <input name="phone" type="tel" placeholder="(00) 00000-0000" value="${escapeHtml(editing?.phone || "")}" required>
         </label>
         <label>Plano
           <select name="plan" required>
@@ -10595,7 +10212,7 @@ function clientPanel(currentKey) {
           <small>Esta é a quantidade inicial. Quando acabar, use Renovar quantidade na lista de clientes.</small>
         </label>
         <label class="client-notes">Observação
-          <textarea name="notes" placeholder="Preferência, restrição, detalhe de entrega">${editing?.notes || ""}</textarea>
+          <textarea name="notes" placeholder="Preferência, restrição, detalhe de entrega">${escapeHtml(editing?.notes || "")}</textarea>
         </label>
         <div class="client-form-actions">
           <button type="submit">${editing ? "Salvar edição" : "Salvar cliente"}</button>
@@ -10608,9 +10225,6 @@ function clientPanel(currentKey) {
 }
 
 function bindMonthlyRenewalControls(currentKey) {
-  const clientIndex = state.renewClientIndex;
-  const client = clientIndex !== null ? state.clients[clientIndex] : null;
-
   document.querySelectorAll("[data-renew-client]").forEach(button => {
     button.addEventListener("click", event => {
       state.renewClientIndex = Number(event.currentTarget.dataset.renewClient);
@@ -10783,7 +10397,7 @@ function clientList(currentKey) {
   return `
     <div class="filter-bar">
       <label>Buscar cliente
-        <input data-client-search placeholder="Nome, telefone, endereço ou observação" value="${state.clientSearch || ""}">
+        <input data-client-search placeholder="Nome, telefone, endereço ou observação" value="${escapeHtml(state.clientSearch || "")}">
       </label>
     </div>
     <div class="table-wrap client-table">
@@ -10792,16 +10406,16 @@ function clientList(currentKey) {
         <tbody>
           ${orderedClients.map(({ client, index }) => `
             <tr data-client-row="${index}">
-              <td>${client.name || ""}${client.inactive ? ` <span class="payment-badge pending">Inativo</span>` : ""}</td>
-              <td>${client.address || ""}</td>
-              <td>${client.complement || ""}</td>
-              <td>${client.phone || ""}</td>
+              <td>${escapeHtml(client.name || "")}${client.inactive ? ` <span class="payment-badge pending">Inativo</span>` : ""}</td>
+              <td>${escapeHtml(client.address || "")}</td>
+              <td>${escapeHtml(client.complement || "")}</td>
+              <td>${escapeHtml(client.phone || "")}</td>
               <td>${client.plan === "mensalista" ? "Mensalista" : "Semanal"}</td>
               <td>${client.plan === "mensalista" ? "Manual ao renovar ou no pedido" : "Variável"}</td>
               <td>
                 ${client.plan === "mensalista" ? `<span class="monthly-quantity-balance"><strong>${clientRemainingQuantity(client, currentKey)} restantes</strong><small>${clientMonthlyCapacity(client, currentKey)} liberadas no mês</small></span> ${clientChargedPackageCount(client, currentKey) > 1 ? `<span class="quantity-badge renewed">${clientChargedPackageCount(client, currentKey)} pacotes</span>` : ""} ${clientQuantityStatus(client, currentKey)}` : money(client.weeklyDeliveryFee || client.deliveryFee)}
               </td>
-              <td>${client.notes || ""}</td>
+              <td>${escapeHtml(client.notes || "")}</td>
               <td>
                 <div class="table-actions">
                   <button class="secondary table-action" type="button" data-edit-client="${index}">Editar</button>
@@ -10819,7 +10433,7 @@ function clientList(currentKey) {
       </table>
     </div>
     ${state.renewClientIndex !== null ? monthlyRenewalPanel(state.clients[state.renewClientIndex], state.renewClientIndex, currentKey) : ""}
-    ${state.clientHistoryPhone ? clientHistoryPanel(state.clientHistoryPhone, currentKey) : ""}
+    ${state.clientHistoryPhone ? clientHistoryPanel(state.clientHistoryPhone) : ""}
   `;
 }
 
@@ -11039,7 +10653,7 @@ function monthSummaryPanel(currentKey) {
             ${weeklySummary.map(item => `
               <tr data-week-summary="${item.week}">
                 <td>Semana ${item.week}</td>
-                <td>${item.dishes || "Nenhum prato registrado."}</td>
+                <td>${escapeHtml(item.dishes || "Nenhum prato registrado.")}</td>
                 <td>${item.quantity}</td>
                 <td>${money(item.supermarketCost)}</td>
                 <td>${money(item.orderAmount)}</td>
@@ -11084,7 +10698,7 @@ function orderSummary(plan, currentKey) {
         <div class="order-dish-total">
           <span>Cumbuca ${item.slot}</span>
           <strong>${item.quantity}</strong>
-          <small>${item.dish}</small>
+          <small>${escapeHtml(item.dish)}</small>
         </div>
       `).join("")}
     </div>
@@ -11177,7 +10791,7 @@ function productionListPanel(plan, currentKey) {
       </div>
       ${totals.length ? `
         <div class="recent-list">
-          ${totals.map(item => `<span><b>${item.quantity}</b>${item.dish}<small>Cumbuca ${item.slot}</small></span>`).join("")}
+          ${totals.map(item => `<span><b>${item.quantity}</b>${escapeHtml(item.dish)}<small>Cumbuca ${item.slot}</small></span>`).join("")}
         </div>
       ` : `<p class="muted">Sem pedidos para produção ainda.</p>`}
     </section>
@@ -11197,7 +10811,7 @@ function deliveryListPanel(currentKey) {
       ${rows.length ? `
         <div class="recent-list">
           ${rows.map(({ order, client }) => `
-            <span><b>${orderQuantity(order)}</b>${client.name || order.clientPhone}<small>${[client.address, client.complement].filter(Boolean).join(" - ")}</small></span>
+            <span><b>${orderQuantity(order)}</b>${escapeHtml(client.name || order.clientPhone)}<small>${escapeHtml([client.address, client.complement].filter(Boolean).join(" - "))}</small></span>
           `).join("")}
         </div>
       ` : `<p class="muted">Nenhuma entrega com endereço preenchido.</p>`}
@@ -11248,7 +10862,7 @@ function orderFormPanel(plan, currentKey, editing, availableClients) {
           <select name="clientPhone" ${availableClients.length ? "required" : "disabled"}>
             ${availableClients.length
               ? `<option value="">Selecione um cliente</option>${availableClients.map(client => `
-                  <option value="${client.phone}" ${editing?.clientPhone === client.phone ? "selected" : ""}>${client.name} - ${client.phone}${client.plan === "mensalista" ? ` - restam ${clientRemainingQuantity(client, currentKey)}${clientChargedPackageCount(client, currentKey) > 1 ? ` - ${clientChargedPackageCount(client, currentKey)} pacotes` : ""}${isLowMonthlyQuantity(client, currentKey) ? " - perto de acabar" : clientRemainingQuantity(client, currentKey) <= 0 ? " - renovar quantidade" : ""}` : ""}</option>
+                  <option value="${escapeHtml(client.phone)}" ${editing?.clientPhone === client.phone ? "selected" : ""}>${escapeHtml(client.name)} - ${escapeHtml(client.phone)}${client.plan === "mensalista" ? ` - restam ${clientRemainingQuantity(client, currentKey)}${clientChargedPackageCount(client, currentKey) > 1 ? ` - ${clientChargedPackageCount(client, currentKey)} pacotes` : ""}${isLowMonthlyQuantity(client, currentKey) ? " - perto de acabar" : clientRemainingQuantity(client, currentKey) <= 0 ? " - renovar quantidade" : ""}` : ""}</option>
                 `).join("")}`
               : `<option value="">Cadastre ou reative um cliente primeiro</option>`}
           </select>
@@ -11258,7 +10872,7 @@ function orderFormPanel(plan, currentKey, editing, availableClients) {
             <label class="dish-option">
               <div class="dish-option-title">
                 <span>Cumbuca ${item.slot}</span>
-                <strong>${item.dish || ""}</strong>
+                <strong>${escapeHtml(item.dish || "")}</strong>
               </div>
               <input data-dish-quantity type="number" name="dish-${item.slot}" min="0" step="1" value="${editing ? orderDishQuantity(editing, item.slot) : 0}" aria-label="Quantidade da Cumbuca ${item.slot}">
             </label>
@@ -11278,7 +10892,7 @@ function orderFormPanel(plan, currentKey, editing, availableClients) {
           </label>
         </div>
         <label>Observação
-          <input name="notes" placeholder="Retirada, entrega, restrição ou detalhe do pedido" value="${editing?.notes || ""}">
+          <input name="notes" placeholder="Retirada, entrega, restrição ou detalhe do pedido" value="${escapeHtml(editing?.notes || "")}">
         </label>
         <div class="order-total">
           <span>Total de cumbucas</span>
@@ -11424,8 +11038,8 @@ function orderCardsHtml(orders, plan) {
           <article class="order-card ${renewal ? "monthly-renewal-order" : order.delivered ? "is-delivered" : ""}">
             <div class="order-card-head">
               <div>
-                <strong>${client.name || "Cliente removido"}</strong>
-                <span>${client.phone || order.clientPhone || "Sem telefone"}</span>
+                <strong>${escapeHtml(client.name || "Cliente removido")}</strong>
+                <span>${escapeHtml(client.phone || order.clientPhone || "Sem telefone")}</span>
               </div>
               <div class="order-card-badges">
                 ${paymentBadge(order, client)}
@@ -11433,14 +11047,14 @@ function orderCardsHtml(orders, plan) {
               </div>
             </div>
             <div class="order-card-body">
-              <p>${orderDishesText(order, plan) || "Pedido sem itens"}</p>
+              <p>${escapeHtml(orderDishesText(order, plan) || "Pedido sem itens")}</p>
               <div class="mini-metrics">
                 <span><b>${renewal ? `+${Number(order.renewalQuantity || 0)}` : orderQuantity(order)}</b><small>${renewal ? "Nova quantidade" : "Cumbucas"}</small></span>
                 <span><b>${total > 0 ? money(total) : "-"}</b><small>Total</small></span>
                 <span><b>${renewal ? "Renovação" : client.plan === "mensalista" ? "Mensal" : "Semanal"}</b><small>Perfil</small></span>
               </div>
-              ${address ? `<small class="muted-inline">${address}</small>` : ""}
-              ${order.notes ? `<small class="muted-inline">${order.notes}</small>` : ""}
+              ${address ? `<small class="muted-inline">${escapeHtml(address)}</small>` : ""}
+              ${order.notes ? `<small class="muted-inline">${escapeHtml(order.notes)}</small>` : ""}
             </div>
             <div class="order-card-actions">
               ${renewal ? "" : `<button class="secondary table-action" type="button" data-edit-order="${order.id}">Editar</button>`}
@@ -11517,16 +11131,16 @@ function orderList(plan, currentKey) {
             const renewal = isMonthlyRenewalRecord(order);
             return `
               <tr>
-                <td>${client.name || "Cliente removido"}</td>
-                <td>${client.phone || order.clientPhone || ""}</td>
-                <td>${[client.address, client.complement].filter(Boolean).join(" - ")}</td>
-                <td>${orderDishesText(order, plan)}</td>
+                <td>${escapeHtml(client.name || "Cliente removido")}</td>
+                <td>${escapeHtml(client.phone || order.clientPhone || "")}</td>
+                <td>${escapeHtml([client.address, client.complement].filter(Boolean).join(" - "))}</td>
+                <td>${escapeHtml(orderDishesText(order, plan))}</td>
                 <td>${orderQuantity(order)}</td>
                 <td>${Number(order.amount || 0) > 0 ? money(order.amount) : ""}</td>
                 <td>${Number(order.deliveryFee || 0) > 0 ? money(order.deliveryFee) : ""}</td>
                 <td>${paymentBadge(order, client)}</td>
                 <td>${renewal ? "Sem entrega" : deliveryBadge(order)}</td>
-                <td>${order.notes || ""}</td>
+                <td>${escapeHtml(order.notes || "")}</td>
                 <td>
                   <div class="table-actions">
                     ${renewal ? "" : `<button class="secondary table-action" type="button" data-edit-order="${order.id}">Editar</button>`}
@@ -11576,7 +11190,7 @@ function orderOverviewPanel(plan, currentKey) {
           <thead>
             <tr>
               <th>Cliente</th>
-              ${plan.map(item => `<th>${item.dish || `Cumbuca ${item.slot}`}</th>`).join("")}
+              ${plan.map(item => `<th>${escapeHtml(item.dish || `Cumbuca ${item.slot}`)}</th>`).join("")}
               <th>Total</th>
               <th>Valor em real</th>
               <th>Valor em frete</th>
@@ -11591,12 +11205,12 @@ function orderOverviewPanel(plan, currentKey) {
               const client = clientByPhone(order.clientPhone);
               return `
                 <tr class="${client.plan === "mensalista" ? "monthly-client-row" : ""}">
-                  <td>${client.name || "Cliente removido"}</td>
+                  <td>${escapeHtml(client.name || "Cliente removido")}</td>
                   ${plan.map(item => `<td class="quantity-cell">${orderDishQuantity(order, item.slot) || ""}</td>`).join("")}
                   <td class="quantity-cell total-cell">${orderQuantity(order)}</td>
                   <td>${Number(order.amount || 0) > 0 ? money(order.amount) : ""}</td>
                   <td>${Number(order.deliveryFee || 0) > 0 ? money(order.deliveryFee) : ""}</td>
-                  <td>${[client.address, client.complement].filter(Boolean).join(" - ")}</td>
+                  <td>${escapeHtml([client.address, client.complement].filter(Boolean).join(" - "))}</td>
                   <td>${paymentText(order, client)}</td>
                   <td>${order.delivered ? "Entregue" : "Pendente"}</td>
                   <td>${client.plan === "mensalista" ? "Mensalista" : "Semanal"}</td>
@@ -11649,11 +11263,6 @@ function pricingRecipeIngredientBatchSize(recipe = {}) {
   return pricingDecimalNumber(recipe?.ingredientBatchSize) || 1;
 }
 
-function pricingRecipeIngredientQuantityForBatch(recipe, item, batchSize = PRICING_RECIPE_BATCH_SIZE) {
-  return pricingDecimalNumber(item?.quantity)
-    * (pricingDecimalNumber(batchSize) / pricingRecipeIngredientBatchSize(recipe));
-}
-
 function pricingPercent(value) {
   if (value === null || value === undefined || value === "") {
     return "—";
@@ -11696,22 +11305,6 @@ function normalizedPricingIngredients() {
       purchaseCost
     };
   });
-}
-
-function pricingIngredientUnitLabel(unit, plural = false) {
-  if (unit === "kg") {
-    return "kg";
-  }
-  if (unit === "box") {
-    return plural ? "caixas" : "caixa";
-  }
-  if (unit === "ml") {
-    return "ml";
-  }
-  if (unit === "unit") {
-    return plural ? "unidades" : "unidade";
-  }
-  return "g";
 }
 
 function pricingIngredientUnitCost(ingredient) {
@@ -11893,38 +11486,6 @@ function pricingStatusPill(status) {
 
 function pricingRecipeById(recipeId) {
   return (state.pricingRecipes || []).find(recipe => String(recipe.id) === String(recipeId));
-}
-
-function normalizedDishLookup(value) {
-  return String(value || "").trim().toLocaleLowerCase("pt-BR");
-}
-
-function pricingRecipeForMenuItem(item = {}) {
-  const linked = pricingRecipeById(item.recipeId);
-  if (linked) {
-    return linked;
-  }
-  const dish = normalizedDishLookup(item.dish);
-  if (!dish) {
-    return null;
-  }
-  return (state.pricingRecipes || []).find(recipe => normalizedDishLookup(recipe.name) === dish) || null;
-}
-
-function menuRecipeUnitCost(recipe) {
-  if (!recipe || !pricingRecipeIsComplete(recipe)) {
-    return 0;
-  }
-  const metrics = pricingRecipeMetrics(recipe);
-  return metrics.practicedPrice > 0 ? metrics.realTotalCost : metrics.totalCost;
-}
-
-function pricingRecipeReferencePrice(recipe) {
-  if (!recipe || !pricingRecipeIsComplete(recipe)) {
-    return 0;
-  }
-  const metrics = pricingRecipeMetrics(recipe);
-  return metrics.practicedPrice > 0 ? metrics.practicedPrice : metrics.suggestedPrice;
 }
 
 function pricingRecipeIsComplete(recipe) {
@@ -12136,91 +11697,6 @@ function pricingDashboardPanel() {
         </section>
       </div>
     ` : ""}
-  `;
-}
-
-function pricingIngredientsPanel(editingIngredient = null) {
-  const ingredients = normalizedPricingIngredients();
-  const returnRecipe = pricingRecipeById(state.pricingReturnRecipeId);
-  const legacyUnit = ["g", "ml"].includes(editingIngredient?.unit)
-    ? editingIngredient.unit
-    : "";
-  return `
-    ${pricingFlowHtml()}
-    ${returnRecipe ? `
-      <div class="pricing-workflow-context">
-        <div>
-          <strong>Etapa 2: ingredientes de ${escapeHtml(returnRecipe.name)}</strong>
-          <span>Cadastre o ingrediente abaixo. Depois de salvar, você voltará automaticamente para informar a quantidade usada em 50 pratos.</span>
-        </div>
-        <button class="secondary" type="button" data-return-to-pricing-recipe="${escapeHtml(returnRecipe.id)}">Voltar para a receita</button>
-      </div>
-    ` : ""}
-    <div class="pricing-editor-grid">
-      <section class="panel">
-        <h2>${editingIngredient ? "Editar ingrediente" : "Cadastrar ingrediente"}</h2>
-        <p class="muted-inline">Informe quanto vem na compra e quanto ela custa. O sistema calcula automaticamente o custo por kg, unidade ou caixa.</p>
-        <form id="pricing-ingredient-form" class="form-grid single">
-          <input name="ingredientId" type="hidden" value="${escapeHtml(editingIngredient?.id || "")}">
-          <label>Ingrediente
-            <input name="name" placeholder="Ex.: Peito de frango" value="${escapeHtml(editingIngredient?.name || "")}" required>
-          </label>
-          <label>Unidade de controle
-            <select name="unit">
-              ${legacyUnit ? `<option value="${legacyUnit}" selected>${legacyUnit === "g" ? "Grama (g)" : "Mililitro (ml)"} — cadastro anterior</option>` : ""}
-              <option value="kg" ${editingIngredient?.unit === "kg" || !editingIngredient ? "selected" : ""}>Quilograma (kg)</option>
-              <option value="unit" ${editingIngredient?.unit === "unit" ? "selected" : ""}>Unidade</option>
-              <option value="box" ${editingIngredient?.unit === "box" ? "selected" : ""}>Caixa</option>
-            </select>
-          </label>
-          <label>Quantidade comprada
-            <input name="purchaseQuantity" type="number" min="0.001" step="0.001" placeholder="Ex.: 1000" value="${editingIngredient?.purchaseQuantity || ""}" required>
-          </label>
-          <label>Custo da compra
-            <input name="purchaseCost" type="text" inputmode="decimal" placeholder="Ex.: 24,90" value="${moneyInputValue(editingIngredient?.purchaseCost)}" required>
-          </label>
-          <div class="pricing-live-cost">
-            <span>Custo calculado por unidade de controle</span>
-            <strong data-pricing-ingredient-unit-cost>${pricingUnitCostMoney(pricingIngredientUnitCost(editingIngredient))}</strong>
-          </div>
-          <div class="actions">
-            <button type="submit">${editingIngredient ? "Salvar ingrediente" : "Cadastrar ingrediente"}</button>
-            ${editingIngredient ? `<button class="secondary" type="button" id="cancel-pricing-ingredient-edit">Cancelar</button>` : ""}
-          </div>
-        </form>
-      </section>
-      <section class="panel report-section">
-        <div class="section-heading">
-          <div>
-            <h2>Catálogo de ingredientes</h2>
-            <p class="muted-inline">${ingredients.length} ingrediente(s)</p>
-          </div>
-        </div>
-        ${ingredients.length ? `
-          <div class="table-wrap report-table">
-            <table>
-              <thead><tr><th>Ingrediente</th><th>Compra</th><th>Custo da compra</th><th>Custo por unidade de controle</th><th>Ações</th></tr></thead>
-              <tbody>
-                ${ingredients.map(ingredient => `
-                  <tr>
-                    <td><strong>${escapeHtml(ingredient.name)}</strong></td>
-                    <td>${ingredient.purchaseQuantity.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} ${pricingIngredientUnitLabel(ingredient.unit, true)}</td>
-                    <td>${money(ingredient.purchaseCost)}</td>
-                    <td><strong>${pricingUnitCostMoney(pricingIngredientUnitCost(ingredient))} / ${pricingIngredientUnitLabel(ingredient.unit)}</strong></td>
-                    <td>
-                      <div class="table-actions">
-                        <button class="secondary table-action" type="button" data-edit-pricing-ingredient="${escapeHtml(ingredient.id)}">Editar</button>
-                        <button class="danger table-action" type="button" data-delete-pricing-ingredient="${escapeHtml(ingredient.id)}">Excluir</button>
-                      </div>
-                    </td>
-                  </tr>
-                `).join("")}
-              </tbody>
-            </table>
-          </div>
-        ` : `<p class="muted">Cadastre o primeiro ingrediente para começar a montar receitas.</p>`}
-      </section>
-    </div>
   `;
 }
 
@@ -12537,103 +12013,6 @@ function updatePricingSharedCostPreview(form) {
     if (target) {
       target.textContent = value;
     }
-  });
-}
-
-async function renderPricingLegacy() {
-  showStandardHero("Precificação");
-  setActive("precificacao");
-  const savedConfig = state.pricingConfig;
-  const result = await postJson("/api/precificacao", {
-    ...savedConfig,
-    ingredients: state.ingredients
-  });
-
-  app.innerHTML = `
-    <div class="tool-grid">
-      <section class="panel">
-        <h2>Ingredientes</h2>
-        <form id="ingredient-form" class="form-grid">
-          <label>Item
-            <input name="name" placeholder="Arroz, frango, embalagem" required>
-          </label>
-          <label>Quantidade
-            <input name="quantity" type="number" min="0" step="0.001" required>
-          </label>
-          <label>Custo unitário
-            <input name="unitCost" type="text" inputmode="decimal" required>
-          </label>
-          <div class="actions">
-            <button type="submit">Adicionar</button>
-          </div>
-        </form>
-        ${ingredientList()}
-      </section>
-      <section class="panel">
-        <h2>Cálculo</h2>
-        <form id="pricing-form" class="form-grid">
-          <label>Embalagem
-            <input name="packaging" type="text" inputmode="decimal" value="${moneyInputValue(savedConfig.packaging)}">
-          </label>
-          <label>Mão de obra
-            <input name="labor" type="text" inputmode="decimal" value="${moneyInputValue(savedConfig.labor)}">
-          </label>
-          <label>Custos fixos rateados
-            <input name="overhead" type="text" inputmode="decimal" value="${moneyInputValue(savedConfig.overhead)}">
-          </label>
-          <label>Perdas %
-            <input name="lossPercent" type="number" min="0" step="0.01" value="${savedConfig.lossPercent || ""}">
-          </label>
-          <label>Taxas %
-            <input name="feePercent" type="number" min="0" step="0.01" value="${savedConfig.feePercent || ""}">
-          </label>
-          <label>Margem %
-            <input name="marginPercent" type="number" min="0" step="0.01" value="${savedConfig.marginPercent || ""}">
-          </label>
-          <div class="actions">
-            <button type="submit">Atualizar</button>
-            <button class="secondary" type="button" id="clear-pricing">Limpar</button>
-          </div>
-        </form>
-        <div class="summary">
-          <div class="metric"><span>Custo total</span><strong>${money(result.totalCost)}</strong></div>
-          <div class="metric"><span>Preço sugerido</span><strong>${money(result.suggestedPrice)}</strong></div>
-          <div class="metric"><span>Lucro previsto</span><strong>${money(result.profit)}</strong></div>
-        </div>
-      </section>
-      ${technicalSheetPanel(savedConfig)}
-    </div>
-  `;
-
-  on("#ingredient-form", "submit", event => {
-    event.preventDefault();
-    const values = readForm(event.currentTarget);
-    state.ingredients.push({
-      ...values,
-      unitCost: parseMoneyInput(values.unitCost).toFixed(2)
-    });
-    persistState();
-    renderPricing();
-  });
-
-  on("#pricing-form", "submit", event => {
-    event.preventDefault();
-    const values = readForm(event.currentTarget);
-    state.pricingConfig = {
-      ...values,
-      packaging: parseMoneyInput(values.packaging).toFixed(2),
-      labor: parseMoneyInput(values.labor).toFixed(2),
-      overhead: parseMoneyInput(values.overhead).toFixed(2)
-    };
-    persistState();
-    renderPricing();
-  });
-
-  on("#clear-pricing", "click", () => {
-    state.ingredients = [];
-    state.pricingConfig = {};
-    persistState();
-    renderPricing();
   });
 }
 
@@ -13061,80 +12440,7 @@ async function renderPricing() {
   }
 }
 
-function recipePricing(item, config = {}, periodKey = currentMenuPeriodKey()) {
-  const shared = pricingSharedCosts(config);
-  const supermarket = monthlySupermarketAllocation(periodKey);
-  return menuPlanningCosts(item, shared.totalPerUnit, supermarket.costPerUnit);
-}
-
-function technicalSheetRows(config = state.pricingConfig) {
-  return Object.entries(state.menus || {})
-    .flatMap(([key, items]) => (items || []).map(item => ({ key, item })))
-    .filter(({ item }) => String(item.dish || "").trim())
-    .map(({ key, item }) => ({
-      key,
-      slot: item.slot,
-      dish: item.dish,
-      status: item.status || "planejado",
-      ingredients: item.ingredients || [],
-      ...recipePricing(item, config, menuPeriodKeyFromKey(key))
-    }))
-    .sort((a, b) => String(b.key).localeCompare(String(a.key)) || Number(a.slot || 0) - Number(b.slot || 0));
-}
-
-function technicalSheetPanel(config = state.pricingConfig) {
-  const rows = technicalSheetRows(config).slice(0, 12);
-  return `
-    <section class="panel report-section technical-sheet-panel">
-      <h2>Ficha técnica por cumbuca</h2>
-      ${rows.length ? `
-        <div class="table-wrap report-table">
-          <table>
-            <thead><tr><th>Semana</th><th>Cumbuca</th><th>Supermercado do Caixa</th><th>Custo</th><th>Preço sugerido</th><th>Lucro</th></tr></thead>
-            <tbody>
-              ${rows.map(row => `
-                <tr>
-                  <td>${row.key}</td>
-                  <td>${escapeHtml(row.dish)}<br><small>Cumbuca ${row.slot} - ${row.status}</small></td>
-                  <td>${money(row.supermarketCost)}</td>
-                  <td>${money(row.totalCost)}</td>
-                  <td>${money(row.suggestedPrice)}</td>
-                  <td class="${row.profit < 0 ? "negative" : "positive"}">${money(row.profit)}</td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
-        </div>
-      ` : `<p class="muted">Cadastre as cumbucas no Menu Semanal para gerar a ficha técnica com o supermercado do Caixa rateado.</p>`}
-    </section>
-  `;
-}
-
-function ingredientList() {
-  if (!state.ingredients.length) {
-    return `<p class="muted">Adicione ingredientes para calcular o custo.</p>`;
-  }
-
-  return `
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Item</th><th>Qtd.</th><th>Unit.</th><th>Total</th></tr></thead>
-        <tbody>
-          ${state.ingredients.map(item => `
-            <tr>
-              <td>${item.name}</td>
-              <td>${item.quantity}</td>
-              <td>${money(item.unitCost)}</td>
-              <td>${money(Number(item.quantity || 0) * Number(item.unitCost || 0))}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-function reportCashEntries(periodKey, weekKey) {
+function reportCashEntries(periodKey) {
   const type = state.reportPeriod.type || "month";
   const entries = accountingCashEntries(state.cash);
   if (type === "day") {
@@ -13190,7 +12496,7 @@ function reportData() {
   const periodKey = reportPeriodKey();
   const selectedWeek = Number(state.reportPeriod.week || 1);
   const weekKey = reportWeekKey();
-  const cashEntries = reportCashEntries(periodKey, weekKey);
+  const cashEntries = reportCashEntries(periodKey);
   const storeSales = reportStoreSales(periodKey);
   const channelReceipts = reportChannelReceipts(periodKey);
   const orders = type === "day"
@@ -13437,6 +12743,8 @@ function productionPurchasesForPeriod(periodKey = reportPeriodKey()) {
 function monthlyFoodAndBillsCost(periodKey = reportPeriodKey()) {
   return productionPurchasesForPeriod(periodKey);
 }
+
+window.monthlyFoodAndBillsCost = monthlyFoodAndBillsCost;
 
 function managementMonthKeys(periodKey, count = 3) {
   const keys = [];
@@ -14317,7 +13625,7 @@ function compactMoneyList(rows, emptyText) {
   `;
 }
 
-function clientHistoryPanel(phone, currentKey) {
+function clientHistoryPanel(phone) {
   const client = clientByPhone(phone);
   const orders = state.orders
     .filter(order => order.clientPhone === phone)
@@ -14740,237 +14048,6 @@ function reportCsvRows(kind, data) {
   })));
 }
 
-function pdfRows(headers, rows) {
-  if (!rows.length) {
-    return `<p class="pdf-empty">Sem dados neste período.</p>`;
-  }
-
-  return `
-    <table>
-      <thead>
-        <tr>${headers.map(header => `<th>${escapeHtml(header)}</th>`).join("")}</tr>
-      </thead>
-      <tbody>
-        ${rows.map(row => `
-          <tr>${row.map(value => `<td>${escapeHtml(value)}</td>`).join("")}</tr>
-        `).join("")}
-      </tbody>
-    </table>
-  `;
-}
-
-function reportPdfHtml(data) {
-  const generatedAt = fullDate.format(new Date());
-  const periodLabel = data.type === "week"
-    ? reportWeekRangeLabel()
-    : formatMonthKeyBr(data.periodKey);
-  const withdrawalAmounts = withdrawalBreakdownAmounts(data.financial.withdrawals, data.partnerWithdrawalControl);
-  const unusedLegacySummary = [
-    ["Receita de pedidos", money(data.orderRevenue)],
-    ["Cumbucas vendidas", data.totalQuantity],
-    ["Ticket médio", money(data.averageTicket)],
-    ["Frete arrecadado", money(data.deliveryRevenue)],
-    ["Entradas no caixa", money(data.income)],
-    ["Saídas no caixa", money(data.expenses)],
-    ["Saldo do caixa", money(data.balance)],
-    ["Pedidos pagos", data.paidOrders],
-    ["Pedidos pendentes", data.pendingOrders],
-    ["Clientes semanais", data.weeklyClients],
-    ["Mensalistas", data.monthlyClients]
-  ];
-  const summary = [
-    ["Total", money(data.balance)],
-    ["Entradas", money(data.totalIncome)],
-    ["Saídas", money(data.expenses)],
-    ["Lucro operacional", money(operationalProfitForReport(data))],
-    ["Vanessa - distribuição total", money(withdrawalAmounts.vanessa)],
-    ["Cofrinho transferido", money(withdrawalAmounts.savings)],
-    ["Raquel - distribuição total", money(withdrawalAmounts.raquel)],
-    ["Dinheiro que saiu da conta", money(cashWithdrawalsForReport(data))],
-    ["Compensação sem saída de caixa", money(debtCompensationForReport(data))],
-    ["Resultado após retiradas", money(operationalResultForReport(data))],
-    ["Ajustes da conta", money(data.accountAdjustmentTotals.balance)],
-    ["Saldo da conta", money(data.accountBalance)],
-    ["Cofrinho atual", money(data.savingsBalance)],
-    ["Cumbucas vendidas", data.totalSoldQuantity],
-    ["Semanal", data.weeklyCashQuantity],
-    ["Loja", data.storeQuantity],
-    ["Receita pedidos", money(data.orderRevenue)],
-    ["Entradas caixa", money(data.income)]
-  ];
-  const orderRows = data.orders.map(order => {
-    const client = clientByPhone(order.clientPhone);
-    return [
-      order.menuKey || "",
-      client.name || order.clientPhone || "Cliente removido",
-      orderQuantity(order),
-      money(order.amount),
-      money(order.deliveryFee),
-      paymentText(order, client)
-    ];
-  });
-  const cashRows = data.cashEntries.map(entry => [
-    entry.date || "",
-    entry.description || "",
-    entry.type === "expense" ? "Saída" : "Entrada",
-    cashAccountLabel(entry.cashAccount, entry.type),
-    money(entry.amount)
-  ]);
-  const incomeRows = data.incomeEntries.map(entry => [
-    entry.date || "",
-    entry.description || "",
-    money(entry.amount)
-  ]);
-  const storeRows = data.storeSales.map(storeSaleReportRow);
-  const expenseRows = data.topExpenses.map(entry => [
-    entry.date || "",
-    entry.description || "",
-    money(entry.amount)
-  ]);
-  return `<!doctype html>
-    <html lang="pt-BR">
-      <head>
-        <meta charset="utf-8">
-        <title>Relatório Financeiro Semanal ${escapeHtml(periodLabel)}</title>
-        <style>
-          @page { margin: 18mm; }
-          * { box-sizing: border-box; }
-          body {
-            margin: 0;
-            color: #121417;
-            font-family: Arial, Helvetica, sans-serif;
-            font-size: 12px;
-            line-height: 1.4;
-          }
-          header {
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            gap: 24px;
-            padding-bottom: 18px;
-            border-bottom: 2px solid #573220;
-            margin-bottom: 18px;
-          }
-          h1, h2, p { margin-top: 0; }
-          h1 { margin-bottom: 6px; font-size: 28px; line-height: 1; color: #573220; text-transform: uppercase; }
-          h2 { margin: 22px 0 10px; font-size: 15px; color: #573220; }
-          .meta { color: #69707d; text-align: right; }
-          .summary {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 8px;
-          }
-          .metric {
-            min-height: 64px;
-            padding: 10px;
-            border: 1px solid #e5e7eb;
-            border-radius: 6px;
-            background: #fafafa;
-          }
-          .metric span {
-            display: block;
-            color: #69707d;
-            font-size: 9px;
-            font-weight: 700;
-            text-transform: uppercase;
-          }
-          .metric strong {
-            display: block;
-            margin-top: 6px;
-            font-size: 15px;
-          }
-          .metric.total {
-            background: #573220;
-            color: #ffffff;
-            border-color: #573220;
-          }
-          .metric.total span,
-          .metric.total strong {
-            color: #ffffff;
-          }
-          .sold {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 8px;
-            margin-top: 8px;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            page-break-inside: auto;
-          }
-          tr { page-break-inside: avoid; page-break-after: auto; }
-          th, td {
-            padding: 7px 8px;
-            border: 1px solid #e5e7eb;
-            text-align: left;
-            vertical-align: top;
-          }
-          th {
-            background: #f3f4f6;
-            color: #374151;
-            font-size: 9px;
-            text-transform: uppercase;
-          }
-          .pdf-empty {
-            padding: 10px;
-            border: 1px dashed #d1d5db;
-            color: #69707d;
-          }
-        </style>
-      </head>
-      <body>
-        <header>
-          <div>
-            <h1>Relatório Financeiro Semanal</h1>
-            <p>${escapeHtml(periodLabel)}</p>
-          </div>
-          <div class="meta">
-            <strong>Gerado em</strong><br>
-            ${escapeHtml(generatedAt)}
-          </div>
-        </header>
-        <section class="summary">
-          ${summary.map(([label, value], index) => `
-            <div class="metric ${index === 0 ? "total" : ""}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>
-          `).join("")}
-        </section>
-        <h2>Quantidade de cumbucas vendidas</h2>
-        <section class="sold">
-          <div class="metric"><span>Semanal</span><strong>${escapeHtml(data.weeklyCashQuantity)}</strong></div>
-          <div class="metric"><span>Loja</span><strong>${escapeHtml(data.storeQuantity)}</strong></div>
-          <div class="metric total"><span>Total</span><strong>${escapeHtml(data.totalSoldQuantity)}</strong></div>
-        </section>
-        <h2>Resumo de entradas ${escapeHtml(reportTitleSuffix(data))}</h2>
-        ${pdfRows(["Grupo", "Origem", "Valor"], [
-          ...accountIncomeBreakdown(data).map(([label, value]) => ["Conta", label, value]),
-          ...weeklyRevenueBreakdown(data).map(([label, value]) => ["Semanal", label, value]),
-          ["Total", "Conta + semanal", money(data.income + data.orderRevenue)]
-        ])}
-        <h2>Principais saídas (despesas)</h2>
-        ${pdfRows(["Data", "Descrição", "Valor"], expenseRows)}
-        <h2>Cumbucas vendidas na loja</h2>
-        ${pdfRows(["Data", "Produto", "Tipo", "Quantidade", "Unid. por combo", "Total de unidades", "Observação"], storeRows)}
-      </body>
-    </html>`;
-}
-
-function oldPrintReportPdfWithPopup() {
-  const data = reportData();
-  const printWindow = window.open("", "_blank", "noopener,noreferrer");
-
-  if (!printWindow) {
-    alert("Permita pop-ups para gerar o PDF do relatório.");
-    return;
-  }
-
-  printWindow.document.open();
-  printWindow.document.write(reportPdfHtml(data));
-  printWindow.document.close();
-  printWindow.focus();
-  printWindow.print();
-}
-
 function reportFinancialPayloadMetrics(data) {
   const purchases = data.type === "month"
     ? productionPurchasesForPeriod(data.periodKey)
@@ -15209,31 +14286,6 @@ async function downloadReportXlsx(options = {}) {
 async function downloadAccountantPackage() {
   await downloadReportPdf({ accountantPackage: true });
   await downloadReportXlsx({ accountantPackage: true });
-}
-
-function printReportPdf() {
-  const data = reportData();
-  const frame = document.createElement("iframe");
-  frame.title = "Relatório PDF";
-  frame.style.position = "fixed";
-  frame.style.right = "0";
-  frame.style.bottom = "0";
-  frame.style.width = "0";
-  frame.style.height = "0";
-  frame.style.border = "0";
-  document.body.appendChild(frame);
-
-  const frameWindow = frame.contentWindow;
-  const frameDocument = frame.contentDocument || frameWindow.document;
-  frameDocument.open();
-  frameDocument.write(reportPdfHtml(data));
-  frameDocument.close();
-
-  setTimeout(() => {
-    frameWindow.focus();
-    frameWindow.print();
-    setTimeout(() => frame.remove(), 1000);
-  }, 100);
 }
 
 function exportReport(kind) {
@@ -15873,8 +14925,8 @@ function reportExpenseOutTable(data) {
           ${topEntries.map(entry => `
             <tr>
               <td>${formatIsoDateBr(entry.date)}</td>
-              <td>${categoryName(entry.category)}</td>
-              <td>${entry.description || ""}</td>
+              <td>${escapeHtml(categoryName(entry.category))}</td>
+              <td>${escapeHtml(entry.description || "")}</td>
               <td>${money(entry.amount)}</td>
             </tr>
           `).join("")}
@@ -15898,7 +14950,7 @@ function reportMenuTable(data) {
           ${data.menuWeeks.map(week => `
             <tr>
               <td>Semana ${week.week}</td>
-              <td>${week.dishes.map(item => item.dish).filter(Boolean).join(", ") || "Sem pratos"}</td>
+              <td>${escapeHtml(week.dishes.map(item => item.dish).filter(Boolean).join(", ") || "Sem pratos")}</td>
               <td>${week.quantity}</td>
               <td>${week.orders.length}</td>
               <td>${money(week.orderAmount)}</td>
@@ -15908,37 +14960,6 @@ function reportMenuTable(data) {
       </table>
     </div>
   `;
-}
-
-function storeSalesPanel(data) {
-  const defaultDate = reportTypeDefaultDate(data);
-
-  return `
-    <section class="panel report-section">
-      <h2>Cumbucas vendidas na loja</h2>
-      <form id="store-sale-form" class="store-sale-form">
-        <label>Data
-          <input name="date" type="date" value="${defaultDate}" required>
-        </label>
-        <label>Quantidade
-          <input name="quantity" type="number" min="0" step="1" placeholder="0" required>
-        </label>
-        <label>Observação
-          <input name="notes" placeholder="Opcional">
-        </label>
-        <button type="submit">Adicionar</button>
-      </form>
-      ${storeSalesTable(data.storeSales)}
-    </section>
-  `;
-}
-
-function reportTypeDefaultDate(data) {
-  if (data.type === "week") {
-    return reportWeekRange().end;
-  }
-
-  return `${data.periodKey}-01`;
 }
 
 function normalizedStoreSaleType(entry = {}) {
@@ -16010,17 +15031,6 @@ function storeSalesFilteredQuantity(entry = {}, saleType = "all") {
   return normalizedStoreSalesTypeFilter(saleType) === "combo"
     ? Math.max(0, Number(entry?.quantity || 0))
     : storeSaleUnitQuantity(entry);
-}
-
-function storeSalesFilteredMetricLabel(saleType = "all") {
-  const normalizedFilter = normalizedStoreSalesTypeFilter(saleType);
-  if (normalizedFilter === "combo") {
-    return "Combos no período";
-  }
-  if (normalizedFilter === "unit") {
-    return "Unidades avulsas no período";
-  }
-  return "Cumbucas no período";
 }
 
 function storeSalesComparisonTitle(saleType = "all") {
@@ -16139,43 +15149,6 @@ function storeSalesTable(entries) {
   `;
 }
 
-function withdrawalReportTable(data) {
-  if (!data.financial.withdrawalEntries.length) {
-    return `<p class="muted">Nenhuma retirada neste período.</p>`;
-  }
-
-  return `
-    <div class="table-wrap report-table">
-      <table>
-        <thead><tr><th>Data</th><th>Destino</th><th>Descrição</th><th>Direito na divisão</th><th>Dívida informada</th><th>Recebeu agora</th><th>Dívida compensada</th></tr></thead>
-        <tbody>
-          ${data.financial.withdrawalEntries.map(entry => {
-            const target = withdrawalTarget(entry);
-            const expected = Number(entry.expectedAmount ?? entry.amount);
-            const storedPrior = Number(entry.cashDebtAmount ?? entry.priorWithdrawalAmount);
-            const prior = Number.isFinite(storedPrior)
-              ? storedPrior
-              : ["vanessa", "raquel"].includes(target)
-                ? Math.max(0, expected - Number(entry.amount || 0))
-                : 0;
-            return `
-              <tr>
-                <td>${formatIsoDateBr(entry.date)}</td>
-                <td>${target === "savings" ? "Cofrinho" : target === "vanessa" ? "Vanessa" : target === "raquel" ? "Raquel" : "Outras"}</td>
-                <td>${entry.description || ""}</td>
-                <td>${money(expected)}</td>
-                <td>${money(prior)}</td>
-                <td>${money(entry.amount)}</td>
-                <td>${target === "savings" ? "-" : money(Math.min(expected, prior))}</td>
-              </tr>
-            `;
-          }).join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
 function withdrawalPersonRows(data) {
   const weekRange = data.type === "day"
     ? weekRangeForDate(data.date || isoDate(new Date()))
@@ -16255,7 +15228,7 @@ function withdrawalPersonReportPanel(data) {
           <tbody>
             ${rows.map(row => `
               <tr>
-                <td><strong>${row.label}</strong></td>
+                <td><strong>${escapeHtml(row.label)}</strong></td>
                 <td>${money(row.expectedWeek)}</td>
                 <td>${money(row.receivedWeek)}</td>
                 <td>${row.key === "savings" ? "-" : money(row.paidToCashWeek)}</td>
@@ -16842,7 +15815,7 @@ function renderStoreSales() {
             <strong data-store-sale-total-value>${editing ? storeSaleUnitQuantity(editing) : 0} unidades</strong>
           </div>
           <label>Observação
-            <input name="notes" placeholder="Opcional" value="${editing?.notes || ""}">
+            <input name="notes" placeholder="Opcional" value="${escapeHtml(editing?.notes || "")}">
           </label>
           <div class="actions">
             <button type="submit">${editing ? "Salvar edição" : "Adicionar"}</button>
@@ -17257,10 +16230,6 @@ function renderStoreSales() {
   });
 
   bindChannelReceipts(renderStoreSales, editingChannelReceipt);
-}
-
-function oldReportTitleSuffix(data) {
-  return data.type === "week" ? `da semana ${data.selectedWeek}` : "do mês";
 }
 
 function reportTitleSuffix(data) {
@@ -17921,7 +16890,7 @@ function upcomingBillsPanel({ title = "Próximos vencimentos", limit = 6, showSu
           ${bills.map(entry => `
             <span>
               <b>${money(entry.amount)}</b>
-              ${entry.description || categoryName(entry.category)}
+              ${escapeHtml(entry.description || categoryName(entry.category))}
               <small>${formatIsoDateBr(entry.reminderDate)} - ${upcomingBillSourceLabel(entry)} - ${dueDateDistanceLabel(entry.reminderDate)}</small>
               ${entry.id ? `<span class="today-order-actions"><a class="secondary table-action" href="${upcomingBillHref(entry)}">Abrir</a></span>` : ""}
             </span>
@@ -18697,7 +17666,6 @@ function bindFinancialAccounts() {
       const account = financialAccounts().find(item => String(item.id) === String(id));
       const values = readForm(settlementForm);
       const amount = parseMoneyInput(values.amount);
-      const open = accountOpenAmount(account);
       if (!account || !values.date || amount <= 0) {
         showToast("Informe data e valor maior que zero.", "error");
         return;
@@ -18953,50 +17921,6 @@ function bindMonthlyBudget() {
       }
     });
   });
-}
-
-function financeFilterPanel(reportType, weekRange) {
-  return `
-    <section class="panel report-panel">
-      <form id="report-filter-form" class="period-picker report-filter" data-period="${reportType}">
-        <label>Período
-          <select name="type" id="report-period-type">
-            <option value="month" ${reportType === "month" ? "selected" : ""}>Mês</option>
-            <option value="week" ${reportType === "week" ? "selected" : ""}>Semana</option>
-            <option value="day" ${reportType === "day" ? "selected" : ""}>Dia</option>
-          </select>
-        </label>
-        <label class="report-day-field">Dia
-          <input name="date" type="date" value="${reportDate()}">
-        </label>
-        <label>Ano
-          <input name="year" type="number" min="2020" max="2100" step="1" value="${state.reportPeriod.year}">
-        </label>
-        <label>Mês
-          <select name="month">
-            ${monthOptions(state.reportPeriod.month)}
-          </select>
-        </label>
-        <label class="report-week-field">De
-          <input name="start" type="date" value="${weekRange.start}">
-        </label>
-        <label class="report-week-field">Até
-          <input name="end" type="date" value="${weekRange.end}">
-        </label>
-        <label class="report-week-field">Semana do cardápio
-          <select name="week">
-            ${weekOptions(state.reportPeriod.week)}
-          </select>
-        </label>
-        <label>Saída
-          <select name="expenseCategory">
-            ${reportExpenseCategoryOptions(state.reportPeriod.expenseCategory || "all")}
-          </select>
-        </label>
-        <button type="submit">Atualizar</button>
-      </form>
-    </section>
-  `;
 }
 
 function financeMonthPendingItems(data, locked) {
@@ -19521,8 +18445,8 @@ function pendingDashboardHtml(integrity) {
         ${items.map(item => `
           <a class="pending-item ${item.level}" href="${item.action}" aria-label="${escapeHtml(`${item.title}: ${item.detail}`)}">
             <span>${item.level === "danger" ? "Corrigir" : item.level === "warning" ? "Revisar" : "OK"}</span>
-            <strong>${item.title}</strong>
-            <small>${item.detail}</small>
+            <strong>${escapeHtml(item.title)}</strong>
+            <small>${escapeHtml(item.detail)}</small>
           </a>
         `).join("")}
       </div>
@@ -19684,7 +18608,7 @@ function financeDashboardPanel(data) {
           <h2>Alertas</h2>
           ${alerts.length ? `
             <div class="alert-list">
-              ${alerts.map(([title, detail]) => `<span><b>${title}</b>${detail}</span>`).join("")}
+              ${alerts.map(([title, detail]) => `<span><b>${escapeHtml(title)}</b>${escapeHtml(detail)}</span>`).join("")}
             </div>
           ` : `<p class="muted">Nenhum alerta financeiro para o período.</p>`}
         </div>
@@ -20610,8 +19534,8 @@ async function runSystemCheck() {
       ${checks.map(item => `
         <span class="${item.ok ? "online" : "offline"}">
           <b>${item.ok ? "OK" : "Falha"}</b>
-          ${item.label}
-          <small>${item.detail}</small>
+          ${escapeHtml(item.label)}
+          <small>${escapeHtml(item.detail)}</small>
         </span>
       `).join("")}
     </div>
@@ -20778,10 +19702,10 @@ function renderAlerts() {
         <div class="alert-card-list">
           ${urgent.map(item => `
             <article class="alert-card ${item.type}" data-alert-category="${escapeHtml(item.category)}">
-              <small class="alert-category">${item.category}</small>
-              <strong>${item.label}</strong>
-              <span>${item.detail}</span>
-              ${item.href ? `<a class="secondary table-action" href="${item.href}" ${item.external ? `target="_blank" rel="noopener"` : ""}>${item.action || "Abrir"}</a>` : ""}
+              <small class="alert-category">${escapeHtml(item.category)}</small>
+              <strong>${escapeHtml(item.label)}</strong>
+              <span>${escapeHtml(item.detail)}</span>
+              ${item.href ? `<a class="secondary table-action" href="${escapeHtml(item.href)}" ${item.external ? `target="_blank" rel="noopener"` : ""}>${escapeHtml(item.action || "Abrir")}</a>` : ""}
             </article>
           `).join("")}
         </div>
@@ -20818,7 +19742,7 @@ function renderSettings() {
           <span>Identidade, tela inicial e aparência.</span>
         </div>
         <label>Nome da loja
-          <input name="storeName" value="${config.storeName || ""}" placeholder="Cumbuca">
+          <input name="storeName" value="${escapeHtml(config.storeName || "")}" placeholder="Cumbuca">
         </label>
         <label>Tela inicial
           <select name="defaultRoute">
@@ -21338,28 +20262,6 @@ async function restoreAutomaticBackup(reference, date) {
   renderBackups();
 }
 
-function backupPreviewText(result) {
-  const preview = result.preview || {};
-  return [
-    `Backup ${formatIsoDateBr(result.backupDate)}`,
-    `Atualizado: ${new Date(result.updatedAt || result.createdAt).toLocaleString("pt-BR")}`,
-    "",
-    `Caixa: ${preview.cash || 0}`,
-    `Pedidos: ${preview.orders || 0}`,
-    `Clientes: ${preview.clients || 0}`,
-    `Menus: ${preview.menus || 0}`,
-    `Loja: ${preview.storeSales || 0}`,
-    `Produtos loja: ${preview.storeProducts || 0}`,
-    `Quantidades mensais: ${preview.storeProductQuantities || 0}`,
-    `Ingredientes: ${preview.pricingIngredients || preview.ingredients || 0}`,
-    `Receitas: ${preview.pricingRecipes || 0}`,
-    `Canais: ${preview.channelReceipts || 0}`,
-    `Auditoria: ${preview.auditLog || 0}`,
-    `Fechamentos mensais: ${preview.monthlyClosings || 0}`,
-    `Fechamentos semanais: ${preview.weeklyClosings || 0}`
-  ].join("\n");
-}
-
 function technicalEventsHtml(result) {
   if (!result?.database) {
     return `<p class="muted">Log técnico indisponível agora.</p>`;
@@ -21429,10 +20331,10 @@ function renderAccount() {
           ${passwordFieldHtml({ name: "currentPassword", autocomplete: "current-password", required: true })}
         </label>
         <label>Nova senha
-          ${passwordFieldHtml({ name: "newPassword", autocomplete: "new-password", minlength: 4, required: true })}
+          ${passwordFieldHtml({ name: "newPassword", autocomplete: "new-password", minlength: 12, required: true })}
         </label>
         <label>Confirmar nova senha
-          ${passwordFieldHtml({ name: "confirmPassword", autocomplete: "new-password", minlength: 4, required: true })}
+          ${passwordFieldHtml({ name: "confirmPassword", autocomplete: "new-password", minlength: 12, required: true })}
         </label>
         <div class="actions">
           <button type="submit">Alterar senha</button>
@@ -21477,7 +20379,7 @@ function usersPanelHtml(result) {
         <h3>${editing ? "Editar usuário" : "Novo usuário"}</h3>
         <form id="user-admin-form" class="form-grid single">
           <label>Usuário
-            <input name="username" value="${editing?.username || ""}" placeholder="nomeusuario" ${editing ? "readonly" : ""} required>
+            <input name="username" value="${escapeHtml(editing?.username || "")}" placeholder="nomeusuario" ${editing ? "readonly" : ""} required>
           </label>
           <label>Nome
             <input name="name" value="${escapeHtml(editing?.name || "")}" placeholder="Nome completo" required>

@@ -135,7 +135,10 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.doesNotMatch(app, /O supermercado vem automaticamente do Caixa/);
   assert.match(app, /href="\/precificacao\?view=costs">Configurar outros custos rateados/);
   assert.match(app, /id="global-period-form"/);
-  assert.match(app, /Aplicar em todo o sistema/);
+  assert.match(
+    app,
+    /<button type="submit">Aplicar <span class="sr-only">em todo o sistema<\/span><\/button>/
+  );
   assert.match(app, /function applyGlobalPeriodToViews/);
   assert.match(app, /localStorage\.setItem\("globalPeriod"/);
   assert.match(app, /state\.reportPeriod = \{[\s\S]*?type: "month"/);
@@ -145,16 +148,14 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /partnersDashboard\.month\.paidToCashVanessa/);
   assert.match(app, /partnersDashboard\.month\.paidToCashRaquel/);
   assert.doesNotMatch(app, /partnerCashOffsetLabel\(partnersDashboard\.accumulated\.paidToCash/);
-  assert.match(app, /function pricingRecipeReferencePrice/);
+  assert.match(app, /function pricingRecipeMetrics/);
   assert.match(app, /Pedidos usam o Supermercado do Caixa rateado pelas cumbucas vendidas/);
   assert.match(app, /href="\/precificacao\?view=costs">Abrir custos rateados/);
   assert.match(css, /\.menu-cost-breakdown/);
   assert.match(css, /\.global-period-panel/);
   assert.match(css, /\.global-period-form/);
-  assert.match(app, /const nextAccounts = upcomingBills\(5, \{ includeOverdue: true \}\)/);
   assert.match(app, /function upcomingBillSourceLabel/);
   assert.match(app, /function upcomingBillHref/);
-  assert.match(app, /Nenhum boleto ou conta em aberto nos próximos 30 dias/);
   assert.match(app, /financeViewTab/);
   assert.match(app, /Contas a pagar e receber/);
   assert.match(app, /Funcionários da Cumbuca/);
@@ -197,11 +198,9 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /Confirmar reabertura/);
   assert.match(css, /\.closing-reopen-form/);
   assert.match(app, /Orçamento mensal por categoria/);
-  assert.match(app, /Visão geral financeira/);
   assert.match(app, /Saldo consolidado das contas/);
   assert.match(app, /home-command-grid/);
   assert.match(app, /home-overview-band/);
-  assert.match(app, /data-home-balance/);
   assert.match(app, /data-home-projection/);
   assert.match(app, /data-home-priorities/);
   assert.match(app, /data-home-budget/);
@@ -263,7 +262,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /data-store-sales-filter-combo-units/);
   assert.match(app, /data-store-sales-filter-best-day/);
   assert.match(app, /data-store-sales-day-ranking/);
-  assert.match(app, /Combos no período/);
+  assert.match(app, /Combos vendidos/);
   assert.match(app, /Unidades nos combos/);
   assert.match(app, /data-store-sales-comparison/);
   assert.match(app, /name="saleType"/);
@@ -272,8 +271,6 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.doesNotMatch(app, /name="labels"/);
   assert.match(app, /name="telephony"/);
   assert.match(app, /Embalagens e etiquetas não entram aqui/);
-  assert.match(app, /value="kg"/);
-  assert.match(app, /value="box"/);
   assert.match(app, /function storeSaleUnitQuantity/);
   assert.match(app, /data\.storeSales\.map\(storeSaleReportRow\)/);
   assert.match(css, /\.store-sale-type-options/);
@@ -318,9 +315,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /function pricingStaffMembers/);
   assert.match(app, /function pricingStaffMembersFromForm/);
   assert.match(app, /Mão de obra cadastrada anteriormente/);
-  assert.match(app, /function pricingRecipeMetrics/);
   assert.match(app, /function pricingRecipeIsComplete/);
-  assert.match(app, /function pricingRecipeForMenuItem/);
   assert.match(app, /data-menu-cost-breakdown/);
   assert.match(app, /data-menu-supermarket-rate/);
   assert.match(app, /data-menu-weekly-supermarket-total/);
@@ -346,7 +341,6 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /function weeklyMenuSupermarketAllocation/);
   assert.match(app, /weeklyMenuSupermarketCostsByPeriod/);
   assert.match(app, /function weeklyMenuProductionCost/);
-  assert.match(app, /function monthlyFoodAndBillsCost/);
   assert.match(app, /function productionPurchasesForPeriod/);
   assert.match(app, /function managementPeriodMetrics/);
   assert.match(app, /function managementMovingAverage/);

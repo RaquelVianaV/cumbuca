@@ -2,6 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 process.env.VERCEL = '1';
+process.env.CUMBUCA_AUTH_SECRET = 'cumbuca-partner-test-secret-2026-safe';
+process.env.CUMBUCA_PASSWORD = 'cumbuca-partner-test-password';
 const handleRequest = require('../server');
 const {
   calculateWithdrawalDistribution,
@@ -175,6 +177,21 @@ test('pagamento real aumenta caixa disponível sem mudar a base ajustada', () =>
   assert.equal(result.distributionBase, 2500);
   assert.equal(result.cashAvailable, 2200);
   assert.equal(result.partners[0].remainingDebt, 300);
+});
+
+test('percentual do cofrinho nunca ultrapassa 100% da base de distribuicao', () => {
+  const result = calculateWithdrawalDistribution({
+    physicalBalance: 100,
+    savingsPercent: 150,
+    partners: [
+      { id: 'vanessa', share: 70 },
+      { id: 'raquel', share: 30 },
+    ],
+  });
+  assert.equal(result.expectedSavings, 100);
+  assert.equal(result.partnerPool, 0);
+  assert.equal(result.compensationTotal, 0);
+  assert.equal(result.accountAfterWithdrawal, 0);
 });
 
 test('histórico soma débitos, pagamentos, compensações e ajustes', () => {

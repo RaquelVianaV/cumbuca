@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 
 const testPassword = 'cumbuca-server-test-password';
-process.env.CUMBUCA_AUTH_SECRET = 'cumbuca-server-test-secret-2026';
+process.env.CUMBUCA_AUTH_SECRET = 'cumbuca-server-test-secret-2026-safe';
 process.env.CUMBUCA_PASSWORD = testPassword;
 process.env.VERCEL = '1';
 const handleRequest = require('../server');
@@ -19,6 +19,7 @@ const {
   normalizeState,
   normalizedPermissions,
   stateWriteViolation,
+  validateAppConfig,
   userCan,
   validateBackupPayload,
   weekRangeFromDate,
@@ -111,6 +112,13 @@ test('normalizeState fills missing keys without replacing supplied values', () =
   assert.deepEqual(state.financialPlanning.reconciliationHistory, []);
   assert.deepEqual(state.financialPlanning.monthlyBudgets, {});
   assert.equal(state.appConfig.storeName, 'Cumbuca');
+});
+
+test('validateAppConfig rejects distribution percentages outside the valid range', () => {
+  assert.equal(validateAppConfig({ splitSavingsPercent: 101 }).valid, false);
+  assert.equal(validateAppConfig({ splitSavingsPercent: 100 }).valid, true);
+  assert.equal(validateAppConfig({ splitVanessaPercent: -1 }).valid, false);
+  assert.equal(validateAppConfig({ splitRaquelPercent: 'not-a-number' }).valid, false);
 });
 
 test('calculatePricing uses a manual supermarket unit cost and rates monthly costs', () => {
