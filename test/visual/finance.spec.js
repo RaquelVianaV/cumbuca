@@ -2168,7 +2168,11 @@ test('channels tab lives in store and old cash link redirects', async ({ page })
 
 test('Cardápio Web delivery fees are saved only for conference', async ({ page }) => {
   const database = await mockOnlineDatabase(page);
-  database.state = { cashEntries: [], channelReceipts: [] };
+  database.state = {
+    cashEntries: [],
+    channelReceipts: [],
+    appConfig: { cardapioWebDebitFeePercent: 10 },
+  };
 
   await page.goto('/loja?view=channels');
   const form = page.locator('#channel-receipt-form');
@@ -2179,15 +2183,20 @@ test('Cardápio Web delivery fees are saved only for conference', async ({ page 
 
   await expect.poll(() => database.state.channelReceipts?.length).toBe(1);
   expect(database.state.channelReceipts[0]).toMatchObject({
-    cardapioWebDebit: '100.00',
+    cardapioWebDebit: '90.00',
+    cardapioWebDebitGross: '100.00',
+    cardapioWebDebitFee: '10.00',
+    cardapioWebDebitNet: '90.00',
     cardapioWebDeliveryFee: '15.00',
-    cardapioWebNet: '100.00',
+    cardapioWebGross: '100.00',
+    cardapioWebFee: '10.00',
+    cardapioWebNet: '90.00',
   });
   expect(database.state.cashEntries || []).toHaveLength(0);
 
   const row = page.locator('.channel-receipts-panel tbody tr').first();
   await expect(row.locator('td').nth(6)).toContainText('15,00');
-  await expect(row.locator('td').nth(9)).toContainText('100,00');
+  await expect(row.locator('td').nth(9)).toContainText('90,00');
   const feeMetric = page.locator('.channel-summary .metric', {
     hasText: 'Taxas de entrega (conferência)',
   });

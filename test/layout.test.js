@@ -516,6 +516,9 @@ test('desktop navigation has its own vertical scroll area', () => {
 test('Cardápio Web delivery fees stay outside channel sales totals and cash', () => {
   assert.match(app, /function cardapioDeliveryFeeAmount/);
   assert.match(app, /name="cardapioWebDeliveryFee"/);
+  assert.match(app, /function cardapioPaymentFeePercent/);
+  assert.match(app, /cardapioWebDebitFeePercent/);
+  assert.match(app, /cardapioPaymentGrossAmount/);
   assert.match(
     app,
     /Somente para registro e conferência\. Não entra no Caixa nem no total das vendas\./

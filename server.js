@@ -142,6 +142,11 @@ const defaultState = {
     defaultFixedFee: 0,
     defaultVariableFeePercent: 0,
     defaultDesiredMarginPercent: 30,
+    cardapioWebDebitFeePercent: 0,
+    cardapioWebCreditFeePercent: 0,
+    cardapioWebOnlineCreditFeePercent: 0,
+    cardapioWebPixFeePercent: 0,
+    cardapioWebCashFeePercent: 0,
     backupReminderDays: 7,
   },
 };
@@ -179,6 +184,11 @@ function validateAppConfig(value = {}) {
     ['splitSavingsPercent', 0, 100],
     ['splitVanessaPercent', 0, 100],
     ['splitRaquelPercent', 0, 100],
+    ['cardapioWebDebitFeePercent', 0, 100],
+    ['cardapioWebCreditFeePercent', 0, 100],
+    ['cardapioWebOnlineCreditFeePercent', 0, 100],
+    ['cardapioWebPixFeePercent', 0, 100],
+    ['cardapioWebCashFeePercent', 0, 100],
   ];
   for (const [key, minimum, maximum] of boundedPercentages) {
     const numeric = Number(config[key]);
@@ -2562,99 +2572,313 @@ function brl(value) {
 }
 
 function pdfText(value) {
-  return String(value ?? '');
+  const text = String(value ?? '');
+  if (!/[ÃÂâ]/.test(text)) {
+    return text;
+  }
+  try {
+    return Buffer.from(text, 'latin1').toString('utf8');
+  } catch {
+    return text;
+  }
 }
 
-function addPdfTable(doc, headers, rows, widths) {
-  const startX = doc.page.margins.left;
+const PDF_LAYOUT = {
+  width: 595.28,
+  height: 841.89,
+  left: 42,
+  right: 42,
+  top: 96,
+  bottom: 58,
+  colors: {
+    paper: '#fffdf8',
+    ink: '#121417',
+    muted: '#69707d',
+    line: '#dfe5e2',
+    green: '#087f5b',
+    greenLight: '#e9f6f0',
+    brown: '#573220',
+    sand: '#fbf1e2',
+    white: '#ffffff',
+  },
+};
+
+function pdfPageOptions(payload = {}) {
+  const data = payload.data || {};
+  return {
+    periodLabel: pdfText(payload.periodLabel || data.periodKey || 'Período não informado'),
+  };
+}
+
+function fillPdfPage(doc) {
+  doc.rect(0, 0, PDF_LAYOUT.width, PDF_LAYOUT.height).fill(PDF_LAYOUT.colors.paper);
+}
+
+function drawPdfHeader(doc, options = {}) {
+  fillPdfPage(doc);
+  doc.rect(0, 0, PDF_LAYOUT.width, 76).fill(PDF_LAYOUT.colors.brown);
+  doc
+    .fillColor(PDF_LAYOUT.colors.white)
+    .font('Helvetica-Bold')
+    .fontSize(18)
+    .text('CUMBUCA', PDF_LAYOUT.left, 19);
+  doc.font('Helvetica').fontSize(9).text('RELATÓRIO FINANCEIRO', PDF_LAYOUT.left, 48);
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(9)
+    .text(options.periodLabel || '', 330, 25, {
+      width: PDF_LAYOUT.width - 372,
+      align: 'right',
+    });
+  doc
+    .font('Helvetica')
+    .fontSize(8)
+    .text('Fechamento e conferência', 330, 43, {
+      width: PDF_LAYOUT.width - 372,
+      align: 'right',
+    });
+  doc.fillColor(PDF_LAYOUT.colors.ink).font('Helvetica').fontSize(9);
+  doc.x = PDF_LAYOUT.left;
+  doc.y = PDF_LAYOUT.top;
+}
+
+function startPdfContentPage(doc, options = {}) {
+  doc.addPage();
+  drawPdfHeader(doc, options);
+}
+
+function pdfPageBottom(doc) {
+  return doc.page.height - PDF_LAYOUT.bottom;
+}
+
+function addPdfTable(doc, headers, rows, widths, options = {}) {
+  const startX = PDF_LAYOUT.left;
+  const availableWidth = doc.page.width - PDF_LAYOUT.left - PDF_LAYOUT.right;
+  const widthTotal = widths.reduce((sum, width) => sum + Number(width || 0), 0) || availableWidth;
+  const scale = widthTotal > availableWidth ? availableWidth / widthTotal : 1;
+  const columnWidths = widths.map((width) => Number(width || 0) * scale);
+  const headerValues = Array.isArray(headers) ? headers : Object.values(headers || {});
   let y = doc.y;
-  const rowHeight = 20;
 
   function drawRow(values, isHeader = false) {
     const cells = Array.isArray(values) ? values : Object.values(values || {});
+    const fontSize = isHeader ? 7.5 : 8.25;
+    const paddingX = 6;
+    const paddingY = isHeader ? 7 : 6;
+    doc.font(isHeader ? 'Helvetica-Bold' : 'Helvetica').fontSize(fontSize);
+    const measuredHeight = cells.reduce((maxHeight, value, index) => {
+      const width = Math.max(
+        12,
+        (columnWidths[index] || columnWidths[columnWidths.length - 1] || 40) - paddingX * 2
+      );
+      const height = doc.heightOfString(pdfText(value), { width, lineGap: 1 });
+      return Math.max(maxHeight, height);
+    }, 0);
+    const rowHeight = Math.min(
+      isHeader ? 28 : 48,
+      Math.max(isHeader ? 24 : 22, measuredHeight + paddingY * 2)
+    );
+
+    if (y + rowHeight > pdfPageBottom(doc)) {
+      startPdfContentPage(doc, options);
+      y = doc.y;
+      if (!isHeader) {
+        drawRow(headerValues, true);
+      }
+    }
+
+    const fill = isHeader
+      ? PDF_LAYOUT.colors.greenLight
+      : options.rowIndex % 2 === 0
+      ? PDF_LAYOUT.colors.white
+      : '#f7f9f8';
     let x = startX;
-    doc.font(isHeader ? 'Helvetica-Bold' : 'Helvetica').fontSize(isHeader ? 8 : 8);
     cells.forEach((value, index) => {
-      doc.rect(x, y, widths[index], rowHeight).stroke('#d1d5db');
-      doc.text(pdfText(value), x + 4, y + 6, {
-        width: widths[index] - 8,
-        height: rowHeight - 8,
-        ellipsis: true,
-      });
-      x += widths[index];
+      const width = columnWidths[index] || columnWidths[columnWidths.length - 1] || 40;
+      doc.rect(x, y, width, rowHeight).fillAndStroke(fill, PDF_LAYOUT.colors.line);
+      doc
+        .fillColor(isHeader ? PDF_LAYOUT.colors.brown : PDF_LAYOUT.colors.ink)
+        .font(isHeader ? 'Helvetica-Bold' : 'Helvetica')
+        .fontSize(fontSize)
+        .text(pdfText(value), x + paddingX, y + paddingY, {
+          width: Math.max(12, width - paddingX * 2),
+          height: rowHeight - paddingY,
+          ellipsis: true,
+          lineGap: 1,
+        });
+      x += width;
     });
     y += rowHeight;
-    if (y > 730) {
-      doc.addPage();
-      y = 50;
-    }
+    options.rowIndex = (options.rowIndex || 0) + 1;
   }
 
-  drawRow(headers, true);
-  rows.forEach((row) => drawRow(row));
+  options.rowIndex = 0;
+  drawRow(headerValues, true);
+  (rows || []).forEach((row) => drawRow(row));
   doc.x = startX;
-  doc.y = y + 10;
+  doc.y = y + 14;
 }
 
-function addPdfSectionTitle(doc, title) {
-  doc.x = doc.page.margins.left;
-  doc.fillColor('#573220').font('Helvetica-Bold').fontSize(13).text(title);
-  doc.x = doc.page.margins.left;
+function addPdfSectionTitle(doc, title, options = {}) {
+  if (doc.y + 90 > pdfPageBottom(doc)) {
+    startPdfContentPage(doc, options);
+  }
+  const x = PDF_LAYOUT.left;
+  const y = doc.y + 4;
+  doc
+    .roundedRect(x, y, doc.page.width - PDF_LAYOUT.left - PDF_LAYOUT.right, 25, 5)
+    .fill(PDF_LAYOUT.colors.sand);
+  doc
+    .fillColor(PDF_LAYOUT.colors.brown)
+    .font('Helvetica-Bold')
+    .fontSize(11)
+    .text(pdfText(title), x + 10, y + 7);
+  doc.x = x;
+  doc.y = y + 34;
+}
+
+function addPdfMetricCards(doc, items, options = {}) {
+  const cardWidth = 162;
+  const cardHeight = 50;
+  const gap = 11;
+  const rowGap = 10;
+  const startX = PDF_LAYOUT.left;
+  let y = doc.y;
+
+  for (let index = 0; index < items.length; index += 3) {
+    if (y + cardHeight > pdfPageBottom(doc)) {
+      startPdfContentPage(doc, options);
+      y = doc.y;
+    }
+    items.slice(index, index + 3).forEach(([label, value], column) => {
+      const x = startX + column * (cardWidth + gap);
+      const highlight = /lucro operacional/i.test(String(label));
+      doc
+        .roundedRect(x, y, cardWidth, cardHeight, 6)
+        .fillAndStroke(
+          highlight ? PDF_LAYOUT.colors.green : PDF_LAYOUT.colors.white,
+          highlight ? PDF_LAYOUT.colors.green : PDF_LAYOUT.colors.line
+        );
+      doc
+        .fillColor(highlight ? PDF_LAYOUT.colors.white : PDF_LAYOUT.colors.muted)
+        .font('Helvetica-Bold')
+        .fontSize(7.5)
+        .text(pdfText(label).toUpperCase(), x + 10, y + 9, {
+          width: cardWidth - 20,
+          height: 12,
+          ellipsis: true,
+        });
+      doc
+        .fillColor(highlight ? PDF_LAYOUT.colors.white : PDF_LAYOUT.colors.ink)
+        .font('Helvetica-Bold')
+        .fontSize(13)
+        .text(pdfText(value), x + 10, y + 25, {
+          width: cardWidth - 20,
+          height: 18,
+          ellipsis: true,
+        });
+    });
+    y += cardHeight + rowGap;
+  }
+  doc.x = startX;
+  doc.y = y + 4;
 }
 
 function buildReportPdf(payload = {}) {
   const data = payload.data || {};
-  const doc = new PDFDocument({ size: 'A4', margin: 42 });
+  const options = pdfPageOptions(payload);
+  const doc = new PDFDocument({
+    size: 'A4',
+    margin: PDF_LAYOUT.left,
+    bufferPages: true,
+    info: {
+      Title: `Cumbuca - ${options.periodLabel}`,
+      Author: 'Cumbuca',
+      Subject: 'Relatório financeiro e operacional',
+    },
+  });
   const chunks = [];
 
   doc.on('data', (chunk) => chunks.push(chunk));
 
-  doc.rect(0, 0, 595.28, 841.89).fill('#fffdf8');
-  doc.rect(0, 0, 595.28, 150).fill('#087f5b');
-  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(28).text('CUMBUCA', 42, 42);
-  doc.font('Helvetica').fontSize(15).text('Relatório financeiro e operacional', 42, 82);
+  fillPdfPage(doc);
+  doc.rect(0, 0, PDF_LAYOUT.width, 258).fill(PDF_LAYOUT.colors.green);
   doc
-    .fillColor('#573220')
+    .fillColor(PDF_LAYOUT.colors.white)
     .font('Helvetica-Bold')
-    .fontSize(22)
-    .text(payload.periodLabel || data.periodKey || '', 42, 205);
+    .fontSize(30)
+    .text('CUMBUCA', PDF_LAYOUT.left, 42);
   doc
-    .fillColor('#69707d')
     .font('Helvetica')
-    .fontSize(11)
-    .text(`Gerado em ${new Date().toLocaleString('pt-BR')}`, 42, 238);
-  doc.roundedRect(42, 310, 510, 120, 8).stroke('#d1d5db');
-  doc.fillColor('#573220').font('Helvetica-Bold').fontSize(12).text('Resumo da capa', 62, 330);
+    .fontSize(15)
+    .text('Relatório financeiro e operacional', PDF_LAYOUT.left, 88);
   doc
-    .fillColor('#121417')
+    .fillColor('#c9f1df')
+    .font('Helvetica-Bold')
+    .fontSize(11)
+    .text(`Fechamento de ${options.periodLabel}`, PDF_LAYOUT.left, 124);
+  doc
+    .fillColor(PDF_LAYOUT.colors.white)
     .font('Helvetica')
-    .fontSize(11)
-    .text(`Lucro operacional: ${brl(data.profitBeforeWithdrawals)}`, 62, 358)
-    .text(`Distribuição societária: ${brl(data.withdrawalGrossTotal)}`, 62, 382)
-    .text(`Dinheiro que saiu da conta: ${brl(data.withdrawalTotal)}`, 62, 406)
-    .text(`Compensação sem saída de caixa: ${brl(data.withdrawalDebtCompensation)}`, 62, 430);
-  doc
-    .fillColor('#69707d')
     .fontSize(9)
-    .text('Conferir os lançamentos e assinar o fechamento ao final do relatório.', 42, 760, {
+    .text(`Gerado em ${new Date().toLocaleString('pt-BR')}`, PDF_LAYOUT.left, 151);
+
+  const coverCards = [
+    ['Lucro operacional', brl(data.profitBeforeWithdrawals)],
+    ['Distribuição societária', brl(data.withdrawalGrossTotal)],
+    ['Saiu da conta', brl(data.withdrawalTotal)],
+    ['Compensação sem saída de caixa', brl(data.withdrawalDebtCompensation)],
+  ];
+  coverCards.forEach(([label, value], index) => {
+    const col = index % 2;
+    const row = Math.floor(index / 2);
+    const x = PDF_LAYOUT.left + col * 260;
+    const y = 318 + row * 86;
+    doc.roundedRect(x, y, 250, 66, 8).fillAndStroke(PDF_LAYOUT.colors.white, '#d8e7df');
+    doc
+      .fillColor(PDF_LAYOUT.colors.muted)
+      .font('Helvetica-Bold')
+      .fontSize(8)
+      .text(pdfText(label).toUpperCase(), x + 14, y + 13, {
+        width: 222,
+        height: 12,
+        ellipsis: true,
+      });
+    doc
+      .fillColor(PDF_LAYOUT.colors.ink)
+      .font('Helvetica-Bold')
+      .fontSize(17)
+      .text(pdfText(value), x + 14, y + 33, {
+        width: 222,
+        height: 20,
+        ellipsis: true,
+      });
+  });
+  doc.roundedRect(42, 520, 510, 96, 8).fill(PDF_LAYOUT.colors.sand);
+  doc
+    .fillColor(PDF_LAYOUT.colors.brown)
+    .font('Helvetica-Bold')
+    .fontSize(11)
+    .text('Checklist de fechamento', 60, 542);
+  doc
+    .fillColor(PDF_LAYOUT.colors.ink)
+    .font('Helvetica')
+    .fontSize(10)
+    .text(
+      'Confira lançamentos, despesas maiores, retiradas e cumbucas vendidas antes de concluir o fechamento.',
+      60,
+      565,
+      { width: 470, lineGap: 3 }
+    );
+  doc
+    .fillColor(PDF_LAYOUT.colors.muted)
+    .fontSize(8)
+    .text('Documento gerado pelo sistema Cumbuca.', 42, 760, {
       width: 510,
       align: 'center',
     });
-  doc.addPage();
 
-  doc.rect(0, 0, 595.28, 86).fill('#573220');
-  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(21).text('RELATÓRIO FINANCEIRO', 42, 28);
-  doc
-    .font('Helvetica')
-    .fontSize(10)
-    .text(payload.periodLabel || data.periodKey || '', 42, 55);
-  doc
-    .font('Helvetica-Bold')
-    .fontSize(9)
-    .text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 410, 34, {
-      width: 135,
-      align: 'right',
-    });
+  startPdfContentPage(doc, options);
 
   const managementSummary =
     data.productionPurchases == null
@@ -2691,29 +2915,9 @@ function buildReportPdf(payload = {}) {
     ['Loja', data.storeQuantity || 0],
   ];
 
-  const boxWidth = 168;
-  summary.forEach(([label, value], index) => {
-    const col = index % 3;
-    const row = Math.floor(index / 3);
-    const x = 42 + col * 172;
-    const y = 105 + row * 58;
-    doc
-      .roundedRect(x, y, boxWidth, 48, 5)
-      .fill(index === 0 ? '#087f5b' : '#f9fafb')
-      .stroke('#e5e7eb');
-    doc
-      .fillColor(index === 0 ? '#ffffff' : '#69707d')
-      .font('Helvetica-Bold')
-      .fontSize(8)
-      .text(label.toUpperCase(), x + 10, y + 9);
-    doc
-      .fillColor(index === 0 ? '#ffffff' : '#121417')
-      .fontSize(14)
-      .text(pdfText(value), x + 10, y + 24, { width: boxWidth - 20 });
-  });
-
-  doc.y = 105 + Math.ceil(summary.length / 3) * 58 + 20;
-  addPdfSectionTitle(doc, 'Resumo de entradas');
+  doc.y = PDF_LAYOUT.top;
+  addPdfMetricCards(doc, summary, options);
+  addPdfSectionTitle(doc, 'Resumo de entradas', options);
   addPdfTable(
     doc,
     ['Grupo', 'Origem', 'Valor'],
@@ -2726,105 +2930,135 @@ function buildReportPdf(payload = {}) {
         brl(Number(data.accountIncome ?? data.totalIncome ?? 0) + Number(data.weeklyRevenue ?? 0)),
       ],
     ],
-    [90, 260, 110]
+    [90, 260, 110],
+    options
   );
 
-  addPdfSectionTitle(doc, 'Entradas por canal');
-  addPdfTable(doc, ['Grupo', 'Canal', 'Valor'], data.incomeChannelRows || [], [110, 250, 110]);
+  addPdfSectionTitle(doc, 'Entradas por canal', options);
+  addPdfTable(
+    doc,
+    ['Grupo', 'Canal', 'Valor'],
+    data.incomeChannelRows || [],
+    [110, 250, 110],
+    options
+  );
 
   if ((data.negativeDifferenceRows || []).length) {
-    addPdfSectionTitle(doc, 'Diferenças negativas');
+    addPdfSectionTitle(doc, 'Diferenças negativas', options);
     addPdfTable(
       doc,
       ['Indicador', 'Atual', 'Anterior', 'Diferença'],
       data.negativeDifferenceRows || [],
-      [110, 110, 110, 110]
+      [110, 110, 110, 110],
+      options
     );
   }
 
   if ((data.accountPackageSummaryRows || []).length) {
-    addPdfSectionTitle(doc, 'Pacote contador por conta');
+    addPdfSectionTitle(doc, 'Pacote contador por conta', options);
     addPdfTable(
       doc,
       ['Conta', 'Entradas oper.', 'Saídas oper.', 'Ajustes', 'Saldo real', 'Lançamentos'],
       data.accountPackageSummaryRows || [],
-      [112, 72, 72, 72, 72, 76]
+      [112, 72, 72, 72, 72, 76],
+      options
     );
   }
 
   if ((data.transferRows || []).length) {
-    addPdfSectionTitle(doc, 'Transferências internas');
+    addPdfSectionTitle(doc, 'Transferências internas', options);
     addPdfTable(
       doc,
       ['Data', 'Origem', 'Destino', 'Valor', 'Tipo', 'Observação'],
       data.transferRows || [],
-      [58, 78, 78, 70, 82, 120]
+      [58, 78, 78, 70, 82, 120],
+      options
     );
   }
 
   if ((data.capitalContributionRows || []).length) {
-    addPdfSectionTitle(doc, 'Aportes de sócias');
+    addPdfSectionTitle(doc, 'Aportes de sócias', options);
     addPdfTable(
       doc,
       ['Data', 'Descrição', 'Conta', 'Valor'],
       data.capitalContributionRows || [],
-      [72, 220, 90, 90]
+      [72, 220, 90, 90],
+      options
     );
   }
 
   if ((data.accountPackageReconciliationRows || []).length) {
-    addPdfSectionTitle(doc, 'Conferências por conta');
+    addPdfSectionTitle(doc, 'Conferências por conta', options);
     addPdfTable(
       doc,
       ['Data', 'Conta', 'Calculado', 'Real', 'Diferença'],
       (data.accountPackageReconciliationRows || []).map((row) => row.slice(0, 5)),
-      [72, 118, 88, 88, 88]
+      [72, 118, 88, 88, 88],
+      options
     );
   }
 
-  addPdfSectionTitle(doc, 'Saídas por categoria');
-  addPdfTable(doc, ['Categoria', 'Total'], data.expenseCategoryRows || [], [300, 120]);
+  addPdfSectionTitle(doc, 'Saídas por categoria', options);
+  addPdfTable(doc, ['Categoria', 'Total'], data.expenseCategoryRows || [], [300, 120], options);
 
-  addPdfSectionTitle(doc, 'Principais despesas');
-  addPdfTable(doc, ['Descrição', 'Categoria', 'Valor'], data.expenseRows || [], [250, 140, 100]);
+  addPdfSectionTitle(doc, 'Principais despesas', options);
+  addPdfTable(
+    doc,
+    ['Descrição', 'Categoria', 'Valor'],
+    data.expenseRows || [],
+    [250, 140, 100],
+    options
+  );
 
-  addPdfSectionTitle(doc, 'Comparativo mensal');
+  addPdfSectionTitle(doc, 'Comparativo mensal', options);
   addPdfTable(
     doc,
     ['Indicador', 'Atual', 'Anterior', 'Diferença'],
     data.comparisonRows || [],
-    [110, 110, 110, 110]
+    [110, 110, 110, 110],
+    options
   );
 
-  addPdfSectionTitle(doc, 'Retiradas e diferenças');
-  addPdfTable(doc, ['Destino', 'Valor'], data.withdrawalRows || [], [250, 140]);
+  addPdfSectionTitle(doc, 'Retiradas e diferenças', options);
+  addPdfTable(doc, ['Destino', 'Valor'], data.withdrawalRows || [], [250, 140], options);
 
-  addPdfSectionTitle(doc, 'Cumbucas vendidas na loja');
+  addPdfSectionTitle(doc, 'Cumbucas vendidas na loja', options);
   addPdfTable(
     doc,
     ['Data', 'Produto', 'Tipo', 'Qtd.', 'Unid./combo', 'Total unid.', 'Observação'],
     data.storeRows || [],
-    [54, 88, 48, 42, 58, 62, 160]
+    [54, 88, 48, 42, 58, 62, 160],
+    options
   );
 
-  const footerY = 760;
-  doc.moveTo(42, footerY).lineTo(245, footerY).stroke('#d1d5db');
-  doc.moveTo(295, footerY).lineTo(510, footerY).stroke('#d1d5db');
-  doc
-    .fillColor('#69707d')
-    .font('Helvetica')
-    .fontSize(8)
-    .text('Responsável pelo fechamento', 42, footerY + 8);
-  doc.text('Conferência financeira', 295, footerY + 8);
-  doc.text(
-    'Observações: conferir contas, despesas maiores e cumbucas vendidas antes do fechamento.',
-    300,
-    footerY,
-    {
-      width: 240,
-      align: 'right',
-    }
-  );
+  const bufferedPages = doc.bufferedPageRange();
+  for (
+    let index = bufferedPages.start;
+    index < bufferedPages.start + bufferedPages.count;
+    index += 1
+  ) {
+    doc.switchToPage(index);
+    const footerY = PDF_LAYOUT.height - 35;
+    doc
+      .moveTo(PDF_LAYOUT.left, footerY - 8)
+      .lineTo(PDF_LAYOUT.width - PDF_LAYOUT.right, footerY - 8)
+      .stroke(PDF_LAYOUT.colors.line);
+    const footerLabel = `Cumbuca - ${options.periodLabel}`;
+    const pageLabel = `Página ${index - bufferedPages.start + 1} de ${bufferedPages.count}`;
+    doc
+      .fillColor(PDF_LAYOUT.colors.muted)
+      .font('Helvetica')
+      .fontSize(7.5)
+      .text(footerLabel, PDF_LAYOUT.left, footerY, { lineBreak: false });
+    doc.text(
+      pageLabel,
+      PDF_LAYOUT.width - PDF_LAYOUT.right - doc.widthOfString(pageLabel),
+      footerY,
+      {
+        lineBreak: false,
+      }
+    );
+  }
 
   doc.end();
 

@@ -63,6 +63,11 @@ const defaultAppConfig = {
   defaultFixedFee: 0,
   defaultVariableFeePercent: 0,
   defaultDesiredMarginPercent: 30,
+  cardapioWebDebitFeePercent: 0,
+  cardapioWebCreditFeePercent: 0,
+  cardapioWebOnlineCreditFeePercent: 0,
+  cardapioWebPixFeePercent: 0,
+  cardapioWebCashFeePercent: 0,
   backupReminderDays: 7
 };
 const configRouteOptions = [
@@ -886,11 +891,11 @@ const channelDefinitions = [
   ["food99", "99 Food"]
 ];
 const cardapioPaymentDefinitions = [
-  ["debit", "Debito"],
-  ["credit", "Credito"],
-  ["onlineCredit", "Cartão de crédito online"],
-  ["pix", "Pix"],
-  ["cash", "Dinheiro"]
+  ["debit", "Débito", "cardapioWebDebitFeePercent"],
+  ["credit", "Crédito", "cardapioWebCreditFeePercent"],
+  ["onlineCredit", "Cartão de crédito online", "cardapioWebOnlineCreditFeePercent"],
+  ["pix", "Pix", "cardapioWebPixFeePercent"],
+  ["cash", "Dinheiro", "cardapioWebCashFeePercent"]
 ];
 const defaultExpenseCategories = [
   ["supermercado", "Supermercado"],
@@ -2533,10 +2538,14 @@ function channelReceiptTotal(entry = {}) {
 
 function channelReceiptAmount(entry = {}, key, kind = "net") {
   if (key === "cardapioWeb") {
-    const paymentTotal = cardapioPaymentTotal(entry);
-    const hasPaymentBreakdown = cardapioPaymentDefinitions.some(([paymentKey]) => entry[`cardapioWeb${capitalize(paymentKey)}`] !== undefined);
-    if (hasPaymentBreakdown && (kind === "net" || kind === "gross")) {
-      return paymentTotal;
+    if (hasCardapioPaymentBreakdown(entry)) {
+      if (kind === "gross") {
+        return cardapioPaymentGrossTotal(entry);
+      }
+      if (kind === "fee") {
+        return cardapioPaymentFeeTotal(entry);
+      }
+      return cardapioPaymentNetTotal(entry);
     }
   }
   if (kind === "gross") {
@@ -2553,19 +2562,69 @@ function capitalize(value) {
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : "";
 }
 
-function cardapioPaymentTotal(entry = {}) {
+function cardapioPaymentDefinition(paymentKey) {
+  return cardapioPaymentDefinitions.find(([key]) => key === paymentKey) || null;
+}
+
+function cardapioPaymentFeeConfigKey(paymentKey) {
+  return cardapioPaymentDefinition(paymentKey)?.[2] || "";
+}
+
+function cardapioPaymentFeePercent(paymentKey, config = state.appConfig) {
+  const configKey = cardapioPaymentFeeConfigKey(paymentKey);
+  const value = Number(config?.[configKey] ?? defaultAppConfig[configKey] ?? 0);
+  return Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : 0;
+}
+
+function cardapioPaymentField(paymentKey) {
+  return `cardapioWeb${capitalize(paymentKey)}`;
+}
+
+function cardapioPaymentGrossAmount(entry = {}, paymentKey) {
+  const field = cardapioPaymentField(paymentKey);
+  return Number(entry[`${field}Gross`] ?? entry[field] ?? 0);
+}
+
+function cardapioPaymentFeeAmount(entry = {}, paymentKey) {
+  const field = cardapioPaymentField(paymentKey);
+  return Number(entry[`${field}Fee`] ?? 0);
+}
+
+function cardapioPaymentNetAmount(entry = {}, paymentKey) {
+  const field = cardapioPaymentField(paymentKey);
+  return Number(entry[`${field}Net`] ?? entry[field] ?? 0);
+}
+
+function cardapioPaymentGrossTotal(entry = {}) {
   return cardapioPaymentDefinitions.reduce((sum, [paymentKey]) => {
-    return sum + Number(entry[`cardapioWeb${capitalize(paymentKey)}`] || 0);
+    return sum + cardapioPaymentGrossAmount(entry, paymentKey);
+  }, 0);
+}
+
+function cardapioPaymentFeeTotal(entry = {}) {
+  return cardapioPaymentDefinitions.reduce((sum, [paymentKey]) => {
+    return sum + cardapioPaymentFeeAmount(entry, paymentKey);
+  }, 0);
+}
+
+function cardapioPaymentNetTotal(entry = {}) {
+  return cardapioPaymentDefinitions.reduce((sum, [paymentKey]) => {
+    return sum + cardapioPaymentNetAmount(entry, paymentKey);
   }, 0);
 }
 
 function hasCardapioPaymentBreakdown(entry = {}) {
-  return cardapioPaymentDefinitions.some(([paymentKey]) => entry[`cardapioWeb${capitalize(paymentKey)}`] !== undefined);
+  return cardapioPaymentDefinitions.some(([paymentKey]) => {
+    const field = cardapioPaymentField(paymentKey);
+    return [field, `${field}Gross`, `${field}Net`].some(property =>
+      Object.prototype.hasOwnProperty.call(entry, property)
+    );
+  });
 }
 
 function cardapioPaymentAmount(entry = {}, paymentKey) {
   if (hasCardapioPaymentBreakdown(entry)) {
-    return Number(entry[`cardapioWeb${capitalize(paymentKey)}`] || 0);
+    return cardapioPaymentNetAmount(entry, paymentKey);
   }
   return paymentKey === "pix" ? channelReceiptAmount(entry, "cardapioWeb", "net") : 0;
 }
@@ -2642,7 +2701,7 @@ function channelReceiptTable(entries = []) {
         <thead>
           <tr>
             <th>Data</th>
-            ${cardapioPaymentDefinitions.map(([, label]) => `<th>${label}</th>`).join("")}
+            ${cardapioPaymentDefinitions.map(([, label]) => `<th>${label} (liquido)</th>`).join("")}
             <th>Taxas de entrega</th>
             <th>iFood</th>
             <th>99 Food</th>
@@ -2695,8 +2754,9 @@ function channelReceiptsPanel(editing = null) {
           <strong>Cardápio Web</strong>
           <div class="channel-payment-grid">
             ${cardapioPaymentDefinitions.map(([paymentKey, label]) => `
-              <label>${label}
-                <input name="cardapioWeb${capitalize(paymentKey)}" type="text" inputmode="decimal" placeholder="0,00" value="${editing ? moneyInputValue(cardapioPaymentAmount(editing, paymentKey)) : ""}">
+              <label>${label} (${cardapioPaymentFeePercent(paymentKey)}% taxa)
+                <input name="cardapioWeb${capitalize(paymentKey)}" type="text" inputmode="decimal" placeholder="0,00" value="${editing ? moneyInputValue(cardapioPaymentGrossAmount(editing, paymentKey)) : ""}">
+                <small>Informe o bruto; a taxa será descontada do valor líquido.</small>
               </label>
             `).join("")}
             <label>Taxas de entrega arrecadadas
@@ -2739,8 +2799,10 @@ function channelReceiptsPanel(editing = null) {
       </form>
       <div class="summary channel-summary">
         ${channelDefinitions.map(([key, label]) => `
-          <div class="metric"><span>${label}</span><strong>${money(totals[`${key}Net`])}</strong></div>
+          <div class="metric"><span>${key === "cardapioWeb" ? `${label} líquido` : label}</span><strong>${money(totals[`${key}Net`])}</strong></div>
         `).join("")}
+        <div class="metric"><span>Cardápio Web bruto</span><strong>${money(totals.cardapioWebGross)}</strong></div>
+        <div class="metric"><span>Taxas de pagamento</span><strong>${money(totals.cardapioWebFee)}</strong></div>
         <div class="metric"><span>Taxas de entrega (conferência)</span><strong>${money(cardapioDeliveryFeeTotal(filteredEntries))}</strong></div>
         <div class="metric"><span>Total</span><strong>${money(totals.total)}</strong></div>
       </div>
@@ -2767,15 +2829,23 @@ function bindChannelReceipts(renderFn, editingChannelReceipt = null) {
       if (editingChannelReceipt && editingChannelReceipt.date !== receipt.date && blockClosedPeriod(editingChannelReceipt.date, "mover lançamentos de canais")) {
         return;
       }
-      const cardapioTotal = cardapioPaymentDefinitions.reduce((sum, [paymentKey]) => {
+      const cardapioTotals = cardapioPaymentDefinitions.reduce((totals, [paymentKey]) => {
         const field = `cardapioWeb${capitalize(paymentKey)}`;
-        const amount = parseMoneyInput(values[field]);
-        receipt[field] = amount.toFixed(2);
-        return sum + amount;
-      }, 0);
-      receipt.cardapioWebGross = cardapioTotal.toFixed(2);
-      receipt.cardapioWebFee = "0.00";
-      receipt.cardapioWebNet = cardapioTotal.toFixed(2);
+        const gross = parseMoneyInput(values[field]);
+        const fee = gross * cardapioPaymentFeePercent(paymentKey) / 100;
+        const net = gross - fee;
+        receipt[field] = net.toFixed(2);
+        receipt[`${field}Gross`] = gross.toFixed(2);
+        receipt[`${field}Fee`] = fee.toFixed(2);
+        receipt[`${field}Net`] = net.toFixed(2);
+        totals.gross += gross;
+        totals.fee += fee;
+        totals.net += net;
+        return totals;
+      }, { gross: 0, fee: 0, net: 0 });
+      receipt.cardapioWebGross = cardapioTotals.gross.toFixed(2);
+      receipt.cardapioWebFee = cardapioTotals.fee.toFixed(2);
+      receipt.cardapioWebNet = cardapioTotals.net.toFixed(2);
       const cardapioDeliveryFee = parseMoneyInput(values.cardapioWebDeliveryFee);
       receipt.cardapioWebDeliveryFee = cardapioDeliveryFee.toFixed(2);
       ["ifood", "food99"].forEach(key => {
@@ -19787,6 +19857,16 @@ function renderSettings() {
           </select>
         </label>
         <div class="settings-section-title">
+          <strong>Taxas do Cardápio Web</strong>
+          <span>Informe o percentual descontado pela forma de pagamento. O valor registrado em Canais será considerado bruto.</span>
+        </div>
+        ${cardapioPaymentDefinitions.map(([paymentKey, label, feeConfigKey]) => `
+          <label>${label} (%)
+            <input name="${feeConfigKey}" type="number" min="0" max="100" step="0.01" value="${Number(config[feeConfigKey] || 0)}" ${paymentKey === "cash" ? "readonly" : ""}>
+            ${paymentKey === "cash" ? "<small>Dinheiro não tem taxa automática.</small>" : ""}
+          </label>
+        `).join("")}
+        <div class="settings-section-title">
           <strong>Padrões de novas receitas</strong>
           <span>Esses valores serão preenchidos automaticamente ao cadastrar uma receita.</span>
         </div>
@@ -19851,6 +19931,10 @@ function renderSettings() {
       defaultFixedFee: pricingSafeNumber(form.defaultFixedFee),
       defaultVariableFeePercent: pricingDecimalNumber(form.defaultVariableFeePercent),
       defaultDesiredMarginPercent: pricingDecimalNumber(form.defaultDesiredMarginPercent),
+      ...Object.fromEntries(cardapioPaymentDefinitions.map(([, , feeConfigKey]) => [
+        feeConfigKey,
+        pricingDecimalNumber(form[feeConfigKey])
+      ])),
       backupReminderDays: Math.min(30, Math.max(1, Number(form.backupReminderDays || 7)))
     };
     await persistState();
