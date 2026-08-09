@@ -188,6 +188,9 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /Parcelar valor total/);
   assert.match(app, /data-reverse-payment/);
   assert.match(app, /financialAccountNotifications/);
+  assert.match(app, /id="reopen-month-form"/);
+  assert.match(app, /Confirmar reabertura/);
+  assert.match(css, /\.closing-reopen-form/);
   assert.match(app, /Orçamento mensal por categoria/);
   assert.match(app, /Visão geral financeira/);
   assert.match(app, /Saldo consolidado das contas/);

@@ -16292,6 +16292,7 @@ function monthlyClosingPayload(data) {
 function monthlyClosingPanel(data) {
   const closing = state.monthlyClosings[data.periodKey];
   const locked = isMonthClosed(`${data.periodKey}-01`);
+  const canReopen = Boolean(closing && locked && canUser("manageClosings"));
 
   return `
     <section class="panel report-section">
@@ -16302,7 +16303,7 @@ function monthlyClosingPanel(data) {
         </div>
         <div class="actions">
           ${(!closing || !locked) && canUser("manageClosings") ? `<button type="button" id="close-month">${closing ? "Fechar novamente" : "Fechar mês"}</button>` : ""}
-          ${closing && locked && canUser("manageClosings") ? `<button class="secondary" type="button" id="unlock-month">Reabrir mês</button>` : ""}
+          ${canReopen ? `<button class="secondary" type="button" id="unlock-month" aria-controls="reopen-month-form" aria-expanded="false">Reabrir mês</button>` : ""}
         </div>
       </div>
       <div class="summary">
@@ -16311,6 +16312,18 @@ function monthlyClosingPanel(data) {
         <div class="metric"><span>Lucro operacional</span><strong>${money(operationalProfitForReport(data))}</strong></div>
         ${withdrawalBreakdownMetrics(data.financial.withdrawals, "metric", data.partnerWithdrawalControl)}
       </div>
+      ${canReopen ? `
+        <form id="reopen-month-form" class="closing-reopen-form" hidden>
+          <label>Motivo da reabertura
+            <input name="reason" minlength="5" placeholder="Ex.: corrigir lançamento do mês" required>
+            <small>O motivo ficará registrado na auditoria.</small>
+          </label>
+          <div class="actions">
+            <button type="submit">Confirmar reabertura</button>
+            <button class="secondary" type="button" id="cancel-reopen-month">Cancelar</button>
+          </div>
+        </form>
+      ` : ""}
       ${closing ? `
         <div class="closing-record">
           <span><b>Fechado em</b>${new Date(closing.closedAt).toLocaleString("pt-BR")}</span>
@@ -19133,22 +19146,34 @@ function bindMonthlyClosing(data, renderFn) {
     return true;
   }
 
-  async function reopenClosing(type, key, label) {
-    const reason = prompt(`Informe o motivo para reabrir ${label}.`);
-    if (!reason) {
+  async function reopenClosing(type, key, reason) {
+    const normalizedReason = String(reason || "").trim();
+    if (normalizedReason.length < 5) {
+      showToast("Informe um motivo com pelo menos 5 caracteres.", "error");
       return false;
     }
-    const response = await fetch("/api/closings/reopen", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type, key, reason })
-    });
-    const result = await response.json();
+    let response;
+    let result;
+    try {
+      response = await fetch("/api/closings/reopen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, key, reason: normalizedReason })
+      });
+      result = await response.json();
+    } catch {
+      showToast("Não foi possível acessar o servidor para reabrir o período.", "error");
+      return false;
+    }
     if (!response.ok || !result.saved) {
       showToast(result.error || "Não foi possível reabrir o período.", "error");
       return false;
     }
-    await hydrateState();
+    const stateKey = type === "week" ? "weeklyClosings" : "monthlyClosings";
+    state[stateKey] = {
+      ...(state[stateKey] || {}),
+      [key]: result.closing
+    };
     showToast("Período reaberto. Alterações estão liberadas.", "success");
     renderFn();
     return true;
@@ -19171,7 +19196,10 @@ function bindMonthlyClosing(data, renderFn) {
     unlockWeekButton.addEventListener("click", async () => {
       const range = reportWeekRange();
       const key = weeklyClosingKey(range.start, range.end);
-      await reopenClosing("week", key, `a semana de ${formatIsoDateBr(range.start)} a ${formatIsoDateBr(range.end)}`);
+      const reason = prompt(`Informe o motivo para reabrir a semana de ${formatIsoDateBr(range.start)} a ${formatIsoDateBr(range.end)}.`);
+      if (reason !== null) {
+        await reopenClosing("week", key, reason);
+      }
     });
   }
 
@@ -19188,9 +19216,33 @@ function bindMonthlyClosing(data, renderFn) {
   }
 
   const unlockMonthButton = document.querySelector("#unlock-month");
-  if (unlockMonthButton) {
-    unlockMonthButton.addEventListener("click", async () => {
-      await reopenClosing("month", data.periodKey, formatMonthKeyBr(data.periodKey));
+  const reopenMonthForm = document.querySelector("#reopen-month-form");
+  if (unlockMonthButton && reopenMonthForm) {
+    unlockMonthButton.addEventListener("click", () => {
+      reopenMonthForm.hidden = false;
+      unlockMonthButton.hidden = true;
+      unlockMonthButton.setAttribute("aria-expanded", "true");
+      reopenMonthForm.querySelector('input[name="reason"]')?.focus();
+    });
+    on("#cancel-reopen-month", "click", () => {
+      reopenMonthForm.reset();
+      reopenMonthForm.hidden = true;
+      unlockMonthButton.hidden = false;
+      unlockMonthButton.setAttribute("aria-expanded", "false");
+      unlockMonthButton.focus();
+    });
+    reopenMonthForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      const releaseSubmission = lockFormSubmission(event.currentTarget, "Reabrindo...");
+      if (!releaseSubmission) {
+        return;
+      }
+      try {
+        const values = readForm(event.currentTarget);
+        await reopenClosing("month", data.periodKey, values.reason);
+      } finally {
+        releaseSubmission();
+      }
     });
   }
 }

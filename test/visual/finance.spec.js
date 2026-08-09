@@ -125,7 +125,7 @@ test('closed July can be reopened from the monthly closing panel', async ({ page
   let reopenRequest = null;
   await page.route('**/api/closings/reopen', async (route) => {
     reopenRequest = JSON.parse(route.request().postData() || '{}');
-    database.state.monthlyClosings['2026-07'] = {
+    const reopenedClosing = {
       ...database.state.monthlyClosings['2026-07'],
       locked: false,
       reopenedAt: '2026-08-07T12:00:00.000Z',
@@ -138,20 +138,19 @@ test('closed July can be reopened from the monthly closing panel', async ({ page
         database: true,
         saved: true,
         key: '2026-07',
-        closing: database.state.monthlyClosings['2026-07'],
+        closing: reopenedClosing,
       }),
     });
   });
-  page.once('dialog', async (dialog) => {
-    expect(dialog.type()).toBe('prompt');
-    expect(dialog.message()).toContain('julho de 2026');
-    await dialog.accept('Correção do fechamento de julho');
-  });
-
   await page.goto('/financeiro?view=closing&ano=2026&mes=7');
   await expect(page.getByRole('heading', { name: 'Fechamento mensal', exact: true })).toBeVisible();
   await expect(page.locator('#close-month')).toHaveCount(0);
   await page.getByRole('button', { name: 'Reabrir mês', exact: true }).click();
+  const reopenForm = page.locator('#reopen-month-form');
+  await expect(reopenForm).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await reopenForm.locator('input[name="reason"]').fill('Correção do fechamento de julho');
+  await reopenForm.getByRole('button', { name: 'Confirmar reabertura', exact: true }).click();
 
   await expect
     .poll(() => reopenRequest)

@@ -2408,6 +2408,31 @@ html.dark-mode .cash-category-summary-action {
   color: var(--earth);
 }
 
+.closing-reopen-form {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  border-radius: 10px;
+  background: rgba(37, 99, 235, 0.045);
+}
+
+.closing-reopen-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.closing-reopen-form label > small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.closing-reopen-form .actions {
+  margin: 0;
+}
+
 .supplier-panel {
   display: grid;
   grid-column: 1;
@@ -6938,6 +6963,15 @@ a.secondary.table-action,
   .closing-check,
   .closing-record,
   .reason-list span {
+    grid-template-columns: 1fr;
+  }
+
+  .closing-reopen-form {
+    grid-template-columns: 1fr;
+  }
+
+  .closing-reopen-form .actions {
+    display: grid;
     grid-template-columns: 1fr;
   }
 
