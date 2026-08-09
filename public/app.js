@@ -592,6 +592,7 @@ async function updateServerStatus() {
     systemStatus.server = true;
     systemStatus.database = Boolean(result.database);
     state.database = Boolean(result.database);
+    updateHostingStatus(Boolean(result.hostingWarning), result.hosting);
     serverStatus.textContent = "Servidor online";
     serverStatus.classList.add("online");
     serverStatus.classList.remove("offline");
@@ -603,6 +604,7 @@ async function updateServerStatus() {
     systemStatus.server = false;
     systemStatus.database = false;
     state.database = false;
+    updateHostingStatus(false, "offline");
     serverStatus.textContent = "Servidor offline";
     serverStatus.classList.add("offline");
     serverStatus.classList.remove("online");
@@ -613,20 +615,32 @@ async function updateServerStatus() {
   }
 }
 
-function updateHostingStatus() {
+function updateHostingStatus(hostingWarning = false, provider = '') {
   if (!hostingStatus) {
     return;
   }
 
   const hostname = String(window.location.hostname || '').toLowerCase();
-  const isVercelHost = hostname === 'vercel.app' || hostname.endsWith('.vercel.app');
-  hostingStatus.textContent = isVercelHost ? 'Vercel: confira o plano' : 'Hospedagem: ambiente local';
-  hostingStatus.title = isVercelHost
-    ? 'A aplicação em produção é hospedada na Vercel. O plano gratuito tem limites e é destinado a uso pessoal ou não comercial.'
-    : 'Este ambiente está rodando localmente no Node.js; a produção é hospedada na Vercel.';
-  hostingStatus.classList.toggle('warning', true);
-  hostingStatus.classList.toggle('online', false);
-  hostingStatus.classList.toggle('offline', false);
+  const isVercelHost = provider === 'Vercel' || hostname === 'vercel.app' || hostname.endsWith('.vercel.app');
+  const isOffline = provider === 'offline';
+  const isWarning = isVercelHost && hostingWarning;
+  hostingStatus.textContent = isOffline
+    ? 'Vercel: sem resposta'
+    : isWarning
+      ? 'Vercel: confira o plano'
+      : isVercelHost
+        ? 'Vercel: tudo normal'
+        : 'Hospedagem: ambiente local';
+  hostingStatus.title = isOffline
+    ? 'Não foi possível confirmar o estado atual da hospedagem.'
+    : isWarning
+      ? 'A Vercel sinalizou atenção ao uso ou aos limites do plano. Confira o painel da Vercel.'
+      : isVercelHost
+        ? 'A aplicação está hospedada na Vercel e não há alerta de uso configurado.'
+        : 'Este ambiente está rodando localmente no Node.js; a produção é hospedada na Vercel.';
+  hostingStatus.classList.toggle('warning', isWarning);
+  hostingStatus.classList.toggle('online', !isWarning && !isOffline);
+  hostingStatus.classList.toggle('offline', isOffline);
 }
 
 function updateSystemStatusSummary() {

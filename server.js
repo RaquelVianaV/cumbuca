@@ -31,6 +31,9 @@ const ALERT_WEBHOOK_URL = process.env.CUMBUCA_ALERT_WEBHOOK_URL || '';
 const EXTERNAL_BACKUP_URL = process.env.CUMBUCA_EXTERNAL_BACKUP_URL || '';
 const INTEGRATION_TOKEN = process.env.CUMBUCA_INTEGRATION_TOKEN || '';
 const RESET_TOKEN = process.env.CUMBUCA_RESET_TOKEN || '';
+const VERCEL_USAGE_WARNING =
+  PRODUCTION &&
+  /^(1|true|yes)$/i.test(String(process.env.CUMBUCA_VERCEL_USAGE_WARNING || '').trim());
 const loginAttempts = new Map();
 let loginAttemptTablePromise = null;
 const permissionKeys = [
@@ -3189,6 +3192,8 @@ async function handleRequest(req, res) {
       sendJson(res, 200, {
         status: 'online',
         database,
+        hosting: PRODUCTION ? 'Vercel' : 'Node.js local',
+        hostingWarning: VERCEL_USAGE_WARNING,
       });
       return;
     }
