@@ -19,7 +19,7 @@
   function accountLabel(value) {
     if (value === "pf") return "Conta PF";
     if (value === "pj") return "Conta PJ";
-    if (value === "savings") return "Cofrinho — Reserva";
+    if (value === "savings") return "Conta Cofrinho";
     return "Conta inválida";
   }
 

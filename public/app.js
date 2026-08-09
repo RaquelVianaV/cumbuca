@@ -947,8 +947,14 @@ const cashAccountOptions = [
   ["pj", "PJ"]
 ];
 
+const savingsCashAccountOption = ["savings", "Conta Cofrinho"];
+
+function selectableCashAccountOptions(includeSavings = false) {
+  return includeSavings ? [...cashAccountOptions, savingsCashAccountOption] : cashAccountOptions;
+}
+
 function normalizedCashAccount(value, fallback = "pf") {
-  return cashAccountOptions.some(([key]) => key === value) ? value : fallback;
+  return selectableCashAccountOptions(true).some(([key]) => key === value) ? value : fallback;
 }
 
 function cashAccountLabel(value) {
@@ -956,19 +962,23 @@ function cashAccountLabel(value) {
   if (!normalized) {
     return "Sem conta informada";
   }
+  if (normalized === "savings") {
+    return savingsCashAccountOption[1];
+  }
   const suffix = normalized.toUpperCase();
   return `Conta ${suffix}`;
 }
 
-function cashAccountOptionsHtml(selected = "pf", type = "income", includeAll = false, emptyLabel = "") {
+function cashAccountOptionsHtml(selected = "pf", type = "income", includeAll = false, emptyLabel = "", includeSavings = false) {
   const normalized = includeAll
     ? String(selected || "all")
     : normalizedCashAccount(selected, emptyLabel ? "" : "pf");
+  const options = selectableCashAccountOptions(includeSavings);
   return `
-    ${includeAll ? `<option value="all" ${normalized === "all" ? "selected" : ""}>Unificado PF + PJ</option>` : ""}
+    ${includeAll ? `<option value="all" ${normalized === "all" ? "selected" : ""}>${includeSavings ? "Todas as contas" : "Unificado PF + PJ"}</option>` : ""}
     ${includeAll ? `<option value="unassigned" ${normalized === "unassigned" ? "selected" : ""}>Lançamentos sem conta</option>` : ""}
     ${emptyLabel ? `<option value="" ${normalized ? "" : "selected"}>${escapeHtml(emptyLabel)}</option>` : ""}
-    ${cashAccountOptions.map(([value]) => `
+    ${options.map(([value]) => `
       <option value="${value}" ${normalized === value ? "selected" : ""}>${cashAccountLabel(value, type)}</option>
     `).join("")}
   `;
@@ -2298,7 +2308,8 @@ function filterCashEntries(entries, filterOverrides = {}) {
         return isPendingBill(entry);
       }
       if (quick === "savings") {
-        return normalizedCategory(entry.category) === "cofrinho"
+        return normalizedCashAccount(entry.cashAccount, "") === "savings"
+          || normalizedCategory(entry.category) === "cofrinho"
           || isCashSavingsCoverageEntry(entry)
           || entry.automaticSavingsCoverageReversal
           || String(entry.description || "").toLowerCase().includes("cofrinho");
@@ -3151,12 +3162,18 @@ function withdrawalSplitFromRaquel(raquelAmount) {
 
 function accountBalanceUntilDate(dateKey, excludeIds = [], cashAccount = "all") {
   const date = String(dateKey || isoDate(new Date())).slice(0, 10);
+  if (cashAccount === "savings") {
+    return savingsBalanceUntilDate(date);
+  }
   const cycleStart = String(state.financialPlanning?.cycleStartDate || "");
   const ignoredIds = new Set((excludeIds || []).map(id => String(id)));
   const selectedAccount = reconciliationCashAccount(cashAccount);
   const entries = accountingCashEntries(state.cash)
     .filter(entry => !ignoredIds.has(String(entry.id || "")))
-    .filter(entry => selectedAccount === "all" || normalizedCashAccount(entry.cashAccount, "") === selectedAccount)
+    .filter(entry => {
+      const entryAccount = normalizedCashAccount(entry.cashAccount, "");
+      return selectedAccount === "all" ? entryAccount !== "savings" : entryAccount === selectedAccount;
+    })
     .filter(entry => {
       const entryDate = cashAccountingDate(entry);
       return entryDate <= date && (!cycleStart || entryDate >= cycleStart);
@@ -3657,7 +3674,23 @@ function savingsCoverageSourceEntry(historyEntry = {}) {
   return state.cash.find(entry => String(entry.id || "") === sourceId) || null;
 }
 
+function savingsCashAccountSourceEntry(historyEntry = {}) {
+  const sourceId = String(historyEntry.cashEntryId || "");
+  return sourceId
+    ? state.cash.find(entry => String(entry.id || "") === sourceId) || null
+    : null;
+}
+
 function savingsHistoryDetailHtml(entry = {}) {
+  const directCashSource = savingsCashAccountSourceEntry(entry);
+  if (directCashSource) {
+    return `
+      <small>${formatIsoDateBr(entry.date)} - saldo ${money(entry.balance)} - Movimento vinculado ao extrato "${escapeHtml(directCashSource.description || "lançamento")}"</small>
+      <span class="linked-action-row">
+        <button class="secondary table-action" type="button" data-focus-cash-entry="${escapeHtml(directCashSource.id)}">Ver lançamento</button>
+      </span>
+    `;
+  }
   const source = savingsCoverageSourceEntry(entry);
   if (!source) {
     return `<small>${formatIsoDateBr(entry.date)} - saldo ${money(entry.balance)}${entry.description ? ` - ${escapeHtml(entry.description)}` : ""}</small>`;
@@ -3674,6 +3707,16 @@ function savingsMovementKind(entry = {}) {
   const description = String(entry.description || "");
   const search = description.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   const source = savingsCoverageSourceEntry(entry);
+  const directCashSource = savingsCashAccountSourceEntry(entry);
+  if (directCashSource) {
+    return {
+      title: entry.type === "withdrawal" ? "Saída da reserva" : "Entrada na reserva",
+      detail: directCashSource.description || "Lançamento do extrato",
+      tone: entry.type === "withdrawal" ? "out" : "in",
+      sign: entry.type === "withdrawal" ? "-" : "+",
+      group: "cash-account"
+    };
+  }
   if (source) {
     return {
       title: "Cobertura automática",
@@ -4198,6 +4241,39 @@ function updateSavingsBalance({ amount, date, type, description, id }) {
     },
     ...savingsHistoryRows()
   ]);
+}
+
+function cashSavingsAccountHistoryId(entryId = "") {
+  return `cash-savings-${String(entryId || "")}`;
+}
+
+function cashEntryUsesSavingsAccount(entry = {}) {
+  return normalizedCashAccount(entry.cashAccount, "") === "savings" && !isPendingBill(entry);
+}
+
+function prospectiveSavingsHistoryForCashEntry(entry = {}, replacedEntryId = "") {
+  const ignoredIds = new Set([
+    cashSavingsAccountHistoryId(replacedEntryId),
+    cashSavingsAccountHistoryId(entry.id),
+    cashSavingsCoverageHistoryId(replacedEntryId)
+  ]);
+  const remaining = savingsHistoryRows().filter(row => !ignoredIds.has(String(row.id || "")));
+  if (!cashEntryUsesSavingsAccount(entry)) {
+    return remaining;
+  }
+  return [
+    {
+      id: cashSavingsAccountHistoryId(entry.id),
+      cashEntryId: String(entry.id || ""),
+      cashAccountMovement: true,
+      date: cashAccountingDate(entry),
+      type: entry.type === "expense" ? "withdrawal" : "deposit",
+      amount: Math.max(0, Number(entry.amount || 0)).toFixed(2),
+      balance: "0.00",
+      description: `${entry.type === "expense" ? "Saída" : "Entrada"} registrada no extrato: ${entry.description || "lançamento"}`
+    },
+    ...remaining
+  ];
 }
 
 function partnersHistoryRows() {
@@ -5526,7 +5602,7 @@ function dashboardAccountBreakdown(values = {}) {
     ["Conta PJ", Number(values.pj || 0)]
   ];
   if (Object.prototype.hasOwnProperty.call(values, "savings")) {
-    rows.push(["Cofrinho — Reserva", Number(values.savings || 0)]);
+    rows.push(["Conta Cofrinho", Number(values.savings || 0)]);
   }
   if (Math.abs(Number(values.unassigned || 0)) >= 0.005) {
     rows.push(["Sem conta", Number(values.unassigned || 0)]);
@@ -6223,24 +6299,39 @@ function bindBillPaymentButtons(afterPay = renderCurrentRoute) {
         return;
       }
       const informedAccount = prompt(
-        "Conta usada no pagamento (digite PF ou PJ):",
-        normalizedCashAccount(bill.cashAccount, "").toUpperCase()
+        "Conta usada no pagamento (digite PF, PJ ou COFRINHO):",
+        normalizedCashAccount(bill.cashAccount, "") === "savings"
+          ? "COFRINHO"
+          : normalizedCashAccount(bill.cashAccount, "").toUpperCase()
       );
       if (informedAccount === null) {
         return;
       }
-      const cashAccount = normalizedCashAccount(String(informedAccount).trim().toLowerCase(), "");
+      const informedAccountKey = String(informedAccount).trim().toLowerCase();
+      const cashAccount = normalizedCashAccount(
+        ["cofrinho", "reserva"].includes(informedAccountKey) ? "savings" : informedAccountKey,
+        ""
+      );
       if (!cashAccount) {
-        showToast("Informe PF ou PJ para registrar a saída.", "error");
+        showToast("Informe PF, PJ ou Cofrinho para registrar a saída.", "error");
         return;
       }
       if (!confirm(`Marcar ${bill.description || categoryName(bill.category)} como pago em ${formatIsoDateBr(paidDate)} pela ${cashAccountLabel(cashAccount)}?`)) {
         return;
       }
 
+      const paidBill = { ...bill, date: paidDate, cashAccount, paidAt: `${paidDate}T12:00:00.000Z` };
+      const prospectiveSavingsHistory = prospectiveSavingsHistoryForCashEntry(paidBill, bill.id);
+      const savingsValidation = savingsHistoryBalanceValidation(prospectiveSavingsHistory);
+      if (!savingsValidation.valid) {
+        showToast(`O Cofrinho não possui saldo suficiente em ${formatIsoDateBr(savingsValidation.date)} para registrar esse pagamento.`, "error");
+        return;
+      }
+
       state.cash = state.cash.map(entry => String(entry.id) === String(id)
-        ? { ...entry, date: paidDate, cashAccount, paidAt: `${paidDate}T12:00:00.000Z` }
+        ? paidBill
         : entry);
+      applySavingsHistory(prospectiveSavingsHistory);
       recordAudit("Conta paga", `${bill.description || categoryName(bill.category)} - ${money(bill.amount)} - ${formatIsoDateBr(paidDate)} - ${cashAccountLabel(cashAccount)}`);
       if (await persistState()) {
         showToast("Conta marcada como paga.", "success");
@@ -6690,7 +6781,7 @@ async function renderCash() {
           </span>
           <span class="cash-account-metric is-savings" data-cash-account-summary="savings">
             <b class="${savingsAccountBalance < 0 ? "negative" : "positive"}">${money(savingsAccountBalance)}</b>
-            Cofrinho — Reserva
+            Conta Cofrinho
             <small>${latestSavingsEntry ? `Último movimento em ${formatIsoDateBr(latestSavingsEntry.date)}` : "Nenhum movimento registrado"}</small>
           </span>
           <span class="cash-account-metric is-unassigned" data-cash-account-summary="unassigned">
@@ -6755,7 +6846,7 @@ async function renderCash() {
           </label>
           <label id="cash-account-field">Conta corrente
             <select name="cashAccount" id="cash-account">
-              ${cashAccountOptionsHtml(cashEntryAccount, cashEntryType, false, "Definir quando pagar")}
+              ${cashAccountOptionsHtml(cashEntryAccount, cashEntryType, false, "Definir quando pagar", true)}
             </select>
             <small>Em boleto pendente, deixe para definir no pagamento.</small>
           </label>
@@ -6910,7 +7001,7 @@ async function renderCash() {
                 <b>${entry.type === "withdrawal" ? "-" : entry.type === "deposit" ? "+" : ""}${money(entry.amount)}</b>
                 ${entry.type === "withdrawal" ? "Retirada" : entry.type === "deposit" ? "Entrada" : "Saldo informado"}
                 ${savingsHistoryDetailHtml(entry)}
-                ${canUser("editFinancial") ? `
+                ${canUser("editFinancial") && !entry.cashAccountMovement && !savingsCoverageSourceEntry(entry) ? `
                   <span class="today-order-actions">
                     <button class="secondary table-action" type="button" data-edit-savings-entry="${escapeHtml(entry.id)}">Editar</button>
                     <button class="danger table-action" type="button" data-delete-savings-entry="${escapeHtml(entry.id)}">Excluir</button>
@@ -7137,7 +7228,7 @@ async function renderCash() {
           </label>
           <label>Conta
             <select name="cashAccount" id="cash-filter-account">
-              ${cashAccountOptionsHtml(selectedFilterAccount, selectedFilterType === "expense" ? "expense" : "income", true)}
+            ${cashAccountOptionsHtml(selectedFilterAccount, selectedFilterType === "expense" ? "expense" : "income", true, "", true)}
             </select>
           </label>
           <label>Buscar
@@ -7682,6 +7773,13 @@ async function renderCash() {
           delete entry.paidAt;
         }
 
+        const prospectiveSavingsHistory = prospectiveSavingsHistoryForCashEntry(entry, editing?.id || "");
+        const savingsValidation = savingsHistoryBalanceValidation(prospectiveSavingsHistory);
+        if (!savingsValidation.valid) {
+          showToast(`O Cofrinho não possui saldo suficiente em ${formatIsoDateBr(savingsValidation.date)} para registrar essa saída.`, "error");
+          return;
+        }
+
         const previousCoverage = editing ? cashSavingsCoverageEntry(editing.id) : null;
 
         if (editing) {
@@ -7699,6 +7797,7 @@ async function renderCash() {
         if (previousCoverage) {
           removeCashSavingsCoverage(editing.id);
         }
+        applySavingsHistory(prospectiveSavingsHistory);
 
         if (await persistState()) {
           if (!editing) {
@@ -7782,7 +7881,8 @@ async function renderCash() {
           cashAccountField.value,
           type,
           false,
-          "Definir quando pagar"
+          "Definir quando pagar",
+          true
         );
       }
       if (!editing) {
@@ -8839,6 +8939,8 @@ async function renderCash() {
       filterAccountField.innerHTML = cashAccountOptionsHtml(
         filterAccountField.value,
         event.currentTarget.value === "expense" ? "expense" : "income",
+        true,
+        "",
         true
       );
     });
@@ -8959,12 +9061,7 @@ async function renderCash() {
       const coverage = cashSavingsCoverageEntry(original.id);
       const reversalId = `reversal-${Date.now()}`;
       const coverageReversalId = coverage ? `reversal-${coverage.id}` : "";
-      state.cash = state.cash.map(item => String(item.id) === String(id)
-        ? { ...item, reversedBy: reversalId, reversedAt: new Date().toISOString() }
-        : coverage && String(item.id) === String(coverage.id)
-          ? { ...item, reversedBy: coverageReversalId, reversedAt: new Date().toISOString() }
-        : item);
-      state.cash.push({
+      const reversalEntry = {
         id: reversalId,
         description: `Estorno - ${original.description || "Lançamento"}`,
         date: reversalDate,
@@ -8974,7 +9071,20 @@ async function renderCash() {
         cashAccount: normalizedCashAccount(original.cashAccount),
         amount: Number(original.amount || 0).toFixed(2),
         reversalOf: original.id
-      });
+      };
+      const prospectiveSavingsHistory = prospectiveSavingsHistoryForCashEntry(reversalEntry);
+      const savingsValidation = savingsHistoryBalanceValidation(prospectiveSavingsHistory);
+      if (!savingsValidation.valid) {
+        showToast(`Não é possível estornar: o Cofrinho ficaria sem saldo em ${formatIsoDateBr(savingsValidation.date)}.`, "error");
+        return;
+      }
+      state.cash = state.cash.map(item => String(item.id) === String(id)
+        ? { ...item, reversedBy: reversalId, reversedAt: new Date().toISOString() }
+        : coverage && String(item.id) === String(coverage.id)
+          ? { ...item, reversedBy: coverageReversalId, reversedAt: new Date().toISOString() }
+        : item);
+      state.cash.push(reversalEntry);
+      applySavingsHistory(prospectiveSavingsHistory);
       if (coverage) {
         state.cash.push({
           id: coverageReversalId,
@@ -9023,7 +9133,14 @@ async function renderCash() {
       if (coverage?.date && blockClosedPeriod(coverage.date, "excluir cobertura do cofrinho")) {
         return;
       }
+      const prospectiveSavingsHistory = prospectiveSavingsHistoryForCashEntry({}, removed?.id || "");
+      const savingsValidation = savingsHistoryBalanceValidation(prospectiveSavingsHistory);
+      if (!savingsValidation.valid) {
+        showToast(`Não é possível excluir: o Cofrinho ficaria sem saldo em ${formatIsoDateBr(savingsValidation.date)}.`, "error");
+        return;
+      }
       removeCashSavingsCoverage(id);
+      applySavingsHistory(prospectiveSavingsHistory);
       state.cash = state.cash.filter(item => String(item.id) !== String(id));
       if (String(state.editCashId) === String(id)) {
         state.editCashId = null;
@@ -14086,7 +14203,7 @@ function accountTransferPanelHtml(today = isoDate(new Date())) {
       <div class="summary account-transfer-balances">
         <div class="metric"><span>Conta PF</span><strong>${money(accountBalanceUntilDate(today, [], "pf"))}</strong></div>
         <div class="metric"><span>Conta PJ</span><strong>${money(accountBalanceUntilDate(today, [], "pj"))}</strong></div>
-        <div class="metric"><span>Cofrinho — Reserva</span><strong>${money(savingsBalance())}</strong></div>
+        <div class="metric"><span>Conta Cofrinho</span><strong>${money(savingsBalance())}</strong></div>
         <div class="metric"><span>Caixa PF + PJ</span><strong>${money(accountBalanceUntilDate(today))}</strong></div>
         <div class="metric total"><span>Saldo consolidado</span><strong>${money(accountBalanceUntilDate(today) + savingsBalance())}</strong><small>PF + PJ + Cofrinho</small></div>
       </div>

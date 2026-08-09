@@ -171,7 +171,12 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /today-expense-cash-account-field/);
   assert.match(app, /cash-account-field/);
   assert.match(app, /Definir ao pagar/);
-  assert.match(app, /Conta usada no pagamento \(digite PF ou PJ\)/);
+  assert.match(app, /Conta usada no pagamento \(digite PF, PJ ou COFRINHO\)/);
+  assert.match(
+    app,
+    /cashAccountOptionsHtml\(cashEntryAccount, cashEntryType, false, "Definir quando pagar", true\)/
+  );
+  assert.match(app, /cashEntryUsesSavingsAccount/);
   assert.match(app, /employeeId/);
   assert.match(server, /employees: \[\]/);
   assert.match(app, /finance-pending-dashboard/);
@@ -209,7 +214,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /data-cash-account-summary="pj"/);
   assert.match(app, /data-cash-account-summary="savings"/);
   assert.match(app, /data-cash-account-summary="unassigned"/);
-  assert.match(app, /Cofrinho — Reserva/);
+  assert.match(app, /Conta Cofrinho/);
   assert.match(app, /Resultado do filtro/);
   assert.match(app, /Entradas - saídas exibidas/);
   assert.doesNotMatch(app, /id="zero-account-balance/);

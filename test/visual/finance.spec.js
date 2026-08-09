@@ -1436,6 +1436,83 @@ test('cash form ignores repeated submits while an entry or expense is saving', a
   expect(dialogMessages).toEqual([]);
 });
 
+test('cash entry can use Cofrinho as the reserve account', async ({ page }) => {
+  const database = await mockOnlineDatabase(page);
+  const today = localDateKey();
+  database.state = {
+    cashEntries: [
+      {
+        id: 'cash-savings-pf-opening',
+        date: today,
+        description: 'Saldo PF',
+        type: 'income',
+        category: 'venda',
+        cashAccount: 'pf',
+        amount: '100.00',
+      },
+      {
+        id: 'cash-savings-pj-opening',
+        date: today,
+        description: 'Saldo PJ',
+        type: 'income',
+        category: 'venda',
+        cashAccount: 'pj',
+        amount: '50.00',
+      },
+    ],
+    financialPlanning: {
+      savings: '200.00',
+      savingsExpectedBalance: '200.00',
+      savingsHistory: [
+        {
+          id: 'cash-savings-opening',
+          date: today,
+          type: 'set',
+          amount: '200.00',
+          balance: '200.00',
+          description: 'Saldo inicial do Cofrinho',
+        },
+      ],
+    },
+  };
+
+  await page.goto('/fluxo-de-caixa?panel=entry');
+  const form = page.locator('#cash-form');
+  await page.locator('#cash-type').selectOption('expense');
+  await expect(form.locator('select[name="cashAccount"] option[value="savings"]')).toHaveText(
+    'Conta Cofrinho'
+  );
+  await form.locator('input[name="description"]').fill('Compra paga pela reserva');
+  await form.locator('select[name="category"]').selectOption('outros');
+  await form.locator('select[name="cashAccount"]').selectOption('savings');
+  await form.locator('input[name="amount"]').fill('40,00');
+  await form.getByRole('button', { name: 'Adicionar', exact: true }).click();
+
+  await expect.poll(() => database.state.financialPlanning?.savings).toBe('160.00');
+  const savingsCashEntry = database.state.cashEntries.find(
+    (entry) => entry.description === 'Compra paga pela reserva'
+  );
+  expect(savingsCashEntry).toMatchObject({
+    type: 'expense',
+    cashAccount: 'savings',
+    amount: '40.00',
+  });
+  expect(
+    database.state.financialPlanning.savingsHistory.find(
+      (entry) => entry.cashEntryId === String(savingsCashEntry.id)
+    )
+  ).toMatchObject({
+    type: 'withdrawal',
+    amount: '40.00',
+    cashAccountMovement: true,
+  });
+  await expect(page.locator('[data-cash-account-summary="pf"]')).toContainText('R$ 100,00');
+  await expect(page.locator('[data-cash-account-summary="pj"]')).toContainText('R$ 50,00');
+  await expect(page.locator('[data-cash-account-summary="savings"]')).toContainText('R$ 160,00');
+  await expect(page.locator('.cash-hero > div:first-child')).toContainText('R$ 310,00');
+  await expectNoHorizontalOverflow(page);
+});
+
 test('cash ledger shows the latest entry first by default', async ({ page }, testInfo) => {
   const database = await mockOnlineDatabase(page);
   const today = localDateKey();
@@ -1573,7 +1650,7 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
   await expect(pjAccountSummary).toContainText('Conta PJ');
   await expect(pjAccountSummary).toContainText('R$ 20,00');
   await expect(pjAccountSummary).toContainText(`Último lançamento em ${formattedToday}`);
-  await expect(savingsAccountSummary).toContainText('Cofrinho — Reserva');
+  await expect(savingsAccountSummary).toContainText('Conta Cofrinho');
   await expect(savingsAccountSummary).toContainText('R$ 80,00');
   await expect(savingsAccountSummary).toContainText(`Último movimento em ${formattedToday}`);
   await expect(unassignedAccountSummary).toContainText('Lançamentos sem conta');
@@ -1651,7 +1728,7 @@ test('linked transfers preserve PF PJ savings totals and stay outside results', 
   const balances = page.locator('.account-transfer-balances');
   await expect(balances).toContainText('Conta PFR$ 3.000,00');
   await expect(balances).toContainText('Conta PJR$ 2.000,00');
-  await expect(balances).toContainText('Cofrinho — ReservaR$ 500,00');
+  await expect(balances).toContainText('Conta CofrinhoR$ 500,00');
   await expect(balances).toContainText('Saldo consolidadoR$ 5.500,00');
 
   await transferForm.locator('select[name="origin"]').selectOption('pf');
@@ -1684,7 +1761,7 @@ test('linked transfers preserve PF PJ savings totals and stay outside results', 
   await transferForm.getByRole('button', { name: 'Transferir', exact: true }).click();
   await expect.poll(() => database.state.financialPlanning?.accountTransfers?.length).toBe(2);
   await expect(balances).toContainText('Conta PJR$ 2.700,00');
-  await expect(balances).toContainText('Cofrinho — ReservaR$ 800,00');
+  await expect(balances).toContainText('Conta CofrinhoR$ 800,00');
   await expect(balances).toContainText('Saldo consolidadoR$ 5.500,00');
 
   await transferForm.locator('select[name="origin"]').selectOption('savings');
@@ -1694,7 +1771,7 @@ test('linked transfers preserve PF PJ savings totals and stay outside results', 
   await transferForm.getByRole('button', { name: 'Transferir', exact: true }).click();
   await expect.poll(() => database.state.financialPlanning?.accountTransfers?.length).toBe(3);
   await expect(balances).toContainText('Conta PJR$ 2.800,00');
-  await expect(balances).toContainText('Cofrinho — ReservaR$ 700,00');
+  await expect(balances).toContainText('Conta CofrinhoR$ 700,00');
   await expect(balances).toContainText('Saldo consolidadoR$ 5.500,00');
 
   const financialBeforeContribution = await page.evaluate(() => {
@@ -3218,14 +3295,14 @@ test('finance dashboard separates PF, PJ, Cofrinho and consolidated balance', as
   await expect(balanceCard).toContainText('R$ 200,00');
   await expect(balanceCard).toContainText('Conta PF R$ 100,00');
   await expect(balanceCard).toContainText('Conta PJ R$ 40,00');
-  await expect(balanceCard).toContainText('Cofrinho — Reserva R$ 60,00');
+  await expect(balanceCard).toContainText('Conta Cofrinho R$ 60,00');
   const forecastCards = page.locator('[data-view-pane="accounts"] .cash-forecast-metric');
   await expect(forecastCards).toHaveCount(3);
   const projection30 = forecastCards.filter({ hasText: 'Próximos 30 dias' });
   await expect(projection30).toContainText('PF + PJ + Cofrinho');
   await expect(projection30).toContainText('Conta PF');
   await expect(projection30).toContainText('Conta PJ');
-  await expect(projection30).toContainText('Cofrinho — Reserva');
+  await expect(projection30).toContainText('Conta Cofrinho');
   await expect(projection30).toContainText('A pagar R$ 20,00');
   await expect(projection30).toContainText('a receber R$ 30,00');
   await expectNoHorizontalOverflow(page);
