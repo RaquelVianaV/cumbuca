@@ -1135,7 +1135,7 @@ const state = {
   partnerAccountFilter: localValue("partnerAccountFilter", { start: "", end: "" }),
   editChannelReceiptId: null,
   editCashCategory: null,
-  cashPanelTab: "categories",
+  cashPanelTab: "entry",
   cashEntryDraft: normalizedCashEntryDraft(),
   channelFilter: localValue("channelFilter", { period: "month" }),
   editStoreSaleId: null,
@@ -6497,9 +6497,6 @@ async function renderCash() {
       ["withdrawals", "Retiradas"],
       ["categories", "Categorias"]
     ];
-  const visibleCashPanelTabs = isExpensesRoute
-    ? cashPanelTabs
-    : cashPanelTabs.filter(([tab]) => tab === "categories");
   if (state.cashPanelTab === "partners") {
     state.cashPanelTab = "withdrawals";
   }
@@ -6509,16 +6506,9 @@ async function renderCash() {
   if (!cashPanelTabs.some(([tab]) => tab === state.cashPanelTab)) {
     state.cashPanelTab = "entry";
   }
-  if (!isExpensesRoute
-    && !cashPanelTabs.some(([tab]) => tab === requestedCashPanel)
-    && !editing
-    && !requestedQuickDraft
-    && !requestedEmployee
-    && !requestedEditCashEntry
-    && state.cashPanelTab === "entry") {
-    state.cashPanelTab = "categories";
-  }
   const activeCashPanel = editing ? "entry" : (state.cashPanelTab || "entry");
+  const showCashEmployeeField = cashEntryType === "expense"
+    && isFinancialEmployeeCategory(cashEntryCategory);
 
   app.innerHTML = `
     <section class="cash-hero">
@@ -6570,7 +6560,7 @@ async function renderCash() {
     <div class="cash-layout">
       <section class="panel cash-command-panel">
         <div class="cash-panel-tabs" role="tablist" aria-label="Ferramentas do caixa">
-          ${visibleCashPanelTabs.map(([tab, label]) => `
+          ${cashPanelTabs.map(([tab, label]) => `
             <button class="${activeCashPanel === tab ? "active" : ""}" type="button" data-cash-panel="${tab}">${label}</button>
           `).join("")}
         </div>
@@ -6604,7 +6594,7 @@ async function renderCash() {
             </select>
           </label>
           <p class="muted-inline wide" id="cash-capital-contribution-hint" hidden>Aporte de sócia aumenta o saldo da empresa, mas não entra em vendas, faturamento ou lucro operacional.</p>
-          <label id="cash-employee-field">
+          <label id="cash-employee-field" ${showCashEmployeeField ? "" : "hidden"}>
             Funcionário
             <select name="employeeId" id="cash-employee">
               ${financialEmployeeOptionsHtml(cashEntryEmployeeId)}
