@@ -1286,33 +1286,37 @@ test('employee registry links employee expenses automatically', async ({ page },
 
   await page.goto('/financeiro?view=accounts');
   const accountForm = page.locator('#financial-account-form');
-  await accountForm.locator('#financial-account-employee').selectOption(employee.id);
-  await expect(accountForm.locator('#financial-account-category')).toHaveValue('funcionarios');
-  await expect(accountForm.locator('#financial-account-description')).toHaveValue(
-    'Salário - Maria Silva'
-  );
+  await expect(accountForm.locator('#financial-account-employee')).toHaveCount(0);
+  await expect(accountForm.locator('#financial-account-category option')).toHaveCount(2);
+  await accountForm.locator('#financial-account-category').selectOption('conta');
+  await accountForm.locator('#financial-account-payment-timing').selectOption('future');
+  await accountForm.getByLabel('Descrição', { exact: true }).fill('Conta fixa - teste');
   await accountForm.getByLabel('Vencimento', { exact: true }).fill(localDateKey());
   await accountForm.getByLabel('Valor total', { exact: true }).fill('200,00');
   await accountForm.getByRole('button', { name: 'Adicionar conta', exact: true }).click();
   await expect(page.locator('.account-row')).toHaveCount(1);
-  const employeeAccount = page.locator('.account-row');
-  await employeeAccount
+  expect(database.state.financialPlanning.accounts[0]).toMatchObject({
+    category: 'conta',
+    paymentTiming: 'future',
+  });
+  const fixedAccount = page.locator('.account-row');
+  await fixedAccount
     .locator('form[data-account-settlement] select[name="cashAccount"]')
     .selectOption('pj');
-  await employeeAccount.getByRole('button', { name: 'Registrar pagamento', exact: true }).click();
+  await fixedAccount.getByRole('button', { name: 'Registrar pagamento', exact: true }).click();
 
   await expect.poll(() => database.state.cashEntries?.length).toBe(2);
   expect(database.state.cashEntries[1]).toMatchObject({
     type: 'expense',
-    category: 'funcionarios',
-    employeeId: employee.id,
+    category: 'conta',
+    employeeId: '',
     cashAccount: 'pj',
     amount: '200.00',
   });
   await page.goto('/financeiro?view=employees');
   const accountUpdatedCard = page.locator('.employee-card').filter({ hasText: 'Maria Silva' });
-  await expect(accountUpdatedCard).toContainText('R$ 1.000,00');
-  await expect(accountUpdatedCard).toContainText('R$ 500,00');
+  await expect(accountUpdatedCard).toContainText('R$ 800,00');
+  await expect(accountUpdatedCard).toContainText('R$ 700,00');
 });
 
 test('reconciliation exposes authorized adjustment preview', async ({ page }, testInfo) => {
@@ -2938,7 +2942,7 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
   await expect(page.locator('#financial-account-cash-account-field')).toBeVisible();
   await expect(page.locator('#financial-account-cash-account')).toHaveValue('');
   await expect(page.locator('#financial-account-cash-account-help')).toContainText(
-    'escolha a conta somente ao registrar o pagamento'
+    'ao pagar, escolha PF, PJ ou Cofrinho'
   );
 
   await page.getByLabel('Descrição', { exact: true }).fill('Teste fornecedor');

@@ -16544,6 +16544,37 @@ function financialAccounts() {
     : [];
 }
 
+const financialAccountCategories = [
+  ["boleto", "Boleto"],
+  ["conta", "Conta fixa"]
+];
+
+function normalizedFinancialAccountCategory(value) {
+  return String(value || "").trim().toLowerCase() === "boleto" ? "boleto" : "conta";
+}
+
+function financialAccountCategoryLabel(value) {
+  return financialAccountCategories.find(([key]) => key === normalizedFinancialAccountCategory(value))?.[1]
+    || "Conta fixa";
+}
+
+function financialAccountCategoryOptionsHtml(selected = "") {
+  const normalized = normalizedFinancialAccountCategory(selected);
+  return financialAccountCategories.map(([value, label]) => `
+    <option value="${value}" ${normalized === value ? "selected" : ""}>${label}</option>
+  `).join("");
+}
+
+function normalizedFinancialAccountPaymentTiming(value) {
+  return String(value || "").trim().toLowerCase() === "now" ? "now" : "future";
+}
+
+function financialAccountPaymentTimingLabel(value) {
+  return normalizedFinancialAccountPaymentTiming(value) === "now"
+    ? "Pagamento sinalizado para agora"
+    : "Pagamento sinalizado para depois";
+}
+
 function accountPaidTotal(account = {}) {
   return (Array.isArray(account.payments) ? account.payments : [])
     .filter(payment => !payment.reversedAt)
@@ -16578,10 +16609,9 @@ function accountSeriesFromValues(values = {}) {
     description: String(values.description || "").trim(),
     dueDate: addMonthsClamped(values.dueDate, index),
     amount: scheduledAmount,
-    category: values.kind !== "receivable" && values.employeeId
-      ? "funcionarios"
-      : String(values.category || "").trim(),
-    employeeId: values.kind !== "receivable" ? String(values.employeeId || "") : "",
+    category: normalizedFinancialAccountCategory(values.category),
+    paymentTiming: normalizedFinancialAccountPaymentTiming(values.paymentTiming),
+    employeeId: "",
     cashAccount: normalizedCashAccount(values.cashAccount, ""),
     notes: String(values.notes || "").trim(),
     payments: [],
@@ -16835,17 +16865,12 @@ function accountsManagementPanel() {
   const editingId = state.editFinancialAccountId;
   const editing = financialAccounts().find(account => String(account.id) === String(editingId));
   const filter = financialAccountFilterState();
-  const statusOrder = { overdue: 0, pending: 1, paid: 2 };
   const allAccounts = [...financialAccounts()].sort((a, b) => {
-    const editingWeight = (String(b.id) === String(editingId) ? 1 : 0) - (String(a.id) === String(editingId) ? 1 : 0);
-    if (editingWeight) {
-      return editingWeight;
+    const dueDateOrder = String(a.dueDate || "").localeCompare(String(b.dueDate || ""));
+    if (dueDateOrder) {
+      return dueDateOrder;
     }
-    const statusWeight = (statusOrder[accountStatus(a)] ?? 9) - (statusOrder[accountStatus(b)] ?? 9);
-    if (statusWeight) {
-      return statusWeight;
-    }
-    return String(a.dueDate || "").localeCompare(String(b.dueDate || ""));
+    return String(a.description || "").localeCompare(String(b.description || ""), "pt-BR");
   });
   const accounts = allAccounts.filter(account => String(account.id) === String(editingId) || accountMatchesFinancialFilter(account, filter));
   const summary = accountsSummary();
@@ -16910,14 +16935,17 @@ function accountsManagementPanel() {
           <input name="amount" type="text" inputmode="decimal" value="${editing ? moneyInputValue(editing.amount) : ""}" placeholder="0,00" required>
         </label>
         <label>Categoria
-          <input name="category" id="financial-account-category" value="${escapeHtml(editing?.category || "")}" placeholder="Ex.: fornecedor, venda futura">
-        </label>
-        <label id="financial-account-employee-field">
-          Funcionário
-          <select name="employeeId" id="financial-account-employee">
-            ${financialEmployeeOptionsHtml(editing?.employeeId || "")}
+          <select name="category" id="financial-account-category">
+            ${financialAccountCategoryOptionsHtml(editing?.category)}
           </select>
-          <small>Ao baixar esta conta, o valor será contabilizado na ficha do funcionário.</small>
+          <small>Boleto fica ligado ao Caixa quando a baixa for registrada; conta fixa permanece no planejamento.</small>
+        </label>
+        <label>Pagamento
+          <select name="paymentTiming" id="financial-account-payment-timing">
+            <option value="now" ${normalizedFinancialAccountPaymentTiming(editing?.paymentTiming) === "now" ? "selected" : ""}>Pagar agora</option>
+            <option value="future" ${normalizedFinancialAccountPaymentTiming(editing?.paymentTiming) !== "now" ? "selected" : ""}>Pagar futuramente</option>
+          </select>
+          <small id="financial-account-payment-timing-help">Sinaliza a intenção; o Caixa só muda ao registrar o pagamento.</small>
         </label>
         <label id="financial-account-cash-account-field">
           <span id="financial-account-cash-account-label">${editing?.kind === "receivable" ? "Conta prevista para recebimento" : "Conta corrente (opcional)"}</span>
@@ -16952,7 +16980,7 @@ function accountsManagementPanel() {
       ${accounts.length ? `
         <div class="account-list-heading">
           <strong>${accounts.length} de ${allAccounts.length} conta(s)</strong>
-          <small>${editing ? "A conta em edição fica fixa no topo." : "Use busca e filtros para achar contas antigas rapidamente."}</small>
+          <small>Ordenadas por vencimento. Use busca e filtros para achar contas antigas rapidamente.</small>
         </div>
         <div class="account-list">
           ${accounts.map(account => {
@@ -16965,7 +16993,7 @@ function accountsManagementPanel() {
                 <div class="account-main">
                   <span class="status-label">${account.kind === "receivable" ? "A receber" : "A pagar"} · ${status === "paid" ? "Quitada" : status === "overdue" ? "Atrasada" : "Pendente"}</span>
                   <strong>${escapeHtml(account.description || "Conta")}</strong>
-                  <small>Vencimento ${formatIsoDateBr(account.dueDate)}${account.seriesCount > 1 ? ` · ${account.seriesNumber}/${account.seriesCount}` : ""}${account.category ? ` · ${escapeHtml(account.category)}` : ""}${financialEmployeeById(account.employeeId) ? ` · ${escapeHtml(financialEmployeeById(account.employeeId).name)}` : ""} · ${account.kind === "payable" ? (account.cashAccount ? `${cashAccountLabel(account.cashAccount)} prevista` : "Definir conta no pagamento") : cashAccountLabel(account.cashAccount)}</small>
+                  <small>Vencimento ${formatIsoDateBr(account.dueDate)}${account.seriesCount > 1 ? ` · ${account.seriesNumber}/${account.seriesCount}` : ""} · ${financialAccountCategoryLabel(account.category)} · ${financialAccountPaymentTimingLabel(account.paymentTiming)}${financialEmployeeById(account.employeeId) ? ` · ${escapeHtml(financialEmployeeById(account.employeeId).name)}` : ""} · ${account.kind === "payable" ? (account.cashAccount ? `${cashAccountLabel(account.cashAccount)} prevista` : "Definir conta no pagamento") : cashAccountLabel(account.cashAccount)}</small>
                 </div>
                 <div class="account-values">
                   <span>Total <b>${money(account.amount)}</b></span>
@@ -16974,7 +17002,7 @@ function accountsManagementPanel() {
                 </div>
                 ${open >= 0.01 ? `
                   <form class="account-settlement-form" data-account-settlement="${escapeHtml(account.id)}">
-                    <label>Data<input name="date" type="date" value="${isoDate(new Date())}" required></label>
+                    <label>Data do pagamento<input name="date" type="date" value="${account.dueDate || isoDate(new Date())}" required></label>
                     <label>Conta<select name="cashAccount" required>${cashAccountOptionsHtml(normalizedCashAccount(account.cashAccount, ""), account.kind === "receivable" ? "income" : "expense", false, account.kind === "receivable" ? "Escolha a conta do recebimento" : "Escolha a conta do pagamento")}</select></label>
                     <label>${account.kind === "receivable" ? "Valor recebido" : "Valor pago"}<input name="amount" type="text" inputmode="decimal" value="${moneyInputValue(open)}" required></label>
                     <button type="submit">${account.kind === "receivable" ? "Registrar recebimento" : "Registrar pagamento"}</button>
@@ -17666,10 +17694,9 @@ function bindFinancialAccounts() {
         description: String(values.description || "").trim(),
         dueDate: values.dueDate,
         amount: amount.toFixed(2),
-        category: values.kind !== "receivable" && values.employeeId
-          ? "funcionarios"
-          : String(values.category || "").trim(),
-        employeeId: values.kind !== "receivable" ? String(values.employeeId || "") : "",
+        category: normalizedFinancialAccountCategory(values.category),
+        paymentTiming: normalizedFinancialAccountPaymentTiming(values.paymentTiming),
+        employeeId: String(current.employeeId || ""),
         cashAccount: normalizedCashAccount(values.cashAccount, ""),
         notes: String(values.notes || "").trim(),
         updatedAt: new Date().toISOString()
@@ -17698,14 +17725,12 @@ function bindFinancialAccounts() {
   const scheduleField = document.querySelector("#financial-account-schedule");
   const scheduleCountField = document.querySelector("#financial-account-count-field");
   const accountKindField = document.querySelector("#financial-account-kind");
-  const accountCashAccountFieldContainer = document.querySelector("#financial-account-cash-account-field");
   const accountCashAccountField = document.querySelector("#financial-account-cash-account");
   const accountCashAccountLabel = document.querySelector("#financial-account-cash-account-label");
   const accountCashAccountHelp = document.querySelector("#financial-account-cash-account-help");
-  const accountEmployeeField = document.querySelector("#financial-account-employee-field");
-  const accountEmployeeSelect = document.querySelector("#financial-account-employee");
   const accountCategoryField = document.querySelector("#financial-account-category");
-  const accountDescriptionField = document.querySelector("#financial-account-description");
+  const accountPaymentTimingField = document.querySelector("#financial-account-payment-timing");
+  const accountPaymentTimingHelp = document.querySelector("#financial-account-payment-timing-help");
   if (scheduleField && scheduleCountField) {
     const updateScheduleFields = () => {
       scheduleCountField.hidden = scheduleField.value === "single";
@@ -17714,27 +17739,22 @@ function bindFinancialAccounts() {
     updateScheduleFields();
   }
   if (accountKindField && accountCashAccountField) {
-    const updateAccountEmployeeField = () => {
-      if (!accountEmployeeField || !accountEmployeeSelect) {
-        return;
-      }
+    const updateAccountFields = () => {
       const shouldShow = accountKindField.value === "payable";
-      accountEmployeeField.hidden = !shouldShow;
-      if (!shouldShow) {
-        accountEmployeeSelect.value = "";
-      }
-      if (accountCashAccountFieldContainer) {
-        accountCashAccountFieldContainer.hidden = false;
-      }
       if (accountCashAccountLabel) {
         accountCashAccountLabel.textContent = shouldShow
-          ? "Conta corrente (opcional)"
+          ? "Conta ligada ao Caixa (opcional)"
           : "Conta prevista para recebimento";
       }
       if (accountCashAccountHelp) {
         accountCashAccountHelp.textContent = shouldShow
-          ? "Deixe em branco e escolha a conta somente ao registrar o pagamento."
+          ? "Para pagamento futuro, deixe em branco; ao pagar, escolha PF, PJ ou Cofrinho."
           : "Conta em que o valor deve entrar.";
+      }
+      if (accountPaymentTimingHelp) {
+        accountPaymentTimingHelp.textContent = normalizedFinancialAccountPaymentTiming(accountPaymentTimingField?.value) === "now"
+          ? "Sinaliza pagamento agora; o Caixa só muda ao registrar a baixa."
+          : "Sinaliza pagamento futuro; a conta fica pendente até a baixa.";
       }
     };
     accountKindField.addEventListener("change", () => {
@@ -17745,21 +17765,11 @@ function bindFinancialAccounts() {
         false,
         isPayable ? "Definir quando pagar" : ""
       );
-      updateAccountEmployeeField();
+      updateAccountFields();
     });
-    accountEmployeeSelect?.addEventListener("change", event => {
-      const employee = financialEmployeeById(event.currentTarget.value);
-      if (!employee) {
-        return;
-      }
-      if (accountCategoryField) {
-        accountCategoryField.value = "funcionarios";
-      }
-      if (accountDescriptionField && !accountDescriptionField.value.trim()) {
-        accountDescriptionField.value = `Salário - ${employee.name}`;
-      }
-    });
-    updateAccountEmployeeField();
+    accountCategoryField?.addEventListener("change", updateAccountFields);
+    accountPaymentTimingField?.addEventListener("change", updateAccountFields);
+    updateAccountFields();
   }
 
   document.querySelectorAll("[data-edit-financial-account]").forEach(button => {

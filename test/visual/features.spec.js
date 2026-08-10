@@ -456,7 +456,7 @@ test('narrow desktop window activates compact mode', async ({ page }, testInfo) 
   expect(compactLayout.navColumns.split(' ')).toHaveLength(5);
   expect(compactLayout.headerWrap).toBe('wrap');
   await expect(page.locator('.nav > a:visible')).toHaveCount(15);
-  await expect(page.locator('.nav-extra:visible')).toHaveCount(8);
+  await expect(page.locator('.nav-extra:visible')).toHaveCount(7);
   await expect(page.locator('.nav-more')).toBeVisible();
   await expect(page.locator('.hero-motto')).toContainText('Pitada do dia:');
   const dailyCashMotto = await page.locator('#hero-motto').textContent();

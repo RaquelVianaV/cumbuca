@@ -154,7 +154,6 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /Pedidos usam o Supermercado do Caixa rateado pelas cumbucas vendidas/);
   assert.match(app, /href="\/precificacao\?view=costs">Abrir custos rateados/);
   assert.match(css, /\.menu-cost-breakdown/);
-  assert.match(css, /\.global-period-panel/);
   assert.match(css, /\.global-period-form/);
   assert.match(app, /function upcomingBillSourceLabel/);
   assert.match(app, /function upcomingBillHref/);
@@ -172,7 +171,10 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /cash-employee-field/);
   assert.match(app, /<input id="cash-type" name="type" type="hidden" value="expense">/);
   assert.match(app, /today-expense-employee-field/);
-  assert.match(app, /financial-account-employee/);
+  assert.doesNotMatch(app, /financial-account-employee/);
+  assert.match(app, /financial-account-payment-timing/);
+  assert.match(app, /Pagar futuramente/);
+  assert.match(app, /Conta fixa/);
   assert.match(app, /financial-account-cash-account-field/);
   assert.match(app, /Definir conta no pagamento/);
   assert.doesNotMatch(app, /cashAccount: kind === "payable" \? ""/);
@@ -425,8 +427,6 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(css, /\.pricing-staff-editor/);
   assert.match(css, /\.pricing-staff-total/);
   assert.match(css, /\.pricing-recipe-layout/);
-  assert.match(css, /\.pricing-recipe-batch-note/);
-  assert.match(css, /\.pricing-recipe-step/);
   assert.match(css, /\.pricing-workflow-context/);
   assert.match(css, /\.pricing-status\.pending/);
   assert.match(css, /\.pricing-status\.profitable/);
@@ -466,7 +466,6 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(css, /\.cash-account-metric/);
   assert.match(css, /\.dashboard-account-breakdown/);
   assert.match(css, /\.home-command-grid/);
-  assert.match(css, /\.home-start-panel/);
   assert.match(css, /\.home-overview-band/);
   assert.match(css, /\.home-dashboard-kpis/);
   assert.match(css, /\.account-balance-metric/);
@@ -504,7 +503,6 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(css, /\.month-status-pill/);
   assert.match(css, /\.maintenance-grid \.period-picker button/);
   assert.match(css, /\.operation-priority-list/);
-  assert.match(css, /\.menu-recipe-summary/);
   assert.match(css, /\.plan-vs-actual-grid/);
   assert.match(css, /\.maintenance-health-grid/);
 });
