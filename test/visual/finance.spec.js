@@ -93,6 +93,7 @@ test('finance menu stays between the hero and period filters', async ({ page }, 
   expect(menuBox.y).toBeGreaterThanOrEqual(heroBox.y + heroBox.height);
   expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(filtersBox.y);
   await expectNoHorizontalOverflow(page);
+  await expect(page.locator('.finance-month-command-head')).toHaveCount(0);
 
   const screenshotPath = testInfo.outputPath(`finance-menu-top-${testInfo.project.name}.png`);
   await page.screenshot({ path: screenshotPath, fullPage: false });
@@ -105,6 +106,16 @@ test('finance menu stays between the hero and period filters', async ({ page }, 
   await expect(
     page.getByRole('heading', { name: 'Contas a pagar e receber', exact: true })
   ).toBeVisible();
+  await expect(page.locator('.finance-month-command-head')).toHaveCount(0);
+  await expect(page.locator('.finance-dashboard')).toHaveCount(0);
+  await expect(page.locator('#financial-integrity-panel')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Fechamento', exact: true }).click();
+  await expect(page.locator('.finance-month-command-head')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Fechamento mensal', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Contas a pagar e receber', exact: true })
+  ).toHaveCount(0);
 });
 
 test('closed July can be reopened from the monthly closing panel', async ({ page }) => {

@@ -18112,7 +18112,7 @@ function financeMonthPendingItems(data, locked) {
   return items;
 }
 
-function financeMonthCommandPanel(data, reportType, weekRange) {
+function financeMonthCommandPanel(data, reportType, weekRange, { showClosing = true } = {}) {
   const closing = state.monthlyClosings?.[data.periodKey];
   const locked = Boolean(closing && closing.locked !== false);
   const pendingItems = financeMonthPendingItems(data, locked);
@@ -18135,15 +18135,17 @@ function financeMonthCommandPanel(data, reportType, weekRange) {
       }];
 
   return `
-    <section class="panel finance-month-command ${statusClass}">
-      <div class="finance-month-command-head">
-        <div>
-          <span>Fechamento do mês</span>
-          <h2>${formatMonthKeyBr(data.periodKey)}</h2>
-          <p>${statusDetail}</p>
+    <section class="panel finance-month-command ${showClosing ? statusClass : "period-only"}">
+      ${showClosing ? `
+        <div class="finance-month-command-head">
+          <div>
+            <span>Fechamento do mês</span>
+            <h2>${formatMonthKeyBr(data.periodKey)}</h2>
+            <p>${statusDetail}</p>
+          </div>
+          <strong class="month-status-pill ${statusClass}">${statusLabel}</strong>
         </div>
-        <strong class="month-status-pill ${statusClass}">${statusLabel}</strong>
-      </div>
+      ` : ""}
       <form id="report-filter-form" class="finance-month-picker period-picker report-filter" data-period="${reportType}">
         <label class="finance-month-primary">Mês
           <select name="month">
@@ -18181,24 +18183,26 @@ function financeMonthCommandPanel(data, reportType, weekRange) {
         </label>
         <button type="submit">Atualizar</button>
       </form>
-      <div class="finance-month-summary">
-        <span><small>Entradas</small><b>${money(data.financial.income)}</b></span>
-        <span><small>Saídas</small><b>${money(data.financial.operationalExpenses)}</b></span>
-        <span><small>Retiradas</small><b>${money(data.financial.withdrawals.total)}</b></span>
-        <span><small>Cofrinho</small><b>${money(withdrawalAmounts.savings)}</b></span>
-        <span><small>Saldo</small><b class="${data.accountBalance < 0 ? "negative" : "positive"}">${money(data.accountBalance)}</b></span>
-      </div>
-      <div class="finance-month-pending-list">
-        ${actionItems.map(item => `
-          <article class="finance-month-pending ${item.level}">
-            <div>
-              <strong>${escapeHtml(item.title)}</strong>
-              <span>${escapeHtml(item.detail)}</span>
-            </div>
-            <button class="secondary table-action" type="button" data-finance-month-action="${escapeHtml(item.action)}">${escapeHtml(item.actionLabel)}</button>
-          </article>
-        `).join("")}
-      </div>
+      ${showClosing ? `
+        <div class="finance-month-summary">
+          <span><small>Entradas</small><b>${money(data.financial.income)}</b></span>
+          <span><small>Saídas</small><b>${money(data.financial.operationalExpenses)}</b></span>
+          <span><small>Retiradas</small><b>${money(data.financial.withdrawals.total)}</b></span>
+          <span><small>Cofrinho</small><b>${money(withdrawalAmounts.savings)}</b></span>
+          <span><small>Saldo</small><b class="${data.accountBalance < 0 ? "negative" : "positive"}">${money(data.accountBalance)}</b></span>
+        </div>
+        <div class="finance-month-pending-list">
+          ${actionItems.map(item => `
+            <article class="finance-month-pending ${item.level}">
+              <div>
+                <strong>${escapeHtml(item.title)}</strong>
+                <span>${escapeHtml(item.detail)}</span>
+              </div>
+              <button class="secondary table-action" type="button" data-finance-month-action="${escapeHtml(item.action)}">${escapeHtml(item.actionLabel)}</button>
+            </article>
+          `).join("")}
+        </div>
+      ` : ""}
     </section>
   `;
 }
@@ -18748,127 +18752,137 @@ function renderFinance() {
   const activeTab = tabs.some(([key]) => key === state.financeViewTab) ? state.financeViewTab : "summary";
   showStandardHero(activeTab === "planning" ? "Planejamento financeiro" : "Financeiro");
   setActive(activeTab === "employees" ? "funcionarios" : "financeiro");
-
-  if (activeTab === "partners") {
-    app.innerHTML = `
-      ${viewTabsHtml("financeViewTab", activeTab, tabs)}
-      ${partnerAccountsPanel()}
+  const activePane = (() => {
+    if (activeTab === "summary") {
+      return `
+        ${financeDashboardPanel(data)}
+        <section class="panel report-section">
+          <div class="section-heading">
+            <div>
+              <h2>Integridade financeira</h2>
+              <p class="muted-inline">Saldo acumulado, backup, fechamentos e ajustes conferidos diretamente no servidor.</p>
+            </div>
+          </div>
+          <div id="financial-integrity-panel"><p class="muted">Conferindo valores...</p></div>
+        </section>
+        <section class="report-grid">
+          <div class="metric report-metric"><span>Entradas operacionais</span><strong>${money(data.financial.income)}</strong></div>
+          <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
+          <div class="metric report-metric"><span>Lucro operacional</span><strong class="${operationalProfitForReport(data) < 0 ? "negative" : "positive"}">${money(operationalProfitForReport(data))}</strong></div>
+          ${withdrawalBreakdownMetrics(data.financial.withdrawals, "metric report-metric", data.partnerWithdrawalControl)}
+          <div class="metric report-metric"><span>Resultado após retiradas</span><strong class="${operationalResultForReport(data) < 0 ? "negative" : "positive"}">${money(operationalResultForReport(data))}</strong></div>
+          <div class="metric report-metric account-balance-metric has-account-breakdown">
+            <span>Saldo consolidado</span>
+            <strong class="${data.consolidatedBalance < 0 ? "negative" : "positive"}">${money(data.consolidatedBalance)}</strong>
+            <p class="dashboard-unified-label">PF + PJ + Cofrinho</p>
+            ${dashboardAccountBreakdown({ ...data.accountBalances, savings: data.savingsBalance })}
+          </div>
+          <div class="metric report-metric"><span>Ajustes</span><strong class="${data.accountAdjustmentTotals.balance < 0 ? "negative" : "positive"}">${money(data.accountAdjustmentTotals.balance)}</strong></div>
+        </section>
+        ${financeFoodAndBillsCostPanel(data.periodKey)}
+        ${financialPlanVsActualPanel(data)}
+        ${["month", "week"].includes(reportType) ? monthlyOriginCategoryPanel(data) : ""}
+        ${simplifiedStatementPanel(data)}
+        ${withdrawalProjectionPanel(data)}
+      `;
+    }
+    if (activeTab === "pending") {
+      return `
+        <section class="panel report-section">
+          <div class="section-heading">
+            <div>
+              <h2>Painel de pendências</h2>
+              <p class="muted-inline">Saldo negativo, contas vencidas, períodos abertos, diferenças e backup em uma única conferência.</p>
+            </div>
+          </div>
+          <div id="finance-pending-dashboard"><p class="muted">Conferindo pendências...</p></div>
+        </section>
+      `;
+    }
+    if (activeTab === "accounts") {
+      return `
+        ${cashForecastPanel(data)}
+        ${accountsManagementPanel()}
+        ${billsStatusPanel()}
+        ${upcomingBillsPanel()}
+      `;
+    }
+    if (activeTab === "employees") {
+      return financialEmployeesPanel(data);
+    }
+    if (activeTab === "cash") {
+      return `
+        ${cashForecastPanel(data)}
+        <section class="panel report-section">
+          <h2>O que entrou no caixa ${reportTitleSuffix(data)}</h2>
+          ${reportIncomeCashTable(data)}
+        </section>
+        <section class="panel report-section">
+          <h2>O que entrou com o semanal ${reportTitleSuffix(data)}</h2>
+          ${reportOrdersTable(data)}
+        </section>
+        <section class="panel report-section">
+          <h2>O que saiu em saídas ${reportTitleSuffix(data)}</h2>
+          ${reportExpenseOutTable(data)}
+        </section>
+      `;
+    }
+    if (activeTab === "planning") {
+      return `
+        ${financialCyclePanel()}
+        ${monthlyBudgetPanel()}
+        ${financialPlanningPanel()}
+      `;
+    }
+    if (activeTab === "partners") {
+      return partnerAccountsPanel();
+    }
+    if (activeTab === "withdrawals") {
+      return `
+        ${withdrawalPersonReportPanel(data)}
+        ${accountAdjustmentsReportPanel(data)}
+      `;
+    }
+    if (activeTab === "audit") {
+      return financialAuditPanel();
+    }
+    return `
+      ${weeklyClosingPanel(data)}
+      ${reportType === "month" ? monthlyClosingPanel(data) : ""}
     `;
-    bindViewTabs("financeViewTab", renderFinance);
-    bindPartnerAccounts();
-    enhanceResponsiveTables(app);
-    return;
-  }
-
-  if (activeTab === "employees") {
-    app.innerHTML = `
-      ${viewTabsHtml("financeViewTab", activeTab, tabs)}
-      ${financeMonthCommandPanel(data, reportType, weekRange)}
-      ${financialEmployeesPanel(data)}
-    `;
-    bindReportPeriodForm(renderFinance, "financeiro");
-    bindViewTabs("financeViewTab", renderFinance);
-    bindFinanceMonthCommand(renderFinance);
-    bindFinancialEmployees();
-    enhanceResponsiveTables(app);
-    return;
-  }
+  })();
 
   app.innerHTML = `
     ${viewTabsHtml("financeViewTab", activeTab, tabs)}
-    ${financeMonthCommandPanel(data, reportType, weekRange)}
-    ${financeDashboardPanel(data)}
-    <section class="panel report-section">
-      <div class="section-heading">
-        <div>
-          <h2>Integridade financeira</h2>
-          <p class="muted-inline">Saldo acumulado, backup, fechamentos e ajustes conferidos diretamente no servidor.</p>
-        </div>
-      </div>
-      <div id="financial-integrity-panel"><p class="muted">Conferindo valores...</p></div>
-    </section>
-    <section class="report-grid">
-      <div class="metric report-metric"><span>Entradas operacionais</span><strong>${money(data.financial.income)}</strong></div>
-      <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
-      <div class="metric report-metric"><span>Lucro operacional</span><strong class="${operationalProfitForReport(data) < 0 ? "negative" : "positive"}">${money(operationalProfitForReport(data))}</strong></div>
-      ${withdrawalBreakdownMetrics(data.financial.withdrawals, "metric report-metric", data.partnerWithdrawalControl)}
-      <div class="metric report-metric"><span>Resultado após retiradas</span><strong class="${operationalResultForReport(data) < 0 ? "negative" : "positive"}">${money(operationalResultForReport(data))}</strong></div>
-      <div class="metric report-metric account-balance-metric has-account-breakdown">
-        <span>Saldo consolidado</span>
-        <strong class="${data.consolidatedBalance < 0 ? "negative" : "positive"}">${money(data.consolidatedBalance)}</strong>
-        <p class="dashboard-unified-label">PF + PJ + Cofrinho</p>
-        ${dashboardAccountBreakdown({ ...data.accountBalances, savings: data.savingsBalance })}
-      </div>
-      <div class="metric report-metric"><span>Ajustes</span><strong class="${data.accountAdjustmentTotals.balance < 0 ? "negative" : "positive"}">${money(data.accountAdjustmentTotals.balance)}</strong></div>
-    </section>
-    ${financeFoodAndBillsCostPanel(data.periodKey)}
-    ${viewPaneHtml("summary", activeTab, `
-      ${financialPlanVsActualPanel(data)}
-      ${["month", "week"].includes(reportType) ? monthlyOriginCategoryPanel(data) : ""}
-      ${simplifiedStatementPanel(data)}
-      ${withdrawalProjectionPanel(data)}
-    `)}
-    ${viewPaneHtml("pending", activeTab, `
-      <section class="panel report-section">
-        <div class="section-heading">
-          <div>
-            <h2>Painel de pendências</h2>
-            <p class="muted-inline">Saldo negativo, contas vencidas, períodos abertos, diferenças e backup em uma única conferência.</p>
-          </div>
-        </div>
-        <div id="finance-pending-dashboard"><p class="muted">Conferindo pendências...</p></div>
-      </section>
-    `)}
-    ${viewPaneHtml("accounts", activeTab, `
-      ${cashForecastPanel(data)}
-      ${accountsManagementPanel()}
-      ${billsStatusPanel()}
-      ${upcomingBillsPanel()}
-    `)}
-    ${viewPaneHtml("employees", activeTab, financialEmployeesPanel(data))}
-    ${viewPaneHtml("cash", activeTab, `
-      ${cashForecastPanel(data)}
-      <section class="panel report-section">
-        <h2>O que entrou no caixa ${reportTitleSuffix(data)}</h2>
-        ${reportIncomeCashTable(data)}
-      </section>
-      <section class="panel report-section">
-        <h2>O que entrou com o semanal ${reportTitleSuffix(data)}</h2>
-        ${reportOrdersTable(data)}
-      </section>
-      <section class="panel report-section">
-        <h2>O que saiu em saídas ${reportTitleSuffix(data)}</h2>
-        ${reportExpenseOutTable(data)}
-      </section>
-    `)}
-    ${viewPaneHtml("planning", activeTab, `
-      ${financialCyclePanel()}
-      ${monthlyBudgetPanel()}
-      ${financialPlanningPanel()}
-    `)}
-    ${viewPaneHtml("partners", activeTab, partnerAccountsPanel())}
-    ${viewPaneHtml("withdrawals", activeTab, `
-      ${withdrawalPersonReportPanel(data)}
-      ${accountAdjustmentsReportPanel(data)}
-    `)}
-    ${viewPaneHtml("audit", activeTab, financialAuditPanel())}
-    ${viewPaneHtml("closing", activeTab, `
-      ${weeklyClosingPanel(data)}
-      ${reportType === "month" ? monthlyClosingPanel(data) : ""}
-    `)}
+    ${financeMonthCommandPanel(data, reportType, weekRange, { showClosing: activeTab === "closing" })}
+    <div class="view-pane" data-view-pane="${activeTab}">${activePane}</div>
   `;
 
   bindReportPeriodForm(renderFinance, "financeiro");
   bindViewTabs("financeViewTab", renderFinance);
-  bindMonthlyClosing(data, renderFinance);
   bindFinanceMonthCommand(renderFinance);
-  loadFinancialIntegrity();
-  loadPendingDashboard();
-  bindFinancialEmployees();
-  bindFinancialAccounts();
-  bindFinancialPlanning();
-  bindPartnerAccounts();
-  bindMonthlyBudget();
+  if (activeTab === "summary") {
+    loadFinancialIntegrity();
+  }
+  if (activeTab === "pending") {
+    loadPendingDashboard();
+  }
+  if (activeTab === "closing") {
+    bindMonthlyClosing(data, renderFinance);
+  }
+  if (activeTab === "employees") {
+    bindFinancialEmployees();
+  }
+  if (activeTab === "accounts") {
+    bindFinancialAccounts();
+  }
+  if (activeTab === "planning") {
+    bindFinancialPlanning();
+    bindMonthlyBudget();
+  }
+  if (activeTab === "partners") {
+    bindPartnerAccounts();
+  }
   enhanceResponsiveTables(app);
   document.querySelectorAll("[data-export-withdrawals]").forEach(button => {
     button.addEventListener("click", () => exportWithdrawalReport(data));

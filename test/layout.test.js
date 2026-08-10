@@ -163,7 +163,10 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /Funcionários da Cumbuca/);
   assert.match(app, /financialEmployeesPanel/);
   assert.match(app, /if \(activeTab === "employees"\)/);
-  assert.match(app, /financeMonthCommandPanel\(data, reportType, weekRange\)/);
+  assert.match(
+    app,
+    /financeMonthCommandPanel\(data, reportType, weekRange, \{ showClosing: activeTab === "closing" \}\)/
+  );
   assert.match(app, /financialEmployeeForEntry/);
   assert.match(app, /financial-employee-form/);
   assert.match(app, /cash-employee-field/);
