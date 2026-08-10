@@ -45,6 +45,9 @@ let systemStatus = {
 let lastConfirmedPayload = null;
 let offlineAlertOpen = false;
 let suppressIssueLog = false;
+let serverStatusRequest = null;
+let persistenceStatusRequest = null;
+const STATUS_REQUEST_TIMEOUT_MS = 10000;
 const APP_DATA_RESET_VERSION = "2026-05-29-clean-start";
 const THEME_STORAGE_KEY = "cumbuca-theme";
 const themePreferenceOptions = [
@@ -583,13 +586,24 @@ if (todayDate) {
   }
 }
 
-async function updateServerStatus() {
+function fetchWithTimeout(url, options = {}, timeoutMs = STATUS_REQUEST_TIMEOUT_MS) {
+  if (typeof AbortController === "undefined") {
+    return fetch(url, options);
+  }
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => {
+    window.clearTimeout(timeout);
+  });
+}
+
+async function performServerStatusUpdate() {
   if (!serverStatus || !databaseStatus) {
     return;
   }
 
   try {
-    const response = await fetch("/api/health", { cache: "no-store" });
+    const response = await fetchWithTimeout("/api/health", { cache: "no-store" });
     if (!response.ok) {
       throw new Error("offline");
     }
@@ -618,6 +632,15 @@ async function updateServerStatus() {
     databaseStatus.classList.remove("online");
     updateSystemStatusSummary();
   }
+}
+
+function updateServerStatus() {
+  if (!serverStatusRequest) {
+    serverStatusRequest = performServerStatusUpdate().finally(() => {
+      serverStatusRequest = null;
+    });
+  }
+  return serverStatusRequest;
 }
 
 function updateHostingStatus(hostingWarning = false, provider = '') {
@@ -793,7 +816,7 @@ function alertOfflineSave(reason) {
 
 async function onlineSaveCheck() {
   try {
-    const healthResponse = await fetch("/api/health", { cache: "no-store" });
+    const healthResponse = await fetchWithTimeout("/api/health", { cache: "no-store" });
     if (!healthResponse.ok) {
       return { ok: false, reason: "server" };
     }
@@ -805,7 +828,7 @@ async function onlineSaveCheck() {
       return { ok: false, reason: "database" };
     }
 
-    const persistenceResponse = await fetch("/api/persistence-check", { cache: "no-store" });
+    const persistenceResponse = await fetchWithTimeout("/api/persistence-check", { cache: "no-store" });
     if (!persistenceResponse.ok) {
       return { ok: false, reason: "database" };
     }
@@ -824,14 +847,14 @@ async function onlineSaveCheck() {
   }
 }
 
-async function updatePersistenceStatus() {
+async function performPersistenceStatusUpdate() {
   if (!saveStatus) {
     return;
   }
 
   setSaveStatus("Salvamento verificando");
   try {
-    const response = await fetch("/api/persistence-check", { cache: "no-store" });
+    const response = await fetchWithTimeout("/api/persistence-check", { cache: "no-store" });
     if (!response.ok) {
       throw new Error("persistence check failed");
     }
@@ -965,6 +988,15 @@ function localValue(key, fallback) {
   } catch (error) {
     return fallback;
   }
+}
+
+function updatePersistenceStatus() {
+  if (!persistenceStatusRequest) {
+    persistenceStatusRequest = performPersistenceStatusUpdate().finally(() => {
+      persistenceStatusRequest = null;
+    });
+  }
+  return persistenceStatusRequest;
 }
 
 function normalizedCashEntryDraft(saved = localValue("cashEntryDraft", null)) {
@@ -6582,7 +6614,7 @@ async function renderCash() {
               </div>
             `}
           </div>
-          ${isExpensesRoute ? `<input name="type" type="hidden" value="expense">` : `<label>Tipo
+          ${isExpensesRoute ? `<input id="cash-type" name="type" type="hidden" value="expense">` : `<label>Tipo
             <select name="type" id="cash-type">
               <option value="income" ${cashEntryType === "income" ? "selected" : ""}>Entrada</option>
               <option value="expense" ${cashEntryType === "expense" ? "selected" : ""}>Saída</option>

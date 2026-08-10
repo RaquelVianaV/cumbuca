@@ -601,6 +601,27 @@ function redirect(res, location) {
   res.end();
 }
 
+function isPublicPath(root, candidate) {
+  const relative = path.relative(root, candidate);
+  return (
+    relative === '' ||
+    (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+  );
+}
+
+function safeDownloadFilename(value, fallback) {
+  const cleaned = [...String(value || fallback || '')]
+    .map((character) => {
+      const code = character.charCodeAt(0);
+      return code < 32 || code === 127 || '"\\/:*?<>|'.includes(character) ? '-' : character;
+    })
+    .join('')
+    .replace(/-{2,}/g, '-')
+    .trim()
+    .slice(0, 160);
+  return cleaned || fallback;
+}
+
 function parseCookies(req) {
   return String(req.headers.cookie || '')
     .split(';')
@@ -3360,13 +3381,18 @@ function serveStatic(req, res, pathname) {
   const requestPath = pathname === '/' ? '/index.html' : pathname;
   const filePath = path.normalize(path.join(PUBLIC_DIR, requestPath));
 
-  if (!filePath.startsWith(PUBLIC_DIR)) {
+  if (!isPublicPath(PUBLIC_DIR, filePath)) {
     sendJson(res, 403, { error: 'Acesso negado.' });
     return;
   }
 
   fs.readFile(filePath, (error, data) => {
     if (error) {
+      const requestedExtension = path.extname(requestPath).toLowerCase();
+      if (requestedExtension && requestedExtension !== '.html') {
+        sendJson(res, 404, { error: 'Arquivo nÃ£o encontrado.' });
+        return;
+      }
       fs.readFile(path.join(PUBLIC_DIR, 'index.html'), (fallbackError, fallbackData) => {
         if (fallbackError) {
           sendJson(res, 404, { error: 'Arquivo não encontrado.' });
@@ -3876,9 +3902,10 @@ async function handleRequest(req, res) {
         200,
         mergeHeaders({
           'Content-Type': 'application/pdf',
-          'Content-Disposition': `attachment; filename="${
-            payload.filename || 'cumbuca-relatorio.pdf'
-          }"`,
+          'Content-Disposition': `attachment; filename="${safeDownloadFilename(
+            payload.filename,
+            'cumbuca-relatorio.pdf'
+          )}"`,
           'Content-Length': pdf.length,
         })
       );
@@ -3893,9 +3920,10 @@ async function handleRequest(req, res) {
         200,
         mergeHeaders({
           'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          'Content-Disposition': `attachment; filename="${
-            payload.filename || 'cumbuca-relatorio.xlsx'
-          }"`,
+          'Content-Disposition': `attachment; filename="${safeDownloadFilename(
+            payload.filename,
+            'cumbuca-relatorio.xlsx'
+          )}"`,
           'Content-Length': xlsx.length,
         })
       );
@@ -3960,6 +3988,7 @@ handleRequest._test = {
   financialPayloadChanged,
   financialIntegritySummary,
   integrationStatus,
+  isPublicPath,
   lockedClosingForDate,
   legacyBackupDate,
   normalizeState,
@@ -3969,6 +3998,7 @@ handleRequest._test = {
   partnerAccountRules,
   partnerManualAdjustmentsChanged,
   stateWriteViolation,
+  safeDownloadFilename,
   validateAppConfig,
   userCan,
   validateBackupPayload,

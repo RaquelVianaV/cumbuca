@@ -348,7 +348,8 @@ test('operation menu exposes Semanal, Loja and Precificação while expenses sta
   await expect(page.locator('#page-title')).toHaveText('Despesas');
   await expect(page.getByRole('heading', { name: 'Nova despesa', exact: true })).toBeVisible();
   await expect(page.locator('#cash-form input[name="type"]')).toHaveValue('expense');
-  await expect(page.locator('#cash-type')).toHaveCount(0);
+  await expect(page.locator('#cash-type')).toHaveValue('expense');
+  await expect(page.locator('#cash-employee-field')).toBeHidden();
 
   await page.getByRole('button', { name: 'Despesas lançadas', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Despesas lançadas', exact: true })).toBeVisible();

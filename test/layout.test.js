@@ -170,6 +170,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /financialEmployeeForEntry/);
   assert.match(app, /financial-employee-form/);
   assert.match(app, /cash-employee-field/);
+  assert.match(app, /<input id="cash-type" name="type" type="hidden" value="expense">/);
   assert.match(app, /today-expense-employee-field/);
   assert.match(app, /financial-account-employee/);
   assert.match(app, /financial-account-cash-account-field/);

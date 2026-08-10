@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const path = require('node:path');
 
 const testPassword = 'cumbuca-server-test-password';
 process.env.CUMBUCA_AUTH_SECRET = 'cumbuca-server-test-secret-2026-safe';
@@ -15,15 +16,25 @@ const {
   financialPayloadChanged,
   financialIntegritySummary,
   integrationStatus,
+  isPublicPath,
   legacyBackupDate,
   normalizeState,
   normalizedPermissions,
   stateWriteViolation,
+  safeDownloadFilename,
   validateAppConfig,
   userCan,
   validateBackupPayload,
   weekRangeFromDate,
 } = handleRequest._test;
+
+test('static paths stay inside public and download names cannot inject headers', () => {
+  const publicRoot = path.resolve(__dirname, '../public');
+  assert.equal(isPublicPath(publicRoot, path.join(publicRoot, 'index.html')), true);
+  assert.equal(isPublicPath(publicRoot, path.resolve(publicRoot, '..', 'secret.txt')), false);
+  assert.equal(safeDownloadFilename('relatorio"\r\nX.pdf', 'fallback.pdf'), 'relatorio-X.pdf');
+  assert.equal(safeDownloadFilename('', 'fallback.pdf'), 'fallback.pdf');
+});
 
 test('calculateCashFlow normalizes values and preserves entry IDs', () => {
   const result = calculateCashFlow([
@@ -478,6 +489,14 @@ test('authenticated HTTP flow serves session, finance calculation and reports', 
   const unversionedApp = await fetch(`${baseUrl}/app.js`, { headers: { Cookie: cookie } });
   assert.equal(unversionedApp.status, 200);
   assert.equal(unversionedApp.headers.get('cache-control'), 'no-cache');
+
+  const missingAsset = await fetch(`${baseUrl}/missing-asset.js`, { headers: { Cookie: cookie } });
+  assert.equal(missingAsset.status, 404);
+  assert.match(missingAsset.headers.get('content-type'), /application\/json/);
+
+  const spaRoute = await fetch(`${baseUrl}/missing-route`, { headers: { Cookie: cookie } });
+  assert.equal(spaRoute.status, 200);
+  assert.match(spaRoute.headers.get('content-type'), /text\/html/);
 
   const integrations = await fetch(`${baseUrl}/api/integrations`, { headers: { Cookie: cookie } });
   const integrationsPayload = await integrations.json();
