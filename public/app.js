@@ -18760,6 +18760,20 @@ function renderFinance() {
     return;
   }
 
+  if (activeTab === "employees") {
+    app.innerHTML = `
+      ${viewTabsHtml("financeViewTab", activeTab, tabs)}
+      ${financeMonthCommandPanel(data, reportType, weekRange)}
+      ${financialEmployeesPanel(data)}
+    `;
+    bindReportPeriodForm(renderFinance, "financeiro");
+    bindViewTabs("financeViewTab", renderFinance);
+    bindFinanceMonthCommand(renderFinance);
+    bindFinancialEmployees();
+    enhanceResponsiveTables(app);
+    return;
+  }
+
   app.innerHTML = `
     ${viewTabsHtml("financeViewTab", activeTab, tabs)}
     ${financeMonthCommandPanel(data, reportType, weekRange)}

@@ -1217,6 +1217,8 @@ test('employee registry links employee expenses automatically', async ({ page },
   await expect(
     page.getByRole('heading', { name: 'Funcionários da Cumbuca', exact: true })
   ).toBeVisible();
+  await expect(page.locator('.finance-dashboard')).toHaveCount(0);
+  await expect(page.locator('#financial-integrity-panel')).toHaveCount(0);
   const employeeForm = page.locator('#financial-employee-form');
   await employeeForm.getByLabel('Nome do funcionário', { exact: true }).fill('Maria Silva');
   await employeeForm.getByLabel('Função', { exact: true }).fill('Cozinheira');
