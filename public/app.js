@@ -17002,7 +17002,7 @@ function accountsManagementPanel() {
                 </div>
                 ${open >= 0.01 ? `
                   <form class="account-settlement-form" data-account-settlement="${escapeHtml(account.id)}">
-                    <label>Data do pagamento<input name="date" type="date" value="${account.dueDate || isoDate(new Date())}" required></label>
+                    <label>Data<input name="date" type="date" value="${account.dueDate || isoDate(new Date())}" required></label>
                     <label>Conta<select name="cashAccount" required>${cashAccountOptionsHtml(normalizedCashAccount(account.cashAccount, ""), account.kind === "receivable" ? "income" : "expense", false, account.kind === "receivable" ? "Escolha a conta do recebimento" : "Escolha a conta do pagamento")}</select></label>
                     <label>${account.kind === "receivable" ? "Valor recebido" : "Valor pago"}<input name="amount" type="text" inputmode="decimal" value="${moneyInputValue(open)}" required></label>
                     <button type="submit">${account.kind === "receivable" ? "Registrar recebimento" : "Registrar pagamento"}</button>

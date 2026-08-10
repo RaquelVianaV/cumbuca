@@ -2983,7 +2983,7 @@ html.dark-mode .cash-category-summary-action {
 
 .account-row {
   display: grid;
-  grid-template-columns: minmax(270px, 1.25fr) minmax(245px, 0.95fr) minmax(500px, 1.7fr) auto;
+  grid-template-columns: minmax(270px, 1.2fr) minmax(245px, 1fr) minmax(430px, 1.45fr) minmax(166px, auto);
   gap: 18px;
   align-items: start;
   padding: 18px;
@@ -3090,15 +3090,17 @@ html.dark-mode .cash-category-summary-action {
 
 .account-settlement-form {
   display: grid;
-  grid-template-columns: minmax(125px, 0.9fr) minmax(145px, 1.15fr) minmax(120px, 0.9fr) minmax(145px, auto);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   align-items: end;
   align-self: center;
 }
 
 .account-settlement-form label {
+  min-width: 0;
   gap: 4px;
   font-size: 11px;
+  line-height: 1.15;
 }
 
 .account-settlement-form input,
@@ -3108,13 +3110,20 @@ html.dark-mode .cash-category-summary-action {
 }
 
 .account-settlement-form button {
+  grid-column: 1 / -1;
+  justify-self: start;
+  min-width: 156px;
   white-space: nowrap;
 }
 
 .account-row > .actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 166px;
   align-self: center;
   justify-content: flex-end;
   gap: 8px;
+  margin-top: 0;
 }
 
 .account-payment-history {
@@ -6742,6 +6751,8 @@ a.secondary.table-action,
   }
 
   .account-row > .actions {
+    display: flex;
+    min-width: 0;
     grid-column: auto;
     justify-content: stretch;
   }
