@@ -2983,7 +2983,7 @@ html.dark-mode .cash-category-summary-action {
 
 .account-row {
   display: grid;
-  grid-template-columns: minmax(270px, 1.2fr) minmax(245px, 1fr) minmax(430px, 1.45fr) minmax(166px, auto);
+  grid-template-columns: minmax(320px, 1.35fr) minmax(300px, 1fr) minmax(170px, auto);
   gap: 18px;
   align-items: start;
   padding: 18px;
@@ -3090,7 +3090,8 @@ html.dark-mode .cash-category-summary-action {
 
 .account-settlement-form {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(170px, 1fr) minmax(210px, 1.2fr) minmax(170px, 1fr) minmax(180px, auto);
   gap: 8px;
   align-items: end;
   align-self: center;
@@ -3110,9 +3111,7 @@ html.dark-mode .cash-category-summary-action {
 }
 
 .account-settlement-form button {
-  grid-column: 1 / -1;
-  justify-self: start;
-  min-width: 156px;
+  min-width: 180px;
   white-space: nowrap;
 }
 
@@ -3120,6 +3119,8 @@ html.dark-mode .cash-category-summary-action {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   min-width: 166px;
+  grid-column: 3;
+  grid-row: 1;
   align-self: center;
   justify-content: flex-end;
   gap: 8px;
@@ -6677,6 +6678,7 @@ a.secondary.table-action,
 
   .account-row > .actions {
     grid-column: 1 / -1;
+    grid-row: auto;
     justify-content: flex-end;
   }
 
@@ -6754,6 +6756,7 @@ a.secondary.table-action,
     display: flex;
     min-width: 0;
     grid-column: auto;
+    grid-row: auto;
     justify-content: stretch;
   }
 
