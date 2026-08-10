@@ -294,6 +294,8 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.ok(cashTabs);
   assert.ok(storeTabs);
   assert.doesNotMatch(cashTabs[1], /\["channels", "Canais"\]/);
+  assert.match(app, /const visibleCashPanelTabs = isExpensesRoute[\s\S]*?tab === "categories"/);
+  assert.match(app, /visibleCashPanelTabs\.map/);
   assert.match(storeTabs[1], /\["channels", "Canais"\]/);
   assert.match(storeTabs[1], /\["products", "Produtos"\]/);
   assert.match(app, /\/loja\?view=channels/);

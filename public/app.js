@@ -1135,7 +1135,7 @@ const state = {
   partnerAccountFilter: localValue("partnerAccountFilter", { start: "", end: "" }),
   editChannelReceiptId: null,
   editCashCategory: null,
-  cashPanelTab: "entry",
+  cashPanelTab: "categories",
   cashEntryDraft: normalizedCashEntryDraft(),
   channelFilter: localValue("channelFilter", { period: "month" }),
   editStoreSaleId: null,
@@ -6497,6 +6497,9 @@ async function renderCash() {
       ["withdrawals", "Retiradas"],
       ["categories", "Categorias"]
     ];
+  const visibleCashPanelTabs = isExpensesRoute
+    ? cashPanelTabs
+    : cashPanelTabs.filter(([tab]) => tab === "categories");
   if (state.cashPanelTab === "partners") {
     state.cashPanelTab = "withdrawals";
   }
@@ -6505,6 +6508,15 @@ async function renderCash() {
   }
   if (!cashPanelTabs.some(([tab]) => tab === state.cashPanelTab)) {
     state.cashPanelTab = "entry";
+  }
+  if (!isExpensesRoute
+    && !cashPanelTabs.some(([tab]) => tab === requestedCashPanel)
+    && !editing
+    && !requestedQuickDraft
+    && !requestedEmployee
+    && !requestedEditCashEntry
+    && state.cashPanelTab === "entry") {
+    state.cashPanelTab = "categories";
   }
   const activeCashPanel = editing ? "entry" : (state.cashPanelTab || "entry");
 
@@ -6558,7 +6570,7 @@ async function renderCash() {
     <div class="cash-layout">
       <section class="panel cash-command-panel">
         <div class="cash-panel-tabs" role="tablist" aria-label="Ferramentas do caixa">
-          ${cashPanelTabs.map(([tab, label]) => `
+          ${visibleCashPanelTabs.map(([tab, label]) => `
             <button class="${activeCashPanel === tab ? "active" : ""}" type="button" data-cash-panel="${tab}">${label}</button>
           `).join("")}
         </div>
@@ -19983,7 +19995,6 @@ function renderMore() {
     ["relatorios", "Relatórios", "PDF, Excel e ranking"],
     ["alertas", "Alertas", "Pendências da operação"],
     ["financeiro?view=employees", "Funcionários", "Cadastro e despesas da equipe"],
-    ["fluxo-de-caixa?panel=categories", "Fornecedores", "Categorias e fornecedores"],
     ["configuracoes", "Config.", "Tela inicial e retiradas"],
     ["backups", "Manutenção", "Backup, usuários e banco"]
   ];
