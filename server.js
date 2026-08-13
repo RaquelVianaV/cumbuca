@@ -5,7 +5,11 @@ const crypto = require('crypto');
 const PDFDocument = require('pdfkit');
 const JSZip = require('jszip');
 const partnerAccountRules = require('./public/partner-accounts');
-const { normalizePartnerAccounts, validatePartnerAccountState } = partnerAccountRules;
+const {
+  normalizePartnerAccounts,
+  repairPartnerCashLinks,
+  validatePartnerAccountState,
+} = partnerAccountRules;
 const accountTransferRules = require('./public/account-transfers');
 const { normalizeAccountTransfers, validateAccountTransferState } = accountTransferRules;
 const PRODUCTION = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
@@ -165,6 +169,7 @@ function normalizeState(payload = {}) {
     ])
   );
   state.partnerAccounts = normalizePartnerAccounts(state.partnerAccounts);
+  state.cashEntries = repairPartnerCashLinks(state.partnerAccounts, state.cashEntries);
   state.financialPlanning =
     state.financialPlanning && typeof state.financialPlanning === 'object'
       ? state.financialPlanning
@@ -2075,6 +2080,12 @@ async function writeAppState(payload = {}, user = null, options = {}) {
   }
 
   const currentBeforeWrite = await readAppState();
+  if (Object.prototype.hasOwnProperty.call(payload, 'cashEntries')) {
+    payload.cashEntries = repairPartnerCashLinks(
+      payload.partnerAccounts || currentBeforeWrite.state.partnerAccounts,
+      payload.cashEntries
+    );
+  }
   if (
     !options.bypassPermissions &&
     financialPayloadChanged(currentBeforeWrite.state, payload) &&

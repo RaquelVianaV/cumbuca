@@ -14,6 +14,7 @@ const {
   normalizePartnerAccounts,
   partnerAccountSummary,
   partnerBalances,
+  repairPartnerCashLinks,
   validatePartnerAccountState,
 } = handleRequest._test.partnerAccountRules;
 const { normalizeState, partnerManualAdjustmentsChanged, stateWriteViolation } =
@@ -334,4 +335,21 @@ test('normalização adiciona sócias sem migrar ou apagar histórico', () => {
     ['vanessa', 'raquel']
   );
   assert.equal(normalized.movements[0], originalMovement);
+});
+
+test('reparo mantém somente o vínculo de caixa indicado pela movimentação', () => {
+  const debit = movement({
+    id: 'movement-duplicate',
+    cashImpact: true,
+    cashEntryId: 'cash-correct',
+  });
+  const rows = [
+    { id: 'cash-correct', partnerMovementId: debit.id, amount: '100.00' },
+    { id: 'cash-duplicate', partnerMovementId: debit.id, amount: '100.00' },
+  ];
+
+  const repaired = repairPartnerCashLinks(account([debit]), rows);
+  assert.equal(repaired[0].partnerMovementId, debit.id);
+  assert.equal(repaired[1].partnerMovementId, undefined);
+  assert.equal(repaired[1].amount, '100.00');
 });

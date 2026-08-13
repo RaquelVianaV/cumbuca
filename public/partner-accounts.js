@@ -94,6 +94,28 @@
     };
   }
 
+  function repairPartnerCashLinks(account = {}, cashEntries = []) {
+    const normalized = normalizePartnerAccounts(account);
+    const sourceEntries = Array.isArray(cashEntries) ? cashEntries : [];
+    const expectedLinks = new Map(
+      normalized.movements
+        .filter(movement => cashEntrySpecForMovement(movement) && movement.cashEntryId)
+        .map(movement => [String(movement.id || ""), String(movement.cashEntryId || "")])
+    );
+    let changed = false;
+    const repairedEntries = sourceEntries.map(entry => {
+      const movementId = String(entry.partnerMovementId || "");
+      if (!movementId || expectedLinks.get(movementId) === String(entry.id || "")) {
+        return entry;
+      }
+      const repaired = { ...entry };
+      delete repaired.partnerMovementId;
+      changed = true;
+      return repaired;
+    });
+    return changed ? repairedEntries : sourceEntries;
+  }
+
   function movementsThroughDate(account = {}, throughDate = "") {
     const movements = normalizePartnerAccounts(account).movements;
     const end = String(throughDate || "").slice(0, 10);
@@ -372,6 +394,7 @@
     normalizePartnerAccounts,
     partnerAccountSummary,
     partnerBalances,
+    repairPartnerCashLinks,
     positiveMoney,
     roundedMoney,
     snapshotMovementIds,
