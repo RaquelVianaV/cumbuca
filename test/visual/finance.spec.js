@@ -1561,12 +1561,29 @@ test('cash entry can use Cofrinho as the reserve account', async ({ page }) => {
   await expect(page.locator('[data-cash-account-summary="savings"]')).toContainText('-R$ 40,00');
   await expect(page.locator('.cash-hero > div:first-child')).toContainText('R$ 110,00');
   await page.goto('/fluxo-de-caixa?panel=ledger');
+  await expect(page.locator('.cash-ledger-table')).toContainText('Compra paga pela reserva');
+  await page.locator('.cash-filter-disclosure').evaluate((element) => {
+    element.open = true;
+  });
+  const ledgerFilter = page.locator('#cash-filter-form');
+  await ledgerFilter.locator('select[name="period"]').selectOption('day');
+  await ledgerFilter.locator('input[name="date"]').fill(today);
+  await ledgerFilter.locator('select[name="cashAccount"]').selectOption('savings');
+  await ledgerFilter.getByRole('button', { name: 'Aplicar', exact: true }).click();
   const savingsLedger = page.locator('.cash-ledger-table');
   await expect(savingsLedger).toContainText('Saldo inicial do Cofrinho');
   await expect(savingsLedger).toContainText('Compra paga pela reserva');
   await expect(savingsLedger.locator('tr', { hasText: 'Saldo inicial do Cofrinho' })).toContainText(
     'Conta Cofrinho'
   );
+  await page.goto('/fluxo-de-caixa?panel=savings');
+  const savingsForm = page.locator('#savings-form');
+  await savingsForm.locator('input[name="balance"]').fill('500,00');
+  await savingsForm.locator('input[name="expectedBalance"]').fill('500,00');
+  await savingsForm.locator('input[name="description"]').fill('Conferência final do Cofrinho');
+  await savingsForm.getByRole('button', { name: 'Salvar cofrinho', exact: true }).click();
+  await expect.poll(() => database.state.financialPlanning?.savings).toBe('500.00');
+  await expect(page.locator('[data-cash-account-summary="savings"]')).toContainText('R$ 500,00');
   await expectNoHorizontalOverflow(page);
 });
 

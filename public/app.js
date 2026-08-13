@@ -4292,7 +4292,8 @@ function recalculateSavingsHistory(rows = savingsHistoryRows()) {
     }));
   const chronological = [...normalized].sort((left, right) => {
     const dateCompare = String(left.date || "").localeCompare(String(right.date || ""));
-    return dateCompare || (right.__index - left.__index);
+    const dayOrderCompare = Number(left.dayOrder || 0) - Number(right.dayOrder || 0);
+    return dateCompare || dayOrderCompare || (right.__index - left.__index);
   });
   let balance = 0;
   const recalculated = new Map();
@@ -4314,7 +4315,8 @@ function recalculateSavingsHistory(rows = savingsHistoryRows()) {
   return [...recalculated.values()]
     .sort((left, right) => {
       const dateCompare = String(right.date || "").localeCompare(String(left.date || ""));
-      return dateCompare || (left.__index - right.__index);
+      const dayOrderCompare = Number(right.dayOrder || 0) - Number(left.dayOrder || 0);
+      return dateCompare || dayOrderCompare || (left.__index - right.__index);
     })
     .map(entry => {
       const cleaned = { ...entry };
@@ -4335,7 +4337,7 @@ function applySavingsHistory(rows = savingsHistoryRows()) {
   return Number(state.financialPlanning.savings || 0);
 }
 
-function updateSavingsBalance({ amount, date, type, description, id }) {
+function updateSavingsBalance({ amount, date, type, description, id, dayOrder = 0 }) {
   const numericAmount = Number(amount || 0);
   return applySavingsHistory([
     {
@@ -4344,7 +4346,8 @@ function updateSavingsBalance({ amount, date, type, description, id }) {
       type,
       amount: numericAmount.toFixed(2),
       balance: "0.00",
-      description: description || ""
+      description: description || "",
+      dayOrder
     },
     ...savingsHistoryRows()
   ]);
@@ -7617,6 +7620,18 @@ async function renderCash() {
           removeCashSavingsCoverage(editing.id);
         }
         applySavingsHistory(prospectiveSavingsHistory);
+        state.cashFilter = {
+          period: "day",
+          date: entry.date || today,
+          month: String(entry.date || today).slice(0, 7),
+          year: String(entry.date || today).slice(0, 4),
+          type: "all",
+          category: "all",
+          cashAccount: entry.cashAccount || "all",
+          quick: "",
+          search: "",
+          manualAll: false
+        };
 
         if (await persistState()) {
           if (!editing) {
@@ -8244,7 +8259,8 @@ async function renderCash() {
         amount: balance,
         date,
         type: "set",
-        description
+        description,
+        dayOrder: 100
       });
 
       if (withdrawal > 0) {
@@ -8252,7 +8268,8 @@ async function renderCash() {
           amount: withdrawal,
           date,
           type: "withdrawal",
-          description: values.description || "Retirada registrada no cofrinho"
+          description: values.description || "Retirada registrada no cofrinho",
+          dayOrder: 101
         });
       }
 
@@ -13502,9 +13519,11 @@ function savingsHistoryBalanceValidation(rows = []) {
     .map((entry, index) => ({ ...entry, __index: index }))
     .sort((left, right) => {
       const dateCompare = String(left.date || "").localeCompare(String(right.date || ""));
-      return dateCompare || (right.__index - left.__index);
-    });
+      const dayOrderCompare = Number(left.dayOrder || 0) - Number(right.dayOrder || 0);
+      return dateCompare || dayOrderCompare || (right.__index - left.__index);
+  });
   let balance = 0;
+  let firstNegative = null;
   for (const entry of normalized) {
     const amount = Math.max(0, Number(entry.amount || 0));
     if (entry.type === "set") {
@@ -13514,16 +13533,16 @@ function savingsHistoryBalanceValidation(rows = []) {
     } else {
       balance = roundedMoneyValue(balance + amount);
     }
-    if (balance < -0.009) {
-      return {
-        valid: false,
-        balance,
-        date: String(entry.date || ""),
-        entry
-      };
+    if (balance < -0.009 && !firstNegative) {
+      firstNegative = entry;
     }
   }
-  return { valid: true, balance: roundedMoneyValue(balance), date: "", entry: null };
+  return {
+    valid: balance >= -0.009,
+    balance: roundedMoneyValue(balance),
+    date: String(firstNegative?.date || ""),
+    entry: firstNegative
+  };
 }
 
 function savingsBalanceUntilDate(dateKey = isoDate(new Date())) {
