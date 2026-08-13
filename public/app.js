@@ -13582,30 +13582,7 @@ function prospectiveSavingsHistoryForTransfer(transfer, replacedTransferId = "")
 function applyAccountTransferToState(transfer, replacedTransferId = "") {
   const normalized = normalizedAccountTransfer(transfer);
   const previousId = String(replacedTransferId || "");
-  if (normalized.origin !== "savings") {
-    const replacedCashIds = state.cash
-      .filter(entry => previousId && String(entry.accountTransferId || entry.transferId || "") === previousId)
-      .map(entry => entry.id);
-    const available = accountBalanceUntilDate(
-      normalized.date,
-      replacedCashIds,
-      normalized.origin
-    );
-    if (Number(normalized.amount || 0) > available + 0.009) {
-      return {
-        ok: false,
-        error: `${accountTransferAccountLabel(normalized.origin)} possui ${money(available)} disponível nessa data.`
-      };
-    }
-  }
   const prospectiveSavings = prospectiveSavingsHistoryForTransfer(normalized, previousId);
-  const savingsValidation = savingsHistoryBalanceValidation(prospectiveSavings);
-  if (!savingsValidation.valid) {
-    return {
-      ok: false,
-      error: `O Cofrinho não possui saldo suficiente em ${formatIsoDateBr(savingsValidation.date)} para concluir a transferência.`
-    };
-  }
   state.cash = state.cash.filter(
     entry => !previousId || String(entry.accountTransferId || entry.transferId || "") !== previousId
   );

@@ -126,3 +126,11 @@ test('normalização preserva uma operação única sem criar registros extras',
   assert.deepEqual(rows[0].cashEntryIds, ['transfer-main-source', 'transfer-main-destination']);
   assert.equal(rows[0].savingsEntryId, '');
 });
+
+test('transferência pode superar o saldo disponível da conta de origem', () => {
+  const row = transfer({ amount: 1000 });
+  const entries = accountTransferCashEntries(row);
+
+  assert.equal(validateAccountTransferState([row], entries, []).valid, true);
+  assert.equal(accountBalanceEffects(row).pf, -1000);
+});
