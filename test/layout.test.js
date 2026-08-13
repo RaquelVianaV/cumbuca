@@ -563,6 +563,8 @@ test('account transfers stay linked and outside operational results', () => {
   assert.match(app, /Aporte de sócia/);
   assert.match(app, /isPartnerCapitalContributionEntry/);
   assert.match(server, /validateAccountTransferState/);
+  assert.doesNotMatch(app, /possui .* disponível nessa data/);
+  assert.doesNotMatch(app, /Cofrinho não possui saldo suficiente .* concluir a transferência/);
   assert.match(css, /\.account-transfer-form/);
   assert.match(
     css,

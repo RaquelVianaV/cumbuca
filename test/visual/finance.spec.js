@@ -1901,7 +1901,33 @@ test('linked transfers preserve PF PJ savings totals and stay outside results', 
   expect(reportPayload.pjTransferRows.length).toBeGreaterThan(0);
 
   await page.goto('/fluxo-de-caixa?panel=transfers');
-  const originalRow = page.locator('tr', { hasText: 'Transferência para PJ' });
+  let originalRow = page.locator('tr', { hasText: 'Transferência para PJ' });
+  const editedTransferDateValue = new Date(`${today}T12:00:00`);
+  editedTransferDateValue.setDate(editedTransferDateValue.getDate() - 1);
+  const editedTransferDate = localDateKey(editedTransferDateValue);
+  await originalRow.getByRole('button', { name: 'Editar data', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Editar transferência', exact: true })).toBeVisible();
+  await expect(page.locator('#account-transfer-form input[name="date"]')).toBeFocused();
+  await page.locator('#account-transfer-form input[name="date"]').fill(editedTransferDate);
+  await page
+    .locator('#account-transfer-form')
+    .getByRole('button', { name: 'Salvar transferência', exact: true })
+    .click();
+  await expect
+    .poll(
+      () =>
+        database.state.financialPlanning.accountTransfers.find(
+          (item) => item.id === firstTransfer.id
+        )?.date
+    )
+    .toBe(editedTransferDate);
+  expect(
+    database.state.cashEntries
+      .filter((entry) => entry.transferId === firstTransfer.id)
+      .map((entry) => entry.date)
+  ).toEqual([editedTransferDate, editedTransferDate]);
+
+  originalRow = page.locator('tr', { hasText: 'Transferência para PJ' });
   page.once('dialog', (dialog) => dialog.accept());
   await originalRow.getByRole('button', { name: 'Estornar', exact: true }).click();
   await expect.poll(() => database.state.financialPlanning?.accountTransfers?.length).toBe(4);

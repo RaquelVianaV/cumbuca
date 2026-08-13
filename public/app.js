@@ -8029,6 +8029,11 @@ async function renderCash() {
         state.editAccountTransferId = event.currentTarget.dataset.editAccountTransfer;
         state.cashPanelTab = "transfers";
         renderCash();
+        requestAnimationFrame(() => {
+          const dateField = document.querySelector('#account-transfer-form input[name="date"]');
+          dateField?.scrollIntoView({ behavior: "smooth", block: "center" });
+          dateField?.focus({ preventScroll: true });
+        });
       });
     });
 
@@ -13681,7 +13686,7 @@ function accountTransferPanelHtml(today = isoDate(new Date())) {
                     <td>
                       <div class="table-actions">
                         ${canUser("editFinancial") && !transfer.reversalOf && !reversed ? `
-                          <button class="secondary table-action" type="button" data-edit-account-transfer="${escapeHtml(transfer.id)}">Editar</button>
+                          <button class="secondary table-action" type="button" data-edit-account-transfer="${escapeHtml(transfer.id)}">Editar data</button>
                           <button class="secondary table-action" type="button" data-reverse-account-transfer="${escapeHtml(transfer.id)}">Estornar</button>
                         ` : `<small>Histórico preservado</small>`}
                       </div>
