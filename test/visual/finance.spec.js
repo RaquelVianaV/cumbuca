@@ -1522,20 +1522,30 @@ test('cash entry can use Cofrinho as the reserve account', async ({ page }) => {
   await expect(form.locator('select[name="cashAccount"] option[value="savings"]')).toHaveText(
     'Conta Cofrinho'
   );
+  await page.goto('/financeiro?view=accounts');
+  await expect(
+    page.locator('#financial-account-cash-account option[value="savings"]')
+  ).toHaveText('Conta Cofrinho');
+  await page.goto('/fluxo-de-caixa?panel=reconciliation');
+  await expect(
+    page.locator('#daily-reconciliation-account option[value="savings"]')
+  ).toHaveText('Conta Cofrinho');
+  await page.goto('/fluxo-de-caixa?panel=entry');
+  await page.locator('#cash-type').selectOption('expense');
   await form.locator('input[name="description"]').fill('Compra paga pela reserva');
   await form.locator('select[name="category"]').selectOption('outros');
   await form.locator('select[name="cashAccount"]').selectOption('savings');
-  await form.locator('input[name="amount"]').fill('40,00');
+  await form.locator('input[name="amount"]').fill('240,00');
   await form.getByRole('button', { name: 'Adicionar', exact: true }).click();
 
-  await expect.poll(() => database.state.financialPlanning?.savings).toBe('160.00');
+  await expect.poll(() => database.state.financialPlanning?.savings).toBe('-40.00');
   const savingsCashEntry = database.state.cashEntries.find(
     (entry) => entry.description === 'Compra paga pela reserva'
   );
   expect(savingsCashEntry).toMatchObject({
     type: 'expense',
     cashAccount: 'savings',
-    amount: '40.00',
+    amount: '240.00',
   });
   expect(
     database.state.financialPlanning.savingsHistory.find(
@@ -1543,13 +1553,20 @@ test('cash entry can use Cofrinho as the reserve account', async ({ page }) => {
     )
   ).toMatchObject({
     type: 'withdrawal',
-    amount: '40.00',
+    amount: '240.00',
     cashAccountMovement: true,
   });
   await expect(page.locator('[data-cash-account-summary="pf"]')).toContainText('R$ 100,00');
   await expect(page.locator('[data-cash-account-summary="pj"]')).toContainText('R$ 50,00');
-  await expect(page.locator('[data-cash-account-summary="savings"]')).toContainText('R$ 160,00');
-  await expect(page.locator('.cash-hero > div:first-child')).toContainText('R$ 310,00');
+  await expect(page.locator('[data-cash-account-summary="savings"]')).toContainText('-R$ 40,00');
+  await expect(page.locator('.cash-hero > div:first-child')).toContainText('R$ 110,00');
+  await page.goto('/fluxo-de-caixa?panel=ledger');
+  const savingsLedger = page.locator('.cash-ledger-table');
+  await expect(savingsLedger).toContainText('Saldo inicial do Cofrinho');
+  await expect(savingsLedger).toContainText('Compra paga pela reserva');
+  await expect(savingsLedger.locator('tr', { hasText: 'Saldo inicial do Cofrinho' })).toContainText(
+    'Conta Cofrinho'
+  );
   await expectNoHorizontalOverflow(page);
 });
 

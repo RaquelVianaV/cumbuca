@@ -1017,8 +1017,8 @@ const cashAccountOptions = [
 
 const savingsCashAccountOption = ["savings", "Conta Cofrinho"];
 
-function selectableCashAccountOptions(includeSavings = false) {
-  return includeSavings ? [...cashAccountOptions, savingsCashAccountOption] : cashAccountOptions;
+function selectableCashAccountOptions() {
+  return [...cashAccountOptions, savingsCashAccountOption];
 }
 
 function normalizedCashAccount(value, fallback = "pf") {
@@ -1382,6 +1382,7 @@ function recordAudit(action, detail, metadata = {}) {
 }
 
 async function persistState() {
+  syncSavingsHistoryWithCashEntries();
   setSaveStatus("Conferindo conexão...");
   const online = await onlineSaveCheck();
   if (!online.ok) {
@@ -4300,9 +4301,9 @@ function recalculateSavingsHistory(rows = savingsHistoryRows()) {
     if (entry.type === "set") {
       balance = amount;
     } else if (entry.type === "withdrawal") {
-      balance = Math.max(0, balance - amount);
+      balance -= amount;
     } else {
-      balance = Math.max(0, balance + amount);
+      balance += amount;
     }
     recalculated.set(String(entry.id), {
       ...entry,
@@ -4380,6 +4381,41 @@ function prospectiveSavingsHistoryForCashEntry(entry = {}, replacedEntryId = "")
     },
     ...remaining
   ];
+}
+
+function syncSavingsHistoryWithCashEntries() {
+  const manualHistory = savingsHistoryRows().filter(entry => !entry.cashAccountMovement);
+  const cashHistory = accountingCashEntries(state.cash)
+    .filter(cashEntryUsesSavingsAccount)
+    .map(entry => ({
+      id: cashSavingsAccountHistoryId(entry.id),
+      cashEntryId: String(entry.id || ""),
+      cashAccountMovement: true,
+      date: cashAccountingDate(entry),
+      type: entry.type === "expense" ? "withdrawal" : "deposit",
+      amount: Math.max(0, Number(entry.amount || 0)).toFixed(2),
+      balance: "0.00",
+      description: `${entry.type === "expense" ? "Saída" : "Entrada"} registrada no extrato: ${entry.description || "lançamento"}`
+    }));
+  return applySavingsHistory([...cashHistory, ...manualHistory]);
+}
+
+function savingsHistoryLedgerEntries() {
+  return savingsHistoryRows()
+    .filter(entry => !entry.cashAccountMovement)
+    .map(entry => ({
+      id: `savings-ledger-${String(entry.id || "")}`,
+      savingsHistoryId: String(entry.id || ""),
+      savingsLedgerEntry: true,
+      date: String(entry.date || ""),
+      description: entry.description || (entry.type === "set" ? "Saldo informado do Cofrinho" : "Movimento do Cofrinho"),
+      type: entry.type === "withdrawal" ? "expense" : "income",
+      category: "cofrinho",
+      cashAccount: "savings",
+      amount: Number(entry.amount || 0).toFixed(2),
+      accountTransferId: String(entry.accountTransferId || entry.transferId || ""),
+      transferId: String(entry.transferId || entry.accountTransferId || "")
+    }));
 }
 
 function partnersHistoryRows() {
@@ -6108,11 +6144,6 @@ function bindBillPaymentButtons(afterPay = renderCurrentRoute) {
 
       const paidBill = { ...bill, date: paidDate, cashAccount, paidAt: `${paidDate}T12:00:00.000Z` };
       const prospectiveSavingsHistory = prospectiveSavingsHistoryForCashEntry(paidBill, bill.id);
-      const savingsValidation = savingsHistoryBalanceValidation(prospectiveSavingsHistory);
-      if (!savingsValidation.valid) {
-        showToast(`O Cofrinho não possui saldo suficiente em ${formatIsoDateBr(savingsValidation.date)} para registrar esse pagamento.`, "error");
-        return;
-      }
 
       state.cash = state.cash.map(entry => String(entry.id) === String(id)
         ? paidBill
@@ -6384,8 +6415,12 @@ async function renderCash() {
   const routeCashEntries = isExpensesRoute
     ? state.cash.filter(entry => entry.type === "expense" && !isWithdrawalEntry(entry) && !isAccountAdjustmentEntry(entry) && !isPartnerCashEntry(entry))
     : state.cash;
+  const ledgerEntries = isExpensesRoute
+    ? routeCashEntries
+    : [...routeCashEntries, ...savingsHistoryLedgerEntries()];
   const routeFilterOverrides = isExpensesRoute ? { type: "expense", quick: "" } : {};
   const filteredEntries = filterCashEntries(routeCashEntries, routeFilterOverrides);
+  const filteredLedgerEntries = filterCashEntries(ledgerEntries, routeFilterOverrides);
   const categoryMenuEntries = filterCashEntries(routeCashEntries, {
     search: "",
     type: isExpensesRoute ? "expense" : "all",
@@ -7046,7 +7081,7 @@ async function renderCash() {
         </div>
         ${cashAccountSummary(businessCashEntries(accountedEntries))}
         ${cashCategorySummary(businessCashEntries(categoryMenuAccountedEntries), selectedFilterCategory)}
-        ${cashTable(filteredEntries)}
+        ${cashTable(filteredLedgerEntries)}
         </div>
         ` : ""}
       </section>
@@ -7563,11 +7598,6 @@ async function renderCash() {
         }
 
         const prospectiveSavingsHistory = prospectiveSavingsHistoryForCashEntry(entry, editing?.id || "");
-        const savingsValidation = savingsHistoryBalanceValidation(prospectiveSavingsHistory);
-        if (!savingsValidation.valid) {
-          showToast(`O Cofrinho não possui saldo suficiente em ${formatIsoDateBr(savingsValidation.date)} para registrar essa saída.`, "error");
-          return;
-        }
 
         const previousCoverage = editing ? cashSavingsCoverageEntry(editing.id) : null;
 
@@ -8867,11 +8897,6 @@ async function renderCash() {
         reversalOf: original.id
       };
       const prospectiveSavingsHistory = prospectiveSavingsHistoryForCashEntry(reversalEntry);
-      const savingsValidation = savingsHistoryBalanceValidation(prospectiveSavingsHistory);
-      if (!savingsValidation.valid) {
-        showToast(`Não é possível estornar: o Cofrinho ficaria sem saldo em ${formatIsoDateBr(savingsValidation.date)}.`, "error");
-        return;
-      }
       state.cash = state.cash.map(item => String(item.id) === String(id)
         ? { ...item, reversedBy: reversalId, reversedAt: new Date().toISOString() }
         : coverage && String(item.id) === String(coverage.id)
@@ -8928,11 +8953,6 @@ async function renderCash() {
         return;
       }
       const prospectiveSavingsHistory = prospectiveSavingsHistoryForCashEntry({}, removed?.id || "");
-      const savingsValidation = savingsHistoryBalanceValidation(prospectiveSavingsHistory);
-      if (!savingsValidation.valid) {
-        showToast(`Não é possível excluir: o Cofrinho ficaria sem saldo em ${formatIsoDateBr(savingsValidation.date)}.`, "error");
-        return;
-      }
       removeCashSavingsCoverage(id);
       applySavingsHistory(prospectiveSavingsHistory);
       state.cash = state.cash.filter(item => String(item.id) !== String(id));
@@ -9015,6 +9035,7 @@ function cashTable(entries) {
             const accountAdjustment = isAccountAdjustmentEntry(item);
             const automaticCoverage = isCashSavingsCoverageEntry(item) || item.automaticSavingsCoverageReversal;
             const internalTransfer = isAccountTransferCashEntry(item);
+            const savingsLedgerEntry = item.savingsLedgerEntry === true;
             const employee = financialEmployeeForEntry(item);
             return `
             <tr class="cash-row ${item.type === "income" ? "income-row" : "expense-row"} ${accountAdjustment ? "account-adjustment-row" : ""}">
@@ -9034,7 +9055,7 @@ function cashTable(entries) {
               <td class="${item.type === "income" ? "positive" : "negative"}">${money(item.amount)}</td>
               <td>
                 <div class="table-actions">
-                  ${internalTransfer ? `<button class="secondary table-action" type="button" data-open-account-transfer="${escapeHtml(item.accountTransferId || item.transferId || "")}">Ver transferência</button>` : automaticCoverage ? `<small>Cobertura automática</small>` : `
+                  ${internalTransfer ? `<button class="secondary table-action" type="button" data-open-account-transfer="${escapeHtml(item.accountTransferId || item.transferId || "")}">Ver transferência</button>` : savingsLedgerEntry ? `<a class="secondary table-action" href="/fluxo-de-caixa?panel=savings">Ver Cofrinho</a>` : automaticCoverage ? `<small>Cobertura automática</small>` : `
                     ${isPendingBill(item) ? `<button class="secondary table-action" type="button" data-pay-bill="${item.id || ""}">Marcar pago</button>` : ""}
                     <button class="secondary table-action" type="button" data-edit-cash="${item.id || ""}">Editar</button>
                     ${!item.reversedBy && !item.reversalOf ? `<button class="secondary table-action" type="button" data-reverse-cash="${item.id || ""}">Estornar</button>` : ""}
@@ -13421,6 +13442,7 @@ function reportAccountPackageSummaryRows(data) {
     ["all", "Unificado PF + PJ"],
     ["pf", "Conta PF"],
     ["pj", "Conta PJ"],
+    ["savings", "Conta Cofrinho"],
     ["unassigned", "Sem conta informada"]
   ].map(([key, label]) => {
     const entries = reportAccountPackageEntries(data, key);
@@ -13507,10 +13529,10 @@ function savingsHistoryBalanceValidation(rows = []) {
 function savingsBalanceUntilDate(dateKey = isoDate(new Date())) {
   const end = String(dateKey || "").slice(0, 10);
   const allRows = savingsHistoryRows();
-  if (!allRows.length) return Math.max(0, savingsBalance());
+  if (!allRows.length) return savingsBalance();
   const rows = allRows.filter(entry => !end || String(entry.date || "") <= end);
-  if (!rows.length) return Math.max(0, Number(state.financialPlanning?.openingSavings || 0));
-  return Math.max(0, savingsHistoryBalanceValidation(rows).balance);
+  if (!rows.length) return Number(state.financialPlanning?.openingSavings || 0);
+  return savingsHistoryBalanceValidation(rows).balance;
 }
 
 function consolidatedBalanceUntilDate(dateKey = isoDate(new Date())) {

@@ -565,6 +565,11 @@ test('account transfers stay linked and outside operational results', () => {
   assert.match(server, /validateAccountTransferState/);
   assert.doesNotMatch(app, /possui .* disponível nessa data/);
   assert.doesNotMatch(app, /Cofrinho não possui saldo suficiente .* concluir a transferência/);
+  assert.doesNotMatch(app, /Cofrinho não possui saldo suficiente .* registrar essa saída/);
+  assert.doesNotMatch(app, /Cofrinho não possui saldo suficiente .* registrar esse pagamento/);
+  assert.match(app, /function selectableCashAccountOptions\(\) \{[\s\S]*savingsCashAccountOption/);
+  assert.match(app, /function syncSavingsHistoryWithCashEntries/);
+  assert.match(app, /function savingsHistoryLedgerEntries/);
   assert.match(css, /\.account-transfer-form/);
   assert.match(
     css,
