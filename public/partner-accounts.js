@@ -182,10 +182,7 @@
       assignedRights = roundedMoney(assignedRights + expectedRight);
       const realPayment = Math.min(partner.openingDebt, partner.realPayment);
       const debtAfterPayment = roundedMoney(partner.openingDebt - realPayment);
-      const requestedCompensation = partner.cashPaid == null
-        ? partner.compensation
-        : Math.max(0, roundedMoney(expectedRight - partner.cashPaid));
-      const compensation = Math.min(debtAfterPayment, expectedRight, requestedCompensation);
+      const compensation = Math.min(debtAfterPayment, expectedRight, partner.compensation);
       return {
         ...partner,
         expectedRight,

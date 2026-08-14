@@ -3195,7 +3195,7 @@ function withdrawalDistributionCalculation(
         openingDebt: openingVanessa,
         realPayment: realPaymentVanessa,
         compensation: options.compensationVanessa === undefined
-          ? openingVanessa
+          ? 0
           : Math.max(0, parseMoneyInput(options.compensationVanessa)),
         cashPaid: options.cashPaidVanessa === undefined
           ? null
@@ -3208,7 +3208,7 @@ function withdrawalDistributionCalculation(
         openingDebt: openingRaquel,
         realPayment: realPaymentRaquel,
         compensation: options.compensationRaquel === undefined
-          ? openingRaquel
+          ? 0
           : Math.max(0, parseMoneyInput(options.compensationRaquel)),
         cashPaid: options.cashPaidRaquel === undefined
           ? null
@@ -4069,12 +4069,8 @@ function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
     const inferredPriorRaquel = Math.max(0, expectedRaquel - group.raquel);
     const priorVanessa = group.hasPriorVanessa ? group.priorVanessa : inferredPriorVanessa;
     const priorRaquel = group.hasPriorRaquel ? group.priorRaquel : inferredPriorRaquel;
-    const distributionGapVanessa = Math.max(0, expectedVanessa - group.vanessa);
-    const distributionGapRaquel = Math.max(0, expectedRaquel - group.raquel);
-    const debtAvailableVanessa = Math.max(0, priorVanessa - group.realPaymentVanessa);
-    const debtAvailableRaquel = Math.max(0, priorRaquel - group.realPaymentRaquel);
-    const paidToCashVanessa = Math.min(debtAvailableVanessa, distributionGapVanessa);
-    const paidToCashRaquel = Math.min(debtAvailableRaquel, distributionGapRaquel);
+    const paidToCashVanessa = group.hasPaidToCashVanessa ? group.paidToCashVanessa : 0;
+    const paidToCashRaquel = group.hasPaidToCashRaquel ? group.paidToCashRaquel : 0;
     const netDueVanessa = Math.max(0, expectedVanessa - paidToCashVanessa);
     const netDueRaquel = Math.max(0, expectedRaquel - paidToCashRaquel);
     const pendingVanessa = Math.max(0, netDueVanessa - group.vanessa);
@@ -6938,13 +6934,15 @@ async function renderCash() {
             </div>
           </div>
           <div class="withdrawal-value-group">
-            <strong>3. Pagamento da dívida antes da divisão</strong>
-            <p class="muted-inline">Se a sócia pagou algo agora, registre aqui. Na retirada, a diferença entre o direito e o valor recebido será automaticamente usada para compensar a dívida disponível em Sócias.</p>
+            <strong>3. O que fazer com a dívida nesta retirada</strong>
+            <p class="muted-inline">A dívida só será reduzida se você escolher pagar ou compensar. Se escolher não compensar, ela permanece em Sócias.</p>
             <div class="withdrawal-fields partner-settlement-fields">
               <label>Vanessa
                 <select name="partnerActionVanessa">
+                  <option value="discount">Compensar toda a dívida possível</option>
+                  <option value="partial">Compensar parcialmente</option>
                   <option value="pay">Pagar agora</option>
-                  <option value="keep" selected>Não houve pagamento agora</option>
+                  <option value="keep" selected>Não compensar nesta retirada</option>
                 </select>
               </label>
               <label data-partner-settlement-amount="vanessa">Valor Vanessa
@@ -6952,8 +6950,10 @@ async function renderCash() {
               </label>
               <label>Raquel
                 <select name="partnerActionRaquel">
+                  <option value="discount">Compensar toda a dívida possível</option>
+                  <option value="partial">Compensar parcialmente</option>
                   <option value="pay">Pagar agora</option>
-                  <option value="keep" selected>Não houve pagamento agora</option>
+                  <option value="keep" selected>Não compensar nesta retirada</option>
                 </select>
               </label>
               <label data-partner-settlement-amount="raquel">Valor Raquel
@@ -8346,8 +8346,11 @@ async function renderCash() {
           parseMoneyInput(withdrawalForm.elements[`partnerSettlement${name}`].value)
         );
         options[`realPayment${name}`] = action === "pay" ? amount : 0;
+        options[`compensation${name}`] = action === "discount"
+          ? parseMoneyInput(withdrawalForm.elements[`prior${name}`].value)
+          : action === "partial" ? amount : 0;
         const amountLabel = withdrawalForm.querySelector(`[data-partner-settlement-amount="${key}"]`);
-        if (amountLabel) amountLabel.hidden = action !== "pay";
+        if (amountLabel) amountLabel.hidden = !["partial", "pay"].includes(action);
       });
       return options;
     };
@@ -8364,7 +8367,7 @@ async function renderCash() {
         const target = withdrawalForm.querySelector(`[data-withdrawal-debt="${key}"] strong`);
         if (target) target.textContent = money(amount);
         const action = withdrawalForm.elements[`partnerAction${name}`].value;
-        if (action === "keep") {
+        if (["discount", "keep"].includes(action)) {
           withdrawalForm.elements[`partnerSettlement${name}`].value = moneyInputValue(amount);
         }
       });
@@ -8540,13 +8543,6 @@ async function renderCash() {
     }
     if (split.vanessa > expected.vanessa + 0.009 || split.raquel > expected.raquel + 0.009) {
       showToast("Uma sócia não pode retirar mais do que o direito dela na divisão.", "error");
-      return;
-    }
-    if (calculation.pendingVanessa > 0.009 || calculation.pendingRaquel > 0.009) {
-      showToast(
-        "A diferença entre direito e retirada precisa estar coberta pelo saldo devedor em Sócias.",
-        "error"
-      );
       return;
     }
     const savingsLoan = 0;

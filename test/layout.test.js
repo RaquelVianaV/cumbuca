@@ -431,8 +431,8 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(css, /\.pricing-status\.pending/);
   assert.match(css, /\.pricing-status\.profitable/);
   assert.match(app, /name="priorVanessa"/);
-  assert.match(app, /Math\.min\(debtAvailableVanessa, distributionGapVanessa\)/);
-  assert.match(app, /Math\.min\(debtAvailableRaquel, distributionGapRaquel\)/);
+  assert.match(app, /group\.hasPaidToCashVanessa\s*\?\s*group\.paidToCashVanessa\s*:\s*0/);
+  assert.match(app, /group\.hasPaidToCashRaquel\s*\?\s*group\.paidToCashRaquel\s*:\s*0/);
   assert.match(app, /Vanessa — dívida compensada/);
   assert.match(app, /Vanessa — distribuição reconhecida/);
   assert.match(app, /Cofrinho — deveria ter recebido/);
@@ -450,7 +450,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /value="unassigned"/);
   assert.match(app, /Caixa real disponível/);
   assert.match(app, /Divisão automática/);
-  assert.match(app, /Pagamento da dívida antes da divisão/);
+  assert.match(app, /O que fazer com a dívida nesta retirada/);
   assert.match(app, /Quanto realmente sairá da conta agora/);
   assert.match(app, /Conta-corrente das sócias/);
   assert.match(app, /partnerAccountsPanel/);
@@ -585,8 +585,8 @@ test('account transfers stay linked and outside operational results', () => {
   assert.match(app, /cashAccount: entry\.cashAccount \|\| "all"/);
   assert.match(app, /dayOrder: 100/);
   assert.match(app, /function monthlyOrderHasPaidPackage/);
-  assert.match(app, /compensation: options\.compensationVanessa === undefined\s*\? openingVanessa/);
-  assert.match(app, /diferença entre o direito e o valor recebido será automaticamente usada/);
+  assert.match(app, /compensation: options\.compensationVanessa === undefined\s*\? 0/);
+  assert.match(app, /Não compensar nesta retirada/);
   assert.match(css, /\.account-transfer-form/);
   assert.match(
     css,

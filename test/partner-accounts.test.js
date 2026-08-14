@@ -166,7 +166,7 @@ test('compensação reduz corretamente o valor transferido à sócia', () => {
   assert.equal(result.partners[0].remainingDebt, 0);
 });
 
-test('diferença entre direito e retirada compensa a dívida sem criar saída bancária', () => {
+test('compensação escolhida fecha a diferença sem criar saída bancária', () => {
   const result = calculateWithdrawalDistribution({
     physicalBalance: 2522.12,
     savingsPercent: 10,
@@ -175,6 +175,7 @@ test('diferença entre direito e retirada compensa a dívida sem criar saída ba
         id: 'vanessa',
         share: 70,
         openingDebt: 397.99,
+        compensation: 397.99,
         cashPaid: 1441.68,
       },
       {

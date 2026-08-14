@@ -2029,7 +2029,7 @@ test('linked transfers preserve PF PJ savings totals and stay outside results', 
   });
 });
 
-test('withdrawals automatically compensate the difference between rights and cash received', async ({
+test('withdrawals compensate debt only after an explicit choice', async ({
   page,
 }, testInfo) => {
   const database = await mockOnlineDatabase(page);
@@ -2096,8 +2096,10 @@ test('withdrawals automatically compensate the difference between rights and cas
   const defaultDebtCalculation = await page.evaluate(() =>
     window.withdrawalDistributionCalculation(4750, 200, 50)
   );
-  expect(defaultDebtCalculation.paidToCashVanessa).toBe(200);
-  expect(defaultDebtCalculation.paidToCashRaquel).toBe(50);
+  expect(defaultDebtCalculation.paidToCashVanessa).toBe(0);
+  expect(defaultDebtCalculation.paidToCashRaquel).toBe(0);
+  await form.locator('select[name="partnerActionVanessa"]').selectOption('discount');
+  await form.locator('select[name="partnerActionRaquel"]').selectOption('discount');
   await expect(form.locator('input[name="expectedSavings"]')).toHaveValue('500,00');
   await expect(form.locator('input[name="expectedVanessa"]')).toHaveValue('3.150,00');
   await expect(form.locator('input[name="expectedRaquel"]')).toHaveValue('1.350,00');
