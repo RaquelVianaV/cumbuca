@@ -13344,7 +13344,8 @@ function managementStatementHtml(data, { includeHeading = false } = {}) {
       <div class="statement-detail"><span>Raquel — recebeu da conta</span><strong>${money(data.withdrawalAmounts.receivedNowRaquel)}</strong></div>
       <div class="statement-detail"><span>Raquel — dívida compensada<small>Direito reconhecido que não saiu da conta.</small></span><strong>${money(data.withdrawalAmounts.paidToCashRaquel)}</strong></div>
       <div class="subtotal"><span>Raquel — distribuição reconhecida</span><strong>${money(data.withdrawalAmounts.raquel)}</strong></div>
-      <div class="statement-detail"><span>Cofrinho</span><strong>${money(data.withdrawalAmounts.savings)}</strong></div>
+      <div class="statement-detail"><span>Cofrinho — direito na divisão</span><strong>${money(data.partnerWithdrawalControl.expectedSavings)}</strong></div>
+      <div class="subtotal"><span>Cofrinho — recebeu da conta</span><strong>${money(data.withdrawalAmounts.savings)}</strong></div>
       <div class="statement-section-label separated"><span>Movimentação de caixa</span></div>
       <div class="statement-detail"><span>Saldo inicial PF + PJ</span><strong>${money(data.openingCashBalance)}</strong></div>
       <div class="statement-detail"><span>Cofrinho inicial</span><strong>${money(data.openingSavingsBalance)}</strong></div>

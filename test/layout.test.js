@@ -435,6 +435,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /Math\.min\(debtAvailableRaquel, distributionGapRaquel\)/);
   assert.match(app, /Vanessa — dívida compensada/);
   assert.match(app, /Vanessa — distribuição reconhecida/);
+  assert.match(app, /Cofrinho — recebeu da conta/);
   assert.match(app, /partnerBalances\(state\.partnerAccounts, accountBalanceDate\)/);
   assert.match(app, /Vanessa - saldo devedor em Sócias/);
   assert.match(app, /name="priorRaquel"/);
