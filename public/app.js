@@ -4059,10 +4059,10 @@ function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
     const priorRaquel = group.hasPriorRaquel ? group.priorRaquel : inferredPriorRaquel;
     const paidToCashVanessa = group.hasPaidToCashVanessa
       ? group.paidToCashVanessa
-      : Math.min(expectedVanessa, priorVanessa);
+      : 0;
     const paidToCashRaquel = group.hasPaidToCashRaquel
       ? group.paidToCashRaquel
-      : Math.min(expectedRaquel, priorRaquel);
+      : 0;
     const netDueVanessa = Math.max(0, expectedVanessa - paidToCashVanessa);
     const netDueRaquel = Math.max(0, expectedRaquel - paidToCashRaquel);
     const pendingVanessa = Math.max(0, netDueVanessa - group.vanessa);
@@ -12765,7 +12765,17 @@ function reportData() {
     (sum, entry) => sum + Number(entry.amount || 0),
     0
   );
-  const partnerWithdrawalControl = partnerPeriodTotals(withdrawalHistoryGroups(cashEntries));
+  const withdrawalHistoryControl = partnerPeriodTotals(withdrawalHistoryGroups(cashEntries));
+  const partnerDebtBalances = partnerBalances(state.partnerAccounts, accountBalanceDate);
+  const partnerDebtVanessa = Math.max(0, Number(partnerDebtBalances.vanessa || 0));
+  const partnerDebtRaquel = Math.max(0, Number(partnerDebtBalances.raquel || 0));
+  const partnerWithdrawalControl = {
+    ...withdrawalHistoryControl,
+    priorVanessa: partnerDebtVanessa,
+    priorRaquel: partnerDebtRaquel,
+    remainingDebtVanessa: partnerDebtVanessa,
+    remainingDebtRaquel: partnerDebtRaquel
+  };
   const orderRevenue = orders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
   const soldOrders = productionOrders(orders);
   const deliveryRevenue = soldOrders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0);
@@ -13446,14 +13456,14 @@ function reportPdfWithdrawalRows(data) {
     [`Cofrinho - direito de ${Number(state.appConfig.splitSavingsPercent || 0)}%`, money(data.partnerWithdrawalControl?.expectedSavings)],
     ["Cofrinho - transferido agora", money(data.financial.withdrawals.savings)],
     ["Vanessa - direito na divisão", money(data.partnerWithdrawalControl?.expectedVanessa)],
-    ["Vanessa - dívida informada", money(data.partnerWithdrawalControl?.priorVanessa)],
+    ["Vanessa - saldo devedor em Sócias", money(data.partnerWithdrawalControl?.priorVanessa)],
     ["Vanessa - dívida compensada", money(data.partnerWithdrawalControl?.paidToCashVanessa)],
     ["Vanessa - recebeu agora", money(data.financial.withdrawals.vanessa)],
     ["Vanessa - distribuição total", money(Number(data.financial.withdrawals.vanessa || 0) + Number(data.partnerWithdrawalControl?.paidToCashVanessa || 0))],
     ["Vanessa - dívida restante", money(data.partnerWithdrawalControl?.remainingDebtVanessa)],
     ["Vanessa - ainda não retirou", money(data.partnerWithdrawalControl?.pendingVanessa)],
     ["Raquel - direito na divisão", money(data.partnerWithdrawalControl?.expectedRaquel)],
-    ["Raquel - dívida informada", money(data.partnerWithdrawalControl?.priorRaquel)],
+    ["Raquel - saldo devedor em Sócias", money(data.partnerWithdrawalControl?.priorRaquel)],
     ["Raquel - dívida compensada", money(data.partnerWithdrawalControl?.paidToCashRaquel)],
     ["Raquel - recebeu agora", money(data.financial.withdrawals.raquel)],
     ["Raquel - distribuição total", money(Number(data.financial.withdrawals.raquel || 0) + Number(data.partnerWithdrawalControl?.paidToCashRaquel || 0))],
@@ -13474,7 +13484,10 @@ function reportPdfWithdrawalRows(data) {
 }
 
 function reportAccountPackageEntries(data, cashAccount = "all") {
-  const selected = reconciliationCashAccount(cashAccount);
+  const requested = String(cashAccount || "all").trim().toLowerCase();
+  const selected = requested === "unassigned"
+    ? "unassigned"
+    : reconciliationCashAccount(requested);
   const entries = accountingCashEntries(data.cashEntries || []);
   if (selected === "all") {
     return entries
@@ -13508,7 +13521,9 @@ function reportAccountPackageSummaryRows(data) {
       .filter(entry => entry.type === "expense")
       .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
     const adjustments = cashTotals(adjustmentEntries).balance;
-    const actualBalance = cashTotals(actualEntries).balance;
+    const actualBalance = key === "savings"
+      ? Number(data.savingsBalance || 0)
+      : cashTotals(actualEntries).balance;
     return [
       label,
       money(income),
@@ -13517,7 +13532,9 @@ function reportAccountPackageSummaryRows(data) {
       money(actualBalance),
       actualEntries.length
     ];
-  }).filter(([, , , , , count]) => count > 0);
+  }).filter(([label, , , , balance, count]) => {
+    return count > 0 || (label === "Conta Cofrinho" && Math.abs(parseMoneyInput(balance)) > 0.005);
+  });
 }
 
 function reportAccountPackageSummaryNumericRows(data) {
@@ -14260,6 +14277,15 @@ function reportFinancialPayloadMetrics(data) {
   };
 }
 
+function reportPeriodStatusLabel(data) {
+  if (data.type === "day") return `Dia ${formatIsoDateBr(data.date)}`;
+  if (data.type === "week") return `Semana selecionada: ${reportWeekRangeLabel()}`;
+  const today = isoDate(new Date());
+  return data.periodKey === today.slice(0, 7)
+    ? `Parcial até ${formatIsoDateBr(today)}`
+    : "Mês concluído";
+}
+
 async function downloadReportPdf(options = {}) {
   const data = reportData();
   const accountantPackage = Boolean(options.accountantPackage);
@@ -14273,6 +14299,7 @@ async function downloadReportPdf(options = {}) {
   const payload = {
     filename,
     periodLabel: accountantPackage ? `${periodLabel} - Pacote contador por conta` : periodLabel,
+    statusLabel: reportPeriodStatusLabel(data),
     data: {
       periodKey: data.periodKey,
       balance: data.balance,
@@ -14302,9 +14329,7 @@ async function downloadReportPdf(options = {}) {
       accountIncome: data.income,
       weeklyRevenue: data.orderRevenue,
       incomeSummaryRows: [
-        ...accountIncomeBreakdown(data).map(([label, value]) => ["Conta", label, value]),
-        ...weeklyRevenueBreakdown(data).map(([label, value]) => ["Semanal", label, value]),
-        ["Total", "Conta + semanal", money(data.income + data.orderRevenue)]
+        ...accountIncomeBreakdown(data).map(([label, value]) => ["Receita contabilizada", label, value])
       ],
       incomeChannelRows: reportPdfIncomeChannelRows(data),
       expenseCategoryRows: reportPdfExpenseCategoryRows(data),
@@ -19632,6 +19657,7 @@ function reportExportPayload(data = reportData()) {
   const withdrawalAmounts = withdrawalBreakdownAmounts(data.financial.withdrawals, data.partnerWithdrawalControl);
   return {
     periodLabel,
+    statusLabel: reportPeriodStatusLabel(data),
     data: {
       periodKey: data.periodKey,
       balance: data.balance,
@@ -19661,9 +19687,7 @@ function reportExportPayload(data = reportData()) {
       accountIncome: data.income,
       weeklyRevenue: data.orderRevenue,
       incomeSummaryRows: [
-        ...accountIncomeBreakdown(data).map(([label, value]) => ["Conta", label, value]),
-        ...weeklyRevenueBreakdown(data).map(([label, value]) => ["Semanal", label, value]),
-        ["Total", "Conta + semanal", money(data.income + data.orderRevenue)]
+        ...accountIncomeBreakdown(data).map(([label, value]) => ["Receita contabilizada", label, value])
       ],
       incomeChannelRows: reportPdfIncomeChannelRows(data),
       expenseCategoryRows: reportPdfExpenseCategoryRows(data),

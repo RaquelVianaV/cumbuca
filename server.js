@@ -5,11 +5,8 @@ const crypto = require('crypto');
 const PDFDocument = require('pdfkit');
 const JSZip = require('jszip');
 const partnerAccountRules = require('./public/partner-accounts');
-const {
-  normalizePartnerAccounts,
-  repairPartnerCashLinks,
-  validatePartnerAccountState,
-} = partnerAccountRules;
+const { normalizePartnerAccounts, repairPartnerCashLinks, validatePartnerAccountState } =
+  partnerAccountRules;
 const accountTransferRules = require('./public/account-transfers');
 const { normalizeAccountTransfers, validateAccountTransferState } = accountTransferRules;
 const PRODUCTION = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
@@ -2639,6 +2636,7 @@ function pdfPageOptions(payload = {}) {
   const data = payload.data || {};
   return {
     periodLabel: pdfText(payload.periodLabel || data.periodKey || 'Período não informado'),
+    statusLabel: pdfText(payload.statusLabel || 'Período selecionado'),
   };
 }
 
@@ -2665,7 +2663,7 @@ function drawPdfHeader(doc, options = {}) {
   doc
     .font('Helvetica')
     .fontSize(8)
-    .text('Fechamento e conferência', 330, 43, {
+    .text(options.statusLabel || 'Período selecionado', 330, 43, {
       width: PDF_LAYOUT.width - 372,
       align: 'right',
     });
@@ -2769,6 +2767,21 @@ function addPdfSectionTitle(doc, title, options = {}) {
   doc.y = y + 34;
 }
 
+function addPdfNote(doc, text, options = {}) {
+  if (doc.y + 42 > pdfPageBottom(doc)) {
+    startPdfContentPage(doc, options);
+  }
+  doc
+    .fillColor(PDF_LAYOUT.colors.muted)
+    .font('Helvetica')
+    .fontSize(8.5)
+    .text(pdfText(text), PDF_LAYOUT.left, doc.y, {
+      width: doc.page.width - PDF_LAYOUT.left - PDF_LAYOUT.right,
+      lineGap: 2,
+    });
+  doc.moveDown(0.7);
+}
+
 function addPdfMetricCards(doc, items, options = {}) {
   const cardWidth = 162;
   const cardHeight = 50;
@@ -2848,7 +2861,7 @@ function buildReportPdf(payload = {}) {
     .fillColor('#c9f1df')
     .font('Helvetica-Bold')
     .fontSize(11)
-    .text(`Fechamento de ${options.periodLabel}`, PDF_LAYOUT.left, 124);
+    .text(`${options.periodLabel} · ${options.statusLabel}`, PDF_LAYOUT.left, 124);
   doc
     .fillColor(PDF_LAYOUT.colors.white)
     .font('Helvetica')
@@ -2856,10 +2869,10 @@ function buildReportPdf(payload = {}) {
     .text(`Gerado em ${new Date().toLocaleString('pt-BR')}`, PDF_LAYOUT.left, 151);
 
   const coverCards = [
+    ['Receitas contabilizadas', brl(data.totalIncome)],
+    ['Despesas operacionais', brl(data.operationalExpenses)],
     ['Lucro operacional', brl(data.profitBeforeWithdrawals)],
-    ['Distribuição societária', brl(data.withdrawalGrossTotal)],
-    ['Saiu da conta', brl(data.withdrawalTotal)],
-    ['Compensação sem saída de caixa', brl(data.withdrawalDebtCompensation)],
+    ['Saldo consolidado', brl(data.consolidatedBalance)],
   ];
   coverCards.forEach(([label, value], index) => {
     const col = index % 2;
@@ -2891,13 +2904,13 @@ function buildReportPdf(payload = {}) {
     .fillColor(PDF_LAYOUT.colors.brown)
     .font('Helvetica-Bold')
     .fontSize(11)
-    .text('Checklist de fechamento', 60, 542);
+    .text('Como ler este relatório', 60, 542);
   doc
     .fillColor(PDF_LAYOUT.colors.ink)
     .font('Helvetica')
     .fontSize(10)
     .text(
-      'Confira lançamentos, despesas maiores, retiradas e cumbucas vendidas antes de concluir o fechamento.',
+      'Resultado operacional mostra o desempenho do negócio. Caixa mostra onde o dinheiro está. Distribuições das sócias aparecem separadas e não são despesas operacionais.',
       60,
       565,
       { width: 470, lineGap: 3 }
@@ -2931,12 +2944,6 @@ function buildReportPdf(payload = {}) {
     ['Saídas operacionais', brl(data.operationalExpenses)],
     ['Lucro operacional', brl(data.profitBeforeWithdrawals)],
     ...managementSummary,
-    ['Vanessa - distribuição', brl(data.withdrawalVanessa)],
-    ['Cofrinho transferido', brl(data.withdrawalSavings)],
-    ['Raquel - distribuição', brl(data.withdrawalRaquel)],
-    ['Saiu da conta', brl(data.withdrawalTotal)],
-    ['Compensação sem caixa', brl(data.withdrawalDebtCompensation)],
-    ['Resultado após retiradas', brl(data.availableForWithdrawal)],
     ['Saldo da conta', brl(data.accountBalance)],
     ['Ajustes da conta', brl(data.accountAdjustmentBalance)],
     ['Cofrinho atual', brl(data.savingsBalance)],
@@ -2948,25 +2955,30 @@ function buildReportPdf(payload = {}) {
   ];
 
   doc.y = PDF_LAYOUT.top;
+  addPdfSectionTitle(doc, '1. Visão geral do período', options);
+  addPdfNote(
+    doc,
+    'O lucro operacional é formado por receitas menos despesas do negócio. Retiradas, aportes e transferências internas não alteram esse resultado.',
+    options
+  );
   addPdfMetricCards(doc, summary, options);
-  addPdfSectionTitle(doc, 'Resumo de entradas', options);
+  addPdfSectionTitle(doc, '2. Receitas contabilizadas no caixa', options);
+  addPdfNote(
+    doc,
+    'Este é o detalhamento das entradas usadas no resultado. Os pedidos por canal abaixo servem para conferência e não devem ser somados novamente.',
+    options
+  );
   addPdfTable(
     doc,
     ['Grupo', 'Origem', 'Valor'],
     data.incomeSummaryRows || [
-      ['Conta', 'Total da conta', brl(data.accountIncome ?? data.totalIncome ?? 0)],
-      ['Semanal', 'Total semanal', brl(data.weeklyRevenue ?? 0)],
-      [
-        'Total',
-        'Conta + semanal',
-        brl(Number(data.accountIncome ?? data.totalIncome ?? 0) + Number(data.weeklyRevenue ?? 0)),
-      ],
+      ['Receita contabilizada', 'Total do caixa', brl(data.totalIncome ?? 0)],
     ],
     [90, 260, 110],
     options
   );
 
-  addPdfSectionTitle(doc, 'Entradas por canal', options);
+  addPdfSectionTitle(doc, 'Pedidos e recebimentos por canal (conferência)', options);
   addPdfTable(
     doc,
     ['Grupo', 'Canal', 'Valor'],
@@ -2987,7 +2999,12 @@ function buildReportPdf(payload = {}) {
   }
 
   if ((data.accountPackageSummaryRows || []).length) {
-    addPdfSectionTitle(doc, 'Pacote contador por conta', options);
+    addPdfSectionTitle(doc, '3. Caixa por conta', options);
+    addPdfNote(
+      doc,
+      'Saldo real é a posição da conta na data do relatório. Transferências entre PF, PJ e Cofrinho mudam a conta de destino, mas não o saldo consolidado.',
+      options
+    );
     addPdfTable(
       doc,
       ['Conta', 'Entradas oper.', 'Saídas oper.', 'Ajustes', 'Saldo real', 'Lançamentos'],
@@ -3030,10 +3047,10 @@ function buildReportPdf(payload = {}) {
     );
   }
 
-  addPdfSectionTitle(doc, 'Saídas por categoria', options);
+  addPdfSectionTitle(doc, '4. Despesas operacionais por categoria', options);
   addPdfTable(doc, ['Categoria', 'Total'], data.expenseCategoryRows || [], [300, 120], options);
 
-  addPdfSectionTitle(doc, 'Principais despesas', options);
+  addPdfSectionTitle(doc, 'Maiores despesas do período', options);
   addPdfTable(
     doc,
     ['Descrição', 'Categoria', 'Valor'],
@@ -3042,7 +3059,12 @@ function buildReportPdf(payload = {}) {
     options
   );
 
-  addPdfSectionTitle(doc, 'Comparativo mensal', options);
+  addPdfSectionTitle(doc, '5. Comparativo com o mês anterior', options);
+  addPdfNote(
+    doc,
+    `${options.statusLabel}. Quando o período atual ainda estiver em andamento, compare os valores com cautela, pois o mês anterior está completo.`,
+    options
+  );
   addPdfTable(
     doc,
     ['Indicador', 'Atual', 'Anterior', 'Diferença'],
@@ -3051,7 +3073,12 @@ function buildReportPdf(payload = {}) {
     options
   );
 
-  addPdfSectionTitle(doc, 'Retiradas e diferenças', options);
+  addPdfSectionTitle(doc, '6. Distribuição e retiradas das sócias', options);
+  addPdfNote(
+    doc,
+    '“Recebeu agora” é dinheiro que saiu da conta. O saldo devedor vem diretamente de Sócias; direitos e valores pendentes ficam separados do resultado operacional.',
+    options
+  );
   addPdfTable(doc, ['Destino', 'Valor'], data.withdrawalRows || [], [250, 140], options);
 
   addPdfSectionTitle(doc, 'Cumbucas vendidas na loja', options);

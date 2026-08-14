@@ -431,6 +431,10 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(css, /\.pricing-status\.pending/);
   assert.match(css, /\.pricing-status\.profitable/);
   assert.match(app, /name="priorVanessa"/);
+  assert.match(app, /group\.hasPaidToCashVanessa\s*\?\s*group\.paidToCashVanessa\s*:\s*0/);
+  assert.match(app, /group\.hasPaidToCashRaquel\s*\?\s*group\.paidToCashRaquel\s*:\s*0/);
+  assert.match(app, /partnerBalances\(state\.partnerAccounts, accountBalanceDate\)/);
+  assert.match(app, /Vanessa - saldo devedor em Sócias/);
   assert.match(app, /name="priorRaquel"/);
   assert.match(app, /name="expectedVanessa"/);
   assert.match(app, /name="expectedRaquel"/);
