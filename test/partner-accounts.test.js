@@ -166,6 +166,58 @@ test('compensação reduz corretamente o valor transferido à sócia', () => {
   assert.equal(result.partners[0].remainingDebt, 0);
 });
 
+test('diferença entre direito e retirada compensa a dívida sem criar saída bancária', () => {
+  const result = calculateWithdrawalDistribution({
+    physicalBalance: 2522.12,
+    savingsPercent: 10,
+    partners: [
+      {
+        id: 'vanessa',
+        share: 70,
+        openingDebt: 397.99,
+        cashPaid: 1441.68,
+      },
+      {
+        id: 'raquel',
+        share: 30,
+        openingDebt: 0,
+        cashPaid: 788.43,
+      },
+    ],
+  });
+  const vanessa = result.partners.find((partner) => partner.id === 'vanessa');
+  const raquel = result.partners.find((partner) => partner.id === 'raquel');
+
+  assert.equal(result.distributionBase, 2920.11);
+  assert.equal(result.expectedSavings, 292.01);
+  assert.equal(vanessa.expectedRight, 1839.67);
+  assert.equal(vanessa.cashPaid, 1441.68);
+  assert.equal(vanessa.compensation, 397.99);
+  assert.equal(vanessa.cashPaid + vanessa.compensation, vanessa.expectedRight);
+  assert.equal(vanessa.pendingDistribution, 0);
+  assert.equal(vanessa.remainingDebt, 0);
+  assert.equal(raquel.expectedRight, 788.43);
+  assert.equal(raquel.cashPaid, 788.43);
+  assert.equal(raquel.compensation, 0);
+  assert.equal(result.compensationTotal, 397.99);
+  assert.equal(result.cashPaidTotal, 2522.12);
+  assert.equal(result.accountAfterWithdrawal, 0);
+
+  const compensation = movement({
+    id: 'compensation-required-example',
+    type: 'withdrawal_compensation',
+    amount: vanessa.compensation,
+    cashImpact: false,
+  });
+  assert.equal(cashEntrySpecForMovement(compensation), null);
+  assert.equal(
+    partnerBalances(
+      account([movement({ id: 'debt-required-example', amount: '397.99' }), compensation])
+    ).vanessa,
+    0
+  );
+});
+
 test('pagamento real aumenta caixa disponível sem mudar a base ajustada', () => {
   const result = calculateWithdrawalDistribution({
     physicalBalance: 2000,

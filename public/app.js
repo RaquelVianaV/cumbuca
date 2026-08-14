@@ -3195,8 +3195,11 @@ function withdrawalDistributionCalculation(
         openingDebt: openingVanessa,
         realPayment: realPaymentVanessa,
         compensation: options.compensationVanessa === undefined
-          ? 0
-          : Math.max(0, parseMoneyInput(options.compensationVanessa))
+          ? openingVanessa
+          : Math.max(0, parseMoneyInput(options.compensationVanessa)),
+        cashPaid: options.cashPaidVanessa === undefined
+          ? null
+          : Math.max(0, parseMoneyInput(options.cashPaidVanessa))
       },
       {
         id: "raquel",
@@ -3205,8 +3208,11 @@ function withdrawalDistributionCalculation(
         openingDebt: openingRaquel,
         realPayment: realPaymentRaquel,
         compensation: options.compensationRaquel === undefined
-          ? 0
-          : Math.max(0, parseMoneyInput(options.compensationRaquel))
+          ? openingRaquel
+          : Math.max(0, parseMoneyInput(options.compensationRaquel)),
+        cashPaid: options.cashPaidRaquel === undefined
+          ? null
+          : Math.max(0, parseMoneyInput(options.cashPaidRaquel))
       }
     ]
   });
@@ -4232,8 +4238,8 @@ function withdrawalHistoryHtml(monthKey = currentMonthKey()) {
               <td>${group.mixedCashAccounts ? "Mais de uma conta" : cashAccountLabel(group.cashAccount)}</td>
               <td>${money(group.accountBalanceBefore)}</td>
               <td>${money(group.savings)}<br><small>${Number(state.appConfig.splitSavingsPercent || 0)}% bruto ${money(group.expectedSavings)}</small></td>
-              <td><strong>Recebeu ${money(group.vanessa)}</strong><br><small>Direito ${money(group.expectedVanessa)} · ${partnerPendingLabel(group.pendingVanessa)}${group.paidToCashVanessa > 0 ? ` · compensação explícita ${money(group.paidToCashVanessa)}` : ""}</small></td>
-              <td><strong>Recebeu ${money(group.raquel)}</strong><br><small>Direito ${money(group.expectedRaquel)} · ${partnerPendingLabel(group.pendingRaquel)}${group.paidToCashRaquel > 0 ? ` · compensação explícita ${money(group.paidToCashRaquel)}` : ""}</small></td>
+              <td><strong>Recebeu ${money(group.vanessa)}</strong><br><small>Direito ${money(group.expectedVanessa)} · ${partnerPendingLabel(group.pendingVanessa)}${group.paidToCashVanessa > 0 ? ` · dívida compensada ${money(group.paidToCashVanessa)}` : ""}</small></td>
+              <td><strong>Recebeu ${money(group.raquel)}</strong><br><small>Direito ${money(group.expectedRaquel)} · ${partnerPendingLabel(group.pendingRaquel)}${group.paidToCashRaquel > 0 ? ` · dívida compensada ${money(group.paidToCashRaquel)}` : ""}</small></td>
               <td><strong>${money(group.total)}</strong></td>
               <td>${group.partnerWithdrawalSnapshotId
                 ? `<span class="status-pill">Snapshot salvo</span>`
@@ -5072,8 +5078,8 @@ function withdrawalBreakdownMetrics(withdrawals = {}, className = "metric", cont
     <div class="${className}"><span>Vanessa - recebeu da conta</span><strong>${money(amounts.receivedNowVanessa)}</strong></div>
     <div class="${className}"><span>Cofrinho transferido</span><strong>${money(amounts.savings)}</strong></div>
     <div class="${className}"><span>Raquel - recebeu da conta</span><strong>${money(amounts.receivedNowRaquel)}</strong></div>
-    ${amounts.paidToCashVanessa > 0 ? `<div class="${className}"><span>Vanessa - compensação explícita</span><strong>${money(amounts.paidToCashVanessa)}</strong></div>` : ""}
-    ${amounts.paidToCashRaquel > 0 ? `<div class="${className}"><span>Raquel - compensação explícita</span><strong>${money(amounts.paidToCashRaquel)}</strong></div>` : ""}
+    ${amounts.paidToCashVanessa > 0 ? `<div class="${className}"><span>Vanessa - dívida compensada</span><strong>${money(amounts.paidToCashVanessa)}</strong></div>` : ""}
+    ${amounts.paidToCashRaquel > 0 ? `<div class="${className}"><span>Raquel - dívida compensada</span><strong>${money(amounts.paidToCashRaquel)}</strong></div>` : ""}
   `;
 }
 
@@ -5087,7 +5093,7 @@ function withdrawalBreakdownStatement(withdrawals = {}, control = {}) {
     <div class="statement-line"><span>(-) Cofrinho transferido</span><strong>${money(amounts.savings)}</strong></div>
     <div class="statement-line"><span>(-) Raquel recebeu da conta</span><strong>${money(amounts.receivedNowRaquel)}</strong></div>
     <div class="statement-line statement-note"><span>Dinheiro que saiu da conta</span><strong>${money(cashTotal)}</strong></div>
-    ${debtCompensation > 0 ? `<div class="statement-line statement-note"><span>Compensação explícita (sem saída de caixa)</span><strong>${money(debtCompensation)}</strong></div>` : ""}
+    ${debtCompensation > 0 ? `<div class="statement-line statement-note"><span>Dívida compensada (sem saída de caixa)</span><strong>${money(debtCompensation)}</strong></div>` : ""}
   `;
 }
 
@@ -6909,15 +6915,13 @@ async function renderCash() {
             </div>
           </div>
           <div class="withdrawal-value-group">
-            <strong>3. Tratamento da dívida de cada sócia</strong>
-            <p class="muted-inline">A dívida permanece para a próxima semana. Ela só diminui quando você escolher explicitamente pagar ou compensar.</p>
+            <strong>3. Pagamento da dívida antes da divisão</strong>
+            <p class="muted-inline">Se a sócia pagou algo agora, registre aqui. Na retirada, a diferença entre o direito e o valor recebido será automaticamente usada para compensar a dívida disponível em Sócias.</p>
             <div class="withdrawal-fields partner-settlement-fields">
               <label>Vanessa
                 <select name="partnerActionVanessa">
-                  <option value="discount">Descontar toda a dívida da retirada</option>
-                  <option value="partial">Compensar parcialmente</option>
                   <option value="pay">Pagar agora</option>
-                  <option value="keep" selected>Manter para a próxima semana</option>
+                  <option value="keep" selected>Não houve pagamento agora</option>
                 </select>
               </label>
               <label data-partner-settlement-amount="vanessa">Valor Vanessa
@@ -6925,10 +6929,8 @@ async function renderCash() {
               </label>
               <label>Raquel
                 <select name="partnerActionRaquel">
-                  <option value="discount">Descontar toda a dívida da retirada</option>
-                  <option value="partial">Compensar parcialmente</option>
                   <option value="pay">Pagar agora</option>
-                  <option value="keep" selected>Manter para a próxima semana</option>
+                  <option value="keep" selected>Não houve pagamento agora</option>
                 </select>
               </label>
               <label data-partner-settlement-amount="raquel">Valor Raquel
@@ -6961,8 +6963,8 @@ async function renderCash() {
             <span><b>Saldo da conta depois</b>${money(previewAccountAfterWithdrawal)}</span>
             <span><b>Vanessa - recebe da conta</b>${money(withdrawalFormValues.vanessa)}</span>
             <span><b>Raquel - recebe da conta</b>${money(withdrawalFormValues.raquel)}</span>
-            ${Number(withdrawalFormValues.paidToCashVanessa || 0) > 0 ? `<span><b>Vanessa - compensação explícita</b>${money(withdrawalFormValues.paidToCashVanessa)}<small>Não movimenta a conta</small></span>` : ""}
-            ${Number(withdrawalFormValues.paidToCashRaquel || 0) > 0 ? `<span><b>Raquel - compensação explícita</b>${money(withdrawalFormValues.paidToCashRaquel)}<small>Não movimenta a conta</small></span>` : ""}
+            ${Number(withdrawalFormValues.paidToCashVanessa || 0) > 0 ? `<span><b>Vanessa - dívida compensada</b>${money(withdrawalFormValues.paidToCashVanessa)}<small>Não movimenta a conta</small></span>` : ""}
+            ${Number(withdrawalFormValues.paidToCashRaquel || 0) > 0 ? `<span><b>Raquel - dívida compensada</b>${money(withdrawalFormValues.paidToCashRaquel)}<small>Não movimenta a conta</small></span>` : ""}
           </div>
           <div class="actions">
             <button type="submit">${editingWithdrawal ? "Salvar retirada" : "Registrar retiradas"}</button>
@@ -8321,11 +8323,8 @@ async function renderCash() {
           parseMoneyInput(withdrawalForm.elements[`partnerSettlement${name}`].value)
         );
         options[`realPayment${name}`] = action === "pay" ? amount : 0;
-        options[`compensation${name}`] = action === "discount"
-          ? parseMoneyInput(withdrawalForm.elements[`prior${name}`].value)
-          : action === "partial" ? amount : 0;
         const amountLabel = withdrawalForm.querySelector(`[data-partner-settlement-amount="${key}"]`);
-        if (amountLabel) amountLabel.hidden = !["partial", "pay"].includes(action);
+        if (amountLabel) amountLabel.hidden = action !== "pay";
       });
       return options;
     };
@@ -8342,7 +8341,7 @@ async function renderCash() {
         const target = withdrawalForm.querySelector(`[data-withdrawal-debt="${key}"] strong`);
         if (target) target.textContent = money(amount);
         const action = withdrawalForm.elements[`partnerAction${name}`].value;
-        if (["discount", "keep"].includes(action)) {
+        if (action === "keep") {
           withdrawalForm.elements[`partnerSettlement${name}`].value = moneyInputValue(amount);
         }
       });
@@ -8392,29 +8391,33 @@ async function renderCash() {
     };
 
     const updateWithdrawalPreview = () => {
-      const calculation = automaticWithdrawalValues(false);
+      automaticWithdrawalValues(false);
       const calculatedBalance = withdrawalCalculatedBalanceForForm();
-      const balanceDifference = roundedMoneyValue(
-        calculation.physicalBalance - calculatedBalance
-      );
       const actual = {
         savings: Math.max(0, parseMoneyInput(withdrawalForm.elements.savings.value)),
         vanessa: Math.max(0, parseMoneyInput(withdrawalForm.elements.vanessa.value)),
         raquel: Math.max(0, parseMoneyInput(withdrawalForm.elements.raquel.value))
       };
+      const calculation = withdrawalDistributionCalculation(
+        withdrawalForm.elements.accountBalanceBefore.value,
+        withdrawalForm.elements.priorVanessa.value,
+        withdrawalForm.elements.priorRaquel.value,
+        {
+          ...withdrawalSettlementOptions(),
+          cashPaidVanessa: actual.vanessa,
+          cashPaidRaquel: actual.raquel
+        }
+      );
+      const balanceDifference = roundedMoneyValue(
+        calculation.physicalBalance - calculatedBalance
+      );
       actual.total = roundedMoneyValue(actual.savings + actual.vanessa + actual.raquel);
       const accountAfterWithdrawal = roundedMoneyValue(
         Math.max(0, calculation.cashAvailable - actual.total)
       );
       const excess = roundedMoneyValue(Math.max(0, actual.total - calculation.cashAvailable));
-      const pendingVanessa = Math.max(
-        0,
-        calculation.expectedVanessa - calculation.paidToCashVanessa - actual.vanessa
-      );
-      const pendingRaquel = Math.max(
-        0,
-        calculation.expectedRaquel - calculation.paidToCashRaquel - actual.raquel
-      );
+      const pendingVanessa = calculation.pendingVanessa;
+      const pendingRaquel = calculation.pendingRaquel;
       const preview = withdrawalForm.querySelector(".withdrawal-preview");
       preview.innerHTML = `
         <span><b>Saldo calculado pelo sistema</b>${money(calculatedBalance)}</span>
@@ -8422,7 +8425,7 @@ async function renderCash() {
         <span><b>Ajuste para igualar ao banco</b>${money(balanceDifference)}</span>
         <span><b>Valores a receber das sócias</b>${money(calculation.debtVanessa + calculation.debtRaquel)}<small>Não estão no banco</small></span>
         ${calculation.realPaymentVanessa + calculation.realPaymentRaquel > 0 ? `<span><b>Pagamento real recebido</b>${money(calculation.realPaymentVanessa + calculation.realPaymentRaquel)}<small>Aumenta o caixa, mas não é receita</small></span>` : ""}
-        ${calculation.paidToCashVanessa + calculation.paidToCashRaquel > 0 ? `<span><b>Compensação explícita</b>${money(calculation.paidToCashVanessa + calculation.paidToCashRaquel)}<small>Não movimenta a conta</small></span>` : ""}
+        ${calculation.paidToCashVanessa + calculation.paidToCashRaquel > 0 ? `<span><b>Dívida compensada</b>${money(calculation.paidToCashVanessa + calculation.paidToCashRaquel)}<small>Não movimenta a conta</small></span>` : ""}
         <span><b>Base ajustada para a quebra</b>${money(calculation.distributionBase)}</span>
         <span><b>Total que sai agora</b>${money(actual.total)}<small>${excess > 0 ? `Excede o saldo em ${money(excess)}` : "Dentro do saldo disponível"}</small></span>
         <span><b>Saldo da conta depois</b>${money(accountAfterWithdrawal)}</span>
@@ -8460,28 +8463,38 @@ async function renderCash() {
     const previousSavingsLoanAmount = Number(previousSavingsLoan?.amount || 0);
     const cashAccount = normalizedCashAccount(values.cashAccount);
     const calculatedBalanceBefore = withdrawalCalculatedBalanceForForm();
-    const calculation = withdrawalDistributionCalculation(
+    const initialCalculation = withdrawalDistributionCalculation(
       values.accountBalanceBefore,
       values.priorVanessa,
       values.priorRaquel,
       withdrawalSettlementOptions()
     );
-    const physicalBalance = calculation.physicalBalance;
-    const available = calculation.cashAvailable;
-    const balanceDifference = roundedMoneyValue(physicalBalance - calculatedBalanceBefore);
     const expected = {
-      savings: calculation.expectedSavings,
-      vanessa: calculation.expectedVanessa,
-      raquel: calculation.expectedRaquel
+      savings: initialCalculation.expectedSavings,
+      vanessa: initialCalculation.expectedVanessa,
+      raquel: initialCalculation.expectedRaquel
     };
-    expected.total = calculation.expectedTotal;
+    expected.total = initialCalculation.expectedTotal;
     const split = {
-      distributionBase: calculation.distributionBase,
+      distributionBase: initialCalculation.distributionBase,
       savings: Math.max(0, parseMoneyInput(values.savings)),
       vanessa: Math.max(0, parseMoneyInput(values.vanessa)),
       raquel: Math.max(0, parseMoneyInput(values.raquel))
     };
     split.total = roundedMoneyValue(split.savings + split.vanessa + split.raquel);
+    const calculation = withdrawalDistributionCalculation(
+      values.accountBalanceBefore,
+      values.priorVanessa,
+      values.priorRaquel,
+      {
+        ...withdrawalSettlementOptions(),
+        cashPaidVanessa: split.vanessa,
+        cashPaidRaquel: split.raquel
+      }
+    );
+    const physicalBalance = calculation.physicalBalance;
+    const available = calculation.cashAvailable;
+    const balanceDifference = roundedMoneyValue(physicalBalance - calculatedBalanceBefore);
     const prior = {
       vanessa: calculation.debtVanessa,
       raquel: calculation.debtRaquel
@@ -8493,6 +8506,24 @@ async function renderCash() {
 
     if (split.total > available + 0.009) {
       showToast("A retirada não pode ultrapassar o valor disponível na conta.", "error");
+      return;
+    }
+    if (Math.abs(split.savings - expected.savings) > 0.009) {
+      showToast(
+        `O Cofrinho deve receber exatamente ${Number(state.appConfig.splitSavingsPercent || 0)}% da base da divisão.`,
+        "error"
+      );
+      return;
+    }
+    if (split.vanessa > expected.vanessa + 0.009 || split.raquel > expected.raquel + 0.009) {
+      showToast("Uma sócia não pode retirar mais do que o direito dela na divisão.", "error");
+      return;
+    }
+    if (calculation.pendingVanessa > 0.009 || calculation.pendingRaquel > 0.009) {
+      showToast(
+        "A diferença entre direito e retirada precisa estar coberta pelo saldo devedor em Sócias.",
+        "error"
+      );
       return;
     }
     const savingsLoan = 0;
@@ -13287,7 +13318,7 @@ function managementStatementHtml(data, { includeHeading = false } = {}) {
       <div class="statement-detail"><span>Vanessa — recebeu da conta</span><strong>${money(data.withdrawalAmounts.receivedNowVanessa)}</strong></div>
       <div class="statement-detail"><span>Raquel — recebeu da conta</span><strong>${money(data.withdrawalAmounts.receivedNowRaquel)}</strong></div>
       <div class="statement-detail"><span>Cofrinho</span><strong>${money(data.withdrawalAmounts.savings)}</strong></div>
-      ${data.debtCompensation > 0 ? `<div class="statement-detail"><span>Compensação explícita sem saída da conta</span><strong>${money(data.debtCompensation)}</strong></div>` : ""}
+      ${data.debtCompensation > 0 ? `<div class="statement-detail"><span>Dívida compensada sem saída da conta</span><strong>${money(data.debtCompensation)}</strong></div>` : ""}
       <div class="statement-section-label separated"><span>Movimentação de caixa</span></div>
       <div class="statement-detail"><span>Saldo inicial PF + PJ</span><strong>${money(data.openingCashBalance)}</strong></div>
       <div class="statement-detail"><span>Cofrinho inicial</span><strong>${money(data.openingSavingsBalance)}</strong></div>
@@ -13472,11 +13503,11 @@ function reportPdfWithdrawalRows(data) {
   ];
 
   if (compensationVanessa > 0) {
-    rows.push(["Vanessa - compensação explícita", money(compensationVanessa)]);
+    rows.push(["Vanessa - dívida compensada", money(compensationVanessa)]);
     rows.push(["Vanessa - total recebido + compensado", money(receivedVanessa + compensationVanessa)]);
   }
   if (compensationRaquel > 0) {
-    rows.push(["Raquel - compensação explícita", money(compensationRaquel)]);
+    rows.push(["Raquel - dívida compensada", money(compensationRaquel)]);
     rows.push(["Raquel - total recebido + compensado", money(receivedRaquel + compensationRaquel)]);
   }
 
@@ -14444,7 +14475,7 @@ async function downloadReportXlsx(options = {}) {
         ["Vanessa - ainda não retirou", Number(data.partnerWithdrawalControl?.pendingVanessa || 0)],
         ["Vanessa - saldo devedor em Sócias", Number(data.partnerWithdrawalControl?.priorVanessa || 0)],
         ...(Number(data.partnerWithdrawalControl?.paidToCashVanessa || 0) > 0 ? [
-          ["Vanessa - compensação explícita", Number(data.partnerWithdrawalControl.paidToCashVanessa)],
+          ["Vanessa - dívida compensada", Number(data.partnerWithdrawalControl.paidToCashVanessa)],
           ["Vanessa - total recebido + compensado", Number(withdrawalAmounts.vanessa || 0)]
         ] : []),
         ["Raquel - direito na divisão", Number(data.partnerWithdrawalControl?.expectedRaquel || 0)],
@@ -14452,7 +14483,7 @@ async function downloadReportXlsx(options = {}) {
         ["Raquel - ainda não retirou", Number(data.partnerWithdrawalControl?.pendingRaquel || 0)],
         ["Raquel - saldo devedor em Sócias", Number(data.partnerWithdrawalControl?.priorRaquel || 0)],
         ...(Number(data.partnerWithdrawalControl?.paidToCashRaquel || 0) > 0 ? [
-          ["Raquel - compensação explícita", Number(data.partnerWithdrawalControl.paidToCashRaquel)],
+          ["Raquel - dívida compensada", Number(data.partnerWithdrawalControl.paidToCashRaquel)],
           ["Raquel - total recebido + compensado", Number(withdrawalAmounts.raquel || 0)]
         ] : []),
         ["Vanessa informada", Number(data.partnersRecord?.vanessa || 0)],
@@ -15451,14 +15482,14 @@ function withdrawalPersonReportPanel(data) {
         <div class="metric"><span>Cofrinho (${Number(state.appConfig.splitSavingsPercent || 0)}%)</span><strong>${money(periodTotals.savings)}</strong></div>
         <div class="metric"><span>Vanessa - recebeu da conta</span><strong>${money(periodTotals.vanessa)}</strong></div>
         <div class="metric"><span>Raquel - recebeu da conta</span><strong>${money(periodTotals.raquel)}</strong></div>
-        ${periodTotals.paidToCashVanessa + periodTotals.paidToCashRaquel > 0 ? `<div class="metric"><span>Compensações explícitas</span><strong>${money(periodTotals.paidToCashVanessa + periodTotals.paidToCashRaquel)}</strong></div>` : ""}
+        ${periodTotals.paidToCashVanessa + periodTotals.paidToCashRaquel > 0 ? `<div class="metric"><span>Dívidas compensadas</span><strong>${money(periodTotals.paidToCashVanessa + periodTotals.paidToCashRaquel)}</strong></div>` : ""}
         <div class="metric"><span>Saldo devedor Vanessa em Sócias</span><strong>${money(data.partnerWithdrawalControl?.priorVanessa)}</strong></div>
         <div class="metric"><span>Saldo devedor Raquel em Sócias</span><strong>${money(data.partnerWithdrawalControl?.priorRaquel)}</strong></div>
         <div class="metric"><span>Total que saiu da conta</span><strong>${money(periodTotals.paidNowTotal)}</strong></div>
       </div>
       <div class="table-wrap report-table">
         <table>
-          <thead><tr><th>Destino</th><th>Direito na semana</th><th>Recebeu da conta</th><th>Compensação explícita</th><th>Pendente</th><th>Direito no mês</th><th>Recebeu da conta no mês</th><th>Compensação explícita no mês</th><th>Pendente no mês</th></tr></thead>
+          <thead><tr><th>Destino</th><th>Direito na semana</th><th>Recebeu da conta</th><th>Dívida compensada</th><th>Pendente</th><th>Direito no mês</th><th>Recebeu da conta no mês</th><th>Dívida compensada no mês</th><th>Pendente no mês</th></tr></thead>
           <tbody>
             ${rows.map(row => `
               <tr>
@@ -15480,7 +15511,7 @@ function withdrawalPersonReportPanel(data) {
       ${groups.length ? `
         <div class="table-wrap report-table">
           <table>
-            <thead><tr><th>Data</th><th>Saldo disponível</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Compensações explícitas</th><th>Saiu da conta</th></tr></thead>
+            <thead><tr><th>Data</th><th>Saldo disponível</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Dívidas compensadas</th><th>Saiu da conta</th></tr></thead>
             <tbody>
               ${groups.map(group => `
                 <tr>

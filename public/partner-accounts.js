@@ -164,7 +164,8 @@
       share: positiveMoney(partner.share),
       openingDebt: positiveMoney(partner.openingDebt),
       realPayment: positiveMoney(partner.realPayment),
-      compensation: positiveMoney(partner.compensation)
+      compensation: positiveMoney(partner.compensation),
+      cashPaid: partner.cashPaid == null ? null : positiveMoney(partner.cashPaid)
     })) : [];
     const openingDebtTotal = roundedMoney(
       partners.reduce((sum, partner) => sum + partner.openingDebt, 0)
@@ -181,7 +182,10 @@
       assignedRights = roundedMoney(assignedRights + expectedRight);
       const realPayment = Math.min(partner.openingDebt, partner.realPayment);
       const debtAfterPayment = roundedMoney(partner.openingDebt - realPayment);
-      const compensation = Math.min(debtAfterPayment, expectedRight, partner.compensation);
+      const requestedCompensation = partner.cashPaid == null
+        ? partner.compensation
+        : Math.max(0, roundedMoney(expectedRight - partner.cashPaid));
+      const compensation = Math.min(debtAfterPayment, expectedRight, requestedCompensation);
       return {
         ...partner,
         expectedRight,
@@ -206,9 +210,12 @@
       : 1;
     let partnerCashAssigned = 0;
     calculatedPartners.forEach((partner, index) => {
-      const cashPaid = index === calculatedPartners.length - 1
-        ? Math.min(partner.netClaim, roundedMoney(availableForPartners - partnerCashAssigned))
-        : Math.min(partner.netClaim, roundedMoney(partner.netClaim * paymentRatio));
+      const availableCash = roundedMoney(Math.max(0, availableForPartners - partnerCashAssigned));
+      const cashPaid = partner.cashPaid == null
+        ? index === calculatedPartners.length - 1
+          ? Math.min(partner.netClaim, availableCash)
+          : Math.min(partner.netClaim, roundedMoney(partner.netClaim * paymentRatio))
+        : Math.min(partner.netClaim, partner.cashPaid, availableCash);
       partner.cashPaid = roundedMoney(Math.max(0, cashPaid));
       partnerCashAssigned = roundedMoney(partnerCashAssigned + partner.cashPaid);
       partner.pendingDistribution = roundedMoney(partner.netClaim - partner.cashPaid);

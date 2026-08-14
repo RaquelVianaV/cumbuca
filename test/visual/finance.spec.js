@@ -2029,7 +2029,7 @@ test('linked transfers preserve PF PJ savings totals and stay outside results', 
   });
 });
 
-test('withdrawals keep debts by default and only compensate after explicit selection', async ({
+test('withdrawals automatically compensate the difference between rights and cash received', async ({
   page,
 }, testInfo) => {
   const database = await mockOnlineDatabase(page);
@@ -2096,10 +2096,8 @@ test('withdrawals keep debts by default and only compensate after explicit selec
   const defaultDebtCalculation = await page.evaluate(() =>
     window.withdrawalDistributionCalculation(4750, 200, 50)
   );
-  expect(defaultDebtCalculation.paidToCashVanessa).toBe(0);
-  expect(defaultDebtCalculation.paidToCashRaquel).toBe(0);
-  await form.locator('select[name="partnerActionVanessa"]').selectOption('discount');
-  await form.locator('select[name="partnerActionRaquel"]').selectOption('discount');
+  expect(defaultDebtCalculation.paidToCashVanessa).toBe(200);
+  expect(defaultDebtCalculation.paidToCashRaquel).toBe(50);
   await expect(form.locator('input[name="expectedSavings"]')).toHaveValue('500,00');
   await expect(form.locator('input[name="expectedVanessa"]')).toHaveValue('3.150,00');
   await expect(form.locator('input[name="expectedRaquel"]')).toHaveValue('1.350,00');
@@ -2112,11 +2110,12 @@ test('withdrawals keep debts by default and only compensate after explicit selec
   await expect(form.locator('.withdrawal-preview')).toContainText('R$ 5.000,00');
   await expect(form.locator('.withdrawal-preview')).toContainText('Total que sai agoraR$ 4.750,00');
   await expect(form.locator('.withdrawal-preview')).toContainText(
-    'Vanessa - distribuição totalR$ 3.150,00'
+    'Vanessa - recebe da contaR$ 2.950,00'
   );
   await expect(form.locator('.withdrawal-preview')).toContainText(
-    'Raquel - distribuição totalR$ 1.350,00'
+    'Raquel - recebe da contaR$ 1.300,00'
   );
+  await expect(form.locator('.withdrawal-preview')).toContainText('Dívida compensadaR$ 250,00');
   await form.locator('input[name="vanessa"]').fill('5.000,00');
   await expect(form.locator('.withdrawal-preview')).toContainText('Excede o saldo');
   await form.locator('input[name="vanessa"]').fill('2.950,00');
@@ -2200,18 +2199,13 @@ test('withdrawals keep debts by default and only compensate after explicit selec
   const withdrawalReport = page.locator('.withdrawal-person-panel');
   await expect(withdrawalReport).toContainText('Lucro operacionalR$ 5.000,00');
   await expect(withdrawalReport).toContainText('Cofrinho (10%)R$ 500,00');
-  await expect(withdrawalReport).toContainText('Vanessa - distribuição totalR$ 3.150,00');
-  await expect(withdrawalReport).toContainText('Raquel - distribuição totalR$ 1.350,00');
+  await expect(withdrawalReport).toContainText('Vanessa - recebeu da contaR$ 2.950,00');
+  await expect(withdrawalReport).toContainText('Raquel - recebeu da contaR$ 1.300,00');
   await expect(withdrawalReport).toContainText('Dívidas compensadasR$ 250,00');
   await expect(withdrawalReport).toContainText('Total que saiu da contaR$ 4.750,00');
-  await expect(withdrawalReport).toContainText('Distribuição na semana');
-  await expect(withdrawalReport).toContainText('Distribuição no mês');
-  await expect(withdrawalReport).toContainText(
-    'R$ 3.150,00Recebeu agora R$ 2.950,00 · dívida compensada R$ 200,00'
-  );
-  await expect(withdrawalReport).toContainText(
-    'R$ 1.350,00Recebeu agora R$ 1.300,00 · dívida compensada R$ 50,00'
-  );
+  await expect(withdrawalReport).toContainText('Dívida compensada');
+  await expect(withdrawalReport).toContainText('Recebeu R$ 2.950,00Direito R$ 3.150,00');
+  await expect(withdrawalReport).toContainText('Recebeu R$ 1.300,00Direito R$ 1.350,00');
   await page.screenshot({
     path: testInfo.outputPath('withdrawal-report-breakdown.png'),
     fullPage: true,

@@ -442,7 +442,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /value="unassigned"/);
   assert.match(app, /Caixa real disponível/);
   assert.match(app, /Divisão automática/);
-  assert.match(app, /Tratamento da dívida de cada sócia/);
+  assert.match(app, /Pagamento da dívida antes da divisão/);
   assert.match(app, /Quanto realmente sairá da conta agora/);
   assert.match(app, /Conta-corrente das sócias/);
   assert.match(app, /partnerAccountsPanel/);
@@ -577,8 +577,8 @@ test('account transfers stay linked and outside operational results', () => {
   assert.match(app, /cashAccount: entry\.cashAccount \|\| "all"/);
   assert.match(app, /dayOrder: 100/);
   assert.match(app, /function monthlyOrderHasPaidPackage/);
-  assert.match(app, /compensation: options\.compensationVanessa === undefined\s*\? 0/);
-  assert.match(app, /A dívida permanece para a próxima semana/);
+  assert.match(app, /compensation: options\.compensationVanessa === undefined\s*\? openingVanessa/);
+  assert.match(app, /diferença entre o direito e o valor recebido será automaticamente usada/);
   assert.match(css, /\.account-transfer-form/);
   assert.match(
     css,
