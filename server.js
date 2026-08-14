@@ -1998,9 +1998,19 @@ async function financialIntegrity(options = {}) {
   const result = financialIntegritySummary(current.state, backup);
   const restoreValidation = validateBackupPayload(backup);
   const eventsResult = await listEvents(100);
+  const resolvedTechnicalErrorIds = new Set(
+    (eventsResult.events || [])
+      .filter((event) => event.event_type === 'erro_tecnico_resolvido')
+      .map((event) => String(event.detail || '').match(/^Evento (\d+) resolvido:/)?.[1])
+      .filter(Boolean)
+  );
   const recentTechnicalErrors = (eventsResult.events || []).filter((event) => {
     const recent = Date.now() - new Date(event.created_at).getTime() <= 24 * 3600000;
-    return recent && ['erro_api', 'teste_restauracao_falhou'].includes(event.event_type);
+    return (
+      recent &&
+      ['erro_api', 'teste_restauracao_falhou'].includes(event.event_type) &&
+      !resolvedTechnicalErrorIds.has(String(event.id))
+    );
   });
   result.checks.push({
     id: 'backup-restorable',
@@ -3885,6 +3895,27 @@ async function handleRequest(req, res) {
         return;
       }
       sendJson(res, 200, await listEvents(url.searchParams.get('limit')));
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/events/resolve') {
+      if (user?.role !== 'admin') {
+        sendJson(res, 403, { error: 'Acesso restrito ao administrador.' });
+        return;
+      }
+      const payload = await collectBody(req);
+      const eventId = String(payload.id || '').trim();
+      const note = String(payload.note || 'Conferido pela administradora.')
+        .trim()
+        .slice(0, 240);
+      const eventsResult = await listEvents(100);
+      const event = (eventsResult.events || []).find((item) => String(item.id) === eventId);
+      if (!event || !['erro_api', 'teste_restauracao_falhou'].includes(event.event_type)) {
+        sendJson(res, 404, { error: 'Erro técnico não encontrado.' });
+        return;
+      }
+      await writeEvent('erro_tecnico_resolvido', `Evento ${eventId} resolvido: ${note}`, user);
+      sendJson(res, 200, { resolved: true, id: eventId });
       return;
     }
 

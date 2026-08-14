@@ -4229,7 +4229,14 @@ function withdrawalHistoryHtml(monthKey = currentMonthKey()) {
   if (!groups.length) {
     return `<p class="muted">Nenhuma retirada registrada neste mês.</p>`;
   }
+  const legacyGroups = groups.filter(group => !group.partnerWithdrawalSnapshotId);
   return `
+    ${legacyGroups.length ? `
+      <div class="backup-list-state warning-state">
+        <strong>${legacyGroups.length} retirada(s) antiga(s) precisam de revisão</strong>
+        <span>Esses registros não têm o fechamento detalhado. Use Editar para conferir a base, os direitos e os valores pagos.</span>
+      </div>
+    ` : ""}
     <div class="withdrawal-history-list">
       ${groups.map(group => `
         <article class="withdrawal-history-card">
@@ -4263,7 +4270,7 @@ function withdrawalHistoryHtml(monthKey = currentMonthKey()) {
             <small>Conferência: recebido + dívida compensada = direito reconhecido.</small>
             ${group.partnerWithdrawalSnapshotId
               ? `<span class="status-pill">Fechamento salvo</span>`
-              : `<button class="secondary table-action" type="button" data-edit-withdrawal="${escapeHtml(group.key)}">Editar</button>`}
+              : `<button class="secondary table-action" type="button" data-edit-withdrawal="${escapeHtml(group.key)}">Revisar e editar</button>`}
           </footer>
         </article>
       `).join("")}
@@ -8552,6 +8559,37 @@ async function renderCash() {
     }
     if (previousWithdrawal && previousWithdrawal.date !== values.date
       && blockClosedPeriod(previousWithdrawal.date, "editar retiradas")) {
+      return;
+    }
+
+    const duplicateWithdrawal = withdrawalHistoryGroups(state.cash).find(group => {
+      return group.key !== previousWithdrawal?.key
+        && group.date === values.date
+        && !group.mixedCashAccounts
+        && normalizedCashAccount(group.cashAccount) === cashAccount;
+    });
+    if (duplicateWithdrawal) {
+      showToast(`Já existe uma retirada em ${formatIsoDateBr(values.date)} para ${cashAccountLabel(cashAccount)}. Edite o registro existente.`, "error");
+      return;
+    }
+
+    const recognizedVanessa = roundedMoneyValue(split.vanessa + calculation.paidToCashVanessa);
+    const recognizedRaquel = roundedMoneyValue(split.raquel + calculation.paidToCashRaquel);
+    const recognizedTotal = roundedMoneyValue(split.savings + recognizedVanessa + recognizedRaquel);
+    const confirmation = [
+      `Confirmar a retirada de ${formatIsoDateBr(values.date)}?`,
+      "",
+      `Saldo real da conta: ${money(physicalBalance)}`,
+      `Valores a receber das sócias: ${money(calculation.debtVanessa + calculation.debtRaquel)}`,
+      `Base usada na divisão: ${money(calculation.distributionBase)}`,
+      "",
+      `Cofrinho: ${money(split.savings)}`,
+      `Vanessa: recebeu ${money(split.vanessa)} + compensou ${money(calculation.paidToCashVanessa)} = ${money(recognizedVanessa)}`,
+      `Raquel: recebeu ${money(split.raquel)} + compensou ${money(calculation.paidToCashRaquel)} = ${money(recognizedRaquel)}`,
+      `Total reconhecido na divisão: ${money(recognizedTotal)}`,
+      `Total que sai da conta: ${money(split.total)}`
+    ].join("\n");
+    if (!confirm(confirmation)) {
       return;
     }
 
@@ -15659,6 +15697,10 @@ function weeklyClosingPanel(data) {
 }
 
 function monthlyClosingPayload(data) {
+  const recognizedDistribution = Number(data.partnerWithdrawalControl?.distributionTotal || 0);
+  const cashWithdrawals = Number(data.partnerWithdrawalControl?.paidNowTotal || 0);
+  const debtCompensation = Number(data.partnerWithdrawalControl?.paidToCashVanessa || 0)
+    + Number(data.partnerWithdrawalControl?.paidToCashRaquel || 0);
   return {
     id: `${data.periodKey}-${Date.now()}`,
     periodKey: data.periodKey,
@@ -15669,6 +15711,15 @@ function monthlyClosingPayload(data) {
     withdrawals: data.financial.withdrawals,
     availableForWithdrawal: operationalResultForReport(data),
     suggestedWithdrawal: data.financial.suggestedWithdrawal,
+    accountBalance: data.accountBalance,
+    savingsBalance: data.savingsBalance,
+    consolidatedBalance: data.consolidatedBalance,
+    cashWithdrawals,
+    debtCompensation,
+    recognizedDistribution,
+    distributionDifferenceFromProfit: roundedMoneyValue(
+      recognizedDistribution - operationalProfitForReport(data)
+    ),
     cashEntries: data.cashEntries.length,
     locked: true
   };
@@ -15678,6 +15729,12 @@ function monthlyClosingPanel(data) {
   const closing = state.monthlyClosings[data.periodKey];
   const locked = isMonthClosed(`${data.periodKey}-01`);
   const canReopen = Boolean(closing && locked && canUser("manageClosings"));
+  const operationalProfit = operationalProfitForReport(data);
+  const cashWithdrawals = Number(data.partnerWithdrawalControl?.paidNowTotal || 0);
+  const debtCompensation = Number(data.partnerWithdrawalControl?.paidToCashVanessa || 0)
+    + Number(data.partnerWithdrawalControl?.paidToCashRaquel || 0);
+  const recognizedDistribution = Number(data.partnerWithdrawalControl?.distributionTotal || 0);
+  const distributionDifference = roundedMoneyValue(recognizedDistribution - operationalProfit);
 
   return `
     <section class="panel report-section">
@@ -15691,11 +15748,28 @@ function monthlyClosingPanel(data) {
           ${canReopen ? `<button class="secondary" type="button" id="unlock-month" aria-controls="reopen-month-form" aria-expanded="false">Reabrir mês</button>` : ""}
         </div>
       </div>
+      <h3>1. Resultado do negócio</h3>
+      <p class="muted">Mostra somente receitas e custos operacionais do mês.</p>
       <div class="summary">
         <div class="metric"><span>Faturamento</span><strong>${money(data.financial.income)}</strong></div>
         <div class="metric"><span>Custos operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
-        <div class="metric"><span>Lucro operacional</span><strong>${money(operationalProfitForReport(data))}</strong></div>
+        <div class="metric"><span>Lucro operacional</span><strong>${money(operationalProfit)}</strong></div>
+      </div>
+      <h3>2. Caixa no fim do período</h3>
+      <p class="muted">É o dinheiro real nas contas; pode incluir saldo anterior, ajustes e outros movimentos.</p>
+      <div class="summary">
+        <div class="metric"><span>Conta PF + PJ</span><strong>${money(data.accountBalance)}</strong></div>
+        <div class="metric"><span>Cofrinho</span><strong>${money(data.savingsBalance)}</strong></div>
+        <div class="metric"><span>Caixa consolidado</span><strong>${money(data.consolidatedBalance)}</strong></div>
+        <div class="metric"><span>Saiu da conta em retiradas</span><strong>${money(cashWithdrawals)}</strong></div>
+      </div>
+      <h3>3. Distribuição das sócias</h3>
+      <p class="muted">Recebido da conta e dívida compensada são separados. A compensação não movimenta o caixa.</p>
+      <div class="summary">
         ${withdrawalBreakdownMetrics(data.financial.withdrawals, "metric", data.partnerWithdrawalControl)}
+        <div class="metric"><span>Dívidas compensadas</span><strong>${money(debtCompensation)}</strong></div>
+        <div class="metric"><span>Total reconhecido na distribuição</span><strong>${money(recognizedDistribution)}</strong></div>
+        <div class="metric"><span>Diferença para o lucro operacional</span><strong class="${Math.abs(distributionDifference) >= 0.01 ? "negative" : "positive"}">${money(distributionDifference)}</strong><small>Não precisa ser zero: retiradas podem usar saldo anterior ou ocorrer em outro período.</small></div>
       </div>
       ${canReopen ? `
         <form id="reopen-month-form" class="closing-reopen-form" hidden>
@@ -15713,6 +15787,10 @@ function monthlyClosingPanel(data) {
         <div class="closing-record">
           <span><b>Fechado em</b>${new Date(closing.closedAt).toLocaleString("pt-BR")}</span>
           <span><b>Resultado registrado</b>${money(closing.availableForWithdrawal)}</span>
+          <span><b>Caixa consolidado</b>${money(closing.consolidatedBalance ?? data.consolidatedBalance)}</span>
+          <span><b>Saiu da conta</b>${money(closing.cashWithdrawals ?? cashWithdrawals)}</span>
+          <span><b>Distribuição reconhecida</b>${money(closing.recognizedDistribution ?? recognizedDistribution)}</span>
+          <span><b>Compensação sem caixa</b>${money(closing.debtCompensation ?? debtCompensation)}</span>
           <span><b>Cofrinho sugerido</b>${money(closing.suggestedWithdrawal?.savings || 0)}</span>
           <span><b>Vanessa sugerido</b>${money(closing.suggestedWithdrawal?.vanessa || 0)}</span>
           <span><b>Raquel sugerido</b>${money(closing.suggestedWithdrawal?.raquel || 0)}</span>
@@ -18556,11 +18634,20 @@ function bindMonthlyClosing(data, renderFn) {
   const closeMonthButton = document.querySelector("#close-month");
   if (closeMonthButton) {
     closeMonthButton.addEventListener("click", async () => {
-      if (!confirm(`Fechar ${formatMonthKeyBr(data.periodKey)}?`)) {
+      const closing = monthlyClosingPayload(data);
+      const message = [
+        `Fechar ${formatMonthKeyBr(data.periodKey)}?`,
+        "",
+        `Lucro operacional: ${money(closing.profitBeforeWithdrawals)}`,
+        `Caixa consolidado: ${money(closing.consolidatedBalance)}`,
+        `Saiu da conta em retiradas: ${money(closing.cashWithdrawals)}`,
+        `Dívidas compensadas: ${money(closing.debtCompensation)}`,
+        `Distribuição reconhecida: ${money(closing.recognizedDistribution)}`,
+        `Diferença entre distribuição e lucro: ${money(closing.distributionDifferenceFromProfit)}`
+      ].join("\n");
+      if (!confirm(message)) {
         return;
       }
-
-      const closing = monthlyClosingPayload(data);
       await saveClosing("month", data.periodKey, closing);
     });
   }
@@ -18635,6 +18722,20 @@ function financialIntegrityHtml(result) {
         </article>
       `).join("")}
     </div>
+    ${(result.recentTechnicalErrors || []).length ? `
+      <div class="technical-error-list">
+        <h3>Erros técnicos pendentes</h3>
+        ${(result.recentTechnicalErrors || []).map(event => `
+          <article class="integrity-check danger">
+            <div>
+              <b>${escapeHtml(event.event_type === "erro_api" ? "Erro da API" : "Falha no teste de restauração")}</b>
+              <small>${escapeHtml(event.detail || "Sem detalhes")} · ${formatDateTimeBr(event.created_at)}</small>
+            </div>
+            <button class="secondary table-action" type="button" data-resolve-technical-error="${escapeHtml(String(event.id))}">Marcar como resolvido</button>
+          </article>
+        `).join("")}
+      </div>
+    ` : ""}
   `;
 }
 
@@ -18684,6 +18785,27 @@ async function loadFinancialIntegrity(targetId = "financial-integrity-panel") {
     const response = await fetch("/api/financial-integrity", { cache: "no-store" });
     const result = await response.json();
     target.innerHTML = financialIntegrityHtml(result);
+    target.querySelectorAll("[data-resolve-technical-error]").forEach(button => {
+      button.addEventListener("click", async () => {
+        const note = prompt("Como este erro foi resolvido?", "Conferido e corrigido.");
+        if (note === null) return;
+        button.disabled = true;
+        try {
+          const resolveResponse = await fetch("/api/events/resolve", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: button.dataset.resolveTechnicalError, note })
+          });
+          const resolveResult = await resolveResponse.json();
+          if (!resolveResponse.ok) throw new Error(resolveResult.error || "Não foi possível resolver o erro.");
+          showToast("Erro técnico marcado como resolvido.", "success");
+          await loadFinancialIntegrity(targetId);
+        } catch (error) {
+          button.disabled = false;
+          showToast(error.message || "Não foi possível resolver o erro.", "error");
+        }
+      });
+    });
     return result;
   } catch (error) {
     target.innerHTML = financialIntegrityHtml(null);

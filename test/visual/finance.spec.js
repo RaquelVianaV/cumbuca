@@ -1573,13 +1573,13 @@ test('cash entry can use Cofrinho as the reserve account', async ({ page }) => {
     'Conta Cofrinho'
   );
   await page.goto('/financeiro?view=accounts');
-  await expect(
-    page.locator('#financial-account-cash-account option[value="savings"]')
-  ).toHaveText('Conta Cofrinho');
+  await expect(page.locator('#financial-account-cash-account option[value="savings"]')).toHaveText(
+    'Conta Cofrinho'
+  );
   await page.goto('/fluxo-de-caixa?panel=reconciliation');
-  await expect(
-    page.locator('#daily-reconciliation-account option[value="savings"]')
-  ).toHaveText('Conta Cofrinho');
+  await expect(page.locator('#daily-reconciliation-account option[value="savings"]')).toHaveText(
+    'Conta Cofrinho'
+  );
   await page.goto('/fluxo-de-caixa?panel=entry');
   await page.locator('#cash-type').selectOption('expense');
   await form.locator('input[name="description"]').fill('Compra paga pela reserva');
@@ -1990,7 +1990,9 @@ test('linked transfers preserve PF PJ savings totals and stay outside results', 
   editedTransferDateValue.setDate(editedTransferDateValue.getDate() - 1);
   const editedTransferDate = localDateKey(editedTransferDateValue);
   await originalRow.getByRole('button', { name: 'Editar data', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Editar transferência', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Editar transferência', exact: true })
+  ).toBeVisible();
   await expect(page.locator('#account-transfer-form input[name="date"]')).toBeFocused();
   await page.locator('#account-transfer-form input[name="date"]').fill(editedTransferDate);
   await page
@@ -2029,9 +2031,7 @@ test('linked transfers preserve PF PJ savings totals and stay outside results', 
   });
 });
 
-test('withdrawals compensate debt only after an explicit choice', async ({
-  page,
-}, testInfo) => {
+test('withdrawals compensate debt only after an explicit choice', async ({ page }, testInfo) => {
   const database = await mockOnlineDatabase(page);
   const today = localDateKey();
   database.state = {
@@ -2132,6 +2132,7 @@ test('withdrawals compensate debt only after an explicit choice', async ({
   expect(legacyReconstruction.vanessa).toBeCloseTo(3150, 2);
   expect(legacyReconstruction.raquel).toBeCloseTo(1350, 2);
   await expectNoHorizontalOverflow(page);
+  page.once('dialog', (dialog) => dialog.accept());
   await form.getByRole('button', { name: 'Registrar retiradas', exact: true }).click();
 
   await expect.poll(() => database.state.cashEntries?.length).toBe(5);
