@@ -36,6 +36,8 @@ async function mockOnlineDatabase(page) {
 
 function julyFinancialState() {
   return {
+    reportPeriod: { type: 'month', year: 2026, month: 7 },
+    globalPeriod: { year: 2026, month: 7 },
     cashEntries: [
       {
         id: 'income-july',
@@ -102,6 +104,7 @@ function julyFinancialState() {
         description: 'Retirada - Cofrinho',
         amount: '500.00',
         expectedAmount: '500.00',
+        partnerWithdrawalSnapshotId: 'withdrawal-july-review',
       },
       {
         id: 'withdrawal-july-vanessa',
@@ -112,6 +115,8 @@ function julyFinancialState() {
         amount: '4000.00',
         expectedAmount: '4200.00',
         cashDebtAmount: '200.00',
+        paidToCashAmount: '200.00',
+        partnerWithdrawalSnapshotId: 'withdrawal-july-review',
       },
       {
         id: 'withdrawal-july-raquel',
@@ -122,6 +127,8 @@ function julyFinancialState() {
         amount: '1627.40',
         expectedAmount: '1677.40',
         cashDebtAmount: '50.00',
+        paidToCashAmount: '50.00',
+        partnerWithdrawalSnapshotId: 'withdrawal-july-review',
       },
       {
         id: 'income-june',
@@ -692,7 +699,8 @@ test('DRE separa compras, despesas, distribuições e caixa sem alterar o lucro 
   ).toBeCloseTo(result.finalCashBalance, 2);
   expect(result.html).toContain('Margem após compras');
   expect(result.html).not.toContain('Conciliação com entradas do Financeiro');
-  expect(result.html).toContain('Compensação de dívida sem saída da conta');
+  expect(result.html).toContain('dívida compensada');
+  expect(result.html).toContain('Direito reconhecido que não saiu da conta');
   expect(result.html).toContain('Movimentação de caixa');
   expect(result.html).toContain('Saldo inicial');
 });

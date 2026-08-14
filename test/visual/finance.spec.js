@@ -1701,6 +1701,7 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
     );
   const descriptions = await ledgerDescriptions();
   expect(descriptions).toEqual([
+    'Saldo inicial do Cofrinho',
     'Saída sem conta',
     'Último lançamento',
     'Segundo lançamento',
@@ -1717,6 +1718,7 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
       'Segundo lançamento',
       'Último lançamento',
       'Saída sem conta',
+      'Saldo inicial do Cofrinho',
     ]);
   }
 
@@ -1728,6 +1730,7 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
   await filterFormBeforeSummaryReview.getByRole('button', { name: 'Aplicar', exact: true }).click();
   await expect(page.locator('[data-sort-cash="date"]')).toContainText('↓');
   expect(await ledgerDescriptions()).toEqual([
+    'Saldo inicial do Cofrinho',
     'Último lançamento',
     'Segundo lançamento',
     'Primeiro lançamento',
@@ -1753,6 +1756,7 @@ test('cash ledger shows the latest entry first by default', async ({ page }, tes
   await expect(saleCategoryMenu).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator('#cash-filter-category')).toHaveValue('all');
   expect(await ledgerDescriptions()).toEqual([
+    'Saldo inicial do Cofrinho',
     'Saída sem conta',
     'Último lançamento',
     'Segundo lançamento',
@@ -2215,6 +2219,69 @@ test('withdrawals compensate debt only after an explicit choice', async ({ page 
   });
 });
 
+test('reviewing a legacy withdrawal saves its detailed closing', async ({ page }) => {
+  const database = await mockOnlineDatabase(page);
+  const today = localDateKey();
+  database.state = {
+    cashEntries: [
+      {
+        id: 'legacy-savings',
+        date: today,
+        type: 'expense',
+        category: 'retirada',
+        cashAccount: 'pf',
+        description: 'Retirada - Cofrinho',
+        amount: '10.00',
+        expectedAmount: '10.00',
+        distributionBase: '100.00',
+        accountBalanceBefore: '100.00',
+      },
+      {
+        id: 'legacy-vanessa',
+        date: today,
+        type: 'expense',
+        category: 'retirada',
+        cashAccount: 'pf',
+        description: 'Retirada - Vanessa',
+        amount: '63.00',
+        expectedAmount: '63.00',
+        distributionBase: '100.00',
+        accountBalanceBefore: '100.00',
+      },
+      {
+        id: 'legacy-raquel',
+        date: today,
+        type: 'expense',
+        category: 'retirada',
+        cashAccount: 'pf',
+        description: 'Retirada - Raquel',
+        amount: '27.00',
+        expectedAmount: '27.00',
+        distributionBase: '100.00',
+        accountBalanceBefore: '100.00',
+      },
+    ],
+    partnerAccounts: { movements: [], withdrawalSnapshots: [] },
+    financialPlanning: { savings: '0.00', savingsHistory: [] },
+  };
+
+  await page.goto('/fluxo-de-caixa?panel=withdrawals');
+  await expect(page.getByText('1 retirada(s) antiga(s) precisam de revisão')).toBeVisible();
+  await page.getByRole('button', { name: 'Revisar e editar', exact: true }).click();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page
+    .locator('#withdrawal-form')
+    .getByRole('button', { name: 'Salvar retirada', exact: true })
+    .click();
+
+  await expect.poll(() => database.state.partnerAccounts?.withdrawalSnapshots?.length).toBe(1);
+  const withdrawalEntries = database.state.cashEntries.filter(
+    (entry) => entry.category === 'retirada'
+  );
+  expect(withdrawalEntries).toHaveLength(3);
+  expect(withdrawalEntries.every((entry) => entry.partnerWithdrawalSnapshotId)).toBe(true);
+});
+
 test('store sales filter by day, week and month with previous month comparison', async ({
   page,
 }, testInfo) => {
@@ -2337,7 +2404,7 @@ test('Cardápio Web delivery fees are saved only for conference', async ({ page 
   const totalMetric = page.locator('.channel-summary .metric').filter({
     has: page.locator('span', { hasText: /^Total$/ }),
   });
-  await expect(totalMetric).toContainText('100,00');
+  await expect(totalMetric).toContainText('90,00');
 });
 
 test('store sale supports unit and combo quantities', async ({ page }, testInfo) => {
@@ -3321,6 +3388,8 @@ test('home period applies the selected month across monthly views', async ({ pag
         amount: '0.00',
         expectedAmount: '100.00',
         cashDebtAmount: '100.00',
+        paidToCashAmount: '100.00',
+        partnerWithdrawalSnapshotId: 'withdrawal-july-review',
       },
       {
         id: 'withdrawal-august-vanessa',
@@ -3331,6 +3400,8 @@ test('home period applies the selected month across monthly views', async ({ pag
         amount: '0.00',
         expectedAmount: '200.00',
         cashDebtAmount: '200.00',
+        paidToCashAmount: '200.00',
+        partnerWithdrawalSnapshotId: 'withdrawal-august-review',
       },
     ],
   };

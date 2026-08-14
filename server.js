@@ -1988,6 +1988,23 @@ async function repairFinancialIntegrity(user = null) {
   };
 }
 
+function unresolvedTechnicalErrors(events = [], now = Date.now()) {
+  const resolvedTechnicalErrorIds = new Set(
+    events
+      .filter((event) => event.event_type === 'erro_tecnico_resolvido')
+      .map((event) => String(event.detail || '').match(/^Evento (\d+) resolvido:/)?.[1])
+      .filter(Boolean)
+  );
+  return events.filter((event) => {
+    const recent = now - new Date(event.created_at).getTime() <= 24 * 3600000;
+    return (
+      recent &&
+      ['erro_api', 'teste_restauracao_falhou'].includes(event.event_type) &&
+      !resolvedTechnicalErrorIds.has(String(event.id))
+    );
+  });
+}
+
 async function financialIntegrity(options = {}) {
   const repair = options.repair ? await repairFinancialIntegrity(options.user) : null;
   const current = await readAppState();
@@ -1998,20 +2015,10 @@ async function financialIntegrity(options = {}) {
   const result = financialIntegritySummary(current.state, backup);
   const restoreValidation = validateBackupPayload(backup);
   const eventsResult = await listEvents(100);
-  const resolvedTechnicalErrorIds = new Set(
-    (eventsResult.events || [])
-      .filter((event) => event.event_type === 'erro_tecnico_resolvido')
-      .map((event) => String(event.detail || '').match(/^Evento (\d+) resolvido:/)?.[1])
-      .filter(Boolean)
-  );
-  const recentTechnicalErrors = (eventsResult.events || []).filter((event) => {
-    const recent = Date.now() - new Date(event.created_at).getTime() <= 24 * 3600000;
-    return (
-      recent &&
-      ['erro_api', 'teste_restauracao_falhou'].includes(event.event_type) &&
-      !resolvedTechnicalErrorIds.has(String(event.id))
-    );
-  });
+  const recentTechnicalErrors = unresolvedTechnicalErrors(eventsResult.events || []);
+  const recentResolvedTechnicalErrors = (eventsResult.events || [])
+    .filter((event) => event.event_type === 'erro_tecnico_resolvido')
+    .slice(0, 10);
   result.checks.push({
     id: 'backup-restorable',
     level: restoreValidation.valid ? 'ok' : 'danger',
@@ -2041,6 +2048,7 @@ async function financialIntegrity(options = {}) {
     repair,
     restoreValidation,
     recentTechnicalErrors: recentTechnicalErrors.slice(0, 10),
+    recentResolvedTechnicalErrors,
     externalAlert,
   };
 }
@@ -4067,6 +4075,7 @@ handleRequest._test = {
   partnerAccountRules,
   partnerManualAdjustmentsChanged,
   stateWriteViolation,
+  unresolvedTechnicalErrors,
   safeDownloadFilename,
   validateAppConfig,
   userCan,

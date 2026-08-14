@@ -8451,8 +8451,19 @@ async function renderCash() {
       const excess = roundedMoneyValue(Math.max(0, actual.total - calculation.cashAvailable));
       const pendingVanessa = calculation.pendingVanessa;
       const pendingRaquel = calculation.pendingRaquel;
+      const referenceMonth = String(withdrawalForm.elements.date.value || today).slice(0, 7);
+      const monthFinancial = financialSummary(
+        accountingCashEntries(state.cash).filter(entry => {
+          return String(cashAccountingDate(entry) || "").startsWith(referenceMonth)
+            && !editingWithdrawalIds.includes(String(entry.id));
+        })
+      );
+      const distributionVsProfit = roundedMoneyValue(
+        calculation.distributionBase - monthFinancial.profitBeforeWithdrawals
+      );
       const preview = withdrawalForm.querySelector(".withdrawal-preview");
       preview.innerHTML = `
+        <span><b>Lucro operacional do mês</b>${money(monthFinancial.profitBeforeWithdrawals)}<small>Receitas menos custos; não é o saldo bancário</small></span>
         <span><b>Saldo calculado pelo sistema</b>${money(calculatedBalance)}</span>
         <span><b>Saldo real da conta</b>${money(calculation.physicalBalance)}</span>
         <span><b>Ajuste para igualar ao banco</b>${money(balanceDifference)}</span>
@@ -8460,6 +8471,7 @@ async function renderCash() {
         ${calculation.realPaymentVanessa + calculation.realPaymentRaquel > 0 ? `<span><b>Pagamento real recebido</b>${money(calculation.realPaymentVanessa + calculation.realPaymentRaquel)}<small>Aumenta o caixa, mas não é receita</small></span>` : ""}
         ${calculation.paidToCashVanessa + calculation.paidToCashRaquel > 0 ? `<span><b>Dívida compensada</b>${money(calculation.paidToCashVanessa + calculation.paidToCashRaquel)}<small>Não movimenta a conta</small></span>` : ""}
         <span><b>Base ajustada para a quebra</b>${money(calculation.distributionBase)}</span>
+        <span><b>Diferença entre base e lucro do mês</b>${money(distributionVsProfit)}<small>Pode vir de saldo anterior, ajustes ou ocorrer em outro período</small></span>
         <span><b>Total que sai agora</b>${money(actual.total)}<small>${excess > 0 ? `Excede o saldo em ${money(excess)}` : "Dentro do saldo disponível"}</small></span>
         <span><b>Saldo da conta depois</b>${money(accountAfterWithdrawal)}</span>
         <span><b>Vanessa - recebe da conta</b>${money(actual.vanessa)}<small>${partnerPendingLabel(pendingVanessa)}</small></span>
@@ -8596,9 +8608,9 @@ async function renderCash() {
     const idBase = previousWithdrawal
       ? previousWithdrawal.key.replace(/^withdrawal-/, "")
       : Date.now();
-    const partnerSnapshotId = previousWithdrawal
-      ? String(previousWithdrawal.partnerWithdrawalSnapshotId || "")
-      : `partner-withdrawal-snapshot-${idBase}`;
+    const partnerSnapshotId = String(
+      previousWithdrawal?.partnerWithdrawalSnapshotId || `partner-withdrawal-snapshot-${idBase}`
+    );
     const openingPartnerMovements = partnerAccountMovements().filter(
       movement => String(movement.date || "") <= values.date
     );
@@ -8745,7 +8757,7 @@ async function renderCash() {
       state.cash = state.cash.filter(entry => !previousIds.has(String(entry.id)));
     }
     state.cash.push(...withdrawalEntries);
-    if (!previousWithdrawal) {
+    if (!previousWithdrawal || !previousWithdrawal.partnerWithdrawalSnapshotId) {
       const rangeDate = new Date(`${values.date}T00:00:00`);
       const snapshot = {
         id: partnerSnapshotId,
@@ -15725,6 +15737,57 @@ function monthlyClosingPayload(data) {
   };
 }
 
+function monthlyClosingChecklist(data) {
+  const withdrawalGroups = withdrawalHistoryGroups(data.cashEntries || []);
+  const legacyWithdrawals = withdrawalGroups.filter(group => !group.partnerWithdrawalSnapshotId);
+  const entriesWithoutAccount = (data.cashEntries || []).filter(entry => {
+    return !isAccountTransferCashEntry(entry)
+      && !String(entry.cashAccount || "").trim()
+      && Math.abs(Number(entry.amount || 0)) >= 0.01;
+  });
+  const pendingPartners = roundedMoneyValue(
+    Number(data.partnerWithdrawalControl?.pendingVanessa || 0)
+      + Number(data.partnerWithdrawalControl?.pendingRaquel || 0)
+  );
+  const negativeAccounts = Object.entries(data.accountBalances || {})
+    .filter(([key, value]) => key !== "unified" && Number(value || 0) < -0.009)
+    .map(([key]) => cashAccountLabel(key));
+  return [
+    {
+      id: "legacy-withdrawals",
+      level: legacyWithdrawals.length ? "warning" : "ok",
+      label: "Retiradas com fechamento detalhado",
+      detail: legacyWithdrawals.length
+        ? `${legacyWithdrawals.length} retirada(s) antiga(s) ainda precisam de revisão.`
+        : "Todas as retiradas do mês têm conferência salva."
+    },
+    {
+      id: "entries-without-account",
+      level: entriesWithoutAccount.length ? "warning" : "ok",
+      label: "Lançamentos vinculados a uma conta",
+      detail: entriesWithoutAccount.length
+        ? `${entriesWithoutAccount.length} lançamento(s) estão sem PF, PJ ou Cofrinho.`
+        : "Todos os lançamentos do mês informam a conta."
+    },
+    {
+      id: "pending-distribution",
+      level: pendingPartners > 0.009 ? "warning" : "ok",
+      label: "Distribuições pendentes das sócias",
+      detail: pendingPartners > 0.009
+        ? `${money(pendingPartners)} de direitos ainda não foram pagos nem compensados.`
+        : "Não há distribuição pendente registrada no mês."
+    },
+    {
+      id: "negative-accounts",
+      level: negativeAccounts.length ? "warning" : "ok",
+      label: "Saldos das contas",
+      detail: negativeAccounts.length
+        ? `${negativeAccounts.join(" e ")} com saldo negativo; confirme se o banco está conciliado.`
+        : "PF e PJ estão sem saldo negativo no fim do período."
+    }
+  ];
+}
+
 function monthlyClosingPanel(data) {
   const closing = state.monthlyClosings[data.periodKey];
   const locked = isMonthClosed(`${data.periodKey}-01`);
@@ -15735,6 +15798,8 @@ function monthlyClosingPanel(data) {
     + Number(data.partnerWithdrawalControl?.paidToCashRaquel || 0);
   const recognizedDistribution = Number(data.partnerWithdrawalControl?.distributionTotal || 0);
   const distributionDifference = roundedMoneyValue(recognizedDistribution - operationalProfit);
+  const closingChecklist = monthlyClosingChecklist(data);
+  const closingWarnings = closingChecklist.filter(item => item.level !== "ok");
 
   return `
     <section class="panel report-section">
@@ -15771,6 +15836,17 @@ function monthlyClosingPanel(data) {
         <div class="metric"><span>Total reconhecido na distribuição</span><strong>${money(recognizedDistribution)}</strong></div>
         <div class="metric"><span>Diferença para o lucro operacional</span><strong class="${Math.abs(distributionDifference) >= 0.01 ? "negative" : "positive"}">${money(distributionDifference)}</strong><small>Não precisa ser zero: retiradas podem usar saldo anterior ou ocorrer em outro período.</small></div>
       </div>
+      <h3>4. Conferência antes de fechar</h3>
+      <p class="muted">Itens de atenção não alteram valores automaticamente. Revise-os e decida conscientemente se o mês pode ser fechado.</p>
+      <div class="integrity-check-list monthly-closing-checklist">
+        ${closingChecklist.map(item => `
+          <article class="integrity-check ${item.level}">
+            <span>${item.level === "ok" ? "OK" : "Revisar"}</span>
+            <div><b>${escapeHtml(item.label)}</b><small>${escapeHtml(item.detail)}</small></div>
+          </article>
+        `).join("")}
+      </div>
+      ${closingWarnings.length ? `<p class="backup-list-state warning-state"><strong>${closingWarnings.length} ponto(s) de atenção</strong><span>O fechamento continuará permitido, mas as pendências ficarão visíveis para conferência.</span></p>` : ""}
       ${canReopen ? `
         <form id="reopen-month-form" class="closing-reopen-form" hidden>
           <label>Motivo da reabertura
@@ -18491,6 +18567,9 @@ function financeMonthCommandPanel(data, reportType, weekRange, { showClosing = t
 function bindReportPeriodForm(renderFn, path) {
   const reportFilterForm = document.querySelector("#report-filter-form");
   const reportTypeField = document.querySelector("#report-period-type");
+  if (!reportFilterForm || !reportTypeField) {
+    return;
+  }
   const weekRange = reportWeekRange();
 
   reportTypeField.addEventListener("change", event => {
@@ -18635,6 +18714,7 @@ function bindMonthlyClosing(data, renderFn) {
   if (closeMonthButton) {
     closeMonthButton.addEventListener("click", async () => {
       const closing = monthlyClosingPayload(data);
+      const checklistWarnings = monthlyClosingChecklist(data).filter(item => item.level !== "ok");
       const message = [
         `Fechar ${formatMonthKeyBr(data.periodKey)}?`,
         "",
@@ -18643,8 +18723,11 @@ function bindMonthlyClosing(data, renderFn) {
         `Saiu da conta em retiradas: ${money(closing.cashWithdrawals)}`,
         `Dívidas compensadas: ${money(closing.debtCompensation)}`,
         `Distribuição reconhecida: ${money(closing.recognizedDistribution)}`,
-        `Diferença entre distribuição e lucro: ${money(closing.distributionDifferenceFromProfit)}`
-      ].join("\n");
+        `Diferença entre distribuição e lucro: ${money(closing.distributionDifferenceFromProfit)}`,
+        checklistWarnings.length ? "" : null,
+        checklistWarnings.length ? `ATENÇÃO: ${checklistWarnings.length} item(ns) precisam de revisão:` : null,
+        ...checklistWarnings.map(item => `- ${item.label}: ${item.detail}`)
+      ].filter(value => value !== null).join("\n");
       if (!confirm(message)) {
         return;
       }
@@ -18735,6 +18818,22 @@ function financialIntegrityHtml(result) {
           </article>
         `).join("")}
       </div>
+    ` : ""}
+    ${(result.recentResolvedTechnicalErrors || []).length ? `
+      <details class="technical-error-history">
+        <summary>Erros técnicos resolvidos recentemente (${result.recentResolvedTechnicalErrors.length})</summary>
+        <div class="integrity-check-list">
+          ${result.recentResolvedTechnicalErrors.map(event => `
+            <article class="integrity-check ok">
+              <span>Resolvido</span>
+              <div>
+                <b>${escapeHtml(event.username || "Administradora")}</b>
+                <small>${escapeHtml(event.detail || "Erro conferido.")} · ${formatDateTimeBr(event.created_at)}</small>
+              </div>
+            </article>
+          `).join("")}
+        </div>
+      </details>
     ` : ""}
   `;
 }
@@ -19126,6 +19225,14 @@ function renderFinance() {
     }
     if (activeTab === "accounts") {
       return `
+        <section class="report-grid account-balance-summary">
+          <div class="metric report-metric account-balance-metric has-account-breakdown">
+            <span>Saldo consolidado</span>
+            <strong class="${data.consolidatedBalance < 0 ? "negative" : "positive"}">${money(data.consolidatedBalance)}</strong>
+            <p class="dashboard-unified-label">PF + PJ + Cofrinho</p>
+            ${dashboardAccountBreakdown({ ...data.accountBalances, savings: data.savingsBalance })}
+          </div>
+        </section>
         ${cashForecastPanel(data)}
         ${accountsManagementPanel()}
         ${billsStatusPanel()}
@@ -19179,7 +19286,9 @@ function renderFinance() {
 
   app.innerHTML = `
     ${viewTabsHtml("financeViewTab", activeTab, tabs)}
-    ${financeMonthCommandPanel(data, reportType, weekRange, { showClosing: activeTab === "closing" })}
+    ${["summary", "pending", "cash", "withdrawals", "audit", "closing"].includes(activeTab)
+      ? financeMonthCommandPanel(data, reportType, weekRange, { showClosing: activeTab === "closing" })
+      : ""}
     <div class="view-pane" data-view-pane="${activeTab}">${activePane}</div>
   `;
 

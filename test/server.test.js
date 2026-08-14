@@ -21,12 +21,43 @@ const {
   normalizeState,
   normalizedPermissions,
   stateWriteViolation,
+  unresolvedTechnicalErrors,
   safeDownloadFilename,
   validateAppConfig,
   userCan,
   validateBackupPayload,
   weekRangeFromDate,
 } = handleRequest._test;
+
+test('erros técnicos resolvidos saem das pendências sem apagar o histórico', () => {
+  const now = new Date('2026-08-14T12:00:00.000Z').getTime();
+  const events = [
+    {
+      id: 10,
+      event_type: 'erro_api',
+      detail: 'POST /api/state: falha de teste',
+      created_at: '2026-08-14T10:00:00.000Z',
+    },
+    {
+      id: 11,
+      event_type: 'erro_api',
+      detail: 'GET /api/state: continua pendente',
+      created_at: '2026-08-14T11:00:00.000Z',
+    },
+    {
+      id: 12,
+      event_type: 'erro_tecnico_resolvido',
+      detail: 'Evento 10 resolvido: corrigido e conferido',
+      created_at: '2026-08-14T11:30:00.000Z',
+    },
+  ];
+
+  assert.deepEqual(
+    unresolvedTechnicalErrors(events, now).map((event) => event.id),
+    [11]
+  );
+  assert.equal(events.length, 3);
+});
 
 test('static paths stay inside public and download names cannot inject headers', () => {
   const publicRoot = path.resolve(__dirname, '../public');

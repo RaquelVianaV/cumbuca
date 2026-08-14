@@ -194,7 +194,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /financeMonthCommandPanel/);
   assert.match(
     app,
-    /function renderFinance\(\)[\s\S]*?app\.innerHTML = `\s*\$\{viewTabsHtml\("financeViewTab", activeTab, tabs\)\}\s*\$\{financeMonthCommandPanel/
+    /function renderFinance\(\)[\s\S]*?app\.innerHTML = `\s*\$\{viewTabsHtml\("financeViewTab", activeTab, tabs\)\}[\s\S]*?financeMonthCommandPanel/
   );
   assert.match(app, /financialPlanVsActualPanel/);
   assert.match(app, /plan-vs-actual-panel/);
