@@ -162,9 +162,7 @@ function applyConfirmedHistoricalCorrections(state) {
   const vanessaEntry = (state.cashEntries || []).find((entry) => {
     return (
       String(entry.date || '').slice(0, 10) === '2026-08-10' &&
-      String(entry.cashAccount || '').toLowerCase() === 'pf' &&
       /vanessa/i.test(String(entry.description || '')) &&
-      Math.abs(Number(entry.expectedAmount || 0) - 1839.67) < 0.01 &&
       Math.abs(Number(entry.amount || 0) - 1441.68) < 0.01
     );
   });
@@ -173,6 +171,7 @@ function applyConfirmedHistoricalCorrections(state) {
   }
 
   vanessaEntry.paidToCashAmount = amount.toFixed(2);
+  vanessaEntry.expectedAmount = '1839.67';
   vanessaEntry.cashDebtAmount = amount.toFixed(2);
   vanessaEntry.priorWithdrawalAmount = amount.toFixed(2);
   vanessaEntry.remainingDebtAmount = '0.00';

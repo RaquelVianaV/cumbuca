@@ -36,10 +36,8 @@ test('corrige somente a compensação confirmada de Vanessa em 10/08/2026', () =
       {
         id: 'withdrawal-confirmed-vanessa',
         date: '2026-08-10',
-        cashAccount: 'pf',
         description: 'Retirada - Vanessa',
         amount: '1441.68',
-        expectedAmount: '1839.67',
       },
       {
         id: 'another-withdrawal',

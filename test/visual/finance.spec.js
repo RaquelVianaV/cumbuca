@@ -2282,6 +2282,50 @@ test('reviewing a legacy withdrawal saves its detailed closing', async ({ page }
   expect(withdrawalEntries.every((entry) => entry.partnerWithdrawalSnapshotId)).toBe(true);
 });
 
+test('confirmed Vanessa compensation is not shown as pending', async ({ page }) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    cashEntries: [
+      {
+        id: 'confirmed-savings-2026-08-10',
+        date: '2026-08-10',
+        type: 'expense',
+        category: 'retirada',
+        cashAccount: 'pf',
+        description: 'Retirada - Cofrinho',
+        amount: '292.01',
+        expectedAmount: '292.01',
+      },
+      {
+        id: 'confirmed-vanessa-2026-08-10',
+        date: '2026-08-10',
+        type: 'expense',
+        category: 'retirada',
+        cashAccount: 'pf',
+        description: 'Retirada - Vanessa',
+        amount: '1441.68',
+        expectedAmount: '1839.67',
+      },
+      {
+        id: 'confirmed-raquel-2026-08-10',
+        date: '2026-08-10',
+        type: 'expense',
+        category: 'retirada',
+        cashAccount: 'pf',
+        description: 'Retirada - Raquel',
+        amount: '788.43',
+        expectedAmount: '788.43',
+      },
+    ],
+  };
+
+  await page.goto('/fluxo-de-caixa?panel=withdrawals');
+  const vanessaCard = page.locator('.withdrawal-partner-card').filter({ hasText: 'Vanessa' });
+  await expect(vanessaCard).toContainText('Dívida compensadaR$ 397,99');
+  await expect(vanessaCard).toContainText('SituaçãoQuitado');
+  await expect(vanessaCard).not.toContainText('Ainda não retirou');
+});
+
 test('store sales filter by day, week and month with previous month comparison', async ({
   page,
 }, testInfo) => {
