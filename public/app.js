@@ -3720,7 +3720,13 @@ function cashDisplayCategoryName(entry = {}) {
 
 function withdrawalGroupKey(entry = {}) {
   const match = String(entry.id || "").match(/^withdrawal-(.+)-(savings|vanessa|raquel)$/);
-  return match ? `withdrawal-${match[1]}` : String(entry.id || "");
+  if (match) return `withdrawal-${match[1]}`;
+  if (entry.withdrawalGroup) return String(entry.withdrawalGroup);
+  if (entry.partnerWithdrawalSnapshotId) {
+    return `withdrawal-${entry.partnerWithdrawalSnapshotId}`;
+  }
+  const account = normalizedCashAccount(entry.cashAccount, "unassigned");
+  return `legacy-withdrawal-${String(entry.date || "sem-data")}-${account}`;
 }
 
 function withdrawalSavingsLoanId(groupKey = "") {
@@ -4228,26 +4234,43 @@ function withdrawalHistoryHtml(monthKey = currentMonthKey()) {
     return `<p class="muted">Nenhuma retirada registrada neste mês.</p>`;
   }
   return `
-    <div class="table-wrap report-table">
-      <table>
-        <thead><tr><th>Data</th><th>Conta</th><th>Saldo disponível</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Saiu da conta</th><th></th></tr></thead>
-        <tbody>
-          ${groups.map(group => `
-            <tr>
-              <td>${formatIsoDateBr(group.date)}</td>
-              <td>${group.mixedCashAccounts ? "Mais de uma conta" : cashAccountLabel(group.cashAccount)}</td>
-              <td>${money(group.accountBalanceBefore)}</td>
-              <td>${money(group.savings)}<br><small>${Number(state.appConfig.splitSavingsPercent || 0)}% bruto ${money(group.expectedSavings)}</small></td>
-              <td><strong>Recebeu ${money(group.vanessa)}</strong><br><small>Direito ${money(group.expectedVanessa)} · ${partnerPendingLabel(group.pendingVanessa)}${group.paidToCashVanessa > 0 ? ` · dívida compensada ${money(group.paidToCashVanessa)}` : ""}</small></td>
-              <td><strong>Recebeu ${money(group.raquel)}</strong><br><small>Direito ${money(group.expectedRaquel)} · ${partnerPendingLabel(group.pendingRaquel)}${group.paidToCashRaquel > 0 ? ` · dívida compensada ${money(group.paidToCashRaquel)}` : ""}</small></td>
-              <td><strong>${money(group.total)}</strong></td>
-              <td>${group.partnerWithdrawalSnapshotId
-                ? `<span class="status-pill">Snapshot salvo</span>`
-                : `<button class="secondary table-action" type="button" data-edit-withdrawal="${escapeHtml(group.key)}">Editar</button>`}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
+    <div class="withdrawal-history-list">
+      ${groups.map(group => `
+        <article class="withdrawal-history-card">
+          <header>
+            <div>
+              <strong>${formatIsoDateBr(group.date)}</strong>
+              <small>${group.mixedCashAccounts ? "Mais de uma conta" : cashAccountLabel(group.cashAccount)}</small>
+            </div>
+            <div class="withdrawal-history-cash-total">
+              <small>Saiu da conta</small>
+              <strong>${money(group.total)}</strong>
+            </div>
+          </header>
+          <div class="withdrawal-history-overview">
+            <span><small>Base da divisão</small><strong>${money(group.distributionBase || group.accountBalanceBefore)}</strong></span>
+            <span><small>Saldo real usado</small><strong>${money(group.accountBalanceBefore)}</strong></span>
+            <span><small>Cofrinho</small><strong>${money(group.savings)}</strong><small>Direito ${money(group.expectedSavings)}</small></span>
+          </div>
+          <div class="withdrawal-partner-cards">
+            ${[["Vanessa", group.expectedVanessa, group.vanessa, group.paidToCashVanessa, group.pendingVanessa], ["Raquel", group.expectedRaquel, group.raquel, group.paidToCashRaquel, group.pendingRaquel]].map(([name, expected, received, compensated, pending]) => `
+              <section class="withdrawal-partner-card">
+                <h4>${name}</h4>
+                <span><small>Direito na divisão</small><strong>${money(expected)}</strong></span>
+                <span><small>Recebeu da conta</small><strong>${money(received)}</strong></span>
+                <span><small>Dívida compensada</small><strong>${money(compensated)}</strong></span>
+                <span><small>Situação</small><strong>${partnerPendingLabel(pending)}</strong></span>
+              </section>
+            `).join("")}
+          </div>
+          <footer>
+            <small>Conferência: recebido + dívida compensada = direito reconhecido.</small>
+            ${group.partnerWithdrawalSnapshotId
+              ? `<span class="status-pill">Fechamento salvo</span>`
+              : `<button class="secondary table-action" type="button" data-edit-withdrawal="${escapeHtml(group.key)}">Editar</button>`}
+          </footer>
+        </article>
+      `).join("")}
     </div>
   `;
 }
