@@ -13450,26 +13450,33 @@ function reportPdfWithdrawalRows(data) {
   const informedVanessa = Number(partners.vanessa || 0);
   const informedRaquel = Number(partners.raquel || 0);
   const differenceTotal = Number(partners.difference || 0) || automaticDifferenceTotal;
+  const compensationVanessa = Number(data.partnerWithdrawalControl?.paidToCashVanessa || 0);
+  const compensationRaquel = Number(data.partnerWithdrawalControl?.paidToCashRaquel || 0);
+  const receivedVanessa = Number(data.financial.withdrawals.vanessa || 0);
+  const receivedRaquel = Number(data.financial.withdrawals.raquel || 0);
   const rows = [
     ["Lucro operacional", money(operationalProfitForReport(data))],
     ["Total que saiu da conta", money(data.partnerWithdrawalControl?.paidNowTotal)],
     [`Cofrinho - direito de ${Number(state.appConfig.splitSavingsPercent || 0)}%`, money(data.partnerWithdrawalControl?.expectedSavings)],
     ["Cofrinho - transferido agora", money(data.financial.withdrawals.savings)],
     ["Vanessa - direito na divisão", money(data.partnerWithdrawalControl?.expectedVanessa)],
-    ["Vanessa - saldo devedor em Sócias", money(data.partnerWithdrawalControl?.priorVanessa)],
-    ["Vanessa - dívida compensada", money(data.partnerWithdrawalControl?.paidToCashVanessa)],
-    ["Vanessa - recebeu agora", money(data.financial.withdrawals.vanessa)],
-    ["Vanessa - distribuição total", money(Number(data.financial.withdrawals.vanessa || 0) + Number(data.partnerWithdrawalControl?.paidToCashVanessa || 0))],
-    ["Vanessa - dívida restante", money(data.partnerWithdrawalControl?.remainingDebtVanessa)],
+    ["Vanessa - recebeu da conta", money(receivedVanessa)],
     ["Vanessa - ainda não retirou", money(data.partnerWithdrawalControl?.pendingVanessa)],
+    ["Vanessa - saldo devedor em Sócias", money(data.partnerWithdrawalControl?.priorVanessa)],
     ["Raquel - direito na divisão", money(data.partnerWithdrawalControl?.expectedRaquel)],
+    ["Raquel - recebeu da conta", money(receivedRaquel)],
+    ["Raquel - ainda não retirou", money(data.partnerWithdrawalControl?.pendingRaquel)],
     ["Raquel - saldo devedor em Sócias", money(data.partnerWithdrawalControl?.priorRaquel)],
-    ["Raquel - dívida compensada", money(data.partnerWithdrawalControl?.paidToCashRaquel)],
-    ["Raquel - recebeu agora", money(data.financial.withdrawals.raquel)],
-    ["Raquel - distribuição total", money(Number(data.financial.withdrawals.raquel || 0) + Number(data.partnerWithdrawalControl?.paidToCashRaquel || 0))],
-    ["Raquel - dívida restante", money(data.partnerWithdrawalControl?.remainingDebtRaquel)],
-    ["Raquel - ainda não retirou", money(data.partnerWithdrawalControl?.pendingRaquel)]
   ];
+
+  if (compensationVanessa > 0) {
+    rows.push(["Vanessa - compensação explícita", money(compensationVanessa)]);
+    rows.push(["Vanessa - total recebido + compensado", money(receivedVanessa + compensationVanessa)]);
+  }
+  if (compensationRaquel > 0) {
+    rows.push(["Raquel - compensação explícita", money(compensationRaquel)]);
+    rows.push(["Raquel - total recebido + compensado", money(receivedRaquel + compensationRaquel)]);
+  }
 
   if (informedVanessa > 0 || informedRaquel > 0) {
     rows.push(["Vanessa informada", money(informedVanessa)]);
@@ -14431,15 +14438,21 @@ async function downloadReportXlsx(options = {}) {
       withdrawalRows: [
         ["Cofrinho recebeu", Number(data.financial.withdrawals.savings || 0)],
         ["Vanessa - direito na divisão", Number(data.partnerWithdrawalControl?.expectedVanessa || 0)],
-        ["Vanessa - retirou agora", Number(data.financial.withdrawals.vanessa || 0)],
-        ["Vanessa - pagou ao caixa", Number(data.partnerWithdrawalControl?.paidToCashVanessa || 0)],
-        ["Vanessa - distribuição total", Number(withdrawalAmounts.vanessa || 0)],
+        ["Vanessa - recebeu da conta", Number(data.financial.withdrawals.vanessa || 0)],
         ["Vanessa - ainda não retirou", Number(data.partnerWithdrawalControl?.pendingVanessa || 0)],
+        ["Vanessa - saldo devedor em Sócias", Number(data.partnerWithdrawalControl?.priorVanessa || 0)],
+        ...(Number(data.partnerWithdrawalControl?.paidToCashVanessa || 0) > 0 ? [
+          ["Vanessa - compensação explícita", Number(data.partnerWithdrawalControl.paidToCashVanessa)],
+          ["Vanessa - total recebido + compensado", Number(withdrawalAmounts.vanessa || 0)]
+        ] : []),
         ["Raquel - direito na divisão", Number(data.partnerWithdrawalControl?.expectedRaquel || 0)],
-        ["Raquel - retirou agora", Number(data.financial.withdrawals.raquel || 0)],
-        ["Raquel - pagou ao caixa", Number(data.partnerWithdrawalControl?.paidToCashRaquel || 0)],
-        ["Raquel - distribuição total", Number(withdrawalAmounts.raquel || 0)],
+        ["Raquel - recebeu da conta", Number(data.financial.withdrawals.raquel || 0)],
         ["Raquel - ainda não retirou", Number(data.partnerWithdrawalControl?.pendingRaquel || 0)],
+        ["Raquel - saldo devedor em Sócias", Number(data.partnerWithdrawalControl?.priorRaquel || 0)],
+        ...(Number(data.partnerWithdrawalControl?.paidToCashRaquel || 0) > 0 ? [
+          ["Raquel - compensação explícita", Number(data.partnerWithdrawalControl.paidToCashRaquel)],
+          ["Raquel - total recebido + compensado", Number(withdrawalAmounts.raquel || 0)]
+        ] : []),
         ["Vanessa informada", Number(data.partnersRecord?.vanessa || 0)],
         ["Raquel informada", Number(data.partnersRecord?.raquel || 0)],
         ["Compensação manual antiga", Number(data.partnersRecord?.difference || 0)]
