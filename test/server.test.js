@@ -9,6 +9,7 @@ process.env.CUMBUCA_PASSWORD = testPassword;
 process.env.VERCEL = '1';
 const handleRequest = require('../server');
 const {
+  applyConfirmedHistoricalCorrections,
   backupVersionId,
   bulkFinancialClearRequested,
   calculateCashFlow,
@@ -28,6 +29,40 @@ const {
   validateBackupPayload,
   weekRangeFromDate,
 } = handleRequest._test;
+
+test('corrige somente a compensação confirmada de Vanessa em 10/08/2026', () => {
+  const state = {
+    cashEntries: [
+      {
+        id: 'withdrawal-confirmed-vanessa',
+        date: '2026-08-10',
+        cashAccount: 'pf',
+        description: 'Retirada - Vanessa',
+        amount: '1441.68',
+        expectedAmount: '1839.67',
+      },
+      {
+        id: 'another-withdrawal',
+        date: '2026-08-11',
+        cashAccount: 'pf',
+        description: 'Retirada - Vanessa',
+        amount: '100.00',
+        expectedAmount: '200.00',
+      },
+    ],
+    partnerAccounts: { movements: [] },
+  };
+
+  applyConfirmedHistoricalCorrections(state);
+  applyConfirmedHistoricalCorrections(state);
+
+  assert.equal(state.cashEntries[0].paidToCashAmount, '397.99');
+  assert.equal(state.cashEntries[0].remainingDebtAmount, '0.00');
+  assert.equal(state.cashEntries[1].paidToCashAmount, undefined);
+  assert.equal(state.partnerAccounts.movements.length, 1);
+  assert.equal(state.partnerAccounts.movements[0].amount, '397.99');
+  assert.equal(state.partnerAccounts.movements[0].cashImpact, false);
+});
 
 test('erros técnicos resolvidos saem das pendências sem apagar o histórico', () => {
   const now = new Date('2026-08-14T12:00:00.000Z').getTime();
