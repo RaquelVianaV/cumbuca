@@ -572,6 +572,7 @@ test('account transfers stay linked and outside operational results', () => {
   assert.match(app, /function savingsHistoryLedgerEntries/);
   assert.match(app, /cashAccount: entry\.cashAccount \|\| "all"/);
   assert.match(app, /dayOrder: 100/);
+  assert.match(app, /function monthlyOrderHasPaidPackage/);
   assert.match(css, /\.account-transfer-form/);
   assert.match(
     css,

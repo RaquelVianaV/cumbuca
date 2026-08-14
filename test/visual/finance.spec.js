@@ -420,7 +420,7 @@ test('monthly orders allow manual fees and only account for entered values', asy
     paid: false,
     paidAmount: 0,
   });
-  await expect(page.getByText('Mensalidade não lançada', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Mensalidade não paga', { exact: true }).first()).toBeVisible();
 
   await page.locator('[data-edit-order]').first().click();
   await expect(orderForm.locator('input[name="orderValue"]')).toHaveValue('');
@@ -434,7 +434,7 @@ test('monthly orders allow manual fees and only account for entered values', asy
     paid: true,
     paidAmount: 37.5,
   });
-  await expect(page.getByText('Mensalidade lançada', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Mensalidade paga', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('R$ 37,50', { exact: true }).first()).toBeVisible();
 });
 
@@ -557,6 +557,56 @@ test('monthly balance includes orders from other weeks while editing', async ({ 
   await page.locator('#client-toggle').click();
   await page.locator('[data-client-tab="list"]').click();
   await expect(page.locator('[data-client-row="0"]')).toContainText('14 restantes');
+});
+
+test('monthly payment covers orders in later weeks while paid units remain', async ({ page }) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    weeklyMenusByPeriod: {
+      '2026-08-semana-2': [
+        { slot: 1, dish: 'Cumbuca semanal', cost: '10.00', ingredients: [], status: 'planejado' },
+      ],
+    },
+    menuWeek: 2,
+    menuPeriod: { year: 2026, month: 8 },
+    menuDatesByPeriod: {},
+    clients: [
+      {
+        name: 'Thamires',
+        phone: '85999999999',
+        plan: 'mensalista',
+        monthlyQuantity: '20',
+      },
+    ],
+    orders: [
+      {
+        id: 2001,
+        menuKey: '2026-08-semana-1',
+        clientPhone: '85999999999',
+        dishes: [{ slot: 1, quantity: 5 }],
+        amount: 400,
+        paid: true,
+        paidAmount: 400,
+        createdAt: '2026-08-06T12:00:00.000Z',
+      },
+      {
+        id: 2002,
+        menuKey: '2026-08-semana-2',
+        clientPhone: '85999999999',
+        dishes: [{ slot: 1, quantity: 5 }],
+        amount: 0,
+        paid: false,
+        paidAmount: 0,
+        createdAt: '2026-08-13T12:00:00.000Z',
+      },
+    ],
+  };
+
+  await page.goto('/menu-semanal?ano=2026&mes=8&semana=2');
+  await page.locator('#order-toggle').click();
+  await page.locator('[data-order-tab="orders"]').click();
+  await expect(page.getByText('Mensalidade paga', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Mensalidade não paga', { exact: true })).toHaveCount(0);
 });
 
 test('monthly clients renew quantities manually and choose whether to launch the fee', async ({

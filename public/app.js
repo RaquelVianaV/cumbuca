@@ -10690,6 +10690,39 @@ function clientRemainingQuantity(client, currentKey, ignoredOrderId = null) {
   return Math.max(0, clientMonthlyCapacity(client, currentKey, ignoredOrderId) - clientOrderedQuantity(client, currentKey, ignoredOrderId));
 }
 
+function clientPaidMonthlyCapacity(client, currentKey) {
+  const orders = monthlyOrders(currentKey).filter(order => order.clientPhone === client.phone);
+  const basePackagePaid = orders.some(order => (
+    !isMonthlyRenewalRecord(order) && Number(order.amount || 0) > 0
+  ));
+  const paidRenewals = orders
+    .filter(isMonthlyRenewalRecord)
+    .filter(order => Number(order.amount || 0) > 0)
+    .reduce((sum, order) => sum + Math.max(0, Number(order.renewalQuantity || 0)), 0);
+  return (basePackagePaid ? clientMonthlyQuantity(client, currentKey) : 0) + paidRenewals;
+}
+
+function monthlyOrderHasPaidPackage(order, client) {
+  if (isMonthlyRenewalRecord(order)) {
+    return Number(order.amount || 0) > 0;
+  }
+  const currentKey = order.menuKey || menuKey();
+  const paidCapacity = clientPaidMonthlyCapacity(client, currentKey);
+  const orderedThroughThisOrder = productionOrders(monthlyOrders(currentKey))
+    .filter(item => item.clientPhone === client.phone)
+    .sort((left, right) => (
+      String(left.createdAt || "").localeCompare(String(right.createdAt || "")) ||
+      Number(left.id || 0) - Number(right.id || 0)
+    ))
+    .reduce((result, item) => {
+      if (result.finished) return result;
+      result.quantity += orderQuantity(item);
+      if (String(item.id) === String(order.id)) result.finished = true;
+      return result;
+    }, { quantity: 0, finished: false }).quantity;
+  return orderedThroughThisOrder > 0 && orderedThroughThisOrder <= paidCapacity;
+}
+
 function isLowMonthlyQuantity(client, currentKey) {
   const remaining = clientRemainingQuantity(client, currentKey);
   return client.plan === "mensalista" && remaining > 0 && remaining <= LOW_MONTHLY_QUANTITY;
@@ -11131,9 +11164,9 @@ function isOrderPaid(order = {}) {
 
 function paymentBadge(order, client) {
   if (client.plan === "mensalista") {
-    return Number(order.amount || 0) > 0
-      ? `<span class="payment-badge paid">Mensalidade lançada</span>`
-      : `<span class="payment-badge pending">Mensalidade não lançada</span>`;
+    return monthlyOrderHasPaidPackage(order, client)
+      ? `<span class="payment-badge paid">Mensalidade paga</span>`
+      : `<span class="payment-badge pending">Mensalidade não paga</span>`;
   }
   if (isOrderPaid(order)) {
     return `<span class="payment-badge paid">Pago</span>`;
@@ -11262,7 +11295,7 @@ function orderList(plan, currentKey) {
       return false;
     }
     const paymentRecorded = client.plan === "mensalista"
-      ? Number(order.amount || 0) > 0
+      ? monthlyOrderHasPaidPackage(order, client)
       : isOrderPaid(order);
     if (filter.payment === "paid" && !paymentRecorded) {
       return false;
@@ -11342,7 +11375,7 @@ function orderList(plan, currentKey) {
 
 function paymentText(order, client) {
   if (client.plan === "mensalista") {
-    return Number(order.amount || 0) > 0 ? "Mensalidade lançada" : "Mensalidade não lançada";
+    return monthlyOrderHasPaidPackage(order, client) ? "Mensalidade paga" : "Mensalidade não paga";
   }
 
   if (isOrderPaid(order)) {
