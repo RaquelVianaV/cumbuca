@@ -4224,17 +4224,16 @@ function withdrawalHistoryHtml(monthKey = currentMonthKey()) {
   return `
     <div class="table-wrap report-table">
       <table>
-        <thead><tr><th>Data</th><th>Conta</th><th>Saldo disponível</th><th>Distribuição societária</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Saiu da conta</th><th></th></tr></thead>
+        <thead><tr><th>Data</th><th>Conta</th><th>Saldo disponível</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Saiu da conta</th><th></th></tr></thead>
         <tbody>
           ${groups.map(group => `
             <tr>
               <td>${formatIsoDateBr(group.date)}</td>
               <td>${group.mixedCashAccounts ? "Mais de uma conta" : cashAccountLabel(group.cashAccount)}</td>
               <td>${money(group.accountBalanceBefore)}</td>
-              <td><strong>${money(group.savings + group.vanessa + group.paidToCashVanessa + group.raquel + group.paidToCashRaquel)}</strong><br><small>Inclui compensações</small></td>
               <td>${money(group.savings)}<br><small>${Number(state.appConfig.splitSavingsPercent || 0)}% bruto ${money(group.expectedSavings)}</small></td>
-              <td><strong>${money(group.vanessa + group.paidToCashVanessa)}</strong><br><small>Recebeu agora ${money(group.vanessa)} · dívida compensada ${money(group.paidToCashVanessa)} · direito ${money(group.expectedVanessa)}</small></td>
-              <td><strong>${money(group.raquel + group.paidToCashRaquel)}</strong><br><small>Recebeu agora ${money(group.raquel)} · dívida compensada ${money(group.paidToCashRaquel)} · direito ${money(group.expectedRaquel)}</small></td>
+              <td><strong>Recebeu ${money(group.vanessa)}</strong><br><small>Direito ${money(group.expectedVanessa)} · ${partnerPendingLabel(group.pendingVanessa)}${group.paidToCashVanessa > 0 ? ` · compensação explícita ${money(group.paidToCashVanessa)}` : ""}</small></td>
+              <td><strong>Recebeu ${money(group.raquel)}</strong><br><small>Direito ${money(group.expectedRaquel)} · ${partnerPendingLabel(group.pendingRaquel)}${group.paidToCashRaquel > 0 ? ` · compensação explícita ${money(group.paidToCashRaquel)}` : ""}</small></td>
               <td><strong>${money(group.total)}</strong></td>
               <td>${group.partnerWithdrawalSnapshotId
                 ? `<span class="status-pill">Snapshot salvo</span>`
@@ -5070,9 +5069,11 @@ function operationalResultForReport(data = {}) {
 function withdrawalBreakdownMetrics(withdrawals = {}, className = "metric", control = {}) {
   const amounts = withdrawalBreakdownAmounts(withdrawals, control);
   return `
-    <div class="${className}"><span>Vanessa - distribuição total</span><strong>${money(amounts.vanessa)}</strong></div>
+    <div class="${className}"><span>Vanessa - recebeu da conta</span><strong>${money(amounts.receivedNowVanessa)}</strong></div>
     <div class="${className}"><span>Cofrinho transferido</span><strong>${money(amounts.savings)}</strong></div>
-    <div class="${className}"><span>Raquel - distribuição total</span><strong>${money(amounts.raquel)}</strong></div>
+    <div class="${className}"><span>Raquel - recebeu da conta</span><strong>${money(amounts.receivedNowRaquel)}</strong></div>
+    ${amounts.paidToCashVanessa > 0 ? `<div class="${className}"><span>Vanessa - compensação explícita</span><strong>${money(amounts.paidToCashVanessa)}</strong></div>` : ""}
+    ${amounts.paidToCashRaquel > 0 ? `<div class="${className}"><span>Raquel - compensação explícita</span><strong>${money(amounts.paidToCashRaquel)}</strong></div>` : ""}
   `;
 }
 
@@ -5086,8 +5087,7 @@ function withdrawalBreakdownStatement(withdrawals = {}, control = {}) {
     <div class="statement-line"><span>(-) Cofrinho transferido</span><strong>${money(amounts.savings)}</strong></div>
     <div class="statement-line"><span>(-) Raquel recebeu da conta</span><strong>${money(amounts.receivedNowRaquel)}</strong></div>
     <div class="statement-line statement-note"><span>Dinheiro que saiu da conta</span><strong>${money(cashTotal)}</strong></div>
-    <div class="statement-line statement-note"><span>Compensação de dívida (sem saída de caixa)</span><strong>${money(debtCompensation)}</strong></div>
-    <div class="statement-line statement-note"><span>Distribuição societária total</span><strong>${money(amounts.total)}</strong></div>
+    ${debtCompensation > 0 ? `<div class="statement-line statement-note"><span>Compensação explícita (sem saída de caixa)</span><strong>${money(debtCompensation)}</strong></div>` : ""}
   `;
 }
 
@@ -6959,8 +6959,10 @@ async function renderCash() {
             <span><b>Base ajustada para a quebra</b>${money(withdrawalFormValues.distributionBase)}</span>
             <span><b>Total que sai agora</b>${money(withdrawalFormValues.total)}</span>
             <span><b>Saldo da conta depois</b>${money(previewAccountAfterWithdrawal)}</span>
-            <span><b>Vanessa - distribuição total</b>${money(Number(withdrawalFormValues.vanessa || 0) + Number(withdrawalFormValues.paidToCashVanessa || 0))}</span>
-            <span><b>Raquel - distribuição total</b>${money(Number(withdrawalFormValues.raquel || 0) + Number(withdrawalFormValues.paidToCashRaquel || 0))}</span>
+            <span><b>Vanessa - recebe da conta</b>${money(withdrawalFormValues.vanessa)}</span>
+            <span><b>Raquel - recebe da conta</b>${money(withdrawalFormValues.raquel)}</span>
+            ${Number(withdrawalFormValues.paidToCashVanessa || 0) > 0 ? `<span><b>Vanessa - compensação explícita</b>${money(withdrawalFormValues.paidToCashVanessa)}<small>Não movimenta a conta</small></span>` : ""}
+            ${Number(withdrawalFormValues.paidToCashRaquel || 0) > 0 ? `<span><b>Raquel - compensação explícita</b>${money(withdrawalFormValues.paidToCashRaquel)}<small>Não movimenta a conta</small></span>` : ""}
           </div>
           <div class="actions">
             <button type="submit">${editingWithdrawal ? "Salvar retirada" : "Registrar retiradas"}</button>
@@ -8420,12 +8422,12 @@ async function renderCash() {
         <span><b>Ajuste para igualar ao banco</b>${money(balanceDifference)}</span>
         <span><b>Valores a receber das sócias</b>${money(calculation.debtVanessa + calculation.debtRaquel)}<small>Não estão no banco</small></span>
         ${calculation.realPaymentVanessa + calculation.realPaymentRaquel > 0 ? `<span><b>Pagamento real recebido</b>${money(calculation.realPaymentVanessa + calculation.realPaymentRaquel)}<small>Aumenta o caixa, mas não é receita</small></span>` : ""}
-        <span><b>Compensação na distribuição</b>${money(calculation.paidToCashVanessa + calculation.paidToCashRaquel)}<small>Não movimenta a conta</small></span>
+        ${calculation.paidToCashVanessa + calculation.paidToCashRaquel > 0 ? `<span><b>Compensação explícita</b>${money(calculation.paidToCashVanessa + calculation.paidToCashRaquel)}<small>Não movimenta a conta</small></span>` : ""}
         <span><b>Base ajustada para a quebra</b>${money(calculation.distributionBase)}</span>
         <span><b>Total que sai agora</b>${money(actual.total)}<small>${excess > 0 ? `Excede o saldo em ${money(excess)}` : "Dentro do saldo disponível"}</small></span>
         <span><b>Saldo da conta depois</b>${money(accountAfterWithdrawal)}</span>
-        <span><b>Vanessa - distribuição total</b>${money(actual.vanessa + calculation.paidToCashVanessa)}<small>Recebe agora ${money(actual.vanessa)} · ${partnerCashOffsetLabel(calculation.paidToCashVanessa)} · ${partnerPendingLabel(pendingVanessa)}</small></span>
-        <span><b>Raquel - distribuição total</b>${money(actual.raquel + calculation.paidToCashRaquel)}<small>Recebe agora ${money(actual.raquel)} · ${partnerCashOffsetLabel(calculation.paidToCashRaquel)} · ${partnerPendingLabel(pendingRaquel)}</small></span>
+        <span><b>Vanessa - recebe da conta</b>${money(actual.vanessa)}<small>${partnerPendingLabel(pendingVanessa)}</small></span>
+        <span><b>Raquel - recebe da conta</b>${money(actual.raquel)}<small>${partnerPendingLabel(pendingRaquel)}</small></span>
         ${calculation.remainingDebtVanessa > 0 || calculation.remainingDebtRaquel > 0
           ? `<span><b>Dívida que continua pendente</b>Vanessa ${money(calculation.remainingDebtVanessa)} · Raquel ${money(calculation.remainingDebtRaquel)}</span>`
           : ""}
@@ -13281,11 +13283,11 @@ function managementStatementHtml(data, { includeHeading = false } = {}) {
       ` : ""}
       <div class="total"><span>Lucro operacional</span><strong class="${data.operationalProfit < 0 ? "negative" : "positive"}">${money(data.operationalProfit)}</strong></div>
       <p class="management-statement-note">O lucro operacional preserva a fonte do Financeiro: entradas operacionais menos despesas operacionais. Retiradas não alteram esse valor.</p>
-      <div class="statement-section-label separated"><span>Distribuições</span></div>
-      <div class="statement-detail"><span>Vanessa — distribuição total</span><strong>${money(data.withdrawalAmounts.vanessa)}</strong></div>
-      <div class="statement-detail"><span>Raquel — distribuição total</span><strong>${money(data.withdrawalAmounts.raquel)}</strong></div>
+      <div class="statement-section-label separated"><span>Retiradas das sócias</span></div>
+      <div class="statement-detail"><span>Vanessa — recebeu da conta</span><strong>${money(data.withdrawalAmounts.receivedNowVanessa)}</strong></div>
+      <div class="statement-detail"><span>Raquel — recebeu da conta</span><strong>${money(data.withdrawalAmounts.receivedNowRaquel)}</strong></div>
       <div class="statement-detail"><span>Cofrinho</span><strong>${money(data.withdrawalAmounts.savings)}</strong></div>
-      <div class="statement-detail"><span>Compensação de dívida sem saída da conta</span><strong>${money(data.debtCompensation)}</strong></div>
+      ${data.debtCompensation > 0 ? `<div class="statement-detail"><span>Compensação explícita sem saída da conta</span><strong>${money(data.debtCompensation)}</strong></div>` : ""}
       <div class="statement-section-label separated"><span>Movimentação de caixa</span></div>
       <div class="statement-detail"><span>Saldo inicial PF + PJ</span><strong>${money(data.openingCashBalance)}</strong></div>
       <div class="statement-detail"><span>Cofrinho inicial</span><strong>${money(data.openingSavingsBalance)}</strong></div>
@@ -15055,9 +15057,9 @@ function comparisonReportRows(data) {
     ["Entradas", data.income, previousTotals.income],
     ["Saídas", data.expenses, previousTotals.expenses],
     ["Lucro operacional", operationalProfitForReport(data), operationalProfitForReport({ financial: previousFinancial, partnerWithdrawalControl: previousWithdrawalControl })],
-    ["Vanessa - distribuição total", currentWithdrawalAmounts.vanessa, previousWithdrawalAmounts.vanessa],
+    ["Vanessa - recebeu da conta", currentWithdrawalAmounts.receivedNowVanessa, previousWithdrawalAmounts.receivedNowVanessa],
     ["Cofrinho", currentWithdrawalAmounts.savings, previousWithdrawalAmounts.savings],
-    ["Raquel - distribuição total", currentWithdrawalAmounts.raquel, previousWithdrawalAmounts.raquel],
+    ["Raquel - recebeu da conta", currentWithdrawalAmounts.receivedNowRaquel, previousWithdrawalAmounts.receivedNowRaquel],
     ["Pedidos", data.orders.length, previousOrders.length],
     ["Cumbucas", data.totalSoldQuantity, previousOrderQuantity + previousStoreQuantity],
     ["Ticket médio", data.averageTicket, previousAverageTicket]
@@ -15447,14 +15449,16 @@ function withdrawalPersonReportPanel(data) {
       <div class="summary withdrawal-report-summary">
         <div class="metric"><span>Lucro operacional</span><strong>${money(operationalProfitForReport(data))}</strong></div>
         <div class="metric"><span>Cofrinho (${Number(state.appConfig.splitSavingsPercent || 0)}%)</span><strong>${money(periodTotals.savings)}</strong></div>
-        <div class="metric"><span>Vanessa - distribuição total</span><strong>${money(periodTotals.vanessa + periodTotals.paidToCashVanessa)}</strong></div>
-        <div class="metric"><span>Raquel - distribuição total</span><strong>${money(periodTotals.raquel + periodTotals.paidToCashRaquel)}</strong></div>
-        <div class="metric"><span>Dívidas compensadas</span><strong>${money(periodTotals.paidToCashVanessa + periodTotals.paidToCashRaquel)}</strong></div>
+        <div class="metric"><span>Vanessa - recebeu da conta</span><strong>${money(periodTotals.vanessa)}</strong></div>
+        <div class="metric"><span>Raquel - recebeu da conta</span><strong>${money(periodTotals.raquel)}</strong></div>
+        ${periodTotals.paidToCashVanessa + periodTotals.paidToCashRaquel > 0 ? `<div class="metric"><span>Compensações explícitas</span><strong>${money(periodTotals.paidToCashVanessa + periodTotals.paidToCashRaquel)}</strong></div>` : ""}
+        <div class="metric"><span>Saldo devedor Vanessa em Sócias</span><strong>${money(data.partnerWithdrawalControl?.priorVanessa)}</strong></div>
+        <div class="metric"><span>Saldo devedor Raquel em Sócias</span><strong>${money(data.partnerWithdrawalControl?.priorRaquel)}</strong></div>
         <div class="metric"><span>Total que saiu da conta</span><strong>${money(periodTotals.paidNowTotal)}</strong></div>
       </div>
       <div class="table-wrap report-table">
         <table>
-          <thead><tr><th>Destino</th><th>Direito na semana</th><th>Recebeu agora</th><th>Dívida descontada</th><th>Distribuição na semana</th><th>Pendente</th><th>Direito no mês</th><th>Recebeu agora no mês</th><th>Dívida descontada no mês</th><th>Distribuição no mês</th><th>Pendente no mês</th></tr></thead>
+          <thead><tr><th>Destino</th><th>Direito na semana</th><th>Recebeu da conta</th><th>Compensação explícita</th><th>Pendente</th><th>Direito no mês</th><th>Recebeu da conta no mês</th><th>Compensação explícita no mês</th><th>Pendente no mês</th></tr></thead>
           <tbody>
             ${rows.map(row => `
               <tr>
@@ -15462,12 +15466,10 @@ function withdrawalPersonReportPanel(data) {
                 <td>${money(row.expectedWeek)}</td>
                 <td>${money(row.receivedWeek)}</td>
                 <td>${row.key === "savings" ? "-" : money(row.paidToCashWeek)}</td>
-                <td><strong>${money(row.totalWeek)}</strong></td>
                 <td>${row.key === "savings" ? "-" : partnerPendingLabel(row.pendingWeek)}</td>
                 <td>${money(row.expectedMonth)}</td>
                 <td>${money(row.receivedMonth)}</td>
                 <td>${row.key === "savings" ? "-" : money(row.paidToCashMonth)}</td>
-                <td><strong>${money(row.totalMonth)}</strong></td>
                 <td>${row.key === "savings" ? "-" : partnerPendingLabel(row.pendingMonth)}</td>
               </tr>
             `).join("")}
@@ -15478,16 +15480,15 @@ function withdrawalPersonReportPanel(data) {
       ${groups.length ? `
         <div class="table-wrap report-table">
           <table>
-            <thead><tr><th>Data</th><th>Saldo disponível</th><th>Distribuição societária</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Dívidas compensadas</th><th>Saiu da conta</th></tr></thead>
+            <thead><tr><th>Data</th><th>Saldo disponível</th><th>Cofrinho</th><th>Vanessa</th><th>Raquel</th><th>Compensações explícitas</th><th>Saiu da conta</th></tr></thead>
             <tbody>
               ${groups.map(group => `
                 <tr>
                   <td>${formatIsoDateBr(group.date)}</td>
                   <td>${money(group.accountBalanceBefore)}</td>
-                  <td><strong>${money(group.savings + group.vanessa + group.paidToCashVanessa + group.raquel + group.paidToCashRaquel)}</strong><br><small>Inclui compensações</small></td>
                   <td>${money(group.savings)}<br><small>Direito ${money(group.expectedSavings)}</small></td>
-                  <td><strong>${money(group.vanessa + group.paidToCashVanessa)}</strong><br><small>Recebeu agora ${money(group.vanessa)} · dívida compensada ${money(group.paidToCashVanessa)} · direito ${money(group.expectedVanessa)}</small></td>
-                  <td><strong>${money(group.raquel + group.paidToCashRaquel)}</strong><br><small>Recebeu agora ${money(group.raquel)} · dívida compensada ${money(group.paidToCashRaquel)} · direito ${money(group.expectedRaquel)}</small></td>
+                  <td><strong>Recebeu ${money(group.vanessa)}</strong><br><small>Direito ${money(group.expectedVanessa)} · ${partnerPendingLabel(group.pendingVanessa)}</small></td>
+                  <td><strong>Recebeu ${money(group.raquel)}</strong><br><small>Direito ${money(group.expectedRaquel)} · ${partnerPendingLabel(group.pendingRaquel)}</small></td>
                   <td><small>Vanessa ${money(group.paidToCashVanessa)}</small><br><small>Raquel ${money(group.paidToCashRaquel)}</small></td>
                   <td><strong>${money(group.total)}</strong></td>
                 </tr>
