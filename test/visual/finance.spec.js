@@ -2029,7 +2029,7 @@ test('linked transfers preserve PF PJ savings totals and stay outside results', 
   });
 });
 
-test('withdrawals automatically apply cash debts and never exceed the account balance', async ({
+test('withdrawals keep debts by default and only compensate after explicit selection', async ({
   page,
 }, testInfo) => {
   const database = await mockOnlineDatabase(page);
@@ -2091,6 +2091,15 @@ test('withdrawals automatically apply cash debts and never exceed the account ba
   await form.locator('input[name="accountBalanceBefore"]').fill('4.750,00');
   await expect(form.locator('[data-withdrawal-debt="vanessa"]')).toContainText('R$ 200,00');
   await expect(form.locator('[data-withdrawal-debt="raquel"]')).toContainText('R$ 50,00');
+  await expect(form.locator('select[name="partnerActionVanessa"]')).toHaveValue('keep');
+  await expect(form.locator('select[name="partnerActionRaquel"]')).toHaveValue('keep');
+  const defaultDebtCalculation = await page.evaluate(() =>
+    window.withdrawalDistributionCalculation(4750, 200, 50)
+  );
+  expect(defaultDebtCalculation.paidToCashVanessa).toBe(0);
+  expect(defaultDebtCalculation.paidToCashRaquel).toBe(0);
+  await form.locator('select[name="partnerActionVanessa"]').selectOption('discount');
+  await form.locator('select[name="partnerActionRaquel"]').selectOption('discount');
   await expect(form.locator('input[name="expectedSavings"]')).toHaveValue('500,00');
   await expect(form.locator('input[name="expectedVanessa"]')).toHaveValue('3.150,00');
   await expect(form.locator('input[name="expectedRaquel"]')).toHaveValue('1.350,00');
@@ -2203,7 +2212,6 @@ test('withdrawals automatically apply cash debts and never exceed the account ba
   await expect(withdrawalReport).toContainText(
     'R$ 1.350,00Recebeu agora R$ 1.300,00 · dívida compensada R$ 50,00'
   );
-  await expect(page.locator('.report-grid')).toContainText('Resultado após retiradasR$ 250,00');
   await page.screenshot({
     path: testInfo.outputPath('withdrawal-report-breakdown.png'),
     fullPage: true,

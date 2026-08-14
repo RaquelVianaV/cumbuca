@@ -3195,7 +3195,7 @@ function withdrawalDistributionCalculation(
         openingDebt: openingVanessa,
         realPayment: realPaymentVanessa,
         compensation: options.compensationVanessa === undefined
-          ? Math.max(0, openingVanessa - realPaymentVanessa)
+          ? 0
           : Math.max(0, parseMoneyInput(options.compensationVanessa))
       },
       {
@@ -3205,7 +3205,7 @@ function withdrawalDistributionCalculation(
         openingDebt: openingRaquel,
         realPayment: realPaymentRaquel,
         compensation: options.compensationRaquel === undefined
-          ? Math.max(0, openingRaquel - realPaymentRaquel)
+          ? 0
           : Math.max(0, parseMoneyInput(options.compensationRaquel))
       }
     ]
@@ -6910,14 +6910,14 @@ async function renderCash() {
           </div>
           <div class="withdrawal-value-group">
             <strong>3. Tratamento da dívida de cada sócia</strong>
-            <p class="muted-inline">Pagamento recebido aumenta o caixa real. Compensação reduz a dívida e a retirada, sem entrada no banco. O saldo mantido segue automaticamente para a próxima semana.</p>
+            <p class="muted-inline">A dívida permanece para a próxima semana. Ela só diminui quando você escolher explicitamente pagar ou compensar.</p>
             <div class="withdrawal-fields partner-settlement-fields">
               <label>Vanessa
                 <select name="partnerActionVanessa">
-                  <option value="discount" ${withdrawalDebtVanessa > 0 ? "selected" : ""}>Descontar toda a dívida da retirada</option>
+                  <option value="discount">Descontar toda a dívida da retirada</option>
                   <option value="partial">Compensar parcialmente</option>
                   <option value="pay">Pagar agora</option>
-                  <option value="keep" ${withdrawalDebtVanessa <= 0 ? "selected" : ""}>Manter para a próxima semana</option>
+                  <option value="keep" selected>Manter para a próxima semana</option>
                 </select>
               </label>
               <label data-partner-settlement-amount="vanessa">Valor Vanessa
@@ -6925,10 +6925,10 @@ async function renderCash() {
               </label>
               <label>Raquel
                 <select name="partnerActionRaquel">
-                  <option value="discount" ${withdrawalDebtRaquel > 0 ? "selected" : ""}>Descontar toda a dívida da retirada</option>
+                  <option value="discount">Descontar toda a dívida da retirada</option>
                   <option value="partial">Compensar parcialmente</option>
                   <option value="pay">Pagar agora</option>
-                  <option value="keep" ${withdrawalDebtRaquel <= 0 ? "selected" : ""}>Manter para a próxima semana</option>
+                  <option value="keep" selected>Manter para a próxima semana</option>
                 </select>
               </label>
               <label data-partner-settlement-amount="raquel">Valor Raquel

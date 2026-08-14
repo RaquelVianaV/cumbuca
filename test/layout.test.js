@@ -573,6 +573,8 @@ test('account transfers stay linked and outside operational results', () => {
   assert.match(app, /cashAccount: entry\.cashAccount \|\| "all"/);
   assert.match(app, /dayOrder: 100/);
   assert.match(app, /function monthlyOrderHasPaidPackage/);
+  assert.match(app, /compensation: options\.compensationVanessa === undefined\s*\? 0/);
+  assert.match(app, /A dívida permanece para a próxima semana/);
   assert.match(css, /\.account-transfer-form/);
   assert.match(
     css,
