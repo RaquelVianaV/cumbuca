@@ -4063,12 +4063,12 @@ function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
     const inferredPriorRaquel = Math.max(0, expectedRaquel - group.raquel);
     const priorVanessa = group.hasPriorVanessa ? group.priorVanessa : inferredPriorVanessa;
     const priorRaquel = group.hasPriorRaquel ? group.priorRaquel : inferredPriorRaquel;
-    const paidToCashVanessa = group.hasPaidToCashVanessa
-      ? group.paidToCashVanessa
-      : 0;
-    const paidToCashRaquel = group.hasPaidToCashRaquel
-      ? group.paidToCashRaquel
-      : 0;
+    const distributionGapVanessa = Math.max(0, expectedVanessa - group.vanessa);
+    const distributionGapRaquel = Math.max(0, expectedRaquel - group.raquel);
+    const debtAvailableVanessa = Math.max(0, priorVanessa - group.realPaymentVanessa);
+    const debtAvailableRaquel = Math.max(0, priorRaquel - group.realPaymentRaquel);
+    const paidToCashVanessa = Math.min(debtAvailableVanessa, distributionGapVanessa);
+    const paidToCashRaquel = Math.min(debtAvailableRaquel, distributionGapRaquel);
     const netDueVanessa = Math.max(0, expectedVanessa - paidToCashVanessa);
     const netDueRaquel = Math.max(0, expectedRaquel - paidToCashRaquel);
     const pendingVanessa = Math.max(0, netDueVanessa - group.vanessa);
@@ -13316,9 +13316,12 @@ function managementStatementHtml(data, { includeHeading = false } = {}) {
       <p class="management-statement-note">O lucro operacional preserva a fonte do Financeiro: entradas operacionais menos despesas operacionais. Retiradas não alteram esse valor.</p>
       <div class="statement-section-label separated"><span>Retiradas das sócias</span></div>
       <div class="statement-detail"><span>Vanessa — recebeu da conta</span><strong>${money(data.withdrawalAmounts.receivedNowVanessa)}</strong></div>
+      <div class="statement-detail"><span>Vanessa — dívida compensada<small>Direito reconhecido que não saiu da conta.</small></span><strong>${money(data.withdrawalAmounts.paidToCashVanessa)}</strong></div>
+      <div class="subtotal"><span>Vanessa — distribuição reconhecida</span><strong>${money(data.withdrawalAmounts.vanessa)}</strong></div>
       <div class="statement-detail"><span>Raquel — recebeu da conta</span><strong>${money(data.withdrawalAmounts.receivedNowRaquel)}</strong></div>
+      <div class="statement-detail"><span>Raquel — dívida compensada<small>Direito reconhecido que não saiu da conta.</small></span><strong>${money(data.withdrawalAmounts.paidToCashRaquel)}</strong></div>
+      <div class="subtotal"><span>Raquel — distribuição reconhecida</span><strong>${money(data.withdrawalAmounts.raquel)}</strong></div>
       <div class="statement-detail"><span>Cofrinho</span><strong>${money(data.withdrawalAmounts.savings)}</strong></div>
-      ${data.debtCompensation > 0 ? `<div class="statement-detail"><span>Dívida compensada sem saída da conta</span><strong>${money(data.debtCompensation)}</strong></div>` : ""}
       <div class="statement-section-label separated"><span>Movimentação de caixa</span></div>
       <div class="statement-detail"><span>Saldo inicial PF + PJ</span><strong>${money(data.openingCashBalance)}</strong></div>
       <div class="statement-detail"><span>Cofrinho inicial</span><strong>${money(data.openingSavingsBalance)}</strong></div>
