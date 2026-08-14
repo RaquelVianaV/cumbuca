@@ -13304,6 +13304,16 @@ function managementStatementHtml(data, { includeHeading = false } = {}) {
   const visibleExpenseTotal = visibleExpenses.reduce((sum, item) => sum + item.value, 0);
   const remainingExpenses = Math.max(0, data.otherOperationalExpenses - visibleExpenseTotal);
   const adjustments = data.accountAdjustmentTotals.balance;
+  const savingsPercent = Math.max(0, Number(state.appConfig.splitSavingsPercent || 0));
+  const partnerPoolPercent = Math.max(0, 100 - savingsPercent);
+  const savingsExpectedFromPartners = partnerPoolPercent > 0
+    ? roundedMoneyValue(
+        (
+          Number(data.partnerWithdrawalControl.expectedVanessa || 0)
+          + Number(data.withdrawalAmounts.receivedNowRaquel || 0)
+        ) * savingsPercent / partnerPoolPercent
+      )
+    : 0;
   return `
     ${includeHeading ? `
       <div class="executive-card-heading">
@@ -13344,7 +13354,7 @@ function managementStatementHtml(data, { includeHeading = false } = {}) {
       <div class="statement-detail"><span>Raquel — recebeu da conta</span><strong>${money(data.withdrawalAmounts.receivedNowRaquel)}</strong></div>
       <div class="statement-detail"><span>Raquel — dívida compensada<small>Direito reconhecido que não saiu da conta.</small></span><strong>${money(data.withdrawalAmounts.paidToCashRaquel)}</strong></div>
       <div class="subtotal"><span>Raquel — distribuição reconhecida</span><strong>${money(data.withdrawalAmounts.raquel)}</strong></div>
-      <div class="statement-detail"><span>Cofrinho — direito na divisão</span><strong>${money(data.partnerWithdrawalControl.expectedSavings)}</strong></div>
+      <div class="statement-detail"><span>Cofrinho — deveria ter recebido<small>Calculado sobre o direito da Vanessa + o valor recebido pela Raquel.</small></span><strong>${money(savingsExpectedFromPartners)}</strong></div>
       <div class="subtotal"><span>Cofrinho — recebeu da conta</span><strong>${money(data.withdrawalAmounts.savings)}</strong></div>
       <div class="statement-section-label separated"><span>Movimentação de caixa</span></div>
       <div class="statement-detail"><span>Saldo inicial PF + PJ</span><strong>${money(data.openingCashBalance)}</strong></div>
