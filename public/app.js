@@ -14193,24 +14193,37 @@ function channelReportPanel(data) {
         <div class="metric"><span>Média diária</span><strong>${money(current.averageNet)}</strong></div>
         <div class="metric"><span>Comparação anterior</span><strong class="${delta < 0 ? "negative" : "positive"}">${delta < 0 ? "-" : "+"}${money(Math.abs(delta))}</strong></div>
       </div>
-      <div class="dashboard-lane monthly-breakdown">
-        <div class="panel dashboard-panel">
-          <h2>Cardápio Web</h2>
-          <div class="summary">
+      <div class="channel-report-breakdown">
+        <div class="panel channel-report-card channel-report-card-main">
+          <div class="channel-report-heading">
+            <div>
+              <span>Canal próprio</span>
+              <h2>Cardápio Web</h2>
+            </div>
+            <div class="channel-report-total">
+              <span>Total no período</span>
+              <strong>${money(current.totals.cardapioWebNet)}</strong>
+            </div>
+          </div>
+          <div class="channel-report-metrics">
             ${cardapioPaymentDefinitions.map(([paymentKey, label]) => `
               <div class="metric"><span>${label}</span><strong>${money(paymentTotals[paymentKey])}</strong></div>
             `).join("")}
             <div class="metric"><span>Taxas de entrega (conferência)</span><strong>${money(deliveryFeeTotal)}</strong></div>
           </div>
         </div>
-        ${channelDefinitions.filter(([key]) => key !== "cardapioWeb").map(([key, label]) => `
-          <div class="panel dashboard-panel">
-            <h2>${label}</h2>
-            <div class="summary">
-              <div class="metric"><span>Valor diário</span><strong>${money(current.totals[`${key}Net`])}</strong></div>
+        <div class="channel-report-platforms">
+          ${channelDefinitions.filter(([key]) => key !== "cardapioWeb").map(([key, label]) => `
+            <div class="panel channel-report-card channel-platform-card">
+              <span>Plataforma</span>
+              <h2>${label}</h2>
+              <div class="channel-platform-value">
+                <small>Total no período</small>
+                <strong>${money(current.totals[`${key}Net`])}</strong>
+              </div>
             </div>
-          </div>
-        `).join("")}
+          `).join("")}
+        </div>
       </div>
       ${dailyRows.length ? `
         <div class="table-wrap">

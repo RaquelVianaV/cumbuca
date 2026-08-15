@@ -2331,6 +2331,100 @@ html.dark-mode .cash-category-summary-action {
   gap: 8px;
 }
 
+.channel-report-breakdown {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(250px, 0.8fr);
+  gap: 12px;
+}
+
+.channel-report-card {
+  min-width: 0;
+  padding: 16px;
+}
+
+.channel-report-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 12px;
+}
+
+.channel-report-heading > div:first-child,
+.channel-platform-card {
+  display: grid;
+  gap: 3px;
+}
+
+.channel-report-heading span,
+.channel-platform-card > span,
+.channel-report-total span,
+.channel-platform-value small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.channel-report-heading h2,
+.channel-platform-card h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.channel-report-total {
+  flex: 0 0 auto;
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+}
+
+.channel-report-total strong,
+.channel-platform-value strong {
+  color: var(--green-dark);
+  font-size: clamp(1.15rem, 1.6vw, 1.55rem);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.channel-report-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.channel-report-metrics .metric {
+  min-width: 0;
+  min-height: 88px;
+  padding: 12px;
+}
+
+.channel-report-metrics .metric strong {
+  font-size: clamp(1.05rem, 1.45vw, 1.45rem);
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+
+.channel-report-platforms {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.channel-platform-card {
+  align-content: start;
+  min-height: 0;
+}
+
+.channel-platform-value {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
 .channel-filter-date,
 .channel-filter-month {
   display: none;
@@ -6670,12 +6764,23 @@ a.secondary.table-action,
   .db-usage-card,
   .db-usage-metrics,
   .channel-payment-grid,
+  .channel-report-metrics,
+  .channel-report-platforms,
   .withdrawal-fields,
   .withdrawal-preview,
   .closing-check,
   .closing-record,
   .reason-list span {
     grid-template-columns: 1fr;
+  }
+
+  .channel-report-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .channel-report-total {
+    justify-items: start;
   }
 
   .closing-reopen-form {
@@ -6770,8 +6875,13 @@ a.secondary.table-action,
 @media (max-width: 1280px) {
   .cash-layout,
   .tool-grid,
-  .dashboard-lane {
+  .dashboard-lane,
+  .channel-report-breakdown {
     grid-template-columns: 1fr;
+  }
+
+  .channel-report-platforms {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .cash-command-panel {

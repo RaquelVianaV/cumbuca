@@ -2442,7 +2442,7 @@ test('Cardápio Web delivery fees are saved only for conference', async ({ page 
 
   await page.goto('/loja?view=channels');
   const form = page.locator('#channel-receipt-form');
-  await form.locator('input[name="date"]').fill('2026-08-07');
+  await form.locator('input[name="date"]').fill('2026-08-15');
   await form.locator('input[name="cardapioWebDebit"]').fill('100,00');
   await form.locator('input[name="cardapioWebDeliveryFee"]').fill('15,00');
   await form.getByRole('button', { name: 'Salvar dia', exact: true }).click();
@@ -2471,6 +2471,14 @@ test('Cardápio Web delivery fees are saved only for conference', async ({ page 
     has: page.locator('span', { hasText: /^Total$/ }),
   });
   await expect(totalMetric).toContainText('90,00');
+
+  await page.goto('/relatorios');
+  await page.getByRole('button', { name: 'Entradas', exact: true }).click();
+  const channelBreakdown = page.locator('.channel-report-breakdown');
+  await expect(channelBreakdown).toBeVisible();
+  await expect(channelBreakdown.locator('.channel-report-total')).toContainText('R$ 90,00');
+  await expect(channelBreakdown).toContainText('R$ 15,00');
+  await expectNoHorizontalOverflow(page);
 });
 
 test('store sale supports unit and combo quantities', async ({ page }, testInfo) => {
