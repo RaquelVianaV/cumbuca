@@ -858,29 +858,29 @@ test('menu planning divides the manual weekly supermarket total only by its menu
   await page.getByRole('button', { name: 'Rentabilidade', exact: true }).click();
   const profitability = page.locator('[data-profitability-panel]');
   await expect(profitability).toContainText(
-    'Cada cumbuca semanal considera o valor unitário fixo de R$ 19,50'
+    'A receita considera R$ 19,50 por cumbuca. O custo considera somente todo o supermercado informado mais R$ 1,60 de vasilha por unidade.'
   );
-  await expect(
-    profitability.getByRole('link', { name: 'Abrir custos rateados', exact: true })
-  ).toHaveAttribute('href', '/precificacao?view=costs');
   await expect(
     profitability.locator('.metric').filter({ hasText: 'Receita considerada' })
   ).toContainText('R$ 39,00');
   await expect(
-    profitability.locator('.metric').filter({ hasText: 'Custo estimado' })
-  ).toContainText('R$ 73,20');
+    profitability.locator('.metric').filter({ hasText: 'Custo total considerado' })
+  ).toContainText('R$ 43,20');
   await expect(
     profitability.locator('.metric').filter({ hasText: 'Supermercado informado' })
   ).toContainText('R$ 40,00');
   await expect(
     profitability.locator('.metric').filter({ hasText: 'Supermercado por cumbuca' })
   ).toContainText('R$ 20,00');
+  await expect(profitability.getByText('Vasilhas', { exact: true }).locator('..')).toContainText(
+    'R$ 3,20'
+  );
   await expect(profitability.locator('tbody tr').first()).toContainText('Cumbuca da semana');
   await expect(profitability.locator('tbody tr').first()).toContainText(
-    'Supermercado da semana + custos por unidade'
+    'Supermercado da semana + vasilha R$ 1,60'
   );
   await expect(profitability.locator('tbody tr').first()).toContainText('R$ 19,50');
-  await expect(profitability.locator('tbody tr').first()).toContainText('R$ 73,20');
+  await expect(profitability.locator('tbody tr').first()).toContainText('R$ 43,20');
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
     path: testInfo.outputPath(`profitability-planning-cost-${testInfo.project.name}.png`),

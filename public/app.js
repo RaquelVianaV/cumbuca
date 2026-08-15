@@ -15075,9 +15075,8 @@ function weeklyRecipeProfitabilityRows(data) {
       const menuItem = (state.menus[order.menuKey] || []).find(item => Number(item.slot) === Number(dish.slot)) || {};
       const supermarket = weeklyMenuSupermarketAllocation(order.menuKey);
       const referencePrice = fallbackUnitRevenue;
-      const unitCost = weeklyMenuPlanningCosts(menuItem, order.menuKey).totalCost;
-      const costConfigured = menuItemHasPlanningContent(menuItem)
-        && supermarket.supermarketTotal > 0
+      const unitCost = supermarket.costPerUnit + MENU_DEFAULT_PACKAGING_COST;
+      const costConfigured = supermarket.supermarketTotal > 0
         && supermarket.totalQuantity > 0;
       const key = `menu:${order.menuKey || "sem-menu"}:${dish.slot}`;
       if (!rows.has(key)) {
@@ -15089,10 +15088,10 @@ function weeklyRecipeProfitabilityRows(data) {
           revenue: 0,
           cost: 0,
           referencePrice,
-          desiredMargin: menuItemProfitPercent(menuItem),
+          desiredMargin: 0,
           costConfigured,
           supermarketUnitCost: supermarket.costPerUnit,
-          costSource: "Supermercado da semana + custos por unidade"
+          costSource: `Supermercado da semana + vasilha ${money(MENU_DEFAULT_PACKAGING_COST)}`
         });
       }
       const row = rows.get(key);
@@ -15119,15 +15118,16 @@ function businessProfitabilityPanel(data) {
   const weekly = weeklyRecipeProfitabilityRows(data);
   const storeRows = storeProductPerformanceRows(data);
   const productionReportOrders = productionOrders(data.orders);
-  const weeklyRevenue = weekly.rows.reduce((sum, row) => sum + row.revenue, 0);
-  const weeklyCost = weekly.rows.reduce((sum, row) => sum + row.cost, 0);
-  const weeklyProfit = weeklyRevenue - weeklyCost;
   const selectedWeekKeys = [...new Set(productionReportOrders.map(order => String(order.menuKey || "")).filter(Boolean))];
   const weeklySupermarketCost = selectedWeekKeys.reduce(
     (sum, key) => sum + weeklyMenuSupermarketTotal(key),
     0
   );
   const weeklyUnits = productionReportOrders.reduce((sum, order) => sum + orderQuantity(order), 0);
+  const weeklyRevenue = weeklyUnits * WEEKLY_PROFITABILITY_UNIT_PRICE;
+  const packagingTotal = weeklyUnits * MENU_DEFAULT_PACKAGING_COST;
+  const weeklyCost = weeklySupermarketCost + packagingTotal;
+  const weeklyProfit = weeklyRevenue - weeklyCost;
   const supermarketPerUnit = weeklyUnits > 0 ? weeklySupermarketCost / weeklyUnits : 0;
   const afterSupermarket = weeklyRevenue - weeklySupermarketCost;
   const storeRevenue = storeRows.reduce((sum, row) => sum + row.estimatedRevenue, 0);
@@ -15144,17 +15144,17 @@ function businessProfitabilityPanel(data) {
       <div class="section-heading">
         <div>
           <h2>Rentabilidade por prato ${reportTitleSuffix(data)}</h2>
-          <p class="muted-inline">Cada cumbuca semanal considera o valor unitário fixo de ${money(WEEKLY_PROFITABILITY_UNIT_PRICE)}. O supermercado informado na semana é dividido por todas as cumbucas pedidas e aplicado à quantidade de cada prato.</p>
+          <p class="muted-inline">A receita considera ${money(WEEKLY_PROFITABILITY_UNIT_PRICE)} por cumbuca. O custo considera somente todo o supermercado informado mais ${money(MENU_DEFAULT_PACKAGING_COST)} de vasilha por unidade.</p>
         </div>
-        <a class="secondary table-action" href="/precificacao?view=costs">Abrir custos rateados</a>
       </div>
       <div class="summary">
         <div class="metric report-metric"><span>Supermercado informado</span><strong>${money(weeklySupermarketCost)}</strong><small>Total da(s) semana(s) selecionada(s)</small></div>
         <div class="metric report-metric"><span>Cumbucas consideradas</span><strong>${weeklyUnits}</strong></div>
         <div class="metric report-metric"><span>Supermercado por cumbuca</span><strong>${money(supermarketPerUnit)}</strong><small>Supermercado ÷ cumbucas</small></div>
+        <div class="metric report-metric"><span>Vasilhas</span><strong>${money(packagingTotal)}</strong><small>${weeklyUnits} × ${money(MENU_DEFAULT_PACKAGING_COST)}</small></div>
         <div class="metric report-metric"><span>Sobra após supermercado</span><strong class="${afterSupermarket < 0 ? "negative" : "positive"}">${money(afterSupermarket)}</strong><small>Receita dos pedidos − supermercado</small></div>
         <div class="metric report-metric"><span>Receita considerada</span><strong>${money(totalRevenue)}</strong></div>
-        <div class="metric report-metric"><span>Custo estimado</span><strong>${money(weeklyCost + (storeRevenue - storeProfit))}</strong></div>
+        <div class="metric report-metric"><span>Custo total considerado</span><strong>${money(weeklyCost + (storeRevenue - storeProfit))}</strong><small>Supermercado + vasilhas</small></div>
         <div class="metric report-metric"><span>Lucro estimado</span><strong class="${totalProfit < 0 ? "negative" : "positive"}">${money(totalProfit)}</strong></div>
         <div class="metric report-metric"><span>Margem estimada</span><strong>${pricingPercent(totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : null)}</strong></div>
         <div class="metric report-metric"><span>Lucro dos pedidos</span><strong class="${weeklyProfit < 0 ? "negative" : "positive"}">${money(weeklyProfit)}</strong></div>
@@ -15175,7 +15175,7 @@ function businessProfitabilityPanel(data) {
                 <th>Quantidade</th>
                 <th>Valor unitário</th>
                 <th>Receita calculada</th>
-                <th>Custo estimado</th>
+                <th>Custo considerado</th>
                 <th>Lucro estimado</th>
                 <th>Margem</th>
                 <th>Situação</th>
