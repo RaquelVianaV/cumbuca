@@ -170,6 +170,49 @@ function restoreVanessaManualWithdrawal(state) {
   return state;
 }
 
+function restoreConfirmedPfClosingBalance(state) {
+  const adjustmentId = 'confirmed-pf-closing-2026-08-13-16084';
+  const targetBalance = 160.84;
+  const entries = state.cashEntries || [];
+  const hasConfirmedVanessaHistory = entries.some(
+    (entry) =>
+      String(entry.date || '').slice(0, 10) === '2026-08-10' &&
+      /vanessa/i.test(String(entry.description || '')) &&
+      Math.abs(Number(entry.amount || 0) - 1441.68) < 0.01 &&
+      entry.cashImpact === false
+  );
+  if (!hasConfirmedVanessaHistory) {
+    return state;
+  }
+  const balanceBeforeAdjustment = entries
+    .filter((entry) => String(entry.id || '') !== adjustmentId)
+    .filter((entry) => String(entry.cashAccount || '').toLowerCase() === 'pf')
+    .filter((entry) => String(entry.date || '').slice(0, 10) <= '2026-08-13')
+    .filter(cashEntryIncluded)
+    .reduce((balance, entry) => {
+      const amount = Math.abs(number(entry.amount));
+      return balance + (entry.type === 'expense' ? -amount : amount);
+    }, 0);
+  const difference = Math.round((targetBalance - balanceBeforeAdjustment) * 100) / 100;
+  const adjustment = {
+    id: adjustmentId,
+    date: '2026-08-13',
+    type: difference < 0 ? 'expense' : 'income',
+    category: 'ajuste-conta',
+    cashAccount: 'pf',
+    description: 'Conciliação do saldo PF confirmado em 13/08/2026',
+    amount: Math.abs(difference).toFixed(2),
+    historicalBalanceRestoration: true,
+  };
+  const currentIndex = entries.findIndex((entry) => String(entry.id || '') === adjustmentId);
+  if (currentIndex >= 0) {
+    entries[currentIndex] = adjustment;
+  } else if (Math.abs(difference) >= 0.01) {
+    entries.push(adjustment);
+  }
+  return state;
+}
+
 function normalizeState(payload = {}) {
   const state = Object.fromEntries(
     stateKeys.map((key) => [
@@ -181,6 +224,7 @@ function normalizeState(payload = {}) {
   );
   state.partnerAccounts = normalizePartnerAccounts(state.partnerAccounts);
   restoreVanessaManualWithdrawal(state);
+  restoreConfirmedPfClosingBalance(state);
   state.cashEntries = repairPartnerCashLinks(state.partnerAccounts, state.cashEntries);
   state.financialPlanning =
     state.financialPlanning && typeof state.financialPlanning === 'object'

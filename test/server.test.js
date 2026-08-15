@@ -196,6 +196,44 @@ test('normalizeState restores Vanessa manual withdrawal to 1441.68 without chang
   assert.equal(state.cashEntries[0].paidToCashAmount, '397.99');
 });
 
+test('normalizeState restores the confirmed PF closing balance to 160.84', () => {
+  const state = normalizeState({
+    cashEntries: [
+      { id: 'pf-income', date: '2026-08-13', type: 'income', cashAccount: 'pf', amount: '1000.00' },
+      {
+        id: 'pf-expense',
+        date: '2026-08-13',
+        type: 'expense',
+        cashAccount: 'pf',
+        amount: '200.00',
+      },
+      {
+        id: 'withdrawal-confirmed-vanessa',
+        date: '2026-08-10',
+        type: 'expense',
+        cashAccount: 'pf',
+        description: 'Retirada - Vanessa',
+        amount: '1441.68',
+        cashImpact: false,
+      },
+    ],
+  });
+  const pfEntries = state.cashEntries.filter(
+    (entry) => entry.cashAccount === 'pf' && entry.cashImpact !== false
+  );
+  const balance = pfEntries.reduce(
+    (total, entry) => total + (entry.type === 'expense' ? -1 : 1) * Number(entry.amount),
+    0
+  );
+  const adjustment = state.cashEntries.find(
+    (entry) => entry.id === 'confirmed-pf-closing-2026-08-13-16084'
+  );
+
+  assert.equal(Math.round(balance * 100) / 100, 160.84);
+  assert.equal(adjustment.type, 'expense');
+  assert.equal(adjustment.amount, '639.16');
+});
+
 test('validateAppConfig rejects distribution percentages outside the valid range', () => {
   assert.equal(validateAppConfig({ splitSavingsPercent: 101 }).valid, false);
   assert.equal(validateAppConfig({ splitSavingsPercent: 100 }).valid, true);
