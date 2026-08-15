@@ -2303,9 +2303,10 @@ test('Vanessa compensation stays in partners without a second PF withdrawal', as
         category: 'retirada',
         cashAccount: 'pf',
         description: 'Retirada - Vanessa',
-        amount: '1043.69',
-        expectedAmount: '1441.68',
+        amount: '1441.68',
+        expectedAmount: '1839.67',
         paidToCashAmount: '397.99',
+        cashImpact: false,
       },
       {
         id: 'confirmed-raquel-2026-08-10',
@@ -2323,7 +2324,7 @@ test('Vanessa compensation stays in partners without a second PF withdrawal', as
   await page.goto('/fluxo-de-caixa?panel=withdrawals');
   const vanessaCard = page.locator('.withdrawal-partner-card').filter({ hasText: 'Vanessa' });
   await expect(vanessaCard).toContainText('Dívida compensadaR$ 397,99');
-  await expect(vanessaCard).toContainText('Recebeu da contaR$ 1.043,69');
+  await expect(vanessaCard).toContainText('Recebeu da contaR$ 1.441,68');
   await expect(vanessaCard).toContainText('SituaçãoQuitado');
   await expect(vanessaCard).not.toContainText('Ainda não retirou');
 });

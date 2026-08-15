@@ -139,6 +139,26 @@ test('calculateCashFlow excludes transfers and partner contributions from operat
   assert.equal(result.balance, 3000);
 });
 
+test('calculateCashFlow keeps historical control entries outside the cash balance', () => {
+  const result = calculateCashFlow([
+    { id: 'manual-income', type: 'income', amount: 500 },
+    {
+      id: 'historical-withdrawal',
+      type: 'expense',
+      amount: 1441.68,
+      cashImpact: false,
+    },
+  ]);
+
+  assert.equal(result.cashIncome, 500);
+  assert.equal(result.cashExpenses, 0);
+  assert.equal(result.balance, 500);
+  assert.deepEqual(
+    result.entries.map((entry) => entry.id),
+    ['manual-income']
+  );
+});
+
 test('normalizeState fills missing keys without replacing supplied values', () => {
   const cashEntries = [{ id: 'entry-1', amount: 50 }];
   const state = normalizeState({ cashEntries });
@@ -171,6 +191,7 @@ test('normalizeState restores Vanessa manual withdrawal to 1441.68 without chang
   });
 
   assert.equal(state.cashEntries[0].amount, '1441.68');
+  assert.equal(state.cashEntries[0].cashImpact, false);
   assert.equal(state.cashEntries[0].expectedAmount, '1839.67');
   assert.equal(state.cashEntries[0].paidToCashAmount, '397.99');
 });

@@ -164,6 +164,7 @@ function restoreVanessaManualWithdrawal(state) {
       Math.abs(Number(entry.amount || 0) - 1043.69) < 0.01;
     if (isVanessaWithdrawal) {
       entry.amount = '1441.68';
+      entry.cashImpact = false;
     }
   });
   return state;
@@ -1711,7 +1712,9 @@ async function verifyPersistence() {
 }
 
 function cashEntryIncluded(entry = {}) {
-  return !(entry.type === 'expense' && entry.dueDate && !entry.paidAt);
+  return (
+    entry.cashImpact !== false && !(entry.type === 'expense' && entry.dueDate && !entry.paidAt)
+  );
 }
 
 function financialIntegritySummary(state, backup = null) {
@@ -2441,7 +2444,7 @@ async function resetFinancialState(user = null) {
 }
 
 function calculateCashFlow(entries = []) {
-  const normalized = entries.map((item) => {
+  const normalized = entries.filter(cashEntryIncluded).map((item) => {
     const amount = Math.abs(number(item.amount));
     const type = item.type === 'expense' ? 'expense' : 'income';
     return {

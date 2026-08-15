@@ -2422,10 +2422,10 @@ function filterCashEntries(entries, filterOverrides = {}) {
   });
 }
 
-function cashEntriesForSelectedPeriod(entries = state.cash) {
+function cashEntriesForSelectedPeriod(entries = state.cash, { includeNonCash = false } = {}) {
   const currentFilter = getCashFilter();
   const { period, date, month, year } = currentFilter;
-  const accountedEntries = accountingCashEntries(entries);
+  const accountedEntries = includeNonCash ? entries : accountingCashEntries(entries);
 
   if (!period || period === "all") {
     return accountedEntries;
@@ -3007,7 +3007,7 @@ function cashAccountingDate(entry = {}) {
 }
 
 function accountingCashEntries(entries = state.cash) {
-  return entries.filter(entry => !isPendingBill(entry));
+  return entries.filter(entry => entry.cashImpact !== false && !isPendingBill(entry));
 }
 
 function textLines(value) {
@@ -3968,7 +3968,7 @@ function savingsTracePanelHtml(rows = [], { current = 0, expected = 0, debt = 0 
   `;
 }
 
-function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
+function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod(state.cash, { includeNonCash: true })) {
   const groups = new Map();
   entries.filter(isWithdrawalEntry).forEach(entry => {
     const key = withdrawalGroupKey(entry);
@@ -4117,7 +4117,7 @@ function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
 
 function withdrawalEntriesForMonth(monthKey = currentMonthKey()) {
   const month = String(monthKey || currentMonthKey()).slice(0, 7);
-  return accountingCashEntries(state.cash).filter(entry => {
+  return state.cash.filter(entry => {
     return isWithdrawalEntry(entry) && cashAccountingDate(entry).startsWith(month);
   });
 }
