@@ -2282,7 +2282,7 @@ test('reviewing a legacy withdrawal saves its detailed closing', async ({ page }
   expect(withdrawalEntries.every((entry) => entry.partnerWithdrawalSnapshotId)).toBe(true);
 });
 
-test('confirmed Vanessa compensation is not shown as pending', async ({ page }) => {
+test('legacy Vanessa withdrawal does not infer a compensation automatically', async ({ page }) => {
   const database = await mockOnlineDatabase(page);
   database.state = {
     cashEntries: [
@@ -2321,9 +2321,8 @@ test('confirmed Vanessa compensation is not shown as pending', async ({ page }) 
 
   await page.goto('/fluxo-de-caixa?panel=withdrawals');
   const vanessaCard = page.locator('.withdrawal-partner-card').filter({ hasText: 'Vanessa' });
-  await expect(vanessaCard).toContainText('Dívida compensadaR$ 397,99');
-  await expect(vanessaCard).toContainText('SituaçãoQuitado');
-  await expect(vanessaCard).not.toContainText('Ainda não retirou');
+  await expect(vanessaCard).not.toContainText('Dívida compensadaR$ 397,99');
+  await expect(vanessaCard).toContainText(/Ainda não retirou\s+R\$\s*397,99/);
 });
 
 test('store sales filter by day, week and month with previous month comparison', async ({

@@ -156,47 +156,22 @@ function cloneJson(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function applyConfirmedHistoricalCorrections(state) {
+function removeErroneousHistoricalCompensation(state) {
   const correctionId = 'confirmed-vanessa-compensation-2026-08-10-pf-39799';
-  const amount = 397.99;
-  const vanessaEntry = (state.cashEntries || []).find((entry) => {
-    return (
-      String(entry.date || '').slice(0, 10) === '2026-08-10' &&
-      /vanessa/i.test(String(entry.description || '')) &&
-      Math.abs(Number(entry.amount || 0) - 1441.68) < 0.01
-    );
+  (state.cashEntries || []).forEach((entry) => {
+    if (entry.historicalCorrectionId !== correctionId) {
+      return;
+    }
+    delete entry.paidToCashAmount;
+    delete entry.cashDebtAmount;
+    delete entry.priorWithdrawalAmount;
+    delete entry.remainingDebtAmount;
+    delete entry.historicalCorrectionId;
   });
-  if (!vanessaEntry) {
-    return state;
-  }
-
-  vanessaEntry.paidToCashAmount = amount.toFixed(2);
-  vanessaEntry.expectedAmount = '1839.67';
-  vanessaEntry.cashDebtAmount = amount.toFixed(2);
-  vanessaEntry.priorWithdrawalAmount = amount.toFixed(2);
-  vanessaEntry.remainingDebtAmount = '0.00';
-  vanessaEntry.historicalCorrectionId = correctionId;
-
-  const movements = state.partnerAccounts?.movements || [];
-  if (!movements.some((movement) => movement.historicalCorrectionId === correctionId)) {
-    movements.unshift({
-      id: `partner-withdrawal-compensation-${correctionId}`,
-      partnerId: 'vanessa',
-      date: '2026-08-10',
-      type: 'withdrawal_compensation',
-      description: 'Compensação confirmada na retirada de 10/08/2026',
-      amount: amount.toFixed(2),
-      origin: 'withdrawal',
-      observation: 'Correção histórica confirmada pela administradora: não houve saída de caixa.',
-      direction: '',
-      cashImpact: false,
-      cashEntryId: '',
-      withdrawalSnapshotId: String(vanessaEntry.partnerWithdrawalSnapshotId || ''),
-      historicalCorrectionId: correctionId,
-      createdAt: '2026-08-14T00:00:00.000Z',
-      updatedAt: '2026-08-14T00:00:00.000Z',
-      createdBy: 'Correção confirmada pela administradora',
-    });
+  if (Array.isArray(state.partnerAccounts?.movements)) {
+    state.partnerAccounts.movements = state.partnerAccounts.movements.filter(
+      (movement) => movement.historicalCorrectionId !== correctionId
+    );
   }
   return state;
 }
@@ -211,7 +186,7 @@ function normalizeState(payload = {}) {
     ])
   );
   state.partnerAccounts = normalizePartnerAccounts(state.partnerAccounts);
-  applyConfirmedHistoricalCorrections(state);
+  removeErroneousHistoricalCompensation(state);
   state.cashEntries = repairPartnerCashLinks(state.partnerAccounts, state.cashEntries);
   state.financialPlanning =
     state.financialPlanning && typeof state.financialPlanning === 'object'
@@ -4107,7 +4082,6 @@ handleRequest._test = {
   bulkFinancialClearRequested,
   calculateCashFlow,
   calculatePricing,
-  applyConfirmedHistoricalCorrections,
   changedRecordDates,
   financialPayloadChanged,
   financialIntegritySummary,

@@ -9,7 +9,6 @@ process.env.CUMBUCA_PASSWORD = testPassword;
 process.env.VERCEL = '1';
 const handleRequest = require('../server');
 const {
-  applyConfirmedHistoricalCorrections,
   backupVersionId,
   bulkFinancialClearRequested,
   calculateCashFlow,
@@ -29,38 +28,6 @@ const {
   validateBackupPayload,
   weekRangeFromDate,
 } = handleRequest._test;
-
-test('corrige somente a compensação confirmada de Vanessa em 10/08/2026', () => {
-  const state = {
-    cashEntries: [
-      {
-        id: 'withdrawal-confirmed-vanessa',
-        date: '2026-08-10',
-        description: 'Retirada - Vanessa',
-        amount: '1441.68',
-      },
-      {
-        id: 'another-withdrawal',
-        date: '2026-08-11',
-        cashAccount: 'pf',
-        description: 'Retirada - Vanessa',
-        amount: '100.00',
-        expectedAmount: '200.00',
-      },
-    ],
-    partnerAccounts: { movements: [] },
-  };
-
-  applyConfirmedHistoricalCorrections(state);
-  applyConfirmedHistoricalCorrections(state);
-
-  assert.equal(state.cashEntries[0].paidToCashAmount, '397.99');
-  assert.equal(state.cashEntries[0].remainingDebtAmount, '0.00');
-  assert.equal(state.cashEntries[1].paidToCashAmount, undefined);
-  assert.equal(state.partnerAccounts.movements.length, 1);
-  assert.equal(state.partnerAccounts.movements[0].amount, '397.99');
-  assert.equal(state.partnerAccounts.movements[0].cashImpact, false);
-});
 
 test('erros técnicos resolvidos saem das pendências sem apagar o histórico', () => {
   const now = new Date('2026-08-14T12:00:00.000Z').getTime();
@@ -187,6 +154,40 @@ test('normalizeState fills missing keys without replacing supplied values', () =
   assert.deepEqual(state.financialPlanning.reconciliationHistory, []);
   assert.deepEqual(state.financialPlanning.monthlyBudgets, {});
   assert.equal(state.appConfig.storeName, 'Cumbuca');
+});
+
+test('normalizeState removes the duplicated historical Vanessa compensation', () => {
+  const correctionId = 'confirmed-vanessa-compensation-2026-08-10-pf-39799';
+  const state = normalizeState({
+    cashEntries: [
+      {
+        id: 'withdrawal-confirmed-vanessa',
+        date: '2026-08-10',
+        description: 'Retirada - Vanessa',
+        amount: '1441.68',
+        expectedAmount: '1839.67',
+        paidToCashAmount: '397.99',
+        cashDebtAmount: '397.99',
+        priorWithdrawalAmount: '397.99',
+        remainingDebtAmount: '0.00',
+        historicalCorrectionId: correctionId,
+      },
+    ],
+    partnerAccounts: {
+      movements: [
+        {
+          id: 'duplicated-compensation',
+          historicalCorrectionId: correctionId,
+        },
+      ],
+    },
+  });
+
+  assert.equal(state.cashEntries[0].amount, '1441.68');
+  assert.equal(state.cashEntries[0].expectedAmount, '1839.67');
+  assert.equal(state.cashEntries[0].paidToCashAmount, undefined);
+  assert.equal(state.cashEntries[0].historicalCorrectionId, undefined);
+  assert.equal(state.partnerAccounts.movements.length, 0);
 });
 
 test('validateAppConfig rejects distribution percentages outside the valid range', () => {

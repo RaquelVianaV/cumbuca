@@ -4069,14 +4069,9 @@ function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod()) {
     const inferredPriorRaquel = Math.max(0, expectedRaquel - group.raquel);
     const priorVanessa = group.hasPriorVanessa ? group.priorVanessa : inferredPriorVanessa;
     const priorRaquel = group.hasPriorRaquel ? group.priorRaquel : inferredPriorRaquel;
-    const confirmedVanessaCompensation = group.date === "2026-08-10"
-      && Math.abs(expectedVanessa - 1839.67) < 0.01
-      && Math.abs(group.vanessa - 1441.68) < 0.01
-      ? 397.99
-      : 0;
     const paidToCashVanessa = group.hasPaidToCashVanessa
       ? group.paidToCashVanessa
-      : confirmedVanessaCompensation;
+      : 0;
     const paidToCashRaquel = group.hasPaidToCashRaquel ? group.paidToCashRaquel : 0;
     const netDueVanessa = Math.max(0, expectedVanessa - paidToCashVanessa);
     const netDueRaquel = Math.max(0, expectedRaquel - paidToCashRaquel);
