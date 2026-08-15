@@ -13449,7 +13449,7 @@ function managementStatementHtml(data, { includeHeading = false } = {}) {
       <div class="statement-section-label separated"><span>Retiradas das sócias</span></div>
       <div class="statement-detail"><span>Vanessa — recebeu da conta</span><strong>${money(data.withdrawalAmounts.receivedNowVanessa)}</strong></div>
       <div class="statement-detail"><span>Vanessa — dívida compensada<small>Direito reconhecido que não saiu da conta.</small></span><strong>${money(data.withdrawalAmounts.paidToCashVanessa)}</strong></div>
-      <div class="subtotal"><span>Vanessa — distribuição reconhecida</span><strong>${money(data.withdrawalAmounts.vanessa)}</strong></div>
+      <div class="subtotal"><span>Vanessa — direito reconhecido<small>Recebido da conta + dívida compensada; não é a retirada bancária.</small></span><strong>${money(data.withdrawalAmounts.vanessa)}</strong></div>
       <div class="statement-detail"><span>Raquel — recebeu da conta</span><strong>${money(data.withdrawalAmounts.receivedNowRaquel)}</strong></div>
       <div class="statement-detail"><span>Raquel — dívida compensada<small>Direito reconhecido que não saiu da conta.</small></span><strong>${money(data.withdrawalAmounts.paidToCashRaquel)}</strong></div>
       <div class="subtotal"><span>Raquel — distribuição reconhecida</span><strong>${money(data.withdrawalAmounts.raquel)}</strong></div>
@@ -14311,7 +14311,7 @@ function reportCsvRows(kind, data) {
       { seção: "resumo", data: "", descrição: "Entradas operacionais no caixa", tipo: "entrada", categoria: "", valor: data.financial.income },
       { seção: "resumo", data: "", descrição: "Saídas operacionais", tipo: "saída", categoria: "operacional", valor: data.financial.operationalExpenses },
       { seção: "resumo", data: "", descrição: "Lucro operacional", tipo: "saldo", categoria: "", valor: operationalProfitForReport(data) },
-      { seção: "resumo", data: "", descrição: "Vanessa - distribuição total", tipo: "distribuição", categoria: "retirada", valor: withdrawalAmounts.vanessa },
+      { seção: "resumo", data: "", descrição: "Vanessa - recebeu da conta", tipo: "retirada", categoria: "retirada", valor: data.vanessaFinancial.received },
       { seção: "resumo", data: "", descrição: "Cofrinho transferido", tipo: "saída", categoria: "retirada", valor: withdrawalAmounts.savings },
       { seção: "resumo", data: "", descrição: "Raquel - distribuição total", tipo: "distribuição", categoria: "retirada", valor: withdrawalAmounts.raquel },
       { seção: "resumo", data: "", descrição: "Dinheiro que saiu da conta", tipo: "saída", categoria: "retirada", valor: cashWithdrawalsForReport(data) },
@@ -14334,7 +14334,7 @@ function reportCsvRows(kind, data) {
       { seção: "retiradas", data: "", descrição: "Vanessa - recebeu agora", tipo: "saída", categoria: "retirada", valor: data.vanessaFinancial.received },
       { seção: "sócias", data: "", descrição: "Vanessa - pagou", tipo: "pagamento", categoria: "conta de sócia", valor: data.vanessaFinancial.paid },
       { seção: "sócias", data: "", descrição: "Vanessa - deve", tipo: "saldo", categoria: "conta de sócia", valor: data.vanessaFinancial.debt },
-      { seção: "retiradas", data: "", descrição: "Vanessa - distribuição total", tipo: "controle", categoria: "retirada", valor: withdrawalAmounts.vanessa },
+      { seção: "retiradas", data: "", descrição: "Vanessa - direito reconhecido (recebido + compensado)", tipo: "controle", categoria: "retirada", valor: withdrawalAmounts.vanessa },
       { seção: "retiradas", data: "", descrição: "Raquel - recebeu agora", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.raquel },
       { seção: "retiradas", data: "", descrição: "Raquel - distribuição total", tipo: "controle", categoria: "retirada", valor: withdrawalAmounts.raquel },
       { seção: "retiradas", data: "", descrição: "Vanessa - direito na divisão", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.expectedVanessa || 0 },
@@ -14530,7 +14530,7 @@ async function downloadReportPdf(options = {}) {
         money(entry.amount)
       ]),
       savingsUpdatedAt: data.savingsUpdatedAt,
-      withdrawalVanessa: withdrawalAmounts.vanessa,
+      withdrawalVanessa: data.vanessaFinancial.received,
       withdrawalSavings: withdrawalAmounts.savings,
       withdrawalRaquel: withdrawalAmounts.raquel,
       withdrawalRows: reportPdfWithdrawalRows(data),
@@ -14637,7 +14637,7 @@ async function downloadReportXlsx(options = {}) {
         Number(entry.amount || 0)
       ]),
       savingsUpdatedAt: data.savingsUpdatedAt,
-      withdrawalVanessa: withdrawalAmounts.vanessa,
+      withdrawalVanessa: data.vanessaFinancial.received,
       withdrawalSavings: withdrawalAmounts.savings,
       withdrawalRaquel: withdrawalAmounts.raquel,
       withdrawalRows: [
@@ -20174,7 +20174,7 @@ function reportExportPayload(data = reportData()) {
         money(entry.amount)
       ]),
       savingsUpdatedAt: data.savingsUpdatedAt,
-      withdrawalVanessa: withdrawalAmounts.vanessa,
+      withdrawalVanessa: data.vanessaFinancial.received,
       withdrawalSavings: withdrawalAmounts.savings,
       withdrawalRaquel: withdrawalAmounts.raquel,
       withdrawalRows: reportPdfWithdrawalRows(data),

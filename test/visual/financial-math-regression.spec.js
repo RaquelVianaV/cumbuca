@@ -383,6 +383,7 @@ test('PDF e Excel recebem o lucro operacional verdadeiro', async ({ page }) => {
     expect(payload.data.withdrawalTotal).toBeCloseTo(6127.4, 2);
     expect(payload.data.withdrawalGrossTotal).toBeCloseTo(6377.4, 2);
     expect(payload.data.withdrawalDebtCompensation).toBeCloseTo(250, 2);
+    expect(payload.data.withdrawalVanessa).toBeCloseTo(4000, 2);
     expect(payload.data.salesRevenue).toBeCloseTo(50713.74, 2);
     expect(payload.data.productionPurchases).toBeCloseTo(18949.09, 2);
     expect(payload.data.productionPurchasesBills).toBeCloseTo(1949.09, 2);

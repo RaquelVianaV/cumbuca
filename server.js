@@ -3241,7 +3241,7 @@ async function buildReportXlsx(payload = {}) {
     ['Saídas operacionais', data.operationalExpenses || 0],
     ['Lucro operacional', data.profitBeforeWithdrawals || 0],
     ...managementSummaryRows,
-    ['Vanessa - distribuição total', data.withdrawalVanessa || 0],
+    ['Vanessa - recebeu da conta', data.withdrawalVanessa || 0],
     ['Cofrinho transferido', data.withdrawalSavings || 0],
     ['Raquel - distribuição total', data.withdrawalRaquel || 0],
     ['Dinheiro que saiu da conta', data.withdrawalTotal || 0],

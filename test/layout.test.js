@@ -447,7 +447,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /group\.hasPaidToCashVanessa\s*\?\s*group\.paidToCashVanessa\s*:\s*0/);
   assert.match(app, /group\.hasPaidToCashRaquel\s*\?\s*group\.paidToCashRaquel\s*:\s*0/);
   assert.match(app, /Vanessa — dívida compensada/);
-  assert.match(app, /Vanessa — distribuição reconhecida/);
+  assert.match(app, /Vanessa — direito reconhecido/);
   assert.match(app, /Cofrinho — deveria ter recebido/);
   assert.match(app, /Cofrinho — recebeu da conta/);
   assert.match(
@@ -473,7 +473,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(css, /\.partner-account-cards/);
   assert.match(app, /Lucro operacional/);
   assert.match(app, /Total que sai agora/);
-  assert.match(app, /Vanessa - distribuição total/);
+  assert.match(app, /Vanessa - direito reconhecido \(recebido \+ compensado\)/);
   assert.match(app, /Raquel - distribuição total/);
   assert.match(app, /vanessa_total_retirado/);
   assert.match(app, /raquel_total_retirado/);
