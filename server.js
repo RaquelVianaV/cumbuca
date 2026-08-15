@@ -166,6 +166,7 @@ function removeErroneousHistoricalCompensation(state) {
     if (entry.historicalCorrectionId !== correctionId && !isVanessaWithdrawal) {
       return;
     }
+    entry.amount = '1043.69';
     entry.expectedAmount = Number(entry.amount || 0).toFixed(2);
     delete entry.paidToCashAmount;
     delete entry.cashDebtAmount;

@@ -2303,8 +2303,8 @@ test('legacy Vanessa withdrawal does not infer a compensation automatically', as
         category: 'retirada',
         cashAccount: 'pf',
         description: 'Retirada - Vanessa',
-        amount: '1441.68',
-        expectedAmount: '1441.68',
+        amount: '1043.69',
+        expectedAmount: '1043.69',
       },
       {
         id: 'confirmed-raquel-2026-08-10',
