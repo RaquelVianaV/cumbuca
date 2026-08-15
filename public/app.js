@@ -14539,6 +14539,8 @@ async function downloadReportPdf(options = {}) {
       accountAdjustmentExpenses: data.accountAdjustmentTotals.expenses,
       accountAdjustmentBalance: data.accountAdjustmentTotals.balance,
       accountBalance: data.accountBalance,
+      accountBalancePf: data.accountBalances.pf,
+      accountBalancePj: data.accountBalances.pj,
       savingsBalance: data.savingsBalance,
       savingsExpectedBalance: data.savingsExpectedBalance,
       consolidatedBalance: data.consolidatedBalance,
@@ -14648,6 +14650,8 @@ async function downloadReportXlsx(options = {}) {
       accountAdjustmentExpenses: data.accountAdjustmentTotals.expenses,
       accountAdjustmentBalance: data.accountAdjustmentTotals.balance,
       accountBalance: data.accountBalance,
+      accountBalancePf: data.accountBalances.pf,
+      accountBalancePj: data.accountBalances.pj,
       savingsBalance: data.savingsBalance,
       savingsExpectedBalance: data.savingsExpectedBalance,
       consolidatedBalance: data.consolidatedBalance,
@@ -19607,7 +19611,9 @@ function renderReports() {
       <div class="metric report-metric"><span>Total cumbucas</span><strong>${data.totalSoldQuantity}</strong></div>
       <div class="metric report-metric"><span>Entradas operacionais no caixa</span><strong>${money(data.income)}</strong></div>
       <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
-      <div class="metric report-metric"><span>Saldo da conta</span><strong class="${data.accountBalance < 0 ? "negative" : "positive"}">${money(data.accountBalance)}</strong></div>
+      <div class="metric report-metric"><span>Saldo da conta PF</span><strong class="${data.accountBalances.pf < 0 ? "negative" : "positive"}">${money(data.accountBalances.pf)}</strong></div>
+      <div class="metric report-metric"><span>Saldo da conta PJ</span><strong class="${data.accountBalances.pj < 0 ? "negative" : "positive"}">${money(data.accountBalances.pj)}</strong></div>
+      <div class="metric report-metric total"><span>Saldo das contas</span><strong class="${data.accountBalance < 0 ? "negative" : "positive"}">${money(data.accountBalance)}</strong><small>PF + PJ</small></div>
       <div class="metric report-metric"><span>Vanessa recebeu</span><strong>${money(data.vanessaFinancial.received)}</strong><small>Retiradas no período</small></div>
       <div class="metric report-metric"><span>Vanessa pagou</span><strong>${money(data.vanessaFinancial.paid)}</strong><small>Pagamentos em Sócias</small></div>
       <div class="metric report-metric"><span>Vanessa deve</span><strong>${money(data.vanessaFinancial.debt)}</strong><small>Saldo devedor em Sócias</small></div>
@@ -20201,6 +20207,8 @@ function reportExportPayload(data = reportData()) {
       accountAdjustmentExpenses: data.accountAdjustmentTotals.expenses,
       accountAdjustmentBalance: data.accountAdjustmentTotals.balance,
       accountBalance: data.accountBalance,
+      accountBalancePf: data.accountBalances.pf,
+      accountBalancePj: data.accountBalances.pj,
       savingsBalance: data.savingsBalance,
       savingsExpectedBalance: data.savingsExpectedBalance,
       consolidatedBalance: data.consolidatedBalance,

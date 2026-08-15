@@ -2982,7 +2982,9 @@ function buildReportPdf(payload = {}) {
     ['Vanessa deve', brl(data.vanessaDebt)],
     ['Tem no cofrinho', brl(data.savingsBalance)],
     ['Deveria ter no cofrinho', brl(data.savingsExpectedBalance)],
-    ['Saldo da conta', brl(data.accountBalance)],
+    ['Saldo da conta PF', brl(data.accountBalancePf)],
+    ['Saldo da conta PJ', brl(data.accountBalancePj)],
+    ['Saldo das contas', brl(data.accountBalance)],
     ['Saldo consolidado', brl(data.consolidatedBalance)],
     ['Lucro operacional', brl(data.profitBeforeWithdrawals)],
   ];
@@ -2990,10 +2992,10 @@ function buildReportPdf(payload = {}) {
   const coverCards = weeklyCover ? weeklyOverviewCards : standardCoverCards;
   const coverColumns = weeklyCover ? 3 : 2;
   const coverCardWidth = weeklyCover ? 162 : 250;
-  const coverCardHeight = weeklyCover ? 56 : 66;
+  const coverCardHeight = weeklyCover ? 48 : 66;
   const coverColumnGap = weeklyCover ? 12 : 10;
-  const coverRowGap = weeklyCover ? 12 : 20;
-  const coverStartY = weeklyCover ? 284 : 318;
+  const coverRowGap = weeklyCover ? 8 : 20;
+  const coverStartY = weeklyCover ? 274 : 318;
   coverCards.forEach(([label, value], index) => {
     const col = index % coverColumns;
     const row = Math.floor(index / coverColumns);
@@ -3005,8 +3007,8 @@ function buildReportPdf(payload = {}) {
     doc
       .fillColor(PDF_LAYOUT.colors.muted)
       .font('Helvetica-Bold')
-      .fontSize(weeklyCover ? 7.2 : 8)
-      .text(pdfText(label).toUpperCase(), x + 12, y + 10, {
+      .fontSize(weeklyCover ? 6.8 : 8)
+      .text(pdfText(label).toUpperCase(), x + 12, y + (weeklyCover ? 7 : 10), {
         width: coverCardWidth - 24,
         height: 12,
         ellipsis: true,
@@ -3014,8 +3016,8 @@ function buildReportPdf(payload = {}) {
     doc
       .fillColor(PDF_LAYOUT.colors.ink)
       .font('Helvetica-Bold')
-      .fontSize(weeklyCover ? 12.5 : 17)
-      .text(pdfText(value), x + 12, y + (weeklyCover ? 29 : 33), {
+      .fontSize(weeklyCover ? 11.5 : 17)
+      .text(pdfText(value), x + 12, y + (weeklyCover ? 24 : 33), {
         width: coverCardWidth - 24,
         height: 20,
         ellipsis: true,
