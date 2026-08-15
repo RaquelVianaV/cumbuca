@@ -18756,7 +18756,7 @@ function bindReportPeriodForm(renderFn, path) {
     localStorage.setItem("reportPeriod", JSON.stringify(state.reportPeriod));
     const weeklyQuery = state.reportPeriod.type === "week" ? `&semana=${state.reportPeriod.week}&inicio=${state.reportPeriod.start}&fim=${state.reportPeriod.end}` : "";
     const dayQuery = state.reportPeriod.type === "day" ? `&dia=${state.reportPeriod.date}` : "";
-    history.replaceState(null, "", `/${path}?ano=${state.reportPeriod.year}&mes=${state.reportPeriod.month}${weeklyQuery}${dayQuery}`);
+    history.replaceState(null, "", `/${path}?periodo=${state.reportPeriod.type}&ano=${state.reportPeriod.year}&mes=${state.reportPeriod.month}${weeklyQuery}${dayQuery}`);
     renderFn();
   });
 }
@@ -19520,10 +19520,10 @@ function renderReports() {
         <label class="report-day-field">Dia
           <input name="date" type="date" value="${reportDate()}">
         </label>
-        <label>Ano
+        <label class="report-month-field">Ano
           <input name="year" type="number" min="2020" max="2100" step="1" value="${state.reportPeriod.year}">
         </label>
-        <label>Mês
+        <label class="report-month-field">Mês
           <select name="month">
             ${monthOptions(state.reportPeriod.month)}
           </select>
@@ -20704,6 +20704,7 @@ window.addEventListener("popstate", () => {
 function applyRouteParams() {
   ensureValidReportPeriod();
   const params = new URLSearchParams(location.search);
+  const requestedReportType = params.get("periodo");
   const requestedMenuView = params.get("view");
   if (routeName() === "menu-semanal" && ["form", "orders", "production", "delivery"].includes(requestedMenuView)) {
     state.orderTab = requestedMenuView;
@@ -20731,6 +20732,18 @@ function applyRouteParams() {
   const endParam = params.get("fim");
   const dayParam = params.get("dia");
   const reportWeekParam = weekParam && Number(weekParam) >= 1 && Number(weekParam) <= 5 ? Number(weekParam) : null;
+  if (routeName() === "relatorios" && !yearParam && !monthParam && !dayParam) {
+    const range = defaultReportWeekRange();
+    const [rangeYear, rangeMonth] = range.start.split("-").map(Number);
+    state.reportPeriod = {
+      ...state.reportPeriod,
+      type: "week",
+      year: rangeYear,
+      month: rangeMonth,
+      start: range.start,
+      end: range.end
+    };
+  }
   if (yearParam && monthParam) {
     state.menuPeriod = {
       year: Number(yearParam),
@@ -20738,7 +20751,13 @@ function applyRouteParams() {
     };
     if (routeName() === "relatorios" || routeName() === "financeiro") {
       state.reportPeriod = {
-        type: startParam && endParam ? "week" : (reportWeekParam ? "week" : (state.reportPeriod.type || "month")),
+        type: ["month", "week", "day"].includes(requestedReportType)
+          ? requestedReportType
+          : startParam && endParam
+            ? "week"
+            : reportWeekParam
+              ? "week"
+              : state.reportPeriod.type || "month",
         year: Number(yearParam),
         month: Number(monthParam),
         week: reportWeekParam || Number(state.reportPeriod.week || 1),

@@ -5592,12 +5592,14 @@ button.danger:hover {
 }
 
 .report-filter .report-week-field,
-.report-filter .report-day-field {
+.report-filter .report-day-field,
+.report-filter .report-month-field {
   display: none;
 }
 
 .report-filter[data-period="week"] .report-week-field,
-.report-filter[data-period="day"] .report-day-field {
+.report-filter[data-period="day"] .report-day-field,
+.report-filter[data-period="month"] .report-month-field {
   display: grid;
 }
 

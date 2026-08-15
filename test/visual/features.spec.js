@@ -148,7 +148,9 @@ test('reports view recovers from an invalid saved period', async ({ page }) => {
 
   await expect(page.getByRole('heading', { name: 'Relatórios', exact: true })).toBeVisible();
   await expect(page.locator('#report-filter-form')).toBeVisible();
-  await expect(page.locator('#report-period-type')).toHaveValue('month');
+  await expect(page.locator('#report-period-type')).toHaveValue('week');
+  await expect(page.locator('#report-filter-form input[name="start"]')).toBeVisible();
+  await expect(page.locator('#report-filter-form input[name="end"]')).toBeVisible();
 });
 
 test('alerts dashboard shows operational warnings', async ({ page }) => {
