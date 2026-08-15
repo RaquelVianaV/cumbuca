@@ -393,6 +393,40 @@ test('PDF e Excel recebem o lucro operacional verdadeiro', async ({ page }) => {
   }
 });
 
+test('relatório semanal exporta somente o intervalo selecionado', async ({ page }) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = julyFinancialState();
+
+  await page.goto('/relatorios?ano=2026&mes=7&semana=1&inicio=2026-07-06&fim=2026-07-12');
+  const result = await page.evaluate(() => {
+    const data = window.reportData();
+    const payload = window.reportExportPayload(data);
+    return {
+      type: data.type,
+      periodLabel: payload.periodLabel,
+      periodType: payload.data.periodType,
+      periodStart: payload.data.periodStart,
+      periodEnd: payload.data.periodEnd,
+      cashDates: payload.data.cashRows.map((row) => row[0]),
+      expenses: payload.data.operationalExpenses,
+      productionPurchases: payload.data.productionPurchases,
+    };
+  });
+
+  expect(result).toMatchObject({
+    type: 'week',
+    periodLabel: '06/07/2026 a 12/07/2026',
+    periodType: 'week',
+    periodStart: '2026-07-06',
+    periodEnd: '2026-07-12',
+    expenses: 47842.83,
+    productionPurchases: 18949.09,
+  });
+  expect(result.cashDates.length).toBeGreaterThan(0);
+  expect(result.cashDates.every((date) => date >= '2026-07-06' && date <= '2026-07-12')).toBe(true);
+  expect(result.cashDates).not.toContain('2026-07-31');
+});
+
 test('comparativo usa lucro real e insumos somam somente boleto, supermercado e frigorífico', async ({
   page,
 }) => {

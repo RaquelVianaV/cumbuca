@@ -5308,22 +5308,24 @@ function normalizedGlobalPeriod(value = {}) {
   };
 }
 
-function applyGlobalPeriodToViews(value, { remember = true } = {}) {
+function applyGlobalPeriodToViews(value, { remember = true, syncReportPeriod = true } = {}) {
   const period = normalizedGlobalPeriod(value);
   const periodKey = `${period.year}-${String(period.month).padStart(2, "0")}`;
   const periodDate = `${periodKey}-01`;
 
   state.globalPeriod = period;
   state.menuPeriod = { ...period };
-  state.reportPeriod = {
-    ...(state.reportPeriod || {}),
-    type: "month",
-    year: period.year,
-    month: period.month,
-    date: periodDate,
-    start: "",
-    end: ""
-  };
+  if (syncReportPeriod) {
+    state.reportPeriod = {
+      ...(state.reportPeriod || {}),
+      type: "month",
+      year: period.year,
+      month: period.month,
+      date: periodDate,
+      start: "",
+      end: ""
+    };
+  }
   state.cashFilter = {
     ...(state.cashFilter || {}),
     period: "month",
@@ -5350,7 +5352,9 @@ function applyGlobalPeriodToViews(value, { remember = true } = {}) {
   if (remember) {
     localStorage.setItem("globalPeriod", JSON.stringify(state.globalPeriod));
     localStorage.setItem("menuPeriod", JSON.stringify(state.menuPeriod));
-    localStorage.setItem("reportPeriod", JSON.stringify(state.reportPeriod));
+    if (syncReportPeriod) {
+      localStorage.setItem("reportPeriod", JSON.stringify(state.reportPeriod));
+    }
     localStorage.setItem("cashFilter", JSON.stringify(state.cashFilter));
     localStorage.setItem("storeSalesFilter", JSON.stringify(state.storeSalesFilter));
     localStorage.setItem("channelFilter", JSON.stringify(state.channelFilter));
@@ -14402,23 +14406,47 @@ function reportCsvRows(kind, data) {
 }
 
 function reportFinancialPayloadMetrics(data) {
-  const purchases = data.type === "month"
-    ? productionPurchasesForPeriod(data.periodKey)
-    : null;
+  const productionEntries = data.expenseEntries.filter(foodInputExpenseCategory);
+  const totalForCategory = category => productionEntries
+    .filter(entry => slugifyCategory(categoryName(entry.category)) === category)
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const supermarketTotal = totalForCategory("supermercado");
+  const butcherTotal = totalForCategory("frigorifico");
+  const billsTotal = totalForCategory("boleto");
+  const productionPurchases = supermarketTotal + butcherTotal + billsTotal;
+  const salesRevenue = data.incomeEntries
+    .filter(salesIncomeEntry)
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const purchasesPerBowl = data.totalSoldQuantity > 0
+    ? productionPurchases / data.totalSoldQuantity
+    : 0;
+  const purchasesSalesPercent = salesRevenue > 0
+    ? (productionPurchases / salesRevenue) * 100
+    : 0;
   return {
     profitBeforeWithdrawals: operationalProfitForReport(data),
     availableForWithdrawal: operationalResultForReport(data),
     withdrawalTotal: cashWithdrawalsForReport(data),
     withdrawalGrossTotal: profitDistributionForReport(data),
     withdrawalDebtCompensation: debtCompensationForReport(data),
-    salesRevenue: purchases?.salesRevenue ?? null,
-    productionPurchases: purchases?.purchasesProduction ?? null,
-    productionPurchasesBills: purchases?.billsTotal ?? null,
-    productionPurchasesSupermarket: purchases?.supermarketTotal ?? null,
-    productionPurchasesButcher: purchases?.butcherTotal ?? null,
-    purchasesPerBowl: purchases?.purchasesPerBowl ?? null,
-    purchasesSalesPercent: purchases?.purchasesSalesPercent ?? null
+    salesRevenue,
+    productionPurchases,
+    productionPurchasesBills: billsTotal,
+    productionPurchasesSupermarket: supermarketTotal,
+    productionPurchasesButcher: butcherTotal,
+    purchasesPerBowl,
+    purchasesSalesPercent
   };
+}
+
+function reportPeriodLabel(data) {
+  if (data.type === "day") {
+    return formatIsoDateBr(data.date);
+  }
+  if (data.type === "week") {
+    return reportWeekRangeLabel();
+  }
+  return formatMonthKeyBr(data.periodKey);
 }
 
 function reportPeriodStatusLabel(data) {
@@ -14434,9 +14462,9 @@ async function downloadReportPdf(options = {}) {
   const data = reportData();
   const accountantPackage = Boolean(options.accountantPackage);
   const withdrawalAmounts = withdrawalBreakdownAmounts(data.financial.withdrawals, data.partnerWithdrawalControl);
-  const periodLabel = data.type === "week" ? reportWeekRangeLabel() : formatMonthKeyBr(data.periodKey);
+  const periodLabel = reportPeriodLabel(data);
   const filename = accountantPackage
-    ? `cumbuca-pacote-contador-${data.periodKey}.pdf`
+    ? `cumbuca-pacote-contador-${data.type === "week" ? data.weekKey : data.type === "day" ? data.date : data.periodKey}.pdf`
     : data.type === "week"
       ? `cumbuca-relatorio-${data.weekKey}.pdf`
       : `cumbuca-relatorio-${data.periodKey}.pdf`;
@@ -14445,6 +14473,9 @@ async function downloadReportPdf(options = {}) {
     periodLabel: accountantPackage ? `${periodLabel} - Pacote contador por conta` : periodLabel,
     statusLabel: reportPeriodStatusLabel(data),
     data: {
+      periodType: data.type,
+      periodStart: reportPeriodBounds(data).start,
+      periodEnd: reportPeriodBounds(data).end,
       periodKey: data.periodKey,
       balance: data.balance,
       totalIncome: data.totalIncome,
@@ -14538,9 +14569,9 @@ async function downloadReportXlsx(options = {}) {
   const data = reportData();
   const accountantPackage = Boolean(options.accountantPackage);
   const withdrawalAmounts = withdrawalBreakdownAmounts(data.financial.withdrawals, data.partnerWithdrawalControl);
-  const periodLabel = data.type === "week" ? reportWeekRangeLabel() : formatMonthKeyBr(data.periodKey);
+  const periodLabel = reportPeriodLabel(data);
   const filename = accountantPackage
-    ? `cumbuca-pacote-contador-${data.periodKey}.xlsx`
+    ? `cumbuca-pacote-contador-${data.type === "week" ? data.weekKey : data.type === "day" ? data.date : data.periodKey}.xlsx`
     : data.type === "week"
       ? `cumbuca-relatorio-${data.weekKey}.xlsx`
       : `cumbuca-relatorio-${data.periodKey}.xlsx`;
@@ -14548,6 +14579,9 @@ async function downloadReportXlsx(options = {}) {
     filename,
     periodLabel: accountantPackage ? `${periodLabel} - Pacote contador por conta` : periodLabel,
     data: {
+      periodType: data.type,
+      periodStart: reportPeriodBounds(data).start,
+      periodEnd: reportPeriodBounds(data).end,
       periodKey: data.periodKey,
       balance: data.balance,
       totalIncome: data.totalIncome,
@@ -20052,12 +20086,15 @@ function bindSystemIssuesPanel() {
 }
 
 function reportExportPayload(data = reportData()) {
-  const periodLabel = data.type === "week" ? reportWeekRangeLabel() : formatMonthKeyBr(data.periodKey);
+  const periodLabel = reportPeriodLabel(data);
   const withdrawalAmounts = withdrawalBreakdownAmounts(data.financial.withdrawals, data.partnerWithdrawalControl);
   return {
     periodLabel,
     statusLabel: reportPeriodStatusLabel(data),
     data: {
+      periodType: data.type,
+      periodStart: reportPeriodBounds(data).start,
+      periodEnd: reportPeriodBounds(data).end,
       periodKey: data.periodKey,
       balance: data.balance,
       totalIncome: data.totalIncome,
@@ -21207,7 +21244,8 @@ Promise.all([hydrateSession(), hydrateState()]).then(() => {
     year: currentDate.getFullYear(),
     month: currentDate.getMonth() + 1
   }, {
-    remember: Boolean(state.globalPeriod)
+    remember: Boolean(state.globalPeriod),
+    syncReportPeriod: false
   });
   if (routeName() === "home") {
     const defaultRoute = configuredDefaultRoute();
