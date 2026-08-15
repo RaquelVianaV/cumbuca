@@ -19515,8 +19515,16 @@ function renderReports() {
   const activeTab = tabs.some(([key]) => key === state.reportViewTab) ? state.reportViewTab : "summary";
 
   app.innerHTML = `
-    <section class="panel report-panel report-toolbar">
-      <form id="report-filter-form" class="period-picker report-filter" data-period="${reportType}">
+    <section class="panel report-panel report-toolbar report-toolbar-compact">
+      <div class="report-toolbar-summary">
+        <div>
+          <span>Período selecionado</span>
+          <strong>${reportPeriodLabel(data)}</strong>
+        </div>
+        <div class="report-toolbar-menus">
+          <details class="report-toolbar-menu report-filter-menu">
+            <summary>Filtros</summary>
+            <form id="report-filter-form" class="period-picker report-filter" data-period="${reportType}">
         <label>Período
           <select name="type" id="report-period-type">
             <option value="month" ${reportType === "month" ? "selected" : ""}>Mês</option>
@@ -19552,18 +19560,24 @@ function renderReports() {
           </select>
         </label>
         <button type="submit">Atualizar</button>
-      </form>
-      <div class="report-actions">
-        <button class="secondary" type="button" data-export-report="orders">Pedidos CSV</button>
-        <button class="secondary" type="button" data-export-report="cash">Caixa CSV</button>
-        <button class="secondary" type="button" data-export-report="financial">Financeiro CSV</button>
-        <button class="secondary" type="button" data-export-report="channels">Canais CSV</button>
-        <button class="secondary" type="button" data-export-report="clients">Clientes CSV</button>
-        <button class="secondary" type="button" data-export-report="menu">Cardápio CSV</button>
-        <button type="button" data-export-report="json">Relatório JSON</button>
-        <button type="button" data-export-report="accountant-package">Pacote contador</button>
-        <button type="button" data-export-report="xlsx">Relatório Excel</button>
-        <button type="button" data-export-report="pdf">Relatório PDF</button>
+            </form>
+          </details>
+          <details class="report-toolbar-menu report-export-menu">
+            <summary>Exportar</summary>
+            <div class="report-actions">
+              <button class="secondary" type="button" data-export-report="orders">Pedidos CSV</button>
+              <button class="secondary" type="button" data-export-report="cash">Caixa CSV</button>
+              <button class="secondary" type="button" data-export-report="financial">Financeiro CSV</button>
+              <button class="secondary" type="button" data-export-report="channels">Canais CSV</button>
+              <button class="secondary" type="button" data-export-report="clients">Clientes CSV</button>
+              <button class="secondary" type="button" data-export-report="menu">Cardápio CSV</button>
+              <button type="button" data-export-report="json">Relatório JSON</button>
+              <button type="button" data-export-report="accountant-package">Pacote contador</button>
+              <button type="button" data-export-report="xlsx">Relatório Excel</button>
+              <button type="button" data-export-report="pdf">Relatório PDF</button>
+            </div>
+          </details>
+        </div>
       </div>
     </section>
 
