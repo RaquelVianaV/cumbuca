@@ -6889,7 +6889,7 @@ async function renderCash() {
           <section>
             <h3>Semana de ${formatIsoDateBr(partnersDashboard.weekStart)} a ${formatIsoDateBr(partnersDashboard.weekEnd)}</h3>
             <div class="summary">
-              <div class="metric"><span>Vanessa - distribuição</span><strong>${money(partnersDashboard.week.vanessa + partnersDashboard.week.paidToCashVanessa)}</strong></div>
+              <div class="metric"><span>Vanessa - recebeu da conta</span><strong>${money(partnersDashboard.week.vanessa)}</strong></div>
               <div class="metric"><span>Raquel - distribuição</span><strong>${money(partnersDashboard.week.raquel + partnersDashboard.week.paidToCashRaquel)}</strong></div>
               <div class="metric"><span>Cofrinho transferido</span><strong>${money(partnersDashboard.week.savings)}</strong></div>
             </div>
@@ -6898,7 +6898,7 @@ async function renderCash() {
             <h3>${formatMonthKeyBr(partnersPeriod)}</h3>
             <div class="summary">
               <div class="metric"><span>Lucro operacional</span><strong>${money(partnersDashboard.monthOperationalProfit)}</strong></div>
-              <div class="metric"><span>Vanessa - distribuição</span><strong>${money(partnersDashboard.month.vanessa + partnersDashboard.month.paidToCashVanessa)}</strong></div>
+              <div class="metric"><span>Vanessa - recebeu da conta</span><strong>${money(partnersDashboard.month.vanessa)}</strong></div>
               <div class="metric"><span>Raquel - distribuição</span><strong>${money(partnersDashboard.month.raquel + partnersDashboard.month.paidToCashRaquel)}</strong></div>
               <div class="metric"><span>Cofrinho no mês</span><strong>${money(partnersDashboard.month.expectedSavings)}</strong></div>
             </div>
@@ -12874,6 +12874,10 @@ function reportData() {
   const accountBalances = accountBalanceBreakdownUntilDate(accountBalanceDate);
   const accountBalance = accountBalances.unified;
   const reportSavingsBalance = savingsBalanceUntilDate(accountBalanceDate);
+  const savingsExpectedBalance = partnerPeriodTotals(withdrawalHistoryGroups(
+    accountingCashEntries(state.cash).filter(entry => cashAccountingDate(entry) <= accountBalanceDate)
+  )).expectedSavings;
+  const savingsDifference = roundedMoneyValue(reportSavingsBalance - savingsExpectedBalance);
   const consolidatedBalance = roundedMoneyValue(accountBalance + reportSavingsBalance);
   const accountTransfers = accountTransfersForCashEntries(cashEntries);
   const capitalContributionEntries = cashEntries.filter(isPartnerCapitalContributionEntry);
@@ -12931,6 +12935,9 @@ function reportData() {
     financial,
     partnerWithdrawalControl,
     savingsBalance: reportSavingsBalance,
+    savingsExpectedBalance,
+    savingsDifference,
+    accountBalanceDate,
     savingsUpdatedAt: state.financialPlanning?.savingsUpdatedAt || "",
     partnersRecord: partnersRecordForPeriod(periodKey),
     totalIncome,
@@ -15262,9 +15269,8 @@ function reportIncomeCashTable(data) {
 function reportExpenseOutTable(data) {
   const entries = selectedReportExpenseEntries(data);
   const total = entries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-  const topEntries = [...entries]
-    .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
-    .slice(0, 8);
+  const sortedEntries = [...entries]
+    .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0));
   const selected = state.reportPeriod.expenseCategory || "all";
   const selectedLabel = selected === "all" ? "Todas as saídas" : categoryName(selected);
 
@@ -15282,7 +15288,7 @@ function reportExpenseOutTable(data) {
       <table>
         <thead><tr><th>Data</th><th>Motivo</th><th>Descrição</th><th>Valor</th></tr></thead>
         <tbody>
-          ${topEntries.map(entry => `
+          ${sortedEntries.map(entry => `
             <tr>
               <td>${formatIsoDateBr(entry.date)}</td>
               <td>${escapeHtml(categoryName(entry.category))}</td>
@@ -15293,7 +15299,69 @@ function reportExpenseOutTable(data) {
         </tbody>
       </table>
     </div>
-    ${entries.length > topEntries.length ? `<p class="muted">Mostrando as ${topEntries.length} maiores saídas deste filtro.</p>` : ""}
+  `;
+}
+
+function expenseCategoryReportPanel(data) {
+  const grouped = data.expenseEntries.reduce((summary, entry) => {
+    const label = categoryName(entry.category);
+    const key = slugifyCategory(label) || "outros";
+    const current = summary.get(key) || { key, label, total: 0, count: 0 };
+    current.total += Number(entry.amount || 0);
+    current.count += 1;
+    summary.set(key, current);
+    return summary;
+  }, new Map());
+  const rows = [...grouped.values()].sort((a, b) => b.total - a.total);
+  const total = rows.reduce((sum, row) => sum + row.total, 0);
+  return `
+    <section class="panel report-section">
+      <div class="section-heading">
+        <div>
+          <h2>Custos separados por categoria ${reportTitleSuffix(data)}</h2>
+          <p class="muted-inline">Supermercado, frigorífico, boletos, Uber/99 e demais custos do período selecionado.</p>
+        </div>
+      </div>
+      ${rows.length ? `
+        <div class="summary expense-category-summary">
+          ${rows.map(row => `
+            <div class="metric report-metric">
+              <span>${escapeHtml(row.label)}</span>
+              <strong>${money(row.total)}</strong>
+              <small>${row.count} lançamento(s) · ${total > 0 ? Math.round((row.total / total) * 100) : 0}% do total</small>
+            </div>
+          `).join("")}
+        </div>
+      ` : `<p class="muted">Nenhum custo lançado neste período.</p>`}
+    </section>
+  `;
+}
+
+function reportFinancialPositionPanel(data) {
+  const differenceLabel = data.savingsDifference < -0.005
+    ? "Falta guardar"
+    : data.savingsDifference > 0.005
+      ? "Acima do previsto"
+      : "Cofrinho conferido";
+  return `
+    <section class="panel report-section">
+      <div class="section-heading">
+        <div>
+          <h2>Posição financeira ${reportTitleSuffix(data)}</h2>
+          <p class="muted-inline">Saldos acumulados até ${formatIsoDateBr(data.accountBalanceDate)}.</p>
+        </div>
+      </div>
+      <div class="summary account-balance-summary">
+        <div class="metric report-metric"><span>Conta PF</span><strong class="${data.accountBalances.pf < 0 ? "negative" : "positive"}">${money(data.accountBalances.pf)}</strong></div>
+        <div class="metric report-metric"><span>Conta PJ</span><strong class="${data.accountBalances.pj < 0 ? "negative" : "positive"}">${money(data.accountBalances.pj)}</strong></div>
+        ${Math.abs(Number(data.accountBalances.unassigned || 0)) >= 0.005 ? `<div class="metric report-metric"><span>Sem conta definida</span><strong>${money(data.accountBalances.unassigned)}</strong></div>` : ""}
+        <div class="metric report-metric"><span>Saldo das contas</span><strong class="${data.accountBalance < 0 ? "negative" : "positive"}">${money(data.accountBalance)}</strong><small>PF + PJ</small></div>
+        <div class="metric report-metric"><span>Tem no cofrinho</span><strong>${money(data.savingsBalance)}</strong></div>
+        <div class="metric report-metric"><span>Deveria ter no cofrinho</span><strong>${money(data.savingsExpectedBalance)}</strong></div>
+        <div class="metric report-metric"><span>${differenceLabel}</span><strong class="${data.savingsDifference < 0 ? "negative" : "positive"}">${money(Math.abs(data.savingsDifference))}</strong></div>
+        <div class="metric report-metric total"><span>Saldo unificado</span><strong class="${data.consolidatedBalance < 0 ? "negative" : "positive"}">${money(data.consolidatedBalance)}</strong><small>PF + PJ + Cofrinho</small></div>
+      </div>
+    </section>
   `;
 }
 
@@ -19345,6 +19413,7 @@ function renderReports() {
   const weekRange = reportWeekRange();
   const tabs = [
     ["summary", "Resumo"],
+    ["financial", "Financeiro e sócias"],
     ["profitability", "Rentabilidade"],
     ["products", "Produtos"],
     ["income", "Entradas"],
@@ -19421,6 +19490,7 @@ function renderReports() {
     </section>
     ${viewTabsHtml("reportViewTab", activeTab, tabs)}
     ${viewPaneHtml("summary", activeTab, `
+      ${reportFinancialPositionPanel(data)}
       ${internalTransfersReportPanel(data)}
       ${cashForecastPanel(data)}
       ${["month", "week"].includes(reportType) ? monthlyOriginCategoryPanel(data) : ""}
@@ -19432,6 +19502,11 @@ function renderReports() {
         <h2>Cardápio e produção</h2>
         ${reportMenuTable(data)}
       </section>
+    `)}
+    ${viewPaneHtml("financial", activeTab, `
+      ${reportFinancialPositionPanel(data)}
+      ${withdrawalPersonReportPanel(data)}
+      ${accountAdjustmentsReportPanel(data)}
     `)}
     ${viewPaneHtml("profitability", activeTab, businessProfitabilityPanel(data))}
     ${viewPaneHtml("products", activeTab, storeProductPerformancePanel(data))}
@@ -19447,6 +19522,7 @@ function renderReports() {
       </section>
     `)}
     ${viewPaneHtml("expenses", activeTab, `
+      ${expenseCategoryReportPanel(data)}
       ${upcomingBillsPanel({ title: "Boletos e contas pendentes", limit: 12, showSummary: true, includeOverdue: false })}
       ${billsStatusPanel()}
       <section class="panel report-section">

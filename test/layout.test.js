@@ -149,6 +149,18 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /state\.channelFilter = \{[\s\S]*?period: "month"/);
   assert.match(app, /partnersDashboard\.month\.paidToCashVanessa/);
   assert.match(app, /partnersDashboard\.month\.paidToCashRaquel/);
+  assert.match(
+    app,
+    /Vanessa - recebeu da conta<\/span><strong>\$\{money\(partnersDashboard\.week\.vanessa\)\}/
+  );
+  assert.match(
+    app,
+    /Vanessa - recebeu da conta<\/span><strong>\$\{money\(partnersDashboard\.month\.vanessa\)\}/
+  );
+  assert.doesNotMatch(
+    app,
+    /money\(partnersDashboard\.(?:week|month)\.vanessa \+ partnersDashboard\.(?:week|month)\.paidToCashVanessa\)/
+  );
   assert.doesNotMatch(app, /partnerCashOffsetLabel\(partnersDashboard\.accumulated\.paidToCash/);
   assert.match(app, /function pricingRecipeMetrics/);
   assert.match(app, /Pedidos usam o Supermercado do Caixa rateado pelas cumbucas vendidas/);
@@ -491,6 +503,13 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(css, /\.linked-action-row/);
   assert.match(css, /\.withdrawal-value-group/);
   assert.match(app, /reportViewTab/);
+  assert.match(app, /\["financial", "Financeiro e sócias"\]/);
+  assert.match(app, /function expenseCategoryReportPanel/);
+  assert.match(app, /Custos separados por categoria/);
+  assert.match(app, /function reportFinancialPositionPanel/);
+  assert.match(app, /Deveria ter no cofrinho/);
+  assert.match(app, /Saldo unificado/);
+  assert.match(app, /savingsExpectedBalance/);
   assert.match(html, /nav-section-label">Operação/);
   assert.match(app, /function operationAgendaItems/);
   assert.match(app, /function actionableManagementAlerts/);
