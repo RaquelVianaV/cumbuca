@@ -5055,9 +5055,9 @@ function financialSummary(cashEntries = []) {
 }
 
 function withdrawalBreakdownAmounts(withdrawals = {}, control = {}) {
-  const receivedNowVanessa = Number(withdrawals.vanessa || 0);
-  const receivedNowRaquel = Number(withdrawals.raquel || 0);
-  const savings = Number(withdrawals.savings || 0);
+  const receivedNowVanessa = Number(control?.vanessa ?? withdrawals.vanessa ?? 0);
+  const receivedNowRaquel = Number(control?.raquel ?? withdrawals.raquel ?? 0);
+  const savings = Number(control?.savings ?? withdrawals.savings ?? 0);
   const paidToCashVanessa = Number(control?.paidToCashVanessa ?? control?.differenceVanessa ?? 0);
   const paidToCashRaquel = Number(control?.paidToCashRaquel ?? control?.differenceRaquel ?? 0);
   const vanessa = receivedNowVanessa + paidToCashVanessa;
@@ -12809,6 +12809,23 @@ function reportCashEntries(periodKey) {
   });
 }
 
+function reportWithdrawalHistoryEntries(periodKey) {
+  const entries = state.cash.filter(isWithdrawalEntry);
+  const type = state.reportPeriod.type || "month";
+  if (type === "day") {
+    return entries.filter(entry => cashAccountingDate(entry) === reportDate());
+  }
+  if (type !== "week") {
+    return entries.filter(entry => cashAccountingDate(entry).startsWith(periodKey));
+  }
+
+  const { start, end } = reportWeekRange();
+  return entries.filter(entry => {
+    const date = cashAccountingDate(entry);
+    return date >= start && date <= end;
+  });
+}
+
 function reportStoreSales(periodKey) {
   const type = state.reportPeriod.type || "month";
   if (type === "day") {
@@ -12848,6 +12865,7 @@ function reportData() {
   const selectedWeek = Number(state.reportPeriod.week || 1);
   const weekKey = reportWeekKey();
   const cashEntries = reportCashEntries(periodKey);
+  const withdrawalHistoryEntries = reportWithdrawalHistoryEntries(periodKey);
   const storeSales = reportStoreSales(periodKey);
   const channelReceipts = reportChannelReceipts(periodKey);
   const orders = type === "day"
@@ -12906,7 +12924,9 @@ function reportData() {
     (sum, entry) => sum + Number(entry.amount || 0),
     0
   );
-  const withdrawalHistoryControl = partnerPeriodTotals(withdrawalHistoryGroups(cashEntries));
+  const withdrawalHistoryControl = partnerPeriodTotals(
+    withdrawalHistoryGroups(withdrawalHistoryEntries)
+  );
   const periodBounds = type === "day"
     ? { start: reportDate(), end: reportDate() }
     : type === "week"
@@ -12960,6 +12980,7 @@ function reportData() {
     income,
     expenses,
     financial,
+    withdrawalHistoryEntries,
     partnerWithdrawalControl,
     vanessaFinancial: {
       received: Number(withdrawalHistoryControl.vanessa || 0),
@@ -15722,7 +15743,7 @@ function withdrawalPersonRows(data) {
 
 function withdrawalPersonReportPanel(data) {
   const rows = withdrawalPersonRows(data);
-  const groups = withdrawalHistoryGroups(data.financial.withdrawalEntries);
+  const groups = withdrawalHistoryGroups(data.withdrawalHistoryEntries);
   const periodTotals = partnerPeriodTotals(groups);
   return `
     <section class="panel report-section withdrawal-person-panel">
@@ -15787,7 +15808,7 @@ function withdrawalPersonReportPanel(data) {
 }
 
 function exportWithdrawalReport(data = reportData()) {
-  const rows = withdrawalHistoryGroups(data.financial.withdrawalEntries).map(group => ({
+  const rows = withdrawalHistoryGroups(data.withdrawalHistoryEntries).map(group => ({
     data: group.date,
     conta: group.cashAccount,
     saldo_real_usado: group.accountBalanceBefore,

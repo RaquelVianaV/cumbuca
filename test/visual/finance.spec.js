@@ -2337,6 +2337,15 @@ test('stored Vanessa compensation is displayed without rewriting the manual entr
   await expect(vanessaCard).toContainText('Recebeu da contaR$ 1.441,68');
   await expect(vanessaCard).toContainText('SituaçãoQuitado');
   await expect(vanessaCard).not.toContainText('Ainda não retirou');
+
+  await page.goto('/relatorios');
+  const reportVanessaCard = page
+    .locator('.report-grid .metric')
+    .filter({
+      hasText: 'Vanessa recebeu',
+    })
+    .first();
+  await expect(reportVanessaCard).toContainText('R$ 1.441,68');
 });
 
 test('store sales filter by day, week and month with previous month comparison', async ({
