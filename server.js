@@ -156,28 +156,49 @@ function cloneJson(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function removeErroneousHistoricalCompensation(state) {
+function applyVanessaHistoricalCompensation(state) {
   const correctionId = 'confirmed-vanessa-compensation-2026-08-10-pf-39799';
+  let vanessaEntry = null;
   (state.cashEntries || []).forEach((entry) => {
     const isVanessaWithdrawal =
       String(entry.date || '').slice(0, 10) === '2026-08-10' &&
       /vanessa/i.test(String(entry.description || '')) &&
-      Math.abs(Number(entry.amount || 0) - 1441.68) < 0.01;
+      [1043.69, 1441.68].some((amount) => Math.abs(Number(entry.amount || 0) - amount) < 0.01);
     if (entry.historicalCorrectionId !== correctionId && !isVanessaWithdrawal) {
       return;
     }
+    vanessaEntry = entry;
     entry.amount = '1043.69';
-    entry.expectedAmount = Number(entry.amount || 0).toFixed(2);
-    delete entry.paidToCashAmount;
-    delete entry.cashDebtAmount;
-    delete entry.priorWithdrawalAmount;
-    delete entry.remainingDebtAmount;
-    delete entry.historicalCorrectionId;
+    entry.expectedAmount = '1441.68';
+    entry.paidToCashAmount = '397.99';
+    entry.cashDebtAmount = '397.99';
+    entry.priorWithdrawalAmount = '397.99';
+    entry.remainingDebtAmount = '0.00';
+    entry.historicalCorrectionId = correctionId;
   });
-  if (Array.isArray(state.partnerAccounts?.movements)) {
-    state.partnerAccounts.movements = state.partnerAccounts.movements.filter(
-      (movement) => movement.historicalCorrectionId !== correctionId
-    );
+  const movements = state.partnerAccounts?.movements || [];
+  if (
+    vanessaEntry &&
+    !movements.some((movement) => movement.historicalCorrectionId === correctionId)
+  ) {
+    movements.unshift({
+      id: `partner-withdrawal-compensation-${correctionId}`,
+      partnerId: 'vanessa',
+      date: '2026-08-10',
+      type: 'withdrawal_compensation',
+      description: 'Compensação confirmada na retirada de 10/08/2026',
+      amount: '397.99',
+      origin: 'withdrawal',
+      observation: 'Compensação registrada em Sócias, sem nova saída da conta PF.',
+      direction: '',
+      cashImpact: false,
+      cashEntryId: '',
+      withdrawalSnapshotId: String(vanessaEntry.partnerWithdrawalSnapshotId || ''),
+      historicalCorrectionId: correctionId,
+      createdAt: '2026-08-14T00:00:00.000Z',
+      updatedAt: '2026-08-14T00:00:00.000Z',
+      createdBy: 'Correção confirmada pela administradora',
+    });
   }
   return state;
 }
@@ -192,7 +213,7 @@ function normalizeState(payload = {}) {
     ])
   );
   state.partnerAccounts = normalizePartnerAccounts(state.partnerAccounts);
-  removeErroneousHistoricalCompensation(state);
+  applyVanessaHistoricalCompensation(state);
   state.cashEntries = repairPartnerCashLinks(state.partnerAccounts, state.cashEntries);
   state.financialPlanning =
     state.financialPlanning && typeof state.financialPlanning === 'object'

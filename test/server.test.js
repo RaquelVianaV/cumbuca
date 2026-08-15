@@ -156,7 +156,7 @@ test('normalizeState fills missing keys without replacing supplied values', () =
   assert.equal(state.appConfig.storeName, 'Cumbuca');
 });
 
-test('normalizeState removes the duplicated historical Vanessa compensation', () => {
+test('normalizeState keeps Vanessa compensation in partners without deducting it from PF again', () => {
   const correctionId = 'confirmed-vanessa-compensation-2026-08-10-pf-39799';
   const state = normalizeState({
     cashEntries: [
@@ -174,20 +174,16 @@ test('normalizeState removes the duplicated historical Vanessa compensation', ()
       },
     ],
     partnerAccounts: {
-      movements: [
-        {
-          id: 'duplicated-compensation',
-          historicalCorrectionId: correctionId,
-        },
-      ],
+      movements: [],
     },
   });
 
   assert.equal(state.cashEntries[0].amount, '1043.69');
-  assert.equal(state.cashEntries[0].expectedAmount, '1043.69');
-  assert.equal(state.cashEntries[0].paidToCashAmount, undefined);
-  assert.equal(state.cashEntries[0].historicalCorrectionId, undefined);
-  assert.equal(state.partnerAccounts.movements.length, 0);
+  assert.equal(state.cashEntries[0].expectedAmount, '1441.68');
+  assert.equal(state.cashEntries[0].paidToCashAmount, '397.99');
+  assert.equal(state.cashEntries[0].historicalCorrectionId, correctionId);
+  assert.equal(state.partnerAccounts.movements.length, 1);
+  assert.equal(state.partnerAccounts.movements[0].cashImpact, false);
 });
 
 test('validateAppConfig rejects distribution percentages outside the valid range', () => {

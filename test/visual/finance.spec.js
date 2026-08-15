@@ -2282,7 +2282,7 @@ test('reviewing a legacy withdrawal saves its detailed closing', async ({ page }
   expect(withdrawalEntries.every((entry) => entry.partnerWithdrawalSnapshotId)).toBe(true);
 });
 
-test('legacy Vanessa withdrawal does not infer a compensation automatically', async ({ page }) => {
+test('Vanessa compensation stays in partners without a second PF withdrawal', async ({ page }) => {
   const database = await mockOnlineDatabase(page);
   database.state = {
     cashEntries: [
@@ -2304,7 +2304,8 @@ test('legacy Vanessa withdrawal does not infer a compensation automatically', as
         cashAccount: 'pf',
         description: 'Retirada - Vanessa',
         amount: '1043.69',
-        expectedAmount: '1043.69',
+        expectedAmount: '1441.68',
+        paidToCashAmount: '397.99',
       },
       {
         id: 'confirmed-raquel-2026-08-10',
@@ -2321,7 +2322,8 @@ test('legacy Vanessa withdrawal does not infer a compensation automatically', as
 
   await page.goto('/fluxo-de-caixa?panel=withdrawals');
   const vanessaCard = page.locator('.withdrawal-partner-card').filter({ hasText: 'Vanessa' });
-  await expect(vanessaCard).not.toContainText('Dívida compensadaR$ 397,99');
+  await expect(vanessaCard).toContainText('Dívida compensadaR$ 397,99');
+  await expect(vanessaCard).toContainText('Recebeu da contaR$ 1.043,69');
   await expect(vanessaCard).toContainText('SituaçãoQuitado');
   await expect(vanessaCard).not.toContainText('Ainda não retirou');
 });
