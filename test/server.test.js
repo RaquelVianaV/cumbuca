@@ -196,6 +196,29 @@ test('normalizeState restores Vanessa manual withdrawal to 1441.68 without chang
   assert.equal(state.cashEntries[0].paidToCashAmount, '397.99');
 });
 
+test('normalizeState recognizes Vanessa withdrawal already stored as 1441.68', () => {
+  const state = normalizeState({
+    cashEntries: [
+      {
+        id: 'withdrawal-confirmed-vanessa',
+        date: '2026-08-10',
+        description: 'Retirada - Vanessa',
+        cashAccount: 'pf',
+        type: 'expense',
+        amount: '1441.68',
+        expectedAmount: '1839.67',
+        paidToCashAmount: '397.99',
+      },
+    ],
+  });
+
+  assert.equal(state.cashEntries[0].amount, '1441.68');
+  assert.equal(state.cashEntries[0].cashImpact, false);
+  assert.ok(
+    state.cashEntries.some((entry) => entry.id === 'confirmed-pf-closing-2026-08-13-16084')
+  );
+});
+
 test('normalizeState restores the confirmed PF closing balance to 160.84', () => {
   const state = normalizeState({
     cashEntries: [

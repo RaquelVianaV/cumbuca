@@ -161,7 +161,7 @@ function restoreVanessaManualWithdrawal(state) {
     const isVanessaWithdrawal =
       String(entry.date || '').slice(0, 10) === '2026-08-10' &&
       /vanessa/i.test(String(entry.description || '')) &&
-      Math.abs(Number(entry.amount || 0) - 1043.69) < 0.01;
+      [1043.69, 1441.68].some((amount) => Math.abs(Number(entry.amount || 0) - amount) < 0.01);
     if (isVanessaWithdrawal) {
       entry.amount = '1441.68';
       entry.cashImpact = false;
