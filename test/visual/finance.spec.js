@@ -1386,7 +1386,7 @@ test('reconciliation exposes authorized adjustment preview', async ({ page }, te
   await expect(page.getByLabel('Saldo real da conta', { exact: true })).toBeVisible();
   await expect(page.getByLabel('Responsável', { exact: true })).toBeVisible();
   await expect(
-    page.getByRole('button', { name: 'Conferir e lançar ajuste', exact: true })
+    page.getByRole('button', { name: 'Revisar e confirmar ajuste', exact: true })
   ).toBeEnabled();
   const formColumns = await page.evaluate(
     () =>
@@ -2282,7 +2282,9 @@ test('reviewing a legacy withdrawal saves its detailed closing', async ({ page }
   expect(withdrawalEntries.every((entry) => entry.partnerWithdrawalSnapshotId)).toBe(true);
 });
 
-test('Vanessa compensation stays in partners without a second PF withdrawal', async ({ page }) => {
+test('stored Vanessa compensation is displayed without rewriting the manual entry', async ({
+  page,
+}) => {
   const database = await mockOnlineDatabase(page);
   database.state = {
     cashEntries: [
@@ -2306,7 +2308,6 @@ test('Vanessa compensation stays in partners without a second PF withdrawal', as
         amount: '1441.68',
         expectedAmount: '1839.67',
         paidToCashAmount: '397.99',
-        cashImpact: false,
       },
       {
         id: 'confirmed-raquel-2026-08-10',

@@ -181,9 +181,7 @@ function restoreConfirmedPfClosingBalance(state) {
       Math.abs(Number(entry.amount || 0) - 1441.68) < 0.01 &&
       entry.cashImpact === false
   );
-  if (!hasConfirmedVanessaHistory) {
-    return state;
-  }
+  if (!hasConfirmedVanessaHistory) return state;
   const balanceBeforeAdjustment = entries
     .filter((entry) => String(entry.id || '') !== adjustmentId)
     .filter((entry) => String(entry.cashAccount || '').toLowerCase() === 'pf')
@@ -205,12 +203,16 @@ function restoreConfirmedPfClosingBalance(state) {
     historicalBalanceRestoration: true,
   };
   const currentIndex = entries.findIndex((entry) => String(entry.id || '') === adjustmentId);
-  if (currentIndex >= 0) {
-    entries[currentIndex] = adjustment;
-  } else if (Math.abs(difference) >= 0.01) {
-    entries.push(adjustment);
-  }
+  if (currentIndex >= 0) entries[currentIndex] = adjustment;
+  else if (Math.abs(difference) >= 0.01) entries.push(adjustment);
   return state;
+}
+
+function applyConfirmedFinancialMigration(state) {
+  const before = JSON.stringify(state.cashEntries || []);
+  restoreVanessaManualWithdrawal(state);
+  restoreConfirmedPfClosingBalance(state);
+  return { state, changed: JSON.stringify(state.cashEntries || []) !== before };
 }
 
 function normalizeState(payload = {}) {
@@ -223,8 +225,6 @@ function normalizeState(payload = {}) {
     ])
   );
   state.partnerAccounts = normalizePartnerAccounts(state.partnerAccounts);
-  restoreVanessaManualWithdrawal(state);
-  restoreConfirmedPfClosingBalance(state);
   state.cashEntries = repairPartnerCashLinks(state.partnerAccounts, state.cashEntries);
   state.financialPlanning =
     state.financialPlanning && typeof state.financialPlanning === 'object'
@@ -2144,9 +2144,24 @@ async function readAppState() {
     'select key, value from cumbuca_app_state where key = any($1::text[])',
     [stateKeys]
   );
+  const storedState = Object.fromEntries(result.rows.map((row) => [row.key, row.value]));
+  const migration = applyConfirmedFinancialMigration(storedState);
+  if (migration.changed) {
+    await db.query(
+      `insert into cumbuca_app_state (key, value, updated_at)
+       values ('cashEntries', $1::jsonb, now())
+       on conflict (key)
+       do update set value = excluded.value, updated_at = now()`,
+      [JSON.stringify(migration.state.cashEntries || [])]
+    );
+    await writeEvent(
+      'migracao_financeira_confirmada',
+      'Estado financeiro confirmado foi persistido sem alterar o saldo exibido.'
+    );
+  }
   return {
     database: true,
-    state: normalizeState(Object.fromEntries(result.rows.map((row) => [row.key, row.value]))),
+    state: normalizeState(migration.state),
   };
 }
 
@@ -3533,8 +3548,10 @@ function serveStatic(req, res, pathname) {
     };
     const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const versionedAsset = requestUrl.searchParams.has('v') && ['.js', '.css'].includes(extension);
-    if (versionedAsset) {
-      headers['Cache-Control'] = 'public, max-age=31536000, immutable';
+    if (requestPath === '/sw.js') {
+      headers['Cache-Control'] = 'no-store, max-age=0';
+    } else if (versionedAsset) {
+      headers['Cache-Control'] = 'no-cache, must-revalidate';
     } else if (['.html', '.js', '.css'].includes(extension)) {
       headers['Cache-Control'] = 'no-cache';
     }
@@ -4118,6 +4135,7 @@ if (!process.env.VERCEL) {
 }
 
 handleRequest._test = {
+  applyConfirmedFinancialMigration,
   backupVersionId,
   bulkFinancialClearRequested,
   calculateCashFlow,

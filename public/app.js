@@ -6757,7 +6757,7 @@ async function renderCash() {
               <input value="${escapeHtml(editingReconciliation?.authorizedBy || state.currentUser?.name || state.currentUser?.username || "Usuário")}" readonly>
             </label>
             <div class="actions">
-              <button type="submit" ${canUser("editFinancial") ? "" : "disabled"}>${editingReconciliation ? "Salvar conciliação" : "Conferir e lançar ajuste"}</button>
+              <button type="submit" ${canUser("editFinancial") ? "" : "disabled"}>${editingReconciliation ? "Revisar e salvar conciliação" : "Revisar e confirmar ajuste"}</button>
               ${editingReconciliation ? `<button class="secondary" type="button" id="cancel-reconciliation-edit">Cancelar</button>` : ""}
             </div>
           </form>
@@ -6767,7 +6767,7 @@ async function renderCash() {
             <div class="metric"><span>Saldo real informado</span><strong id="reconciliation-real">${money(reconciliationRealBalance)}</strong></div>
             <div class="metric"><span>Diferença a ajustar</span><strong id="reconciliation-difference" class="${reconciliationDifference < 0 ? "negative" : "positive"}">${money(reconciliationDifference)}</strong></div>
           </div>
-          <p class="muted">Use esta conferência quando a conta real já está zerada ou diferente do saldo calculado. O lançamento fica marcado como Ajuste da conta.</p>
+          <p class="muted">A conferência nunca altera lançamentos anteriores. Depois da prévia e da sua confirmação, somente a diferença vira um novo Ajuste da conta, identificado no histórico e na auditoria.</p>
           ${(state.financialPlanning?.reconciliationHistory || []).length ? `
             <h3>Últimas conciliações</h3>
             <div class="recent-list">
@@ -7350,7 +7350,19 @@ async function renderCash() {
       const adjustmentType = difference > 0 ? "income" : "expense";
       const adjustmentAmount = Math.abs(difference);
       const actionLabel = adjustmentType === "expense" ? "saída" : "entrada";
-      if (!confirm(`${previousReconciliation ? "Salvar" : "Lançar"} ${actionLabel} de ajuste no valor de ${money(adjustmentAmount)} para bater com saldo real ${money(realBalance)}?`)) {
+      const confirmation = [
+        `${previousReconciliation ? "Salvar alteração da conciliação" : "Confirmar novo ajuste de conciliação"}?`,
+        "",
+        `Conta: ${reconciliationAccountLabel(cashAccount)}`,
+        `Data: ${formatIsoDateBr(date)}`,
+        `Saldo calculado: ${money(calculatedBalance)}`,
+        `Saldo real informado: ${money(realBalance)}`,
+        `${actionLabel === "saída" ? "Saída" : "Entrada"} de ajuste: ${money(adjustmentAmount)}`,
+        `Motivo: ${reason}`,
+        "",
+        "Nenhum lançamento anterior será alterado."
+      ].join("\n");
+      if (!confirm(confirmation)) {
         return;
       }
       const adjustmentId = previousReconciliation?.adjustmentId || `account-check-${Date.now()}`;

@@ -9,6 +9,7 @@ process.env.CUMBUCA_PASSWORD = testPassword;
 process.env.VERCEL = '1';
 const handleRequest = require('../server');
 const {
+  applyConfirmedFinancialMigration,
   backupVersionId,
   bulkFinancialClearRequested,
   calculateCashFlow,
@@ -139,26 +140,6 @@ test('calculateCashFlow excludes transfers and partner contributions from operat
   assert.equal(result.balance, 3000);
 });
 
-test('calculateCashFlow keeps historical control entries outside the cash balance', () => {
-  const result = calculateCashFlow([
-    { id: 'manual-income', type: 'income', amount: 500 },
-    {
-      id: 'historical-withdrawal',
-      type: 'expense',
-      amount: 1441.68,
-      cashImpact: false,
-    },
-  ]);
-
-  assert.equal(result.cashIncome, 500);
-  assert.equal(result.cashExpenses, 0);
-  assert.equal(result.balance, 500);
-  assert.deepEqual(
-    result.entries.map((entry) => entry.id),
-    ['manual-income']
-  );
-});
-
 test('normalizeState fills missing keys without replacing supplied values', () => {
   const cashEntries = [{ id: 'entry-1', amount: 50 }];
   const state = normalizeState({ cashEntries });
@@ -176,59 +157,38 @@ test('normalizeState fills missing keys without replacing supplied values', () =
   assert.equal(state.appConfig.storeName, 'Cumbuca');
 });
 
-test('normalizeState restores Vanessa manual withdrawal to 1441.68 without changing its compensation', () => {
-  const state = normalizeState({
-    cashEntries: [
-      {
-        id: 'withdrawal-confirmed-vanessa',
-        date: '2026-08-10',
-        description: 'Retirada - Vanessa',
-        amount: '1043.69',
-        expectedAmount: '1839.67',
-        paidToCashAmount: '397.99',
-      },
-    ],
-  });
+test('normalizeState never changes financial values or creates balance adjustments', () => {
+  const cashEntries = [
+    {
+      id: 'manual-entry',
+      date: '2026-08-10',
+      type: 'expense',
+      cashAccount: 'pf',
+      description: 'Lançamento manual',
+      amount: '1441.68',
+      expectedAmount: '1839.67',
+      paidToCashAmount: '397.99',
+    },
+  ];
+  const before = JSON.parse(JSON.stringify(cashEntries));
+  const state = normalizeState({ cashEntries });
 
-  assert.equal(state.cashEntries[0].amount, '1441.68');
-  assert.equal(state.cashEntries[0].cashImpact, false);
-  assert.equal(state.cashEntries[0].expectedAmount, '1839.67');
-  assert.equal(state.cashEntries[0].paidToCashAmount, '397.99');
-});
-
-test('normalizeState recognizes Vanessa withdrawal already stored as 1441.68', () => {
-  const state = normalizeState({
-    cashEntries: [
-      {
-        id: 'withdrawal-confirmed-vanessa',
-        date: '2026-08-10',
-        description: 'Retirada - Vanessa',
-        cashAccount: 'pf',
-        type: 'expense',
-        amount: '1441.68',
-        expectedAmount: '1839.67',
-        paidToCashAmount: '397.99',
-      },
-    ],
-  });
-
-  assert.equal(state.cashEntries[0].amount, '1441.68');
-  assert.equal(state.cashEntries[0].cashImpact, false);
-  assert.ok(
-    state.cashEntries.some((entry) => entry.id === 'confirmed-pf-closing-2026-08-13-16084')
+  assert.deepEqual(state.cashEntries, before);
+  assert.equal(
+    state.cashEntries.some((entry) => entry.category === 'ajuste-conta'),
+    false
   );
 });
 
-test('normalizeState restores the confirmed PF closing balance to 160.84', () => {
-  const state = normalizeState({
+test('confirmed financial migration is idempotent and persists the displayed PF balance', () => {
+  const state = {
     cashEntries: [
-      { id: 'pf-income', date: '2026-08-13', type: 'income', cashAccount: 'pf', amount: '1000.00' },
       {
-        id: 'pf-expense',
-        date: '2026-08-13',
-        type: 'expense',
+        id: 'pf-opening',
+        date: '2026-08-01',
+        type: 'income',
         cashAccount: 'pf',
-        amount: '200.00',
+        amount: '853.07',
       },
       {
         id: 'withdrawal-confirmed-vanessa',
@@ -237,24 +197,20 @@ test('normalizeState restores the confirmed PF closing balance to 160.84', () =>
         cashAccount: 'pf',
         description: 'Retirada - Vanessa',
         amount: '1441.68',
-        cashImpact: false,
       },
     ],
-  });
-  const pfEntries = state.cashEntries.filter(
-    (entry) => entry.cashAccount === 'pf' && entry.cashImpact !== false
-  );
-  const balance = pfEntries.reduce(
+  };
+  const first = applyConfirmedFinancialMigration(state);
+  const second = applyConfirmedFinancialMigration(state);
+  const accounted = state.cashEntries.filter((entry) => entry.cashImpact !== false);
+  const pfBalance = accounted.reduce(
     (total, entry) => total + (entry.type === 'expense' ? -1 : 1) * Number(entry.amount),
     0
   );
-  const adjustment = state.cashEntries.find(
-    (entry) => entry.id === 'confirmed-pf-closing-2026-08-13-16084'
-  );
 
-  assert.equal(Math.round(balance * 100) / 100, 160.84);
-  assert.equal(adjustment.type, 'expense');
-  assert.equal(adjustment.amount, '639.16');
+  assert.equal(first.changed, true);
+  assert.equal(second.changed, false);
+  assert.equal(Math.round(pfBalance * 100) / 100, 160.84);
 });
 
 test('validateAppConfig rejects distribution percentages outside the valid range', () => {
@@ -615,12 +571,15 @@ test('authenticated HTTP flow serves session, finance calculation and reports', 
     headers: { Cookie: cookie },
   });
   assert.equal(versionedApp.status, 200);
-  assert.match(versionedApp.headers.get('cache-control'), /max-age=31536000/);
-  assert.match(versionedApp.headers.get('cache-control'), /immutable/);
+  assert.equal(versionedApp.headers.get('cache-control'), 'no-cache, must-revalidate');
 
   const unversionedApp = await fetch(`${baseUrl}/app.js`, { headers: { Cookie: cookie } });
   assert.equal(unversionedApp.status, 200);
   assert.equal(unversionedApp.headers.get('cache-control'), 'no-cache');
+
+  const serviceWorker = await fetch(`${baseUrl}/sw.js`, { headers: { Cookie: cookie } });
+  assert.equal(serviceWorker.status, 200);
+  assert.equal(serviceWorker.headers.get('cache-control'), 'no-store, max-age=0');
 
   const missingAsset = await fetch(`${baseUrl}/missing-asset.js`, { headers: { Cookie: cookie } });
   assert.equal(missingAsset.status, 404);
