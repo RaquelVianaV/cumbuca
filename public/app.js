@@ -5163,6 +5163,33 @@ function reportPeriodKey() {
   return `${state.reportPeriod.year}-${month}`;
 }
 
+function ensureValidReportPeriod() {
+  const now = new Date();
+  const saved = state.reportPeriod && typeof state.reportPeriod === "object"
+    ? state.reportPeriod
+    : {};
+  const year = Number(saved.year);
+  const month = Number(saved.month);
+  const week = Number(saved.week);
+  state.reportPeriod = {
+    ...saved,
+    type: ["month", "week", "day"].includes(saved.type) ? saved.type : "month",
+    year: Number.isInteger(year) && year >= 2020 && year <= 2100 ? year : now.getFullYear(),
+    month: Number.isInteger(month) && month >= 1 && month <= 12 ? month : now.getMonth() + 1,
+    week: Number.isInteger(week) && week >= 1 && week <= 5 ? week : 1,
+    date: /^\d{4}-\d{2}-\d{2}$/.test(String(saved.date || "")) ? saved.date : isoDate(now),
+    start: /^\d{4}-\d{2}-\d{2}$/.test(String(saved.start || "")) ? saved.start : "",
+    end: /^\d{4}-\d{2}-\d{2}$/.test(String(saved.end || "")) ? saved.end : "",
+    expenseCategory: String(saved.expenseCategory || "all")
+  };
+  if (state.reportPeriod.type === "week" && (!state.reportPeriod.start || !state.reportPeriod.end)) {
+    const fallback = defaultReportWeekRange();
+    state.reportPeriod.start = state.reportPeriod.start || fallback.start;
+    state.reportPeriod.end = state.reportPeriod.end || fallback.end;
+  }
+  return state.reportPeriod;
+}
+
 function reportWeekKey() {
   return `${reportPeriodKey()}-semana-${Number(state.reportPeriod.week || 1)}`;
 }
@@ -19264,6 +19291,7 @@ function financeDashboardPanel(data) {
 }
 
 function renderFinance() {
+  ensureValidReportPeriod();
   const data = reportData();
   const reportType = state.reportPeriod.type || "month";
   const weekRange = reportWeekRange();
@@ -19440,6 +19468,7 @@ function renderFinance() {
 }
 
 function renderReports() {
+  ensureValidReportPeriod();
   showStandardHero("Relatórios");
   setActive("relatorios");
   const data = reportData();
@@ -20647,6 +20676,7 @@ window.addEventListener("popstate", () => {
 });
 
 function applyRouteParams() {
+  ensureValidReportPeriod();
   const params = new URLSearchParams(location.search);
   const requestedMenuView = params.get("view");
   if (routeName() === "menu-semanal" && ["form", "orders", "production", "delivery"].includes(requestedMenuView)) {

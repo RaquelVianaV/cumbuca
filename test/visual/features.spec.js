@@ -141,6 +141,16 @@ test('reports view displays financial summaries', async ({ page }) => {
   }
 });
 
+test('reports view recovers from an invalid saved period', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => localStorage.setItem('reportPeriod', 'null'));
+  await page.goto('/relatorios');
+
+  await expect(page.getByRole('heading', { name: 'Relatórios', exact: true })).toBeVisible();
+  await expect(page.locator('#report-filter-form')).toBeVisible();
+  await expect(page.locator('#report-period-type')).toHaveValue('month');
+});
+
 test('alerts dashboard shows operational warnings', async ({ page }) => {
   await page.goto('/alertas');
 
