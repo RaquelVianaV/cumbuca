@@ -497,10 +497,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /entry\.cashImpact === false && isWithdrawalEntry\(entry\)/);
   assert.match(app, /Deveria receber \$\{money\(row\.expectedWithdrawal\)\}/);
   assert.match(app, /Dívida compensada \$\{money\(row\.compensatedDebt\)\}/);
-  assert.match(
-    app,
-    /cashCategorySummary\(businessCashEntries\(cashCategoryDisplayEntries\(categoryMenuEntries\)\)/
-  );
+  assert.match(app, /cashCategorySummary\(cashCategoryDisplayEntries\(categoryMenuEntries\)/);
   assert.match(css, /\.cash-account-metric/);
   assert.match(css, /\.dashboard-account-breakdown/);
   assert.match(css, /\.home-command-grid/);

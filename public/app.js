@@ -3138,20 +3138,25 @@ function isPartnerCapitalContributionEntry(entry = {}) {
     || entry.nonOperationalPartnerContribution === true;
 }
 
+function isBusinessCashEntry(entry = {}) {
+  return !isAccountAdjustmentEntry(entry)
+    && !isPartnerCashEntry(entry)
+    && !isAccountTransferCashEntry(entry)
+    && !isPartnerCapitalContributionEntry(entry);
+}
+
 function businessCashEntries(entries = state.cash) {
-  return accountingCashEntries(entries).filter(
-    entry => !isAccountAdjustmentEntry(entry)
-      && !isPartnerCashEntry(entry)
-      && !isAccountTransferCashEntry(entry)
-      && !isPartnerCapitalContributionEntry(entry)
-  );
+  return accountingCashEntries(entries).filter(isBusinessCashEntry);
 }
 
 function cashCategoryDisplayEntries(entries = state.cash) {
   const accountedEntries = new Set(accountingCashEntries(entries));
   return entries.filter(entry =>
-    accountedEntries.has(entry)
-    || (entry.cashImpact === false && isWithdrawalEntry(entry))
+    isBusinessCashEntry(entry)
+    && (
+      accountedEntries.has(entry)
+      || (entry.cashImpact === false && isWithdrawalEntry(entry))
+    )
   );
 }
 
@@ -7164,7 +7169,7 @@ async function renderCash() {
           <div class="metric"><span>${balanceLabel}</span><strong class="${displayedCashBalance < 0 ? "negative" : "positive"}">${money(displayedCashBalance)}</strong></div>
         </div>
         ${cashAccountSummary(businessCashEntries(accountedEntries))}
-        ${cashCategorySummary(businessCashEntries(cashCategoryDisplayEntries(categoryMenuEntries)), selectedFilterCategory)}
+        ${cashCategorySummary(cashCategoryDisplayEntries(categoryMenuEntries), selectedFilterCategory)}
         ${cashTable(filteredLedgerEntries)}
         </div>
         ` : ""}

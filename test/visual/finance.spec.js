@@ -2339,6 +2339,14 @@ test('stored Vanessa compensation is displayed without rewriting the manual entr
   await expect(vanessaCard).toContainText('SituaçãoQuitado');
   await expect(vanessaCard).not.toContainText('Ainda não retirou');
 
+  await page.goto('/fluxo-de-caixa?panel=ledger');
+  const vanessaCategory = page
+    .locator('.cash-category-summary-card')
+    .filter({ hasText: 'Vanessa' });
+  await expect(vanessaCategory).toContainText('Saídas R$ 1.441,68');
+  await expect(vanessaCategory).toContainText('Deveria receber R$ 1.839,67');
+  await expect(vanessaCategory).toContainText('Dívida compensada R$ 397,99');
+
   await page.goto('/relatorios');
   const reportVanessaCard = page
     .locator('.report-grid .metric')
