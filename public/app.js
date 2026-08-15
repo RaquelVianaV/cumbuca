@@ -19566,7 +19566,11 @@ function renderReports() {
       <div class="metric report-metric"><span>Entradas operacionais no caixa</span><strong>${money(data.income)}</strong></div>
       <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
       <div class="metric report-metric"><span>Saldo da conta</span><strong class="${data.accountBalance < 0 ? "negative" : "positive"}">${money(data.accountBalance)}</strong></div>
-      <div class="metric report-metric"><span>Cofrinho</span><strong>${money(data.savingsBalance)}</strong></div>
+      <div class="metric report-metric"><span>Vanessa recebeu</span><strong>${money(data.vanessaFinancial.received)}</strong><small>Retiradas no período</small></div>
+      <div class="metric report-metric"><span>Vanessa pagou</span><strong>${money(data.vanessaFinancial.paid)}</strong><small>Pagamentos em Sócias</small></div>
+      <div class="metric report-metric"><span>Vanessa deve</span><strong>${money(data.vanessaFinancial.debt)}</strong><small>Saldo devedor em Sócias</small></div>
+      <div class="metric report-metric"><span>Tem no cofrinho</span><strong>${money(data.savingsBalance)}</strong></div>
+      <div class="metric report-metric"><span>Deveria ter no cofrinho</span><strong>${money(data.savingsExpectedBalance)}</strong></div>
       <div class="metric report-metric total"><span>Saldo consolidado</span><strong class="${data.consolidatedBalance < 0 ? "negative" : "positive"}">${money(data.consolidatedBalance)}</strong><small>PF + PJ + Cofrinho</small></div>
       <div class="metric report-metric"><span>Lucro operacional</span><strong class="${operationalProfitForReport(data) < 0 ? "negative" : "positive"}">${money(operationalProfitForReport(data))}</strong></div>
       ${withdrawalBreakdownMetrics(data.financial.withdrawals, "metric report-metric", data.partnerWithdrawalControl)}

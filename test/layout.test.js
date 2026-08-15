@@ -508,6 +508,9 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /Custos separados por categoria/);
   assert.match(app, /function reportFinancialPositionPanel/);
   assert.match(app, /Deveria ter no cofrinho/);
+  assert.match(app, /Vanessa recebeu/);
+  assert.match(app, /Vanessa pagou/);
+  assert.match(app, /Vanessa deve/);
   assert.match(app, /Saldo unificado/);
   assert.match(app, /savingsExpectedBalance/);
   assert.match(html, /nav-section-label">Operação/);
