@@ -2347,6 +2347,13 @@ test('stored Vanessa compensation is displayed without rewriting the manual entr
     })
     .first();
   await expect(reportVanessaCard).toContainText('R$ 1.441,68');
+  const reportRaquelCard = page
+    .locator('.report-grid .metric')
+    .filter({
+      hasText: 'Raquel recebeu',
+    })
+    .first();
+  await expect(reportRaquelCard).toContainText('R$ 788,43');
 });
 
 test('store sales filter by day, week and month with previous month comparison', async ({

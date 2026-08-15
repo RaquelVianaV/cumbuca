@@ -12933,6 +12933,7 @@ function reportData() {
       ? reportWeekRange()
       : { start: `${periodKey}-01`, end: accountBalanceDate };
   const vanessaPartnerSummary = partnerAccountSummary(state.partnerAccounts, "vanessa", periodBounds);
+  const raquelPartnerSummary = partnerAccountSummary(state.partnerAccounts, "raquel", periodBounds);
   const partnerDebtBalances = partnerBalances(state.partnerAccounts, accountBalanceDate);
   const partnerDebtVanessa = Math.max(0, Number(partnerDebtBalances.vanessa || 0));
   const partnerDebtRaquel = Math.max(0, Number(partnerDebtBalances.raquel || 0));
@@ -12986,6 +12987,11 @@ function reportData() {
       received: Number(withdrawalHistoryControl.vanessa || 0),
       paid: Number(vanessaPartnerSummary.payments || 0),
       debt: partnerDebtVanessa
+    },
+    raquelFinancial: {
+      received: Number(withdrawalHistoryControl.raquel || 0),
+      paid: Number(raquelPartnerSummary.payments || 0),
+      debt: partnerDebtRaquel
     },
     savingsBalance: reportSavingsBalance,
     savingsExpectedBalance: reportSavingsExpectedBalance,
@@ -15478,6 +15484,9 @@ function reportFinancialPositionPanel(data) {
         <div class="metric report-metric"><span>Vanessa recebeu</span><strong>${money(data.vanessaFinancial.received)}</strong><small>Informado em Retiradas no período</small></div>
         <div class="metric report-metric"><span>Vanessa pagou</span><strong>${money(data.vanessaFinancial.paid)}</strong><small>Informado em Sócias no período</small></div>
         <div class="metric report-metric"><span>Vanessa deve</span><strong>${money(data.vanessaFinancial.debt)}</strong><small>Saldo devedor em Sócias</small></div>
+        <div class="metric report-metric"><span>Raquel recebeu</span><strong>${money(data.raquelFinancial.received)}</strong><small>Informado em Retiradas no período</small></div>
+        <div class="metric report-metric"><span>Raquel pagou</span><strong>${money(data.raquelFinancial.paid)}</strong><small>Informado em Sócias no período</small></div>
+        <div class="metric report-metric"><span>Raquel deve</span><strong>${money(data.raquelFinancial.debt)}</strong><small>Saldo devedor em Sócias</small></div>
         <div class="metric report-metric"><span>Conta PF</span><strong class="${data.accountBalances.pf < 0 ? "negative" : "positive"}">${money(data.accountBalances.pf)}</strong></div>
         <div class="metric report-metric"><span>Conta PJ</span><strong class="${data.accountBalances.pj < 0 ? "negative" : "positive"}">${money(data.accountBalances.pj)}</strong></div>
         ${Math.abs(Number(data.accountBalances.unassigned || 0)) >= 0.005 ? `<div class="metric report-metric"><span>Sem conta definida</span><strong>${money(data.accountBalances.unassigned)}</strong></div>` : ""}
@@ -19630,11 +19639,13 @@ function renderReports() {
       <div class="metric report-metric"><span>Vanessa recebeu</span><strong>${money(data.vanessaFinancial.received)}</strong><small>Retiradas no período</small></div>
       <div class="metric report-metric"><span>Vanessa pagou</span><strong>${money(data.vanessaFinancial.paid)}</strong><small>Pagamentos em Sócias</small></div>
       <div class="metric report-metric"><span>Vanessa deve</span><strong>${money(data.vanessaFinancial.debt)}</strong><small>Saldo devedor em Sócias</small></div>
+      <div class="metric report-metric"><span>Raquel recebeu</span><strong>${money(data.raquelFinancial.received)}</strong><small>Retiradas no período</small></div>
+      <div class="metric report-metric"><span>Raquel pagou</span><strong>${money(data.raquelFinancial.paid)}</strong><small>Pagamentos em Sócias</small></div>
+      <div class="metric report-metric"><span>Raquel deve</span><strong>${money(data.raquelFinancial.debt)}</strong><small>Saldo devedor em Sócias</small></div>
       <div class="metric report-metric"><span>Tem no cofrinho</span><strong>${money(data.savingsBalance)}</strong></div>
       <div class="metric report-metric"><span>Deveria ter no cofrinho</span><strong>${money(data.savingsExpectedBalance)}</strong></div>
       <div class="metric report-metric total"><span>Saldo consolidado</span><strong class="${data.consolidatedBalance < 0 ? "negative" : "positive"}">${money(data.consolidatedBalance)}</strong><small>PF + PJ + Cofrinho</small></div>
       <div class="metric report-metric"><span>Lucro operacional</span><strong class="${operationalProfitForReport(data) < 0 ? "negative" : "positive"}">${money(operationalProfitForReport(data))}</strong></div>
-      ${withdrawalBreakdownMetrics(data.financial.withdrawals, "metric report-metric", data.partnerWithdrawalControl)}
       <div class="metric report-metric"><span>Resultado após retiradas</span><strong class="${operationalResultForReport(data) < 0 ? "negative" : "positive"}">${money(operationalResultForReport(data))}</strong></div>
     </section>
     ${viewTabsHtml("reportViewTab", activeTab, tabs)}
