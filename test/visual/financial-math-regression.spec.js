@@ -427,6 +427,47 @@ test('relatório semanal exporta somente o intervalo selecionado', async ({ page
   expect(result.cashDates).not.toContain('2026-07-31');
 });
 
+test('relatório lê Vanessa de Retiradas e Sócias e o previsto do Cofrinho', async ({ page }) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    ...julyFinancialState(),
+    financialPlanning: {
+      savings: '500.00',
+      savingsExpectedBalance: '4321.00',
+      savingsHistory: [],
+    },
+    partnerAccounts: {
+      partners: [
+        { id: 'vanessa', name: 'Vanessa', active: true },
+        { id: 'raquel', name: 'Raquel', active: true },
+      ],
+      movements: [
+        {
+          id: 'v-debit',
+          partnerId: 'vanessa',
+          type: 'debit',
+          date: '2026-07-05',
+          amount: '1000.00',
+        },
+        {
+          id: 'v-payment',
+          partnerId: 'vanessa',
+          type: 'payment',
+          date: '2026-07-10',
+          amount: '300.00',
+        },
+      ],
+      withdrawalSnapshots: [],
+    },
+  };
+
+  await page.goto('/relatorios?ano=2026&mes=7');
+  const data = await page.evaluate(() => window.reportData());
+
+  expect(data.vanessaFinancial).toEqual({ received: 4000, paid: 300, debt: 700 });
+  expect(data.savingsExpectedBalance).toBe(4321);
+});
+
 test('comparativo usa lucro real e insumos somam somente boleto, supermercado e frigorífico', async ({
   page,
 }) => {

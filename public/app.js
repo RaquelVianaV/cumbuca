@@ -12905,10 +12905,8 @@ function reportData() {
   const accountBalances = accountBalanceBreakdownUntilDate(accountBalanceDate);
   const accountBalance = accountBalances.unified;
   const reportSavingsBalance = savingsBalanceUntilDate(accountBalanceDate);
-  const savingsExpectedBalance = partnerPeriodTotals(withdrawalHistoryGroups(
-    accountingCashEntries(state.cash).filter(entry => cashAccountingDate(entry) <= accountBalanceDate)
-  )).expectedSavings;
-  const savingsDifference = roundedMoneyValue(reportSavingsBalance - savingsExpectedBalance);
+  const reportSavingsExpectedBalance = savingsExpectedBalance();
+  const savingsDifference = roundedMoneyValue(reportSavingsBalance - reportSavingsExpectedBalance);
   const consolidatedBalance = roundedMoneyValue(accountBalance + reportSavingsBalance);
   const accountTransfers = accountTransfersForCashEntries(cashEntries);
   const capitalContributionEntries = cashEntries.filter(isPartnerCapitalContributionEntry);
@@ -12917,6 +12915,12 @@ function reportData() {
     0
   );
   const withdrawalHistoryControl = partnerPeriodTotals(withdrawalHistoryGroups(cashEntries));
+  const periodBounds = type === "day"
+    ? { start: reportDate(), end: reportDate() }
+    : type === "week"
+      ? reportWeekRange()
+      : { start: `${periodKey}-01`, end: accountBalanceDate };
+  const vanessaPartnerSummary = partnerAccountSummary(state.partnerAccounts, "vanessa", periodBounds);
   const partnerDebtBalances = partnerBalances(state.partnerAccounts, accountBalanceDate);
   const partnerDebtVanessa = Math.max(0, Number(partnerDebtBalances.vanessa || 0));
   const partnerDebtRaquel = Math.max(0, Number(partnerDebtBalances.raquel || 0));
@@ -12965,8 +12969,13 @@ function reportData() {
     expenses,
     financial,
     partnerWithdrawalControl,
+    vanessaFinancial: {
+      received: Number(withdrawalHistoryControl.vanessa || 0),
+      paid: Number(vanessaPartnerSummary.payments || 0),
+      debt: partnerDebtVanessa
+    },
     savingsBalance: reportSavingsBalance,
-    savingsExpectedBalance,
+    savingsExpectedBalance: reportSavingsExpectedBalance,
     savingsDifference,
     accountBalanceDate,
     savingsUpdatedAt: state.financialPlanning?.savingsUpdatedAt || "",
@@ -13620,17 +13629,18 @@ function reportPdfWithdrawalRows(data) {
   const differenceTotal = Number(partners.difference || 0) || automaticDifferenceTotal;
   const compensationVanessa = Number(data.partnerWithdrawalControl?.paidToCashVanessa || 0);
   const compensationRaquel = Number(data.partnerWithdrawalControl?.paidToCashRaquel || 0);
-  const receivedVanessa = Number(data.financial.withdrawals.vanessa || 0);
+  const receivedVanessa = Number(data.vanessaFinancial?.received || 0);
   const receivedRaquel = Number(data.financial.withdrawals.raquel || 0);
   const rows = [
     ["Lucro operacional", money(operationalProfitForReport(data))],
     ["Total que saiu da conta", money(data.partnerWithdrawalControl?.paidNowTotal)],
-    [`Cofrinho - direito de ${Number(state.appConfig.splitSavingsPercent || 0)}%`, money(data.partnerWithdrawalControl?.expectedSavings)],
+    ["Cofrinho - deveria ter", money(data.savingsExpectedBalance)],
     ["Cofrinho - transferido agora", money(data.financial.withdrawals.savings)],
     ["Vanessa - direito na divisão", money(data.partnerWithdrawalControl?.expectedVanessa)],
     ["Vanessa - recebeu da conta", money(receivedVanessa)],
+    ["Vanessa - pagou em Sócias", money(data.vanessaFinancial?.paid)],
     ["Vanessa - ainda não retirou", money(data.partnerWithdrawalControl?.pendingVanessa)],
-    ["Vanessa - saldo devedor em Sócias", money(data.partnerWithdrawalControl?.priorVanessa)],
+    ["Vanessa - saldo devedor em Sócias", money(data.vanessaFinancial?.debt)],
     ["Raquel - direito na divisão", money(data.partnerWithdrawalControl?.expectedRaquel)],
     ["Raquel - recebeu da conta", money(receivedRaquel)],
     ["Raquel - ainda não retirou", money(data.partnerWithdrawalControl?.pendingRaquel)],
@@ -14320,6 +14330,7 @@ function reportCsvRows(kind, data) {
       { seção: "ajustes da conta", data: "", descrição: "Saldo dos ajustes", tipo: "saldo", categoria: "ajuste da conta", valor: data.accountAdjustmentTotals.balance },
       { seção: "ajustes da conta", data: "", descrição: "Saldo da conta no período", tipo: "saldo", categoria: "conta", valor: data.accountBalance },
       { seção: "resumo", data: data.savingsUpdatedAt || "", descrição: "Valor atual do cofrinho", tipo: "saldo", categoria: "cofrinho", valor: data.savingsBalance },
+      { seção: "resumo", data: "", descrição: "Valor que deveria ter no cofrinho", tipo: "controle", categoria: "cofrinho", valor: data.savingsExpectedBalance },
       { seção: "resumo", data: "", descrição: "Saldo consolidado PF + PJ + Cofrinho", tipo: "saldo", categoria: "consolidado", valor: data.consolidatedBalance },
       { seção: "aportes", data: "", descrição: "Aportes de sócias", tipo: "entrada não operacional", categoria: "aporte de sócia", valor: data.capitalContributionTotal },
       { seção: "produção", data: "", descrição: "Cumbucas vendidas na loja", tipo: "quantidade", categoria: "loja", valor: data.storeQuantity },
@@ -14328,12 +14339,14 @@ function reportCsvRows(kind, data) {
       { seção: "retiradas", data: "", descrição: "Total que saiu da conta", tipo: "saída", categoria: "retirada", valor: data.partnerWithdrawalControl?.paidNowTotal || 0 },
       { seção: "retiradas", data: "", descrição: `Cofrinho - direito de ${Number(state.appConfig.splitSavingsPercent || 0)}%`, tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.expectedSavings || 0 },
       { seção: "retiradas", data: "", descrição: "Cofrinho - transferido agora", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.savings },
-      { seção: "retiradas", data: "", descrição: "Vanessa - recebeu agora", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.vanessa },
+      { seção: "retiradas", data: "", descrição: "Vanessa - recebeu agora", tipo: "saída", categoria: "retirada", valor: data.vanessaFinancial.received },
+      { seção: "sócias", data: "", descrição: "Vanessa - pagou", tipo: "pagamento", categoria: "conta de sócia", valor: data.vanessaFinancial.paid },
+      { seção: "sócias", data: "", descrição: "Vanessa - deve", tipo: "saldo", categoria: "conta de sócia", valor: data.vanessaFinancial.debt },
       { seção: "retiradas", data: "", descrição: "Vanessa - distribuição total", tipo: "controle", categoria: "retirada", valor: withdrawalAmounts.vanessa },
       { seção: "retiradas", data: "", descrição: "Raquel - recebeu agora", tipo: "saída", categoria: "retirada", valor: data.financial.withdrawals.raquel },
       { seção: "retiradas", data: "", descrição: "Raquel - distribuição total", tipo: "controle", categoria: "retirada", valor: withdrawalAmounts.raquel },
       { seção: "retiradas", data: "", descrição: "Vanessa - direito na divisão", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.expectedVanessa || 0 },
-      { seção: "retiradas", data: "", descrição: "Vanessa - dívida informada", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.priorVanessa || 0 },
+      { seção: "retiradas", data: "", descrição: "Vanessa - dívida informada", tipo: "controle", categoria: "retirada", valor: data.vanessaFinancial.debt },
       { seção: "retiradas", data: "", descrição: "Vanessa - dívida compensada", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.paidToCashVanessa || 0 },
       { seção: "retiradas", data: "", descrição: "Vanessa - dívida restante", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.remainingDebtVanessa || 0 },
       { seção: "retiradas", data: "", descrição: "Vanessa - ainda não retirou", tipo: "controle", categoria: "retirada", valor: data.partnerWithdrawalControl?.pendingVanessa || 0 },
@@ -14514,6 +14527,7 @@ async function downloadReportPdf(options = {}) {
       accountAdjustmentBalance: data.accountAdjustmentTotals.balance,
       accountBalance: data.accountBalance,
       savingsBalance: data.savingsBalance,
+      savingsExpectedBalance: data.savingsExpectedBalance,
       consolidatedBalance: data.consolidatedBalance,
       capitalContributionTotal: data.capitalContributionTotal,
       transferRows: accountTransferReportRows(data.accountTransfers),
@@ -14620,6 +14634,7 @@ async function downloadReportXlsx(options = {}) {
       accountAdjustmentBalance: data.accountAdjustmentTotals.balance,
       accountBalance: data.accountBalance,
       savingsBalance: data.savingsBalance,
+      savingsExpectedBalance: data.savingsExpectedBalance,
       consolidatedBalance: data.consolidatedBalance,
       capitalContributionTotal: data.capitalContributionTotal,
       transferRows: accountTransferReportRows(data.accountTransfers, true),
@@ -14635,10 +14650,12 @@ async function downloadReportXlsx(options = {}) {
       withdrawalRaquel: withdrawalAmounts.raquel,
       withdrawalRows: [
         ["Cofrinho recebeu", Number(data.financial.withdrawals.savings || 0)],
+        ["Cofrinho - deveria ter", Number(data.savingsExpectedBalance || 0)],
         ["Vanessa - direito na divisão", Number(data.partnerWithdrawalControl?.expectedVanessa || 0)],
-        ["Vanessa - recebeu da conta", Number(data.financial.withdrawals.vanessa || 0)],
+        ["Vanessa - recebeu da conta", Number(data.vanessaFinancial?.received || 0)],
+        ["Vanessa - pagou em Sócias", Number(data.vanessaFinancial?.paid || 0)],
         ["Vanessa - ainda não retirou", Number(data.partnerWithdrawalControl?.pendingVanessa || 0)],
-        ["Vanessa - saldo devedor em Sócias", Number(data.partnerWithdrawalControl?.priorVanessa || 0)],
+        ["Vanessa - saldo devedor em Sócias", Number(data.vanessaFinancial?.debt || 0)],
         ...(Number(data.partnerWithdrawalControl?.paidToCashVanessa || 0) > 0 ? [
           ["Vanessa - dívida compensada", Number(data.partnerWithdrawalControl.paidToCashVanessa)],
           ["Vanessa - total recebido + compensado", Number(withdrawalAmounts.vanessa || 0)]
@@ -15413,6 +15430,9 @@ function reportFinancialPositionPanel(data) {
         </div>
       </div>
       <div class="summary account-balance-summary">
+        <div class="metric report-metric"><span>Vanessa recebeu</span><strong>${money(data.vanessaFinancial.received)}</strong><small>Informado em Retiradas no período</small></div>
+        <div class="metric report-metric"><span>Vanessa pagou</span><strong>${money(data.vanessaFinancial.paid)}</strong><small>Informado em Sócias no período</small></div>
+        <div class="metric report-metric"><span>Vanessa deve</span><strong>${money(data.vanessaFinancial.debt)}</strong><small>Saldo devedor em Sócias</small></div>
         <div class="metric report-metric"><span>Conta PF</span><strong class="${data.accountBalances.pf < 0 ? "negative" : "positive"}">${money(data.accountBalances.pf)}</strong></div>
         <div class="metric report-metric"><span>Conta PJ</span><strong class="${data.accountBalances.pj < 0 ? "negative" : "positive"}">${money(data.accountBalances.pj)}</strong></div>
         ${Math.abs(Number(data.accountBalances.unassigned || 0)) >= 0.005 ? `<div class="metric report-metric"><span>Sem conta definida</span><strong>${money(data.accountBalances.unassigned)}</strong></div>` : ""}
@@ -15706,10 +15726,11 @@ function withdrawalPersonReportPanel(data) {
       <div class="summary withdrawal-report-summary">
         <div class="metric"><span>Lucro operacional</span><strong>${money(operationalProfitForReport(data))}</strong></div>
         <div class="metric"><span>Cofrinho (${Number(state.appConfig.splitSavingsPercent || 0)}%)</span><strong>${money(periodTotals.savings)}</strong></div>
-        <div class="metric"><span>Vanessa - recebeu da conta</span><strong>${money(periodTotals.vanessa)}</strong></div>
+        <div class="metric"><span>Vanessa recebeu</span><strong>${money(data.vanessaFinancial.received)}</strong><small>Histórico de Retiradas</small></div>
+        <div class="metric"><span>Vanessa pagou</span><strong>${money(data.vanessaFinancial.paid)}</strong><small>Histórico de Sócias</small></div>
         <div class="metric"><span>Raquel - recebeu da conta</span><strong>${money(periodTotals.raquel)}</strong></div>
         ${periodTotals.paidToCashVanessa + periodTotals.paidToCashRaquel > 0 ? `<div class="metric"><span>Dívidas compensadas</span><strong>${money(periodTotals.paidToCashVanessa + periodTotals.paidToCashRaquel)}</strong></div>` : ""}
-        <div class="metric"><span>Saldo devedor Vanessa em Sócias</span><strong>${money(data.partnerWithdrawalControl?.priorVanessa)}</strong></div>
+        <div class="metric"><span>Vanessa deve em Sócias</span><strong>${money(data.vanessaFinancial.debt)}</strong></div>
         <div class="metric"><span>Saldo devedor Raquel em Sócias</span><strong>${money(data.partnerWithdrawalControl?.priorRaquel)}</strong></div>
         <div class="metric"><span>Total que saiu da conta</span><strong>${money(periodTotals.paidNowTotal)}</strong></div>
       </div>
@@ -20135,6 +20156,7 @@ function reportExportPayload(data = reportData()) {
       accountAdjustmentBalance: data.accountAdjustmentTotals.balance,
       accountBalance: data.accountBalance,
       savingsBalance: data.savingsBalance,
+      savingsExpectedBalance: data.savingsExpectedBalance,
       consolidatedBalance: data.consolidatedBalance,
       capitalContributionTotal: data.capitalContributionTotal,
       transferRows: accountTransferReportRows(data.accountTransfers),
