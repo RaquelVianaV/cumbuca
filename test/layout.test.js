@@ -492,6 +492,15 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /data-cash-ledger-results/);
   assert.match(css, /\.cash-category-summary-card\.active/);
   assert.match(css, /\.cash-category-summary-card:focus-visible/);
+  assert.match(app, /function cashCategoryDisplayEntries/);
+  assert.match(app, /accountedEntries\.has\(entry\)/);
+  assert.match(app, /entry\.cashImpact === false && isWithdrawalEntry\(entry\)/);
+  assert.match(app, /Deveria receber \$\{money\(row\.expectedWithdrawal\)\}/);
+  assert.match(app, /Dívida compensada \$\{money\(row\.compensatedDebt\)\}/);
+  assert.match(
+    app,
+    /cashCategorySummary\(businessCashEntries\(cashCategoryDisplayEntries\(categoryMenuEntries\)\)/
+  );
   assert.match(css, /\.cash-account-metric/);
   assert.match(css, /\.dashboard-account-breakdown/);
   assert.match(css, /\.home-command-grid/);

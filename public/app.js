@@ -2518,6 +2518,8 @@ function cashCategorySummary(entries = [], selectedCategory = "all") {
         label: cashDisplayCategoryName(entry),
         income: 0,
         expenses: 0,
+        expectedWithdrawal: 0,
+        compensatedDebt: 0,
         count: 0
       };
     }
@@ -2528,6 +2530,10 @@ function cashCategorySummary(entries = [], selectedCategory = "all") {
       acc[key].expenses += amount;
     } else {
       acc[key].income += amount;
+    }
+    if (withdrawalTarget(entry) === "vanessa" && isWithdrawalEntry(entry)) {
+      acc[key].expectedWithdrawal += Number(entry.expectedAmount || amount);
+      acc[key].compensatedDebt += Number(entry.paidToCashAmount || 0);
     }
     return acc;
   }, {}))
@@ -2557,6 +2563,7 @@ function cashCategorySummary(entries = [], selectedCategory = "all") {
         >
           <b>${escapeHtml(row.label)}</b>
           <small>Entradas ${money(row.income)} - Saídas ${money(row.expenses)}</small>
+          ${row.key === "vanessa" && row.expectedWithdrawal > 0 ? `<small>Deveria receber ${money(row.expectedWithdrawal)}${row.compensatedDebt > 0 ? ` · Dívida compensada ${money(row.compensatedDebt)}` : ""}</small>` : ""}
           <strong class="${row.balance < 0 ? "negative" : "positive"}">${money(row.balance)}</strong>
           <span class="cash-category-summary-action">${active ? "Mostrando transações" : "Ver transações"}<i aria-hidden="true">→</i></span>
         </button>
@@ -3137,6 +3144,14 @@ function businessCashEntries(entries = state.cash) {
       && !isPartnerCashEntry(entry)
       && !isAccountTransferCashEntry(entry)
       && !isPartnerCapitalContributionEntry(entry)
+  );
+}
+
+function cashCategoryDisplayEntries(entries = state.cash) {
+  const accountedEntries = new Set(accountingCashEntries(entries));
+  return entries.filter(entry =>
+    accountedEntries.has(entry)
+    || (entry.cashImpact === false && isWithdrawalEntry(entry))
   );
 }
 
@@ -6497,7 +6512,6 @@ async function renderCash() {
     cashAccount: "all"
   });
   const accountedEntries = accountingCashEntries(filteredEntries);
-  const categoryMenuAccountedEntries = accountingCashEntries(categoryMenuEntries);
   const filteredTotals = cashTotals(accountedEntries);
   const operationalTotals = cashTotals(businessCashEntries(accountedEntries));
   const currentCashFilter = getCashFilter();
@@ -7150,7 +7164,7 @@ async function renderCash() {
           <div class="metric"><span>${balanceLabel}</span><strong class="${displayedCashBalance < 0 ? "negative" : "positive"}">${money(displayedCashBalance)}</strong></div>
         </div>
         ${cashAccountSummary(businessCashEntries(accountedEntries))}
-        ${cashCategorySummary(businessCashEntries(categoryMenuAccountedEntries), selectedFilterCategory)}
+        ${cashCategorySummary(businessCashEntries(cashCategoryDisplayEntries(categoryMenuEntries)), selectedFilterCategory)}
         ${cashTable(filteredLedgerEntries)}
         </div>
         ` : ""}
