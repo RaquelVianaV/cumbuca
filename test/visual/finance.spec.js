@@ -858,7 +858,7 @@ test('menu planning divides the manual weekly supermarket total only by its menu
   await page.getByRole('button', { name: 'Rentabilidade', exact: true }).click();
   const profitability = page.locator('[data-profitability-panel]');
   await expect(profitability).toContainText(
-    'Pedidos usam o Supermercado do Caixa rateado pelas cumbucas vendidas'
+    'O supermercado informado em cada semana é dividido por todas as cumbucas pedidas'
   );
   await expect(
     profitability.getByRole('link', { name: 'Abrir custos rateados', exact: true })
@@ -868,10 +868,18 @@ test('menu planning divides the manual weekly supermarket total only by its menu
   ).toContainText('R$ 50,00');
   await expect(
     profitability.locator('.metric').filter({ hasText: 'Custo estimado' })
-  ).toContainText('R$ 27,20');
+  ).toContainText('R$ 73,20');
+  await expect(
+    profitability.locator('.metric').filter({ hasText: 'Supermercado informado' })
+  ).toContainText('R$ 40,00');
+  await expect(
+    profitability.locator('.metric').filter({ hasText: 'Supermercado por cumbuca' })
+  ).toContainText('R$ 20,00');
   await expect(profitability.locator('tbody tr').first()).toContainText('Cumbuca da semana');
-  await expect(profitability.locator('tbody tr').first()).toContainText('Planejamento + Caixa');
-  await expect(profitability.locator('tbody tr').first()).toContainText('R$ 27,20');
+  await expect(profitability.locator('tbody tr').first()).toContainText(
+    'Supermercado da semana + custos por unidade'
+  );
+  await expect(profitability.locator('tbody tr').first()).toContainText('R$ 73,20');
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
     path: testInfo.outputPath(`profitability-planning-cost-${testInfo.project.name}.png`),

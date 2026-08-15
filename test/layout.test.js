@@ -163,7 +163,10 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   );
   assert.doesNotMatch(app, /partnerCashOffsetLabel\(partnersDashboard\.accumulated\.paidToCash/);
   assert.match(app, /function pricingRecipeMetrics/);
-  assert.match(app, /Pedidos usam o Supermercado do Caixa rateado pelas cumbucas vendidas/);
+  assert.match(
+    app,
+    /O supermercado informado em cada semana é dividido por todas as cumbucas pedidas/
+  );
   assert.match(app, /href="\/precificacao\?view=costs">Abrir custos rateados/);
   assert.match(css, /\.menu-cost-breakdown/);
   assert.match(css, /\.global-period-form/);

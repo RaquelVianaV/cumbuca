@@ -9334,15 +9334,6 @@ function weeklyMenuPlanningCosts(
   };
 }
 
-function menuItemUnitCost(item = {}, periodKey = currentMenuPeriodKey()) {
-  const supermarket = monthlySupermarketAllocation(periodKey);
-  return menuPlanningCosts(
-    item,
-    pricingSharedCosts().totalPerUnit,
-    supermarket.costPerUnit
-  ).totalCost;
-}
-
 function menuCatalogRecordedCosts(item = {}, keyOrPeriod = menuKey(state.menuWeek || 1)) {
   const supermarket = String(keyOrPeriod || "").includes("-semana-")
     ? weeklyMenuSupermarketAllocation(keyOrPeriod)
@@ -15039,7 +15030,7 @@ function weeklyRecipeProfitabilityRows(data) {
   const rows = new Map();
   let unallocatedUnits = 0;
 
-  (data.orders || []).forEach(order => {
+  productionOrders(data.orders || []).forEach(order => {
     const totalOrderQuantity = orderQuantity(order);
     if (!(order.dishes || []).length) {
       unallocatedUnits += totalOrderQuantity;
@@ -15054,10 +15045,9 @@ function weeklyRecipeProfitabilityRows(data) {
         return;
       }
       const menuItem = (state.menus[order.menuKey] || []).find(item => Number(item.slot) === Number(dish.slot)) || {};
-      const periodKey = menuPeriodKeyFromKey(order.menuKey);
-      const supermarket = monthlySupermarketAllocation(periodKey);
+      const supermarket = weeklyMenuSupermarketAllocation(order.menuKey);
       const referencePrice = fallbackUnitRevenue;
-      const unitCost = menuItemUnitCost(menuItem, periodKey);
+      const unitCost = weeklyMenuPlanningCosts(menuItem, order.menuKey).totalCost;
       const costConfigured = menuItemHasPlanningContent(menuItem)
         && supermarket.supermarketTotal > 0
         && supermarket.totalQuantity > 0;
@@ -15073,7 +15063,8 @@ function weeklyRecipeProfitabilityRows(data) {
           referencePrice,
           desiredMargin: menuItemProfitPercent(menuItem),
           costConfigured,
-          costSource: "Planejamento + Caixa"
+          supermarketUnitCost: supermarket.costPerUnit,
+          costSource: "Supermercado da semana + custos por unidade"
         });
       }
       const row = rows.get(key);
@@ -15099,9 +15090,18 @@ function weeklyRecipeProfitabilityRows(data) {
 function businessProfitabilityPanel(data) {
   const weekly = weeklyRecipeProfitabilityRows(data);
   const storeRows = storeProductPerformanceRows(data);
+  const productionReportOrders = productionOrders(data.orders);
   const weeklyRevenue = weekly.rows.reduce((sum, row) => sum + row.revenue, 0);
   const weeklyCost = weekly.rows.reduce((sum, row) => sum + row.cost, 0);
   const weeklyProfit = weeklyRevenue - weeklyCost;
+  const selectedWeekKeys = [...new Set(productionReportOrders.map(order => String(order.menuKey || "")).filter(Boolean))];
+  const weeklySupermarketCost = selectedWeekKeys.reduce(
+    (sum, key) => sum + weeklyMenuSupermarketTotal(key),
+    0
+  );
+  const weeklyUnits = productionReportOrders.reduce((sum, order) => sum + orderQuantity(order), 0);
+  const supermarketPerUnit = weeklyUnits > 0 ? weeklySupermarketCost / weeklyUnits : 0;
+  const afterSupermarket = weeklyRevenue - weeklySupermarketCost;
   const storeRevenue = storeRows.reduce((sum, row) => sum + row.estimatedRevenue, 0);
   const storeProfit = storeRows.reduce((sum, row) => sum + row.estimatedProfit, 0);
   const totalRevenue = weeklyRevenue + storeRevenue;
@@ -15116,11 +15116,15 @@ function businessProfitabilityPanel(data) {
       <div class="section-heading">
         <div>
           <h2>Rentabilidade por prato ${reportTitleSuffix(data)}</h2>
-          <p class="muted-inline">Pedidos usam o Supermercado do Caixa rateado pelas cumbucas vendidas, mais embalagem e outros custos do Planejamento. A Loja usa os pratos cadastrados em Preços.</p>
+          <p class="muted-inline">O supermercado informado em cada semana é dividido por todas as cumbucas pedidas naquela semana. Depois, o custo por cumbuca é aplicado à quantidade de cada prato.</p>
         </div>
         <a class="secondary table-action" href="/precificacao?view=costs">Abrir custos rateados</a>
       </div>
       <div class="summary">
+        <div class="metric report-metric"><span>Supermercado informado</span><strong>${money(weeklySupermarketCost)}</strong><small>Total da(s) semana(s) selecionada(s)</small></div>
+        <div class="metric report-metric"><span>Cumbucas consideradas</span><strong>${weeklyUnits}</strong></div>
+        <div class="metric report-metric"><span>Supermercado por cumbuca</span><strong>${money(supermarketPerUnit)}</strong><small>Supermercado ÷ cumbucas</small></div>
+        <div class="metric report-metric"><span>Sobra após supermercado</span><strong class="${afterSupermarket < 0 ? "negative" : "positive"}">${money(afterSupermarket)}</strong><small>Receita dos pedidos − supermercado</small></div>
         <div class="metric report-metric"><span>Receita considerada</span><strong>${money(totalRevenue)}</strong></div>
         <div class="metric report-metric"><span>Custo estimado</span><strong>${money(weeklyCost + (storeRevenue - storeProfit))}</strong></div>
         <div class="metric report-metric"><span>Lucro estimado</span><strong class="${totalProfit < 0 ? "negative" : "positive"}">${money(totalProfit)}</strong></div>
