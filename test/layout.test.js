@@ -163,10 +163,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   );
   assert.doesNotMatch(app, /partnerCashOffsetLabel\(partnersDashboard\.accumulated\.paidToCash/);
   assert.match(app, /function pricingRecipeMetrics/);
-  assert.match(
-    app,
-    /O supermercado informado em cada semana é dividido por todas as cumbucas pedidas/
-  );
+  assert.match(app, /Cada cumbuca semanal considera o valor unitário fixo/);
   assert.match(app, /href="\/precificacao\?view=costs">Abrir custos rateados/);
   assert.match(css, /\.menu-cost-breakdown/);
   assert.match(css, /\.global-period-form/);
@@ -391,6 +388,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
     /Supermercado registrado na semana dividido pelas cumbucas vendidas na mesma semana/
   );
   assert.match(app, /Supermercado por cumbuca/);
+  assert.match(app, /WEEKLY_PROFITABILITY_UNIT_PRICE = 19\.5/);
   assert.match(app, /Cumbucas do mês/);
   assert.match(app, /catalogo=cumbucas/);
   assert.match(app, /Buscar cumbuca/);

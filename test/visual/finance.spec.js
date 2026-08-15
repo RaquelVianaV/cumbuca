@@ -858,14 +858,14 @@ test('menu planning divides the manual weekly supermarket total only by its menu
   await page.getByRole('button', { name: 'Rentabilidade', exact: true }).click();
   const profitability = page.locator('[data-profitability-panel]');
   await expect(profitability).toContainText(
-    'O supermercado informado em cada semana é dividido por todas as cumbucas pedidas'
+    'Cada cumbuca semanal considera o valor unitário fixo de R$ 19,50'
   );
   await expect(
     profitability.getByRole('link', { name: 'Abrir custos rateados', exact: true })
   ).toHaveAttribute('href', '/precificacao?view=costs');
   await expect(
     profitability.locator('.metric').filter({ hasText: 'Receita considerada' })
-  ).toContainText('R$ 50,00');
+  ).toContainText('R$ 39,00');
   await expect(
     profitability.locator('.metric').filter({ hasText: 'Custo estimado' })
   ).toContainText('R$ 73,20');
@@ -879,6 +879,7 @@ test('menu planning divides the manual weekly supermarket total only by its menu
   await expect(profitability.locator('tbody tr').first()).toContainText(
     'Supermercado da semana + custos por unidade'
   );
+  await expect(profitability.locator('tbody tr').first()).toContainText('R$ 19,50');
   await expect(profitability.locator('tbody tr').first()).toContainText('R$ 73,20');
   await expectNoHorizontalOverflow(page);
   await page.screenshot({

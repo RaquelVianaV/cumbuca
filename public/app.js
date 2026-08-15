@@ -9237,6 +9237,7 @@ function cashTable(entries) {
 
 const MENU_DEFAULT_PACKAGING_COST = 1.6;
 const MENU_DEFAULT_PROFIT_PERCENT = 30;
+const WEEKLY_PROFITABILITY_UNIT_PRICE = 19.5;
 
 function menuItemHasPlanningContent(item = {}) {
   return Boolean(
@@ -15036,9 +15037,7 @@ function weeklyRecipeProfitabilityRows(data) {
       unallocatedUnits += totalOrderQuantity;
       return;
     }
-    const fallbackUnitRevenue = totalOrderQuantity > 0
-      ? Number(order.amount || 0) / totalOrderQuantity
-      : 0;
+    const fallbackUnitRevenue = totalOrderQuantity > 0 ? WEEKLY_PROFITABILITY_UNIT_PRICE : 0;
     (order.dishes || []).forEach(dish => {
       const quantity = Number(dish.quantity || 0);
       if (quantity <= 0) {
@@ -15116,7 +15115,7 @@ function businessProfitabilityPanel(data) {
       <div class="section-heading">
         <div>
           <h2>Rentabilidade por prato ${reportTitleSuffix(data)}</h2>
-          <p class="muted-inline">O supermercado informado em cada semana é dividido por todas as cumbucas pedidas naquela semana. Depois, o custo por cumbuca é aplicado à quantidade de cada prato.</p>
+          <p class="muted-inline">Cada cumbuca semanal considera o valor unitário fixo de ${money(WEEKLY_PROFITABILITY_UNIT_PRICE)}. O supermercado informado na semana é dividido por todas as cumbucas pedidas e aplicado à quantidade de cada prato.</p>
         </div>
         <a class="secondary table-action" href="/precificacao?view=costs">Abrir custos rateados</a>
       </div>
