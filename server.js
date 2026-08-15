@@ -159,9 +159,14 @@ function cloneJson(value) {
 function removeErroneousHistoricalCompensation(state) {
   const correctionId = 'confirmed-vanessa-compensation-2026-08-10-pf-39799';
   (state.cashEntries || []).forEach((entry) => {
-    if (entry.historicalCorrectionId !== correctionId) {
+    const isVanessaWithdrawal =
+      String(entry.date || '').slice(0, 10) === '2026-08-10' &&
+      /vanessa/i.test(String(entry.description || '')) &&
+      Math.abs(Number(entry.amount || 0) - 1441.68) < 0.01;
+    if (entry.historicalCorrectionId !== correctionId && !isVanessaWithdrawal) {
       return;
     }
+    entry.expectedAmount = Number(entry.amount || 0).toFixed(2);
     delete entry.paidToCashAmount;
     delete entry.cashDebtAmount;
     delete entry.priorWithdrawalAmount;

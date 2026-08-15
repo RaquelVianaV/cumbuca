@@ -2304,7 +2304,7 @@ test('legacy Vanessa withdrawal does not infer a compensation automatically', as
         cashAccount: 'pf',
         description: 'Retirada - Vanessa',
         amount: '1441.68',
-        expectedAmount: '1839.67',
+        expectedAmount: '1441.68',
       },
       {
         id: 'confirmed-raquel-2026-08-10',
@@ -2322,7 +2322,8 @@ test('legacy Vanessa withdrawal does not infer a compensation automatically', as
   await page.goto('/fluxo-de-caixa?panel=withdrawals');
   const vanessaCard = page.locator('.withdrawal-partner-card').filter({ hasText: 'Vanessa' });
   await expect(vanessaCard).not.toContainText('Dívida compensadaR$ 397,99');
-  await expect(vanessaCard).toContainText(/Ainda não retirou\s+R\$\s*397,99/);
+  await expect(vanessaCard).toContainText('SituaçãoQuitado');
+  await expect(vanessaCard).not.toContainText('Ainda não retirou');
 });
 
 test('store sales filter by day, week and month with previous month comparison', async ({

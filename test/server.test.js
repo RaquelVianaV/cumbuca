@@ -184,7 +184,7 @@ test('normalizeState removes the duplicated historical Vanessa compensation', ()
   });
 
   assert.equal(state.cashEntries[0].amount, '1441.68');
-  assert.equal(state.cashEntries[0].expectedAmount, '1839.67');
+  assert.equal(state.cashEntries[0].expectedAmount, '1441.68');
   assert.equal(state.cashEntries[0].paidToCashAmount, undefined);
   assert.equal(state.cashEntries[0].historicalCorrectionId, undefined);
   assert.equal(state.partnerAccounts.movements.length, 0);
