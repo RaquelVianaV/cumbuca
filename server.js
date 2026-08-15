@@ -2950,7 +2950,11 @@ function buildReportPdf(payload = {}) {
   doc
     .font('Helvetica')
     .fontSize(15)
-    .text('Relatório financeiro e operacional', PDF_LAYOUT.left, 88);
+    .text(
+      data.periodType === 'week' ? 'Visão geral semanal' : 'Relatório financeiro e operacional',
+      PDF_LAYOUT.left,
+      88
+    );
   doc
     .fillColor('#c9f1df')
     .font('Helvetica-Bold')
@@ -2962,43 +2966,68 @@ function buildReportPdf(payload = {}) {
     .fontSize(9)
     .text(`Gerado em ${new Date().toLocaleString('pt-BR')}`, PDF_LAYOUT.left, 151);
 
-  const coverCards = [
+  const standardCoverCards = [
     ['Receitas contabilizadas', brl(data.totalIncome)],
     ['Despesas operacionais', brl(data.operationalExpenses)],
     ['Lucro operacional', brl(data.profitBeforeWithdrawals)],
     ['Saldo consolidado', brl(data.consolidatedBalance)],
   ];
+  const weeklyOverviewCards = [
+    ['Receita de pedidos', brl(data.weeklyRevenue)],
+    ['Total de cumbucas', pdfText(data.totalSoldQuantity || 0)],
+    ['Entradas operacionais', brl(data.totalIncome)],
+    ['Saídas operacionais', brl(data.operationalExpenses)],
+    ['Vanessa recebeu', brl(data.withdrawalVanessa)],
+    ['Vanessa pagou', brl(data.vanessaPaid)],
+    ['Vanessa deve', brl(data.vanessaDebt)],
+    ['Tem no cofrinho', brl(data.savingsBalance)],
+    ['Deveria ter no cofrinho', brl(data.savingsExpectedBalance)],
+    ['Saldo da conta', brl(data.accountBalance)],
+    ['Saldo consolidado', brl(data.consolidatedBalance)],
+    ['Lucro operacional', brl(data.profitBeforeWithdrawals)],
+  ];
+  const weeklyCover = data.periodType === 'week';
+  const coverCards = weeklyCover ? weeklyOverviewCards : standardCoverCards;
+  const coverColumns = weeklyCover ? 3 : 2;
+  const coverCardWidth = weeklyCover ? 162 : 250;
+  const coverCardHeight = weeklyCover ? 56 : 66;
+  const coverColumnGap = weeklyCover ? 12 : 10;
+  const coverRowGap = weeklyCover ? 12 : 20;
+  const coverStartY = weeklyCover ? 284 : 318;
   coverCards.forEach(([label, value], index) => {
-    const col = index % 2;
-    const row = Math.floor(index / 2);
-    const x = PDF_LAYOUT.left + col * 260;
-    const y = 318 + row * 86;
-    doc.roundedRect(x, y, 250, 66, 8).fillAndStroke(PDF_LAYOUT.colors.white, '#d8e7df');
+    const col = index % coverColumns;
+    const row = Math.floor(index / coverColumns);
+    const x = PDF_LAYOUT.left + col * (coverCardWidth + coverColumnGap);
+    const y = coverStartY + row * (coverCardHeight + coverRowGap);
+    doc
+      .roundedRect(x, y, coverCardWidth, coverCardHeight, 8)
+      .fillAndStroke(PDF_LAYOUT.colors.white, '#d8e7df');
     doc
       .fillColor(PDF_LAYOUT.colors.muted)
       .font('Helvetica-Bold')
-      .fontSize(8)
-      .text(pdfText(label).toUpperCase(), x + 14, y + 13, {
-        width: 222,
+      .fontSize(weeklyCover ? 7.2 : 8)
+      .text(pdfText(label).toUpperCase(), x + 12, y + 10, {
+        width: coverCardWidth - 24,
         height: 12,
         ellipsis: true,
       });
     doc
       .fillColor(PDF_LAYOUT.colors.ink)
       .font('Helvetica-Bold')
-      .fontSize(17)
-      .text(pdfText(value), x + 14, y + 33, {
-        width: 222,
+      .fontSize(weeklyCover ? 12.5 : 17)
+      .text(pdfText(value), x + 12, y + (weeklyCover ? 29 : 33), {
+        width: coverCardWidth - 24,
         height: 20,
         ellipsis: true,
       });
   });
-  doc.roundedRect(42, 520, 510, 96, 8).fill(PDF_LAYOUT.colors.sand);
+  const coverNoteY = weeklyCover ? 570 : 520;
+  doc.roundedRect(42, coverNoteY, 510, weeklyCover ? 86 : 96, 8).fill(PDF_LAYOUT.colors.sand);
   doc
     .fillColor(PDF_LAYOUT.colors.brown)
     .font('Helvetica-Bold')
     .fontSize(11)
-    .text('Como ler este relatório', 60, 542);
+    .text('Como ler este relatório', 60, coverNoteY + 20);
   doc
     .fillColor(PDF_LAYOUT.colors.ink)
     .font('Helvetica')
@@ -3006,7 +3035,7 @@ function buildReportPdf(payload = {}) {
     .text(
       'Resultado operacional mostra o desempenho do negócio. Caixa mostra onde o dinheiro está. Distribuições das sócias aparecem separadas e não são despesas operacionais.',
       60,
-      565,
+      coverNoteY + 43,
       { width: 470, lineGap: 3 }
     );
   doc
