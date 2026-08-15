@@ -156,6 +156,25 @@ test('normalizeState fills missing keys without replacing supplied values', () =
   assert.equal(state.appConfig.storeName, 'Cumbuca');
 });
 
+test('normalizeState restores Vanessa manual withdrawal to 1441.68 without changing its compensation', () => {
+  const state = normalizeState({
+    cashEntries: [
+      {
+        id: 'withdrawal-confirmed-vanessa',
+        date: '2026-08-10',
+        description: 'Retirada - Vanessa',
+        amount: '1043.69',
+        expectedAmount: '1839.67',
+        paidToCashAmount: '397.99',
+      },
+    ],
+  });
+
+  assert.equal(state.cashEntries[0].amount, '1441.68');
+  assert.equal(state.cashEntries[0].expectedAmount, '1839.67');
+  assert.equal(state.cashEntries[0].paidToCashAmount, '397.99');
+});
+
 test('validateAppConfig rejects distribution percentages outside the valid range', () => {
   assert.equal(validateAppConfig({ splitSavingsPercent: 101 }).valid, false);
   assert.equal(validateAppConfig({ splitSavingsPercent: 100 }).valid, true);

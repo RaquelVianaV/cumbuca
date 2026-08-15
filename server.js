@@ -156,6 +156,19 @@ function cloneJson(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function restoreVanessaManualWithdrawal(state) {
+  (state.cashEntries || []).forEach((entry) => {
+    const isVanessaWithdrawal =
+      String(entry.date || '').slice(0, 10) === '2026-08-10' &&
+      /vanessa/i.test(String(entry.description || '')) &&
+      Math.abs(Number(entry.amount || 0) - 1043.69) < 0.01;
+    if (isVanessaWithdrawal) {
+      entry.amount = '1441.68';
+    }
+  });
+  return state;
+}
+
 function normalizeState(payload = {}) {
   const state = Object.fromEntries(
     stateKeys.map((key) => [
@@ -166,6 +179,7 @@ function normalizeState(payload = {}) {
     ])
   );
   state.partnerAccounts = normalizePartnerAccounts(state.partnerAccounts);
+  restoreVanessaManualWithdrawal(state);
   state.cashEntries = repairPartnerCashLinks(state.partnerAccounts, state.cashEntries);
   state.financialPlanning =
     state.financialPlanning && typeof state.financialPlanning === 'object'
