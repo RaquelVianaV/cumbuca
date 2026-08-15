@@ -2202,7 +2202,7 @@ test('withdrawals compensate debt only after an explicit choice', async ({ page 
     hasText: 'Lucro operacional',
   });
   await expect(monthSummary).toContainText('Lucro operacionalR$ 5.000,00');
-  await expect(monthSummary).toContainText('Vanessa - distribuiçãoR$ 3.150,00');
+  await expect(monthSummary).toContainText('Vanessa - recebeu da contaR$ 2.950,00');
   await expect(monthSummary).toContainText('Raquel - distribuiçãoR$ 1.350,00');
   expect(
     await page.evaluate((dateKey) => window.accountBalanceUntilDate(dateKey), today)
@@ -2215,13 +2215,14 @@ test('withdrawals compensate debt only after an explicit choice', async ({ page 
   const withdrawalReport = page.locator('.withdrawal-person-panel');
   await expect(withdrawalReport).toContainText('Lucro operacionalR$ 5.000,00');
   await expect(withdrawalReport).toContainText('Cofrinho (10%)R$ 500,00');
-  await expect(withdrawalReport).toContainText('Vanessa - recebeu da contaR$ 2.950,00');
+  await expect(withdrawalReport).toContainText('Vanessa recebeuR$ 2.950,00');
   await expect(withdrawalReport).toContainText('Raquel - recebeu da contaR$ 1.300,00');
   await expect(withdrawalReport).toContainText('Dívidas compensadasR$ 250,00');
   await expect(withdrawalReport).toContainText('Total que saiu da contaR$ 4.750,00');
   await expect(withdrawalReport).toContainText('Dívida compensada');
   await expect(withdrawalReport).toContainText('Recebeu R$ 2.950,00Direito R$ 3.150,00');
   await expect(withdrawalReport).toContainText('Recebeu R$ 1.300,00Direito R$ 1.350,00');
+  await expectNoHorizontalOverflow(page);
   await page.screenshot({
     path: testInfo.outputPath('withdrawal-report-breakdown.png'),
     fullPage: true,
