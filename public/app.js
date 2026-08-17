@@ -15765,19 +15765,6 @@ function storeSaleMatchesProductFilter(entry = {}, productId = "all") {
   return String(entry.productId || "") === selected;
 }
 
-function storeSalesProductFilterOptions(selectedProductId = "all") {
-  const selected = normalizedStoreSalesProductFilter(selectedProductId);
-  return `
-    <option value="all" ${selected === "all" ? "selected" : ""}>Todos os produtos</option>
-    <option value="unassigned" ${selected === "unassigned" ? "selected" : ""}>Sem produto informado</option>
-    ${sortedStoreProducts().map(product => `
-      <option value="${escapeHtml(product.id)}" ${String(product.id) === selected ? "selected" : ""}>
-        ${escapeHtml(product.name || "Produto sem nome")}
-      </option>
-    `).join("")}
-  `;
-}
-
 function storeSalesFilteredQuantity(entry = {}, saleType = "all") {
   return normalizedStoreSalesTypeFilter(saleType) === "combo"
     ? Math.max(0, Number(entry?.quantity || 0))
@@ -15875,15 +15862,11 @@ function storeSalesTable(entries) {
   return `
     <div class="table-wrap report-table">
       <table>
-        <thead><tr><th>Data</th><th>Produto</th><th>Tipo</th><th>Quantidade</th><th>Unid. por combo</th><th>Total de unidades</th><th>Observação</th><th>Ações</th></tr></thead>
+        <thead><tr><th>Data</th><th>Quantidade</th><th>Observação</th><th>Ações</th></tr></thead>
         <tbody>
           ${entries.map(entry => `
             <tr>
               <td>${formatIsoDateBr(entry.date)}</td>
-              <td><strong>${escapeHtml(storeSaleProductName(entry))}</strong></td>
-              <td>${storeSaleTypeLabel(entry)}</td>
-              <td>${Number(entry.quantity || 0)}</td>
-              <td>${normalizedStoreSaleType(entry) === "combo" ? storeSaleUnitsPerCombo(entry) : "-"}</td>
               <td><strong>${storeSaleUnitQuantity(entry)}</strong></td>
               <td>${escapeHtml(entry.notes || "")}</td>
               <td>
@@ -16399,6 +16382,21 @@ function storeProductRecipeName(product = {}) {
   return storeProductRecipe(product)?.name || "Sem receita vinculada";
 }
 
+function storeProductPricingComparison(product = {}) {
+  const recipe = storeProductRecipe(product);
+  if (!recipe) {
+    return null;
+  }
+  const metrics = pricingRecipeMetrics(recipe);
+  const practiced = metrics.practicedPrice > 0;
+  return {
+    cost: practiced ? metrics.realTotalCost : metrics.totalCost,
+    price: practiced ? metrics.practicedPrice : metrics.suggestedPrice,
+    profit: practiced ? metrics.realProfit : metrics.suggestedProfit,
+    priceKind: practiced ? "Praticado" : "Sugerido"
+  };
+}
+
 function storeProductRecipeOptions(selectedRecipeId = "") {
   const recipes = [...(state.pricingRecipes || [])].sort((a, b) => {
     return String(a.name || "").localeCompare(String(b.name || ""), "pt-BR");
@@ -16408,18 +16406,6 @@ function storeProductRecipeOptions(selectedRecipeId = "") {
     ${recipes.map(recipe => `
       <option value="${escapeHtml(recipe.id)}" ${String(recipe.id) === String(selectedRecipeId) ? "selected" : ""}>
         ${escapeHtml(recipe.name || "Receita sem nome")}
-      </option>
-    `).join("")}
-  `;
-}
-
-function storeSaleProductOptions(selectedProductId = "") {
-  const products = sortedStoreProducts();
-  return `
-    <option value="">Sem produto informado</option>
-    ${products.map(product => `
-      <option value="${escapeHtml(product.id)}" ${String(product.id) === String(selectedProductId) ? "selected" : ""}>
-        ${escapeHtml(product.name || "Produto sem nome")}
       </option>
     `).join("")}
   `;
@@ -16455,6 +16441,13 @@ function storeProductMonthlyHistory() {
   return [...grouped.values()].sort((a, b) => b.month.localeCompare(a.month)).slice(0, 12);
 }
 
+function latestStoreSaleDate() {
+  return (state.storeSales || []).reduce((latest, entry) => {
+    const date = String(entry.date || "");
+    return date > latest ? date : latest;
+  }, "");
+}
+
 function storeProductsPanel(month, editingProduct = null) {
   const selectedMonth = normalizedStoreProductMonth(month) || isoDate(new Date()).slice(0, 7);
   const products = sortedStoreProducts();
@@ -16465,42 +16458,56 @@ function storeProductsPanel(month, editingProduct = null) {
   const previousMonth = previousMonthKeyFromPeriod(selectedMonth);
   const previousTotal = storeProductMonthTotal(previousMonth);
   const history = storeProductMonthlyHistory();
+  const lastSaleDate = latestStoreSaleDate();
 
   return `
     <div class="tool-grid store-products-layout">
       <section class="panel store-product-catalog">
-        <h2>${editingProduct ? "Editar produto" : "Cadastrar produto"}</h2>
+        <h2>${editingProduct ? "Editar prato" : "Cadastrar prato"}</h2>
         <form id="store-product-form" class="form-grid single">
           <input name="productId" type="hidden" value="${escapeHtml(editingProduct?.id || "")}">
-          <label>Nome do produto
-            <input name="name" placeholder="Ex.: Cumbuca 500 ml" value="${escapeHtml(editingProduct?.name || "")}" required>
+          <label>Nome do prato
+            <input name="name" placeholder="Ex.: Frango cremoso" value="${escapeHtml(editingProduct?.name || "")}" required>
+            <small>O nome é cadastrado somente aqui e depois selecionado na aba Vendas.</small>
           </label>
-          <label>Receita vinculada
+          <label>Precificação vinculada
             <select name="pricingRecipeId">
               ${storeProductRecipeOptions(editingProduct?.pricingRecipeId)}
             </select>
-            <small>O vínculo permite calcular receita e lucro estimados por produto nos relatórios.</small>
+            <small>Use o prato correspondente da Precificação para comparar custo, preço e lucro.</small>
           </label>
           <div class="actions">
-            <button type="submit">${editingProduct ? "Salvar produto" : "Cadastrar produto"}</button>
+            <button type="submit">${editingProduct ? "Salvar prato" : "Cadastrar prato"}</button>
             ${editingProduct ? `<button class="secondary" type="button" id="cancel-store-product-edit">Cancelar</button>` : ""}
           </div>
         </form>
         <div class="section-heading store-product-heading">
           <div>
-            <h3>Produtos cadastrados</h3>
-            <p class="muted-inline">${products.length} produto(s)</p>
+            <h3>Pratos cadastrados</h3>
+            <p class="muted-inline">${products.length} prato(s)</p>
+          </div>
+        </div>
+        <div class="summary">
+          <div class="metric" data-store-last-sale-date>
+            <span>Último lançamento em Vendas</span>
+            <strong>${lastSaleDate ? formatIsoDateBr(lastSaleDate) : "Nenhum"}</strong>
+            <small>Confira esta data antes de lançar novamente.</small>
           </div>
         </div>
         ${products.length ? `
           <div class="table-wrap report-table store-product-table">
             <table>
-              <thead><tr><th>Produto</th><th>Receita vinculada</th><th>${formatMonthKeyBr(selectedMonth)}</th><th>Ações</th></tr></thead>
+              <thead><tr><th>Prato</th><th>Precificação vinculada</th><th>Custo/un.</th><th>Preço na precificação</th><th>Lucro/un.</th><th>${formatMonthKeyBr(selectedMonth)}</th><th>Ações</th></tr></thead>
               <tbody>
-                ${products.map(product => `
+                ${products.map(product => {
+                  const comparison = storeProductPricingComparison(product);
+                  return `
                   <tr>
                     <td><strong>${escapeHtml(product.name || "")}</strong></td>
                     <td>${escapeHtml(storeProductRecipeName(product))}</td>
+                    <td>${comparison ? money(comparison.cost) : "—"}</td>
+                    <td>${comparison ? `${money(comparison.price)}<br><small>${comparison.priceKind}</small>` : "—"}</td>
+                    <td class="${comparison?.profit < 0 ? "negative" : comparison ? "positive" : ""}">${comparison ? money(comparison.profit) : "—"}</td>
                     <td>${storeProductQuantityForMonth(product.id, selectedMonth)}</td>
                     <td>
                       <div class="table-actions">
@@ -16509,11 +16516,11 @@ function storeProductsPanel(month, editingProduct = null) {
                       </div>
                     </td>
                   </tr>
-                `).join("")}
+                `; }).join("")}
               </tbody>
             </table>
           </div>
-        ` : `<p class="muted">Cadastre o primeiro produto para lançar quantidades mensais.</p>`}
+        ` : `<p class="muted">Cadastre o primeiro prato para selecioná-lo nas vendas.</p>`}
       </section>
 
       <section class="panel report-section store-product-monthly">
@@ -16638,12 +16645,6 @@ function renderStoreSales() {
           <label>Data da venda
             <input name="date" type="date" value="${editing?.date || today}" required>
           </label>
-          <label>Prato vendido
-            <select name="productId">
-              ${storeSaleProductOptions(editing?.productId)}
-            </select>
-            <small>Cadastre os pratos em Loja &gt; Produtos para selecioná-los neste lançamento.</small>
-          </label>
           <fieldset class="store-sale-type">
             <legend>Tipo da venda</legend>
             <div class="store-sale-type-options">
@@ -16692,11 +16693,6 @@ function renderStoreSales() {
               <option value="all" ${filter.saleType === "all" ? "selected" : ""}>Todos</option>
               <option value="combo" ${filter.saleType === "combo" ? "selected" : ""}>Combos</option>
               <option value="unit" ${filter.saleType === "unit" ? "selected" : ""}>Unidades</option>
-            </select>
-          </label>
-          <label>Produto
-            <select name="productId" id="store-sales-filter-product">
-              ${storeSalesProductFilterOptions(filter.productId)}
             </select>
           </label>
           <label class="store-sales-filter-date">Data / semana
@@ -17007,11 +17003,6 @@ function renderStoreSales() {
     const saleType = values.saleType === "combo" ? "combo" : "unit";
     const quantity = Number(values.quantity || 0);
     const unitsPerCombo = saleType === "combo" ? Number(values.unitsPerCombo || 0) : 1;
-    const selectedProduct = storeProductById(values.productId);
-    if (values.productId && !selectedProduct) {
-      showToast("Selecione um produto cadastrado.", "error");
-      return;
-    }
     if (!values.date || !Number.isInteger(quantity) || quantity <= 0) {
       showToast("Informe data e uma quantidade inteira maior que zero.", "error");
       return;
@@ -17029,8 +17020,8 @@ function renderStoreSales() {
     const entry = {
       id: editing?.id || Date.now(),
       date: values.date,
-      productId: selectedProduct?.id || "",
-      productName: selectedProduct?.name || "",
+      productId: editing?.productId || "",
+      productName: editing?.productName || "",
       saleType,
       quantity,
       unitsPerCombo,

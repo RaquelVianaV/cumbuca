@@ -277,7 +277,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /storeSalesMonthComparison/);
   assert.match(app, /id="store-sales-filter-form"/);
   assert.match(app, /id="store-sales-filter-type"/);
-  assert.match(app, /id="store-sales-filter-product"/);
+  assert.doesNotMatch(app, /id="store-sales-filter-product"/);
   assert.match(app, /storeSalesSummary/);
   assert.match(app, /data-store-sales-filter-combos/);
   assert.match(app, /data-store-sales-filter-standalone-units/);

@@ -2512,7 +2512,7 @@ test('store sale supports unit and combo quantities', async ({ page }, testInfo)
 
   await expect(unitOption).toBeChecked();
   await expect(form.getByLabel('Data da venda', { exact: true })).toBeVisible();
-  await expect(form.locator('select[name="productId"]')).toBeVisible();
+  await expect(form.locator('select[name="productId"]')).toHaveCount(0);
   await expect(page.locator('[data-store-sale-quantity-label]')).toHaveText('Quantidade de pratos');
   await expect(comboField).toBeHidden();
   await comboOption.check();
@@ -2651,15 +2651,7 @@ test('store sales can filter combos and count combos separately from units', asy
     /Total de unidades\s*31/
   );
 
-  await filterForm.locator('select[name="saleType"]').selectOption('all');
-  await filterForm.locator('select[name="productId"]').selectOption('product-b');
-  await filterForm.getByRole('button', { name: 'Aplicar', exact: true }).click();
-
-  await expect(rows).toHaveCount(2);
-  await expect(page.locator('[data-store-sales-filter-combos]')).toContainText('39');
-  await expect(page.locator('[data-store-sales-filter-standalone-units]')).toContainText('31');
-  await expect(page.locator('[data-store-sales-filter-total]')).toContainText('265');
-  await expect(page.locator('[data-store-sales-filter-best-day]')).toContainText('265 unidade(s)');
+  await expect(filterForm.locator('select[name="productId"]')).toHaveCount(0);
 });
 
 test('store products receive individual monthly quantities', async ({ page }, testInfo) => {
@@ -2676,7 +2668,7 @@ test('store products receive individual monthly quantities', async ({ page }, te
 
   const productForm = page.locator('#store-product-form');
   await productForm.locator('input[name="name"]').fill('Cumbuca 500 ml');
-  await productForm.getByRole('button', { name: 'Cadastrar produto', exact: true }).click();
+  await productForm.getByRole('button', { name: 'Cadastrar prato', exact: true }).click();
   await expect.poll(() => database.state.storeProducts?.length).toBe(1);
   expect(database.state.storeProducts[0].name).toBe('Cumbuca 500 ml');
 
@@ -2710,7 +2702,7 @@ test('store products receive individual monthly quantities', async ({ page }, te
   });
 });
 
-test('store products link recipes and rank sales with estimated profit', async ({
+test('store products link pricing and show the latest generic sale date', async ({
   page,
 }, testInfo) => {
   const database = await mockOnlineDatabase(page);
@@ -2760,7 +2752,7 @@ test('store products link recipes and rank sales with estimated profit', async (
   const createProduct = async (name, recipeId) => {
     await productForm.locator('input[name="name"]').fill(name);
     await productForm.locator('select[name="pricingRecipeId"]').selectOption(recipeId);
-    await productForm.getByRole('button', { name: 'Cadastrar produto', exact: true }).click();
+    await productForm.getByRole('button', { name: 'Cadastrar prato', exact: true }).click();
     await expect
       .poll(() => database.state.storeProducts?.some((item) => item.name === name))
       .toBe(true);
@@ -2777,57 +2769,26 @@ test('store products link recipes and rank sales with estimated profit', async (
     ])
   );
   await expect(page.locator('.store-product-table')).toContainText('Receita Frango');
-
-  const frango = database.state.storeProducts.find((item) => item.name === 'Frango Fit');
-  const carne = database.state.storeProducts.find((item) => item.name === 'Carne Caseira');
+  await expect(page.locator('.store-product-table')).toContainText('R$ 24,00');
+  await expect(page.locator('.store-product-table')).toContainText('Praticado');
 
   await page.getByRole('button', { name: 'Vendas', exact: true }).click();
   const saleForm = page.locator('#store-sale-form');
   await saleForm.locator('input[name="date"]').fill(today);
-  await saleForm.locator('select[name="productId"]').selectOption(frango.id);
+  await expect(saleForm.locator('select[name="productId"]')).toHaveCount(0);
   await saleForm.locator('input[name="quantity"]').fill('10');
   await saleForm.getByRole('button', { name: 'Adicionar', exact: true }).click();
   await expect.poll(() => database.state.storeSales?.length).toBe(1);
   expect(database.state.storeSales[0]).toMatchObject({
-    productId: frango.id,
-    productName: 'Frango Fit',
+    date: today,
     quantity: 10,
   });
-
-  await saleForm.locator('select[name="productId"]').selectOption(carne.id);
-  await saleForm.locator('input[name="saleType"][value="combo"]').check();
-  await saleForm.locator('input[name="quantity"]').fill('2');
-  await saleForm.locator('input[name="unitsPerCombo"]').fill('3');
-  await saleForm.getByRole('button', { name: 'Adicionar', exact: true }).click();
-  await expect.poll(() => database.state.storeSales?.length).toBe(2);
-
-  await saleForm.locator('select[name="productId"]').selectOption('');
-  await saleForm.locator('input[name="saleType"][value="unit"]').check();
-  await saleForm.locator('input[name="quantity"]').fill('2');
-  await saleForm.getByRole('button', { name: 'Adicionar', exact: true }).click();
-  await expect.poll(() => database.state.storeSales?.length).toBe(3);
-  await expect(page.locator('.store-sales-results tbody')).toContainText('Frango Fit');
-  await expect(page.locator('.store-sales-results tbody')).toContainText('Carne Caseira');
-
-  await page.goto('/relatorios');
   await page.getByRole('button', { name: 'Produtos', exact: true }).click();
-  const performance = page.locator('[data-store-product-performance]');
-  await expect(performance).toBeVisible();
-  await expect(page.locator('[data-product-performance-units]')).toContainText('18');
-  await expect(page.locator('[data-product-performance-profit]')).toContainText('R$ 320,00');
-  const rankingRows = performance.locator('tbody tr');
-  await expect(rankingRows).toHaveCount(4);
-  await expect(rankingRows.nth(0)).toContainText('Frango Fit');
-  await expect(rankingRows.nth(0)).toContainText('10');
-  await expect(rankingRows.nth(0)).toContainText('R$ 200,00');
-  await expect(rankingRows.nth(1)).toContainText('Carne Caseira');
-  await expect(rankingRows.nth(1)).toContainText('6');
-  await expect(rankingRows.nth(1)).toContainText('R$ 120,00');
-  await expect(
-    page.getByRole('heading', { name: 'Produtos com saída e margem abaixo da meta' })
-  ).toBeVisible();
-  await expect(page.getByRole('heading', { name: /Produtos sem saída/ })).toBeVisible();
-  await expect(page.locator('.view-pane[data-view-pane="products"]')).toContainText('Vegetariana');
+  await expect(page.locator('[data-store-last-sale-date]')).toContainText(
+    new Date(`${today}T12:00:00`).toLocaleDateString('pt-BR')
+  );
+  await expect(page.locator('.store-product-table')).toContainText('Frango Fit');
+  await expect(page.locator('.store-product-table')).toContainText('R$ 24,00');
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
     path: testInfo.outputPath('store-product-performance.png'),
