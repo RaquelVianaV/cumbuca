@@ -2511,6 +2511,9 @@ test('store sale supports unit and combo quantities', async ({ page }, testInfo)
   const totalPreview = page.locator('[data-store-sale-total]');
 
   await expect(unitOption).toBeChecked();
+  await expect(form.getByLabel('Data da venda', { exact: true })).toBeVisible();
+  await expect(form.locator('select[name="productId"]')).toBeVisible();
+  await expect(page.locator('[data-store-sale-quantity-label]')).toHaveText('Quantidade de pratos');
   await expect(comboField).toBeHidden();
   await comboOption.check();
   await expect(comboField).toBeVisible();

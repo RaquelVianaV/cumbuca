@@ -16633,16 +16633,16 @@ function renderStoreSales() {
     ${viewPaneHtml("sales", activeStoreView, `
     <div class="tool-grid">
       <section class="panel">
-        <h2>${editing ? "Editar venda da loja" : "Lançar venda da loja"}</h2>
+        <h2>${editing ? "Editar quantidade vendida" : "Lançar quantidade vendida"}</h2>
         <form id="store-sale-form" class="form-grid single">
-          <label>Data
+          <label>Data da venda
             <input name="date" type="date" value="${editing?.date || today}" required>
           </label>
-          <label>Produto vendido
+          <label>Prato vendido
             <select name="productId">
               ${storeSaleProductOptions(editing?.productId)}
             </select>
-            <small>Cadastre produtos e vincule receitas em Loja &gt; Produtos para acompanhar o lucro.</small>
+            <small>Cadastre os pratos em Loja &gt; Produtos para selecioná-los neste lançamento.</small>
           </label>
           <fieldset class="store-sale-type">
             <legend>Tipo da venda</legend>
@@ -16658,7 +16658,7 @@ function renderStoreSales() {
             </div>
           </fieldset>
           <label>
-            <span data-store-sale-quantity-label>${editingSaleType === "combo" ? "Quantidade de combos" : "Quantidade de unidades"}</span>
+            <span data-store-sale-quantity-label>${editingSaleType === "combo" ? "Quantidade de combos" : "Quantidade de pratos"}</span>
             <input name="quantity" type="number" min="0" step="1" placeholder="0" value="${editing?.quantity || ""}" required>
           </label>
           <label id="store-combo-units-field" ${editingSaleType === "combo" ? "" : "hidden"}>
@@ -16785,7 +16785,7 @@ function renderStoreSales() {
       const combo = saleType === "combo";
       storeComboUnitsField.hidden = !combo;
       storeComboUnits.required = combo;
-      storeSaleQuantityLabel.textContent = combo ? "Quantidade de combos" : "Quantidade de unidades";
+      storeSaleQuantityLabel.textContent = combo ? "Quantidade de combos" : "Quantidade de pratos";
       storeSaleTotal.hidden = !combo;
       if (combo) {
         const total = Number(storeSaleQuantity.value || 0) * Number(storeComboUnits.value || 0);
