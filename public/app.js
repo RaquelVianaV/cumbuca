@@ -3697,6 +3697,10 @@ function isWithdrawalEntry(entry = {}) {
   return entry.category === "retirada" || String(entry.description || "").toLowerCase().startsWith("retirada -");
 }
 
+function isSavingsDistributionEntry(entry = {}) {
+  return normalizedCategory(entry.category) === "cofrinho";
+}
+
 function withdrawalTarget(entry = {}) {
   const text = String(entry.description || "").toLowerCase();
   if (text.includes("cofrinho")) {
@@ -5041,6 +5045,15 @@ function financialSummary(cashEntries = []) {
       return;
     }
 
+    if (isSavingsDistributionEntry(entry)) {
+      if (entry.type === "expense") {
+        summary.withdrawals.savings += amount;
+        summary.withdrawals.total += amount;
+        summary.withdrawalEntries.push(entry);
+      }
+      return;
+    }
+
     if (entry.type !== "expense") {
       summary.income += amount;
       return;
@@ -5691,7 +5704,11 @@ function home() {
   const periodKey = `${globalPeriod.year}-${String(globalPeriod.month).padStart(2, "0")}`;
   const previousKey = previousMonthKeyFromPeriod(periodKey);
   const current = managementDreData(periodKey);
-  const previous = managementPeriodMetrics(previousKey);
+  const periodProgress = managementPeriodProgress(periodKey);
+  const previous = managementComparableMetrics(
+    previousKey,
+    periodProgress.partial ? periodProgress.throughDay : 0
+  );
   const average = managementMovingAverage(periodKey, 3);
   const comparisonRows = managementComparisonRows(periodKey);
   const attentionItems = managementAttentionItems(current, previous, average);
@@ -5709,7 +5726,7 @@ function home() {
         <div>
           <span class="executive-eyebrow">Visão geral</span>
           <h2 id="global-period-title">Situação da empresa</h2>
-          <p>${formatMonthKeyBr(periodKey)}${comparePrevious ? ` comparado com ${formatMonthKeyBr(previousKey)}` : ""}</p>
+          <p>${formatMonthKeyBr(periodKey)}${periodProgress.partial ? ` · dados até ${formatIsoDateBr(periodProgress.throughDate)}` : ""}${comparePrevious ? ` comparado com ${periodProgress.partial ? `o mesmo período de ${formatMonthKeyBr(previousKey)}` : formatMonthKeyBr(previousKey)}` : ""}</p>
         </div>
         <form id="global-period-form" class="global-period-form executive-period-form">
           <button class="secondary executive-period-shift" type="button" data-home-period-shift="-1" aria-label="Mês anterior">‹</button>
@@ -11872,6 +11889,65 @@ function pricingFlowHtml() {
   `;
 }
 
+function simplePricingOverviewPanel(rows = []) {
+  const completeRows = rows.filter(row => pricingRecipeIsComplete(row.recipe));
+  const attentionRows = completeRows.filter(row => {
+    return row.metrics.practicedPrice > 0
+      && row.metrics.realMarginPercent + 0.0001 < row.metrics.desiredMarginPercent;
+  });
+  const lossRows = completeRows.filter(row => row.metrics.practicedPrice > 0 && row.metrics.realProfit < 0);
+  const productMap = new Map((state.storeProducts || []).map(product => [String(product.id), product]));
+  const unlinkedUnits = (state.storeSales || []).reduce((sum, entry) => {
+    const product = productMap.get(String(entry.productId || ""));
+    return product?.pricingRecipeId ? sum : sum + storeSaleUnitQuantity(entry);
+  }, 0);
+  return `
+    <section class="panel simple-reading-panel simple-pricing-panel">
+      <div class="simple-reading-heading">
+        <div>
+          <span class="eyebrow">Leitura simples</span>
+          <h2>Seu preço está saudável?</h2>
+          <p>Veja primeiro o que custa, quanto você cobra e quanto sobra por unidade.</p>
+        </div>
+        <div class="simple-reading-status ${lossRows.length ? "danger" : attentionRows.length ? "warning" : "positive"}">
+          <strong>${lossRows.length ? `${lossRows.length} com prejuízo` : attentionRows.length ? `${attentionRows.length} abaixo da meta` : "Preços saudáveis"}</strong>
+          <small>${completeRows.length} produto(s) calculado(s)</small>
+        </div>
+      </div>
+      ${unlinkedUnits > 0 ? `
+        <div class="pricing-link-warning">
+          <div><strong>${unlinkedUnits} unidade(s) ainda não entram no lucro por produto</strong><span>As vendas da Loja precisam estar ligadas a um produto e a uma receita.</span></div>
+          <a class="secondary" href="/loja?view=products">Revisar vínculos</a>
+        </div>
+      ` : ""}
+      <div class="simple-price-list">
+        ${completeRows.map(({ recipe, metrics }) => {
+          const practiced = metrics.practicedPrice > 0;
+          const price = practiced ? metrics.practicedPrice : metrics.suggestedPrice;
+          const cost = practiced ? metrics.realTotalCost : metrics.totalCost;
+          const profit = practiced ? metrics.realProfit : metrics.suggestedProfit;
+          const margin = practiced ? metrics.realMarginPercent : metrics.desiredMarginPercent;
+          const tone = profit < 0 ? "danger" : margin + 0.0001 < metrics.desiredMarginPercent ? "warning" : "positive";
+          const message = profit < 0
+            ? "Você perde dinheiro nesta venda"
+            : margin + 0.0001 < metrics.desiredMarginPercent
+              ? `Dá lucro, mas está abaixo da meta de ${pricingPercent(metrics.desiredMarginPercent)}`
+              : "Preço saudável";
+          return `
+            <article class="simple-price-card ${tone}">
+              <div><strong>${escapeHtml(recipe.name || "Produto")}</strong><small>${message}</small></div>
+              <span><small>Custa</small><b>${money(cost)}</b></span>
+              <span><small>Você cobra</small><b>${money(price)}</b></span>
+              <span><small>Sobra</small><b>${money(profit)}</b></span>
+              <span><small>Margem</small><b>${pricingPercent(margin)}</b></span>
+            </article>
+          `;
+        }).join("") || `<p class="muted">Cadastre um produto para ver a leitura simples.</p>`}
+      </div>
+    </section>
+  `;
+}
+
 function pricingDashboardPanel() {
   const rows = (state.pricingRecipes || []).map(recipe => ({
     recipe,
@@ -11919,6 +11995,10 @@ function pricingDashboardPanel() {
     : 0;
 
   return `
+    ${simplePricingOverviewPanel(rows)}
+    <details class="panel simple-details">
+      <summary><span><strong>Ver cálculo completo</strong><small>Custos rateados, taxas, projeções e tabela técnica</small></span></summary>
+      <div class="simple-details-content">
     ${pricingFlowHtml()}
     ${shared.averageMonthlyUnits > 0 ? "" : `
       <div class="pricing-warning">
@@ -12059,6 +12139,8 @@ function pricingDashboardPanel() {
         </section>
       </div>
     ` : ""}
+      </div>
+    </details>
   `;
 }
 
@@ -13229,6 +13311,61 @@ function managementPeriodMetrics(periodKey = reportPeriodKey()) {
   };
 }
 
+function managementPeriodProgress(periodKey) {
+  const today = isoDate(new Date());
+  if (periodKey !== today.slice(0, 7)) {
+    return { partial: false, throughDay: 0, throughDate: "" };
+  }
+  const dates = [
+    ...accountingCashEntries(state.cash).map(entry => cashAccountingDate(entry)),
+    ...(state.storeSales || []).map(entry => String(entry.date || "")),
+    ...(state.orders || []).map(order => String(order.createdAt || order.deliveredAt || "").slice(0, 10))
+  ].filter(date => String(date).startsWith(periodKey));
+  const throughDate = dates.sort().at(-1) || today;
+  const throughDay = Number(String(throughDate).slice(8, 10)) || new Date().getDate();
+  const [year, month] = periodKey.split("-").map(Number);
+  const lastDay = new Date(year, month, 0).getDate();
+  return { partial: throughDay < lastDay, throughDay, throughDate };
+}
+
+function managementComparableMetrics(periodKey, throughDay = 0) {
+  if (!throughDay) {
+    return managementPeriodMetrics(periodKey);
+  }
+  const cutoff = `${periodKey}-${String(throughDay).padStart(2, "0")}`;
+  const periodEntries = accountingCashEntries(state.cash).filter(entry => {
+    const date = String(cashAccountingDate(entry) || "");
+    return date.startsWith(periodKey) && date <= cutoff;
+  });
+  const financial = financialSummary(periodEntries);
+  const sales = periodEntries
+    .filter(salesIncomeEntry)
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const purchasesProduction = periodEntries
+    .filter(entry => entry.type === "expense" && foodInputExpenseCategory(entry))
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const storeBowls = (state.storeSales || [])
+    .filter(entry => String(entry.date || "").startsWith(periodKey) && String(entry.date || "") <= cutoff)
+    .reduce((sum, entry) => sum + storeSaleUnitQuantity(entry), 0);
+  const menuBowls = productionOrders((state.orders || []).filter(order => {
+    if (menuPeriodKeyFromKey(order.menuKey) !== periodKey) return false;
+    const orderDate = String(order.createdAt || order.deliveredAt || "").slice(0, 10);
+    return !orderDate || orderDate <= cutoff;
+  })).reduce((sum, order) => sum + orderQuantity(order), 0);
+  const bowls = menuBowls + storeBowls;
+  return {
+    periodKey,
+    sales,
+    purchasesProduction,
+    purchasesPerBowl: bowls > 0 ? purchasesProduction / bowls : 0,
+    purchasesSalesPercent: sales > 0 ? (purchasesProduction / sales) * 100 : 0,
+    bowls,
+    menuBowls,
+    storeBowls,
+    operationalProfit: operationalProfitForReport({ financial })
+  };
+}
+
 function managementMovingAverage(periodKey = reportPeriodKey(), count = 3) {
   const months = managementMonthKeys(periodKey, count)
     .filter(managementPeriodHasData)
@@ -13261,7 +13398,11 @@ function managementVariation(current, previous) {
 
 function managementComparisonRows(periodKey = reportPeriodKey()) {
   const current = managementPeriodMetrics(periodKey);
-  const previous = managementPeriodMetrics(previousMonthKeyFromPeriod(periodKey));
+  const progress = managementPeriodProgress(periodKey);
+  const previous = managementComparableMetrics(
+    previousMonthKeyFromPeriod(periodKey),
+    progress.partial ? progress.throughDay : 0
+  );
   const row = (label, key, kind = "money", lowerIsBetter = false) => {
     const variation = managementVariation(current[key], previous[key]);
     return {
@@ -13295,6 +13436,7 @@ function managementAttentionItems(current, previous, average) {
   const bowlsChange = change(current.bowls, previous.bowls);
   const salesChange = change(current.sales, previous.sales);
   const ratioPointDifference = current.purchasesSalesPercent - previous.purchasesSalesPercent;
+  const ratioPercentChange = change(current.purchasesSalesPercent, previous.purchasesSalesPercent).percent;
 
   if (current.purchasesPerBowl > 0 && (
     (previous.purchasesPerBowl > 0 && perBowlPrevious.percent >= 5)
@@ -13312,12 +13454,14 @@ function managementAttentionItems(current, previous, average) {
   }
 
   if (previous.purchasesSalesPercent > 0 && ratioPointDifference > 0.05) {
+    const targetPurchases = current.sales * (previous.purchasesSalesPercent / 100);
+    const reductionNeeded = Math.max(0, current.purchasesProduction - targetPurchases);
     items.push({
       tone: "warning",
       title: "Compras estão consumindo uma parcela maior das vendas",
       value: `${current.purchasesSalesPercent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`,
       reference: `Anterior ${previous.purchasesSalesPercent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`,
-      detail: `+${ratioPointDifference.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} p.p.`
+      detail: `Alta de ${Math.abs(ratioPercentChange).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%. Para voltar ao nível anterior, reduza aproximadamente ${money(reductionNeeded)} em compras ou aumente as vendas.`
     });
   }
 
@@ -13358,6 +13502,7 @@ function managementExpenseGroups(metrics) {
   const groups = metrics.entries
     .filter(entry => entry.type === "expense")
     .filter(entry => !isWithdrawalEntry(entry))
+    .filter(entry => !isSavingsDistributionEntry(entry))
     .filter(entry => !isAccountAdjustmentEntry(entry))
     .filter(entry => !isPartnerCashEntry(entry))
     .filter(entry => !isAccountTransferCashEntry(entry))
@@ -13417,9 +13562,9 @@ function managementDeltaHtml(current, previous, options = {}) {
       : "negative";
   const direction = variation.absolute > 0 ? "↑" : variation.absolute < 0 ? "↓" : "";
   const detail = kind === "percent"
-    ? `${variation.absolute > 0 ? "+" : ""}${variation.absolute.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} p.p.`
+    ? `${variation.percent > 0 ? "+" : variation.percent < 0 ? "−" : ""}${Math.abs(variation.percent).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`
     : `${direction} ${Math.abs(variation.percent).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
-  return `<small class="executive-delta ${tone}">${detail} <span>vs. mês anterior</span></small>`;
+  return `<small class="executive-delta ${tone}"><b>${detail}</b><span>vs. mês anterior</span></small>`;
 }
 
 function managementComparisonValue(row, value) {
@@ -13428,7 +13573,7 @@ function managementComparisonValue(row, value) {
 
 function managementComparisonDelta(row) {
   if (row.kind === "percent") {
-    return `${row.delta > 0 ? "+" : ""}${row.delta.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} p.p.`;
+    return `${row.variationPercent > 0 ? "+" : row.variationPercent < 0 ? "−" : ""}${Math.abs(row.variationPercent).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
   }
   if (row.kind === "count") {
     return `${row.delta > 0 ? "+" : ""}${Number(row.delta || 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}`;
@@ -19376,6 +19521,140 @@ function financeDashboardPanel(data) {
   `;
 }
 
+function simpleFinanceOverviewPanel(data) {
+  const isMonth = data.type === "month";
+  const sales = isMonth ? salesRevenueForPeriod(data.periodKey).total : Number(data.financial.income || 0);
+  const otherIncome = Math.max(0, Number(data.financial.income || 0) - sales);
+  const inputCosts = isMonth ? productionPurchasesForPeriod(data.periodKey).combinedTotal : 0;
+  const operatingExpenses = Number(data.financial.operationalExpenses || 0);
+  const otherExpenses = Math.max(0, operatingExpenses - inputCosts);
+  const operationalProfit = operationalProfitForReport(data);
+  const withdrawals = cashWithdrawalsForReport(data);
+  const afterWithdrawals = operationalResultForReport(data);
+  const inputPercent = sales > 0 ? (inputCosts / sales) * 100 : 0;
+  const profitPercent = sales > 0 ? (operationalProfit / sales) * 100 : 0;
+  const profitTargetPercent = 30;
+  const targetProfit = sales * (profitTargetPercent / 100);
+  const divisionBaseGroups = withdrawalHistoryGroups(data.withdrawalHistoryEntries || [])
+    .filter(group => Number(group.distributionBase || 0) > 0);
+  const actualDivisionProfit = divisionBaseGroups
+    .reduce((sum, group) => sum + Number(group.distributionBase || 0), 0);
+  const divisionWithdrawals = divisionBaseGroups
+    .reduce((sum, group) => sum + Number(group.total || 0), 0);
+  const actualDivisionProfitPercent = sales > 0 ? (actualDivisionProfit / sales) * 100 : 0;
+  const profitTargetGap = actualDivisionProfit - targetProfit;
+  const withdrawalTargetPercent = targetProfit > 0 ? (divisionWithdrawals / targetProfit) * 100 : 0;
+  const withdrawalBasePercent = actualDivisionProfit > 0 ? (divisionWithdrawals / actualDivisionProfit) * 100 : 0;
+  const resultMessage = operationalProfit < 0
+    ? `A operação perdeu ${money(Math.abs(operationalProfit))} no período.`
+    : `A operação gerou ${money(operationalProfit)} antes das retiradas.`;
+  const cashMessage = withdrawals > 0
+    ? `Depois de ${money(withdrawals)} em retiradas e Cofrinho, permaneceram ${money(afterWithdrawals)}.`
+    : "Não há retiradas lançadas neste período.";
+  const quality = financialAnalysisQuality(data, otherIncome);
+  return `
+    <section class="panel simple-reading-panel simple-finance-panel">
+      <div class="simple-reading-heading">
+        <div>
+          <span class="eyebrow">Leitura simples</span>
+          <h2>Para onde foi o dinheiro?</h2>
+          <p>${resultMessage} ${cashMessage}</p>
+        </div>
+        <div class="simple-reading-status ${operationalProfit < 0 ? "danger" : "positive"}">
+          <strong>${operationalProfit < 0 ? "A operação deu prejuízo" : "A operação deu lucro"}</strong>
+          <small>${profitPercent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% das vendas</small>
+        </div>
+      </div>
+      <div class="analysis-confidence ${quality.tone}">
+        <div><span>Confiança da análise</span><strong>${quality.score}%</strong></div>
+        <p>${quality.summary}</p>
+        ${quality.issues.length ? `<ul>${quality.issues.map(issue => `<li>${escapeHtml(issue)}</li>`).join("")}</ul>` : ""}
+      </div>
+      <section class="profit-target-panel ${profitTargetGap < 0 ? "warning" : "positive"}">
+        <div class="profit-target-heading">
+          <div><span>Meta de lucro</span><strong>${profitTargetPercent}% das vendas</strong></div>
+          <p>${profitTargetGap < 0 ? `Faltaram ${money(Math.abs(profitTargetGap))} para atingir a meta.` : `A meta foi superada em ${money(profitTargetGap)}.`}</p>
+        </div>
+        <div class="profit-target-grid">
+          <article><small>Lucro que deveria ter</small><strong>${money(targetProfit)}</strong><span>30% de ${money(sales)} em vendas</span></article>
+          <article><small>Lucro que realmente teve</small><strong class="${actualDivisionProfit < targetProfit ? "negative" : "positive"}">${money(actualDivisionProfit)}</strong><span>Soma das Bases da divisão · ${actualDivisionProfitPercent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% das vendas</span></article>
+          <article><small>Diferença para a meta</small><strong class="${profitTargetGap < 0 ? "negative" : "positive"}">${profitTargetGap < 0 ? "− " : "+ "}${money(Math.abs(profitTargetGap))}</strong><span>${profitTargetGap < 0 ? "Abaixo do esperado" : "Acima do esperado"}</span></article>
+          <article><small>Retiradas das divisões</small><strong>${money(divisionWithdrawals)}</strong><span>${withdrawalBasePercent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% das bases · ${withdrawalTargetPercent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% da meta</span></article>
+        </div>
+        ${divisionBaseGroups.length ? `
+          <div class="division-base-list">
+            <span>Bases incluídas no lucro real</span>
+            ${divisionBaseGroups.map(group => `<b>${formatIsoDateBr(group.date)} · ${cashAccountLabel(group.cashAccount)} · ${money(group.distributionBase)}</b>`).join("")}
+          </div>
+        ` : `<p class="division-base-empty">Nenhuma Base da divisão foi registrada neste período.</p>`}
+      </section>
+      <div class="simple-money-flow">
+        <article><span>1</span><small>Você vendeu</small><strong>${money(sales)}</strong><p>Entradas classificadas como venda.</p></article>
+        ${otherIncome > 0.005 ? `<article class="needs-review"><span>2</span><small>Outras entradas</small><strong>+ ${money(otherIncome)}</strong><p>Precisam de revisão: podem ser receita, ajuste ou transferência.</p><a href="/financeiro?view=cash">Revisar lançamentos</a></article>` : ""}
+        ${isMonth ? `<article><span>${otherIncome > 0.005 ? "3" : "2"}</span><small>Gastou para produzir</small><strong>− ${money(inputCosts)}</strong><p>Boletos, supermercado e frigorífico · ${inputPercent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% das vendas.</p></article>` : ""}
+        <article><span>${isMonth ? (otherIncome > 0.005 ? "4" : "3") : (otherIncome > 0.005 ? "3" : "2")}</span><small>Outras despesas</small><strong>− ${money(otherExpenses)}</strong><p>Equipe, estrutura, entrega, marketing e demais gastos.</p></article>
+        <article class="${operationalProfit < 0 ? "danger" : "positive"}"><span>${isMonth ? (otherIncome > 0.005 ? "5" : "4") : (otherIncome > 0.005 ? "4" : "3")}</span><small>Lucro do negócio</small><strong>${money(operationalProfit)}</strong><p>Resultado antes de retiradas e Cofrinho.</p></article>
+        <article><span>${isMonth ? (otherIncome > 0.005 ? "6" : "5") : (otherIncome > 0.005 ? "5" : "4")}</span><small>Retiradas e Cofrinho</small><strong>− ${money(withdrawals)}</strong><p>Reduzem o caixa, mas não são prejuízo do negócio.</p></article>
+        <article class="${afterWithdrawals < 0 ? "danger" : "positive"}"><span>${isMonth ? (otherIncome > 0.005 ? "7" : "6") : (otherIncome > 0.005 ? "6" : "5")}</span><small>Permaneceu na empresa</small><strong>${money(afterWithdrawals)}</strong><p>Resultado do período após as retiradas.</p></article>
+      </div>
+      <div class="simple-concept-grid">
+        <div><strong>Caixa</strong><span>${money(data.consolidatedBalance)}</span><small>Quanto existe hoje em PF + PJ + Cofrinho.</small></div>
+        <div><strong>Lucro</strong><span>${money(operationalProfit)}</span><small>Quanto a atividade gerou no período.</small></div>
+        <div><strong>Retirada</strong><span>${money(withdrawals)}</span><small>Dinheiro distribuído; não é despesa operacional.</small></div>
+      </div>
+    </section>
+  `;
+}
+
+function financialAnalysisQuality(data, otherIncome = 0) {
+  const entries = [...(data.incomeEntries || []), ...(data.expenseEntries || [])];
+  const genericEntries = entries.filter(entry => {
+    return ["outros", "diferenca", "sem-categoria"].includes(normalizedCategory(entry.category));
+  });
+  const genericTotal = genericEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const fingerprints = new Map();
+  const duplicateCandidates = (data.expenseEntries || []).filter(entry => {
+    if (isWithdrawalEntry(entry) || isSavingsDistributionEntry(entry) || isAccountTransferCashEntry(entry)) return false;
+    const key = [entry.date, normalizedCategory(entry.category), String(entry.description || "").trim().toLowerCase(), Number(entry.amount || 0).toFixed(2)].join("|");
+    fingerprints.set(key, (fingerprints.get(key) || 0) + 1);
+    return false;
+  });
+  void duplicateCandidates;
+  const duplicateCount = [...fingerprints.values()].reduce((sum, count) => sum + Math.max(0, count - 1), 0);
+  const productMap = new Map((state.storeProducts || []).map(product => [String(product.id), product]));
+  const unlinkedUnits = (data.storeSales || []).reduce((sum, entry) => {
+    const product = productMap.get(String(entry.productId || ""));
+    return product?.pricingRecipeId ? sum : sum + storeSaleUnitQuantity(entry);
+  }, 0);
+  const issues = [];
+  let score = 100;
+  if (otherIncome >= 0.01) {
+    score -= 18;
+    issues.push(`${money(otherIncome)} em entradas operacionais não classificadas como venda.`);
+  }
+  if (genericTotal >= 0.01) {
+    score -= 12;
+    issues.push(`${money(genericTotal)} em lançamentos genéricos como Outros ou Diferença.`);
+  }
+  if (duplicateCount > 0) {
+    score -= Math.min(20, duplicateCount * 4);
+    issues.push(`${duplicateCount} possível(is) lançamento(s) duplicado(s) para conferir.`);
+  }
+  if (unlinkedUnits > 0) {
+    score -= 10;
+    issues.push(`${unlinkedUnits} unidade(s) da Loja sem receita de Precificação vinculada.`);
+  }
+  score = Math.max(20, score);
+  return {
+    score,
+    tone: score >= 85 ? "positive" : score >= 65 ? "warning" : "danger",
+    summary: score >= 85
+      ? "Os lançamentos estão consistentes para a leitura do período."
+      : "O resultado é uma estimativa até os itens abaixo serem conferidos.",
+    issues
+  };
+}
+
 function renderFinance() {
   ensureValidReportPeriod();
   const data = reportData();
@@ -19409,7 +19688,7 @@ function renderFinance() {
   const activePane = (() => {
     if (activeTab === "summary") {
       return `
-        ${financeDashboardPanel(data)}
+        ${simpleFinanceOverviewPanel(data)}
         <section class="panel report-section">
           <div class="section-heading">
             <div>
@@ -19419,6 +19698,10 @@ function renderFinance() {
           </div>
           <div id="financial-integrity-panel"><p class="muted">Conferindo valores...</p></div>
         </section>
+        <details class="panel simple-details">
+          <summary><span><strong>Ver análise financeira completa</strong><small>Projeções, rankings, ajustes, metas e demonstrativo técnico</small></span></summary>
+          <div class="simple-details-content">
+        ${financeDashboardPanel(data)}
         <section class="report-grid">
           <div class="metric report-metric"><span>Entradas operacionais</span><strong>${money(data.financial.income)}</strong></div>
           <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
@@ -19438,6 +19721,8 @@ function renderFinance() {
         ${["month", "week"].includes(reportType) ? monthlyOriginCategoryPanel(data) : ""}
         ${simplifiedStatementPanel(data)}
         ${withdrawalProjectionPanel(data)}
+          </div>
+        </details>
       `;
     }
     if (activeTab === "pending") {
