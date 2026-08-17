@@ -5,8 +5,12 @@ const crypto = require('crypto');
 const PDFDocument = require('pdfkit');
 const JSZip = require('jszip');
 const partnerAccountRules = require('./public/partner-accounts');
-const { normalizePartnerAccounts, repairPartnerCashLinks, validatePartnerAccountState } =
-  partnerAccountRules;
+const {
+  normalizePartnerAccounts,
+  repairPartnerCashLinks,
+  repairPartnerMovementsFromCash,
+  validatePartnerAccountState,
+} = partnerAccountRules;
 const accountTransferRules = require('./public/account-transfers');
 const { normalizeAccountTransfers, validateAccountTransferState } = accountTransferRules;
 const PRODUCTION = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
@@ -225,6 +229,7 @@ function normalizeState(payload = {}) {
     ])
   );
   state.partnerAccounts = normalizePartnerAccounts(state.partnerAccounts);
+  state.partnerAccounts = repairPartnerMovementsFromCash(state.partnerAccounts, state.cashEntries);
   state.cashEntries = repairPartnerCashLinks(state.partnerAccounts, state.cashEntries);
   state.financialPlanning =
     state.financialPlanning && typeof state.financialPlanning === 'object'
@@ -2146,22 +2151,48 @@ async function readAppState() {
   );
   const storedState = Object.fromEntries(result.rows.map((row) => [row.key, row.value]));
   const migration = applyConfirmedFinancialMigration(storedState);
-  if (migration.changed) {
-    await db.query(
-      `insert into cumbuca_app_state (key, value, updated_at)
-       values ('cashEntries', $1::jsonb, now())
-       on conflict (key)
-       do update set value = excluded.value, updated_at = now()`,
-      [JSON.stringify(migration.state.cashEntries || [])]
-    );
+  let normalizedState = normalizeState(migration.state);
+  normalizedState = normalizeState(applyConfirmedFinancialMigration(normalizedState).state);
+  const cashChanged =
+    JSON.stringify(normalizedState.cashEntries || []) !==
+    JSON.stringify(storedState.cashEntries || []);
+  const partnerAccountsChanged =
+    JSON.stringify(normalizedState.partnerAccounts || {}) !==
+    JSON.stringify(storedState.partnerAccounts || {});
+  if (cashChanged || partnerAccountsChanged) {
+    await db.query('begin');
+    try {
+      if (cashChanged) {
+        await db.query(
+          `insert into cumbuca_app_state (key, value, updated_at)
+           values ('cashEntries', $1::jsonb, now())
+           on conflict (key)
+           do update set value = excluded.value, updated_at = now()`,
+          [JSON.stringify(normalizedState.cashEntries || [])]
+        );
+      }
+      if (partnerAccountsChanged) {
+        await db.query(
+          `insert into cumbuca_app_state (key, value, updated_at)
+           values ('partnerAccounts', $1::jsonb, now())
+           on conflict (key)
+           do update set value = excluded.value, updated_at = now()`,
+          [JSON.stringify(normalizedState.partnerAccounts || {})]
+        );
+      }
+      await db.query('commit');
+    } catch (error) {
+      await db.query('rollback');
+      throw error;
+    }
     await writeEvent(
       'migracao_financeira_confirmada',
-      'Estado financeiro confirmado foi persistido sem alterar o saldo exibido.'
+      'Estado financeiro e vínculos existentes foram reparados sem duplicar o caixa.'
     );
   }
   return {
     database: true,
-    state: normalizeState(migration.state),
+    state: normalizedState,
   };
 }
 

@@ -15,6 +15,7 @@ const {
   partnerAccountSummary,
   partnerBalances,
   repairPartnerCashLinks,
+  repairPartnerMovementsFromCash,
   validatePartnerAccountState,
 } = handleRequest._test.partnerAccountRules;
 const { normalizeState, partnerManualAdjustmentsChanged, stateWriteViolation } =
@@ -420,4 +421,40 @@ test('reparo restaura a conta original de um lançamento existente vinculado', (
   const repaired = repairPartnerCashLinks(account([debit]), rows);
   assert.equal(repaired[0].cashAccount, 'pf');
   assert.equal(repaired.length, 1);
+});
+
+test('reparo de vínculo antigo devolve a saída à data original sem duplicar o caixa', () => {
+  const debit = movement({
+    id: 'debit-vanessa-79',
+    date: '2026-08-17',
+    amount: '79.98',
+    cashImpact: true,
+    cashEntryId: 'cash-vanessa-79',
+  });
+  const rows = [
+    {
+      ...linkedCashEntry(debit),
+      date: '2026-08-17',
+      cashAccount: 'pj',
+      partnerAccountGenerated: false,
+      partnerAccountOriginal: {
+        date: '2026-08-07',
+        type: 'expense',
+        amount: '79.98',
+        cashAccount: 'pf',
+        category: 'outros',
+        description: 'Presente pai',
+      },
+    },
+  ];
+
+  const repairedAccount = repairPartnerMovementsFromCash(account([debit]), rows);
+  const repairedRows = repairPartnerCashLinks(repairedAccount, rows);
+
+  assert.equal(repairedAccount.movements[0].date, '2026-08-07');
+  assert.equal(repairedRows[0].date, '2026-08-07');
+  assert.equal(repairedRows[0].cashAccount, 'pf');
+  assert.equal(repairedRows[0].description, 'Presente pai');
+  assert.equal(repairedRows.length, 1);
+  assert.equal(validatePartnerAccountState(repairedAccount, repairedRows).valid, true);
 });

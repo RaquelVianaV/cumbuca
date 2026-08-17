@@ -107,15 +107,23 @@
       const movementId = String(entry.partnerMovementId || "");
       const validLink = movementId
         && expectedLinks.get(movementId) === String(entry.id || "");
-      const originalCashAccount = String(entry.partnerAccountOriginal?.cashAccount || "");
+      const original = entry.partnerAccountOriginal;
       if (
         validLink
         && entry.partnerAccountGenerated === false
-        && originalCashAccount
-        && String(entry.cashAccount || "") !== originalCashAccount
+        && original
+        && typeof original === "object"
       ) {
-        changed = true;
-        return { ...entry, cashAccount: originalCashAccount };
+        const restored = {
+          ...entry,
+          ...original,
+          partnerMovementId: entry.partnerMovementId,
+          nonOperationalPartnerAccount: true,
+          partnerAccountGenerated: false,
+          partnerAccountOriginal: original
+        };
+        if (JSON.stringify(restored) !== JSON.stringify(entry)) changed = true;
+        return restored;
       }
       if (!movementId || validLink) {
         return entry;
@@ -126,6 +134,29 @@
       return repaired;
     });
     return changed ? repairedEntries : sourceEntries;
+  }
+
+  function repairPartnerMovementsFromCash(account = {}, cashEntries = []) {
+    const normalized = normalizePartnerAccounts(account);
+    const entriesById = new Map(
+      (Array.isArray(cashEntries) ? cashEntries : []).map(entry => [String(entry.id || ""), entry])
+    );
+    let changed = false;
+    const movements = normalized.movements.map(movement => {
+      const entry = entriesById.get(String(movement.cashEntryId || ""));
+      const original = entry?.partnerAccountOriginal;
+      if (entry?.partnerAccountGenerated !== false || !original || typeof original !== "object") {
+        return movement;
+      }
+      const date = String(original.date || "").slice(0, 10);
+      const amount = positiveMoney(original.amount);
+      const type = original.type === "income" ? "payment" : "debit";
+      if (!date || amount <= 0) return movement;
+      const repaired = { ...movement, date, amount: amount.toFixed(2), type, cashImpact: true };
+      if (JSON.stringify(repaired) !== JSON.stringify(movement)) changed = true;
+      return repaired;
+    });
+    return changed ? { ...normalized, movements } : normalized;
   }
 
   function movementsThroughDate(account = {}, throughDate = "") {
@@ -411,6 +442,7 @@
     partnerAccountSummary,
     partnerBalances,
     repairPartnerCashLinks,
+    repairPartnerMovementsFromCash,
     positiveMoney,
     roundedMoney,
     snapshotMovementIds,
