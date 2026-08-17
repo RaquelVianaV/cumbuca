@@ -11,6 +11,7 @@ node_modules/
 backups/
 playwright-report/
 test-results/
+tmp/
 npm-audit.json
 
 .env*.local
