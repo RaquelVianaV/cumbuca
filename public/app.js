@@ -1180,7 +1180,7 @@ const state = {
   editPricingIngredientId: null,
   editPricingRecipeId: null,
   editFinancialEmployeeId: null,
-  cashFilter: localValue("cashFilter", { period: "month" }),
+  cashFilter: localValue("cashFilter", { period: "week" }),
   financialPlanning: localValue("financialPlanning", {
     savings: "",
     savingsUpdatedAt: "",
@@ -1225,16 +1225,6 @@ const state = {
   currentUser: null,
   database: false
 };
-
-if (localStorage.getItem("cashFilterDefaultMonthVersion") !== "2026-06") {
-  const now = new Date();
-  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const day = `${month}-${String(now.getDate()).padStart(2, "0")}`;
-  if (!state.cashFilter || state.cashFilter.period === "all") {
-    state.cashFilter = { period: "month", date: day, month, year: String(now.getFullYear()), type: "all", category: "all", cashAccount: "all", search: "" };
-  }
-  localStorage.setItem("cashFilterDefaultMonthVersion", "2026-06");
-}
 
 function appStatePayload() {
   return {
@@ -1313,7 +1303,7 @@ function applyPayloadToState(saved = {}) {
   state.ingredients = saved.pricingIngredients || [];
   state.pricingRecipes = saved.pricingRecipes || [];
   state.pricingConfig = saved.pricingConfig || {};
-  state.cashFilter = saved.cashFilter || { period: "month" };
+  state.cashFilter = saved.cashFilter || { period: "week" };
   state.financialPlanning = {
     savings: "",
     savingsUpdatedAt: "",
@@ -2302,7 +2292,7 @@ function allCashCategories() {
 function getCashFilter() {
   const today = isoDate(new Date());
   const filter = {
-    period: "month",
+    period: "week",
     date: today,
     month: today.slice(0, 7),
     year: today.slice(0, 4),
@@ -5355,7 +5345,7 @@ function normalizedGlobalPeriod(value = {}) {
   };
 }
 
-function applyGlobalPeriodToViews(value, { remember = true, syncReportPeriod = true } = {}) {
+function applyGlobalPeriodToViews(value, { remember = true, syncReportPeriod = true, syncCashFilter = true } = {}) {
   const period = normalizedGlobalPeriod(value);
   const periodKey = `${period.year}-${String(period.month).padStart(2, "0")}`;
   const periodDate = `${periodKey}-01`;
@@ -5373,15 +5363,17 @@ function applyGlobalPeriodToViews(value, { remember = true, syncReportPeriod = t
       end: ""
     };
   }
-  state.cashFilter = {
-    ...(state.cashFilter || {}),
-    period: "month",
-    date: periodDate,
-    month: periodKey,
-    year: String(period.year),
-    quick: "",
-    manualAll: false
-  };
+  if (syncCashFilter) {
+    state.cashFilter = {
+      ...(state.cashFilter || {}),
+      period: "month",
+      date: periodDate,
+      month: periodKey,
+      year: String(period.year),
+      quick: "",
+      manualAll: false
+    };
+  }
   state.storeSalesFilter = {
     ...(state.storeSalesFilter || {}),
     period: "month",
@@ -6457,7 +6449,7 @@ async function renderCash() {
     return isoDate(date);
   })();
   if (state.cashFilter?.period === "all" && !state.cashFilter.manualAll) {
-    state.cashFilter = { period: "month", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", cashAccount: "all", search: "" };
+    state.cashFilter = { period: "week", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", cashAccount: "all", search: "" };
   }
   if (requestedEditCashEntry && isAccountTransferCashEntry(requestedEditCashEntry)) {
     state.editCashId = null;
@@ -8970,7 +8962,7 @@ async function renderCash() {
     });
 
     document.querySelector("#clear-cash-filter")?.addEventListener("click", () => {
-      state.cashFilter = { period: "month", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", cashAccount: "all", quick: "", search: "" };
+      state.cashFilter = { period: "week", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", cashAccount: "all", quick: "", search: "" };
       state.cashSort = { key: "date", direction: "desc" };
       persistState();
       renderCash();
@@ -21410,12 +21402,26 @@ function bindUsersPanel() {
 
 Promise.all([hydrateSession(), hydrateState()]).then(() => {
   const currentDate = new Date();
+  const currentDateKey = isoDate(currentDate);
+  state.cashFilter = {
+    period: "week",
+    date: currentDateKey,
+    month: currentDateKey.slice(0, 7),
+    year: currentDateKey.slice(0, 4),
+    type: "all",
+    category: "all",
+    cashAccount: "all",
+    quick: "",
+    search: "",
+    manualAll: false
+  };
   applyGlobalPeriodToViews(state.globalPeriod || {
     year: currentDate.getFullYear(),
     month: currentDate.getMonth() + 1
   }, {
     remember: Boolean(state.globalPeriod),
-    syncReportPeriod: false
+    syncReportPeriod: false,
+    syncCashFilter: false
   });
   if (routeName() === "home") {
     const defaultRoute = configuredDefaultRoute();
