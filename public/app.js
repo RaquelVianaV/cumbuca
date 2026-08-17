@@ -16418,6 +16418,12 @@ function storeProductQuantityForMonth(productId, month) {
   return Number(entry?.quantity || 0);
 }
 
+function storeProductAccumulatedQuantity(productId) {
+  return (state.storeProductQuantities || [])
+    .filter(entry => String(entry.productId) === String(productId))
+    .reduce((sum, entry) => sum + Math.max(0, Number(entry.quantity || 0)), 0);
+}
+
 function storeProductMonthTotal(month) {
   return (state.storeProductQuantities || [])
     .filter(entry => entry.month === month)
@@ -16441,11 +16447,12 @@ function storeProductMonthlyHistory() {
   return [...grouped.values()].sort((a, b) => b.month.localeCompare(a.month)).slice(0, 12);
 }
 
-function latestStoreSaleDate() {
-  return (state.storeSales || []).reduce((latest, entry) => {
-    const date = String(entry.date || "");
-    return date > latest ? date : latest;
+function latestStoreProductLaunchDate() {
+  const latestTimestamp = (state.storeProductQuantities || []).reduce((latest, entry) => {
+    const timestamp = String(entry.updatedAt || "");
+    return timestamp > latest ? timestamp : latest;
   }, "");
+  return latestTimestamp ? latestTimestamp.slice(0, 10) : "";
 }
 
 function storeProductsPanel(month, editingProduct = null) {
@@ -16458,7 +16465,7 @@ function storeProductsPanel(month, editingProduct = null) {
   const previousMonth = previousMonthKeyFromPeriod(selectedMonth);
   const previousTotal = storeProductMonthTotal(previousMonth);
   const history = storeProductMonthlyHistory();
-  const lastSaleDate = latestStoreSaleDate();
+  const lastProductLaunchDate = latestStoreProductLaunchDate();
 
   return `
     <div class="tool-grid store-products-layout">
@@ -16468,7 +16475,7 @@ function storeProductsPanel(month, editingProduct = null) {
           <input name="productId" type="hidden" value="${escapeHtml(editingProduct?.id || "")}">
           <label>Nome do prato
             <input name="name" placeholder="Ex.: Frango cremoso" value="${escapeHtml(editingProduct?.name || "")}" required>
-            <small>O nome é cadastrado somente aqui e depois selecionado na aba Vendas.</small>
+            <small>O nome é cadastrado somente aqui e identifica as quantidades e os valores financeiros do prato.</small>
           </label>
           <label>Precificação vinculada
             <select name="pricingRecipeId">
@@ -16489,25 +16496,31 @@ function storeProductsPanel(month, editingProduct = null) {
         </div>
         <div class="summary">
           <div class="metric" data-store-last-sale-date>
-            <span>Último lançamento em Vendas</span>
-            <strong>${lastSaleDate ? formatIsoDateBr(lastSaleDate) : "Nenhum"}</strong>
+            <span>Último lançamento em Produtos</span>
+            <strong>${lastProductLaunchDate ? formatIsoDateBr(lastProductLaunchDate) : "Nenhum"}</strong>
             <small>Confira esta data antes de lançar novamente.</small>
           </div>
         </div>
         ${products.length ? `
           <div class="table-wrap report-table store-product-table">
             <table>
-              <thead><tr><th>Prato</th><th>Precificação vinculada</th><th>Custo/un.</th><th>Preço na precificação</th><th>Lucro/un.</th><th>${formatMonthKeyBr(selectedMonth)}</th><th>Ações</th></tr></thead>
+              <thead><tr><th>Prato</th><th>Precificação vinculada</th><th>Custo/un.</th><th>Preço na precificação</th><th>Lucro/un.</th><th>Quantidade acumulada</th><th>Faturamento acumulado</th><th>Lucro acumulado</th><th>${formatMonthKeyBr(selectedMonth)}</th><th>Ações</th></tr></thead>
               <tbody>
                 ${products.map(product => {
                   const comparison = storeProductPricingComparison(product);
+                  const accumulatedQuantity = storeProductAccumulatedQuantity(product.id);
+                  const accumulatedRevenue = comparison ? accumulatedQuantity * comparison.price : 0;
+                  const accumulatedProfit = comparison ? accumulatedQuantity * comparison.profit : 0;
                   return `
-                  <tr>
+                  <tr data-store-product-financial="${escapeHtml(product.id)}">
                     <td><strong>${escapeHtml(product.name || "")}</strong></td>
                     <td>${escapeHtml(storeProductRecipeName(product))}</td>
                     <td>${comparison ? money(comparison.cost) : "—"}</td>
                     <td>${comparison ? `${money(comparison.price)}<br><small>${comparison.priceKind}</small>` : "—"}</td>
                     <td class="${comparison?.profit < 0 ? "negative" : comparison ? "positive" : ""}">${comparison ? money(comparison.profit) : "—"}</td>
+                    <td><strong>${accumulatedQuantity}</strong></td>
+                    <td>${comparison ? money(accumulatedRevenue) : "—"}</td>
+                    <td class="${accumulatedProfit < 0 ? "negative" : comparison ? "positive" : ""}">${comparison ? money(accumulatedProfit) : "—"}</td>
                     <td>${storeProductQuantityForMonth(product.id, selectedMonth)}</td>
                     <td>
                       <div class="table-actions">

@@ -2682,6 +2682,10 @@ test('store products receive individual monthly quantities', async ({ page }, te
     month: '2026-07',
     quantity: 24,
   });
+  expect(database.state.storeProductQuantities[0].updatedAt).toBeTruthy();
+  await expect(page.locator('[data-store-last-sale-date]')).toContainText(
+    new Date(database.state.storeProductQuantities[0].updatedAt).toLocaleDateString('pt-BR')
+  );
   await expect(page.locator('[data-store-product-month-total]')).toContainText('24');
   await expect(page.locator('.store-product-history')).toContainText('julho de 2026');
   await expect(page.locator('.store-product-history')).toContainText('24');
@@ -2702,11 +2706,8 @@ test('store products receive individual monthly quantities', async ({ page }, te
   });
 });
 
-test('store products link pricing and show the latest generic sale date', async ({
-  page,
-}, testInfo) => {
+test('store products link pricing and keep sales generic', async ({ page }, testInfo) => {
   const database = await mockOnlineDatabase(page);
-  const today = localDateKey();
   database.state = {
     pricingIngredients: [],
     pricingConfig: {},
@@ -2772,21 +2773,18 @@ test('store products link pricing and show the latest generic sale date', async 
   await expect(page.locator('.store-product-table')).toContainText('R$ 24,00');
   await expect(page.locator('.store-product-table')).toContainText('Praticado');
 
+  const frango = database.state.storeProducts.find((item) => item.name === 'Frango Fit');
+  const quantitiesForm = page.locator('#store-product-quantities-form');
+  await quantitiesForm.getByLabel('Quantidade de Frango Fit', { exact: true }).fill('10');
+  await quantitiesForm.getByRole('button', { name: 'Salvar quantidades do mês' }).click();
+  const frangoFinancial = page.locator(`[data-store-product-financial="${frango.id}"]`);
+  await expect(frangoFinancial).toContainText('R$ 300,00');
+  await expect(frangoFinancial).toContainText('R$ 200,00');
+
   await page.getByRole('button', { name: 'Vendas', exact: true }).click();
-  const saleForm = page.locator('#store-sale-form');
-  await saleForm.locator('input[name="date"]').fill(today);
-  await expect(saleForm.locator('select[name="productId"]')).toHaveCount(0);
-  await saleForm.locator('input[name="quantity"]').fill('10');
-  await saleForm.getByRole('button', { name: 'Adicionar', exact: true }).click();
-  await expect.poll(() => database.state.storeSales?.length).toBe(1);
-  expect(database.state.storeSales[0]).toMatchObject({
-    date: today,
-    quantity: 10,
-  });
+  await expect(page.locator('#store-sale-form select[name="productId"]')).toHaveCount(0);
   await page.getByRole('button', { name: 'Produtos', exact: true }).click();
-  await expect(page.locator('[data-store-last-sale-date]')).toContainText(
-    new Date(`${today}T12:00:00`).toLocaleDateString('pt-BR')
-  );
+  await expect(page.locator('[data-store-last-sale-date]')).toContainText('Nenhum');
   await expect(page.locator('.store-product-table')).toContainText('Frango Fit');
   await expect(page.locator('.store-product-table')).toContainText('R$ 24,00');
   await expectNoHorizontalOverflow(page);
