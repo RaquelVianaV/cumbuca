@@ -18243,6 +18243,47 @@ function suggestedExpenseLimitsPanel(data) {
   const structureShortfall = Math.max(0, protectedMonthlyCosts - maximumTotalExpenses);
   const inputDifference = suggestedInputs - inputSpent;
   const otherDifference = suggestedOtherTotal - otherSpent;
+  const quantities = monthlySoldQuantities(monthKey);
+  const averageRevenuePerBowl = quantities.totalQuantity > 0 ? sales / quantities.totalQuantity : 0;
+  const [periodYear, periodMonth] = monthKey.split("-").map(Number);
+  const daysInMonth = new Date(periodYear, periodMonth, 0).getDate();
+  const today = isoDate(new Date());
+  const isCurrentMonth = monthKey === today.slice(0, 7);
+  const isPastMonth = monthKey < today.slice(0, 7);
+  const elapsedDays = isCurrentMonth ? Math.max(1, Number(today.slice(8, 10))) : isPastMonth ? daysInMonth : 1;
+  const projectionFactor = isCurrentMonth ? daysInMonth / elapsedDays : 1;
+  const projectedSales = sales * projectionFactor;
+  const projectedFlexibleExpenses = currentFlexibleTotal * projectionFactor;
+  const projectedExpenses = protectedMonthlyCosts + projectedFlexibleExpenses;
+  const projectedProfit = projectedSales - projectedExpenses;
+  const projectedMargin = projectedSales > 0 ? (projectedProfit / projectedSales) * 100 : 0;
+  const variableExpenseRate = sales > 0 ? currentFlexibleTotal / sales : 0;
+  const breakEvenSales = variableExpenseRate < 1
+    ? protectedMonthlyCosts / (1 - variableExpenseRate)
+    : Number.POSITIVE_INFINITY;
+  const targetContributionRate = 0.7 - variableExpenseRate;
+  const salesNeededForTarget = targetContributionRate > 0
+    ? protectedMonthlyCosts / targetContributionRate
+    : Number.POSITIVE_INFINITY;
+  const additionalSalesNeeded = Number.isFinite(salesNeededForTarget)
+    ? Math.max(0, salesNeededForTarget - projectedSales)
+    : 0;
+  const additionalBowlsNeeded = averageRevenuePerBowl > 0
+    ? Math.ceil(additionalSalesNeeded / averageRevenuePerBowl)
+    : 0;
+  const remainingWeeks = Math.max(1, Math.ceil((daysInMonth - elapsedDays + 1) / 7));
+  const weeklyInputLimit = Math.max(0, suggestedInputs - inputSpent) / remainingWeeks;
+  const weeklyOtherLimit = Math.max(0, suggestedFlexibleOther - flexibleOtherSpent) / remainingWeeks;
+  const shared = pricingSharedCosts();
+  const protectedRows = [
+    ["Produção — gás e energia", shared.productionMonthly],
+    ["Equipe", shared.labor],
+    ["Aluguel", shared.rent],
+    ["Contador", shared.accountant],
+    ["Telefonia", shared.telephony],
+    ["Marketing", shared.marketing],
+    ["Extraordinários", shared.extraordinary]
+  ].filter(([, value]) => value > 0);
 
   return `
     <section class="panel report-section suggested-limits-panel ${structureShortfall > 0 ? "is-danger" : ""}">
@@ -18287,6 +18328,65 @@ function suggestedExpenseLimitsPanel(data) {
         ` : `
           <p class="suggested-limit-alert"><strong>Como a sugestão foi dividida:</strong> depois de reservar os custos fixos, os ${money(flexibleBudget)} restantes foram distribuídos conforme a proporção atual entre insumos e outras despesas variáveis.</p>
         `}
+        <div class="planning-decision-grid">
+          <article>
+            <small>Ponto de equilíbrio</small>
+            <strong>${Number.isFinite(breakEvenSales) ? money(breakEvenSales) : "Inviável"}</strong>
+            <span>Venda mínima estimada para pagar custos fixos e variáveis, sem lucro.</span>
+          </article>
+          <article>
+            <small>Venda necessária para 30%</small>
+            <strong>${Number.isFinite(salesNeededForTarget) ? money(salesNeededForTarget) : "Inviável"}</strong>
+            <span>${averageRevenuePerBowl > 0 && Number.isFinite(salesNeededForTarget) ? `Aproximadamente ${Math.ceil(salesNeededForTarget / averageRevenuePerBowl).toLocaleString("pt-BR")} cumbucas no preço médio atual.` : "O cálculo depende de reduzir custos variáveis ou ajustar preços."}</span>
+          </article>
+          <article class="${projectedMargin < profitTargetPercent ? "warning" : "positive"}">
+            <small>Projeção de fechamento</small>
+            <strong>${money(projectedProfit)}</strong>
+            <span>${projectedMargin.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% de margem · vendas projetadas em ${money(projectedSales)}.</span>
+          </article>
+        </div>
+        <div class="planning-support-grid">
+          <section>
+            <h3>Limite por semana restante</h3>
+            <p>Divisão do saldo disponível pelas ${remainingWeeks} semana(s) restantes do mês.</p>
+            <div class="planning-weekly-limits">
+              <span><small>Insumos por semana</small><strong>${money(weeklyInputLimit)}</strong></span>
+              <span><small>Outras despesas flexíveis</small><strong>${money(weeklyOtherLimit)}</strong></span>
+            </div>
+          </section>
+          <section>
+            <h3>Custos que ficam protegidos</h3>
+            <div class="protected-cost-list">
+              ${protectedRows.map(([label, value]) => `<span><small>${escapeHtml(label)}</small><strong>${money(value)}</strong></span>`).join("")}
+              <span class="total"><small>Total protegido</small><strong>${money(protectedMonthlyCosts)}</strong></span>
+            </div>
+          </section>
+        </div>
+        <section class="planning-action-plan">
+          <h3>Plano de ação sugerido</h3>
+          <div>
+            ${additionalSalesNeeded > 0 ? `<span><b>1</b><strong>Aumentar as vendas projetadas em ${money(additionalSalesNeeded)}.</strong><small>${additionalBowlsNeeded > 0 ? `Equivale a cerca de ${additionalBowlsNeeded.toLocaleString("pt-BR")} cumbucas adicionais no preço médio de ${money(averageRevenuePerBowl)}.` : "Cadastre as quantidades vendidas para converter essa meta em cumbucas."}</small></span>` : `<span><b>✓</b><strong>A projeção de vendas já alcança o necessário para a meta.</strong></span>`}
+            <span><b>2</b><strong>Não comprometer os ${money(protectedMonthlyCosts)} de custos mensais.</strong><small>Esse valor permanece reservado antes de qualquer limite flexível.</small></span>
+            ${inputDifference < 0 ? `<span><b>3</b><strong>Evitar novas compras de insumos sem receita correspondente.</strong><small>O realizado já está ${money(Math.abs(inputDifference))} acima do limite sugerido.</small></span>` : `<span><b>3</b><strong>Manter insumos dentro de ${money(weeklyInputLimit)} por semana.</strong></span>`}
+          </div>
+        </section>
+        <section class="planning-simulator" data-planning-simulator data-fixed-costs="${protectedMonthlyCosts}">
+          <div>
+            <h3>Simular outro cenário</h3>
+            <p>Teste valores sem alterar nenhum lançamento do sistema.</p>
+          </div>
+          <div class="planning-simulator-fields">
+            <label>Vendas previstas<input data-simulation-sales type="text" inputmode="decimal" value="${moneyInputValue(projectedSales)}"></label>
+            <label>Insumos previstos<input data-simulation-inputs type="text" inputmode="decimal" value="${moneyInputValue(Math.max(inputSpent, suggestedInputs))}"></label>
+            <label>Outras despesas flexíveis<input data-simulation-other type="text" inputmode="decimal" value="${moneyInputValue(flexibleOtherSpent)}"></label>
+            <label>Cumbucas previstas<input data-simulation-bowls type="number" min="0" step="1" value="${Math.round(quantities.totalQuantity * projectionFactor) || ""}"></label>
+          </div>
+          <div class="planning-simulator-result" aria-live="polite">
+            <span><small>Lucro estimado</small><strong data-simulation-profit>—</strong></span>
+            <span><small>Margem estimada</small><strong data-simulation-margin>—</strong></span>
+            <span><small>Preço médio necessário</small><strong data-simulation-price>—</strong></span>
+          </div>
+        </section>
       ` : `
         <p class="muted">Cadastre vendas no período para calcular os limites sugeridos.</p>
       `}
@@ -18781,6 +18881,37 @@ function bindFinancialPlanning() {
         renderFinance();
       }
     });
+  }
+
+  const simulator = document.querySelector("[data-planning-simulator]");
+  if (simulator) {
+    const updateSimulation = () => {
+      const sales = parseMoneyInput(simulator.querySelector("[data-simulation-sales]")?.value);
+      const inputs = parseMoneyInput(simulator.querySelector("[data-simulation-inputs]")?.value);
+      const other = parseMoneyInput(simulator.querySelector("[data-simulation-other]")?.value);
+      const bowls = Math.max(0, Number(simulator.querySelector("[data-simulation-bowls]")?.value || 0));
+      const fixed = Number(simulator.dataset.fixedCosts || 0);
+      const profit = sales - fixed - inputs - other;
+      const margin = sales > 0 ? (profit / sales) * 100 : 0;
+      const targetSales = (fixed + inputs + other) / 0.7;
+      const targetPrice = bowls > 0 ? targetSales / bowls : 0;
+      const profitTarget = simulator.querySelector("[data-simulation-profit]");
+      const marginTarget = simulator.querySelector("[data-simulation-margin]");
+      const priceTarget = simulator.querySelector("[data-simulation-price]");
+      if (profitTarget) {
+        profitTarget.textContent = money(profit);
+        profitTarget.className = profit < 0 ? "negative" : "positive";
+      }
+      if (marginTarget) {
+        marginTarget.textContent = `${margin.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
+        marginTarget.className = margin < 30 ? "negative" : "positive";
+      }
+      if (priceTarget) {
+        priceTarget.textContent = bowls > 0 ? money(targetPrice) : "Informe as cumbucas";
+      }
+    };
+    simulator.querySelectorAll("input").forEach(input => input.addEventListener("input", updateSimulation));
+    updateSimulation();
   }
 
   const form = document.querySelector("#financial-planning-form");

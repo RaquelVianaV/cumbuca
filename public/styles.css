@@ -10833,6 +10833,90 @@ html.dark-mode .partner-debt-readonly {
 }
 .suggested-limit-alert.danger { border-color: rgba(187, 63, 42, 0.28); background: rgba(187, 63, 42, 0.075); }
 .suggested-limit-alert strong { color: var(--ink); }
+.planning-decision-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.planning-decision-grid article {
+  padding: 16px;
+  border: 1px solid rgba(88, 70, 54, 0.11);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.76);
+}
+.planning-decision-grid article.warning { border-color: rgba(211, 139, 38, 0.34); }
+.planning-decision-grid article.positive { border-color: rgba(11, 119, 89, 0.3); }
+.planning-decision-grid small,
+.planning-decision-grid strong,
+.planning-decision-grid span { display: block; }
+.planning-decision-grid small { color: var(--muted); font-weight: 760; }
+.planning-decision-grid strong { margin: 5px 0; font-size: clamp(1.25rem, 2vw, 1.65rem); }
+.planning-decision-grid span { color: var(--muted); font-size: 0.79rem; line-height: 1.45; }
+.planning-support-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.planning-support-grid > section,
+.planning-action-plan,
+.planning-simulator {
+  padding: 17px;
+  border: 1px solid rgba(88, 70, 54, 0.11);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.66);
+}
+.planning-support-grid h3,
+.planning-action-plan h3,
+.planning-simulator h3 { margin: 0 0 4px; font-size: 1rem; }
+.planning-support-grid p,
+.planning-simulator p { margin: 0 0 12px; color: var(--muted); font-size: 0.78rem; }
+.planning-weekly-limits { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.planning-weekly-limits span,
+.protected-cost-list span {
+  padding: 10px 11px;
+  border-radius: 11px;
+  background: rgba(11, 119, 89, 0.065);
+}
+.planning-weekly-limits small,
+.planning-weekly-limits strong,
+.protected-cost-list small,
+.protected-cost-list strong { display: block; }
+.planning-weekly-limits small,
+.protected-cost-list small { color: var(--muted); font-size: 0.72rem; }
+.planning-weekly-limits strong { margin-top: 3px; }
+.protected-cost-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.protected-cost-list span { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-block: 8px; }
+.protected-cost-list .total { grid-column: 1 / -1; background: rgba(207, 113, 68, 0.13); }
+.planning-action-plan > div { display: grid; gap: 8px; margin-top: 12px; }
+.planning-action-plan > div > span {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 2px 10px;
+  align-items: start;
+}
+.planning-action-plan b {
+  grid-row: span 2;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--green);
+  color: white;
+}
+.planning-action-plan small { color: var(--muted); }
+.planning-simulator { display: grid; gap: 13px; }
+.planning-simulator-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
+.planning-simulator-result { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.planning-simulator-result span {
+  padding: 12px 13px;
+  border-radius: 12px;
+  background: rgba(11, 119, 89, 0.07);
+}
+.planning-simulator-result small,
+.planning-simulator-result strong { display: block; }
+.planning-simulator-result small { color: var(--muted); }
+.planning-simulator-result strong { margin-top: 3px; font-size: 1.2rem; }
 
 .profit-target-panel {
   margin-bottom: 18px;
@@ -10963,7 +11047,11 @@ html.dark-mode .finance-volume-grid > a,
 html.dark-mode .finance-volume-grid > div,
 html.dark-mode .suggested-limits-panel,
 html.dark-mode .suggested-limits-formula > span,
-html.dark-mode .suggested-limits-grid article {
+html.dark-mode .suggested-limits-grid article,
+html.dark-mode .planning-decision-grid article,
+html.dark-mode .planning-support-grid > section,
+html.dark-mode .planning-action-plan,
+html.dark-mode .planning-simulator {
   background: rgba(17, 42, 35, 0.9);
 }
 
@@ -10979,6 +11067,10 @@ html.dark-mode .suggested-limits-grid article {
   .suggested-limits-formula { grid-template-columns: 1fr; }
   .suggested-limits-formula i { display: none; }
   .suggested-limits-grid { grid-template-columns: 1fr; }
+  .planning-decision-grid,
+  .planning-support-grid,
+  .planning-simulator-fields { grid-template-columns: 1fr; }
+  .planning-simulator-result { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .profit-target-heading { align-items: flex-start; flex-direction: column; }
   .profit-target-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pricing-link-warning { align-items: stretch; flex-direction: column; }
@@ -10987,6 +11079,10 @@ html.dark-mode .suggested-limits-grid article {
 @media (max-width: 520px) {
   .finance-volume-heading { align-items: flex-start; flex-direction: column; }
   .profit-target-grid { grid-template-columns: 1fr; }
+  .planning-weekly-limits,
+  .protected-cost-list,
+  .planning-simulator-result { grid-template-columns: 1fr; }
+  .protected-cost-list .total { grid-column: auto; }
 }
 
 /* Revisão global de interação e legibilidade. */
