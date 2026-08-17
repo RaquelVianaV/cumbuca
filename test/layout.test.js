@@ -327,6 +327,9 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /\["dashboard", "Visão geral"\]/);
   assert.doesNotMatch(app, /\["ingredients", "Ingredientes"\]/);
   assert.match(app, /\["recipes", "Pratos"\]/);
+  assert.match(app, /Quanto posso gastar com insumos/);
+  assert.match(app, /data-store-input-budget-minimum/);
+  assert.match(app, /data-store-input-budget-maximum/);
   assert.match(app, /\["costs", "Custos rateados"\]/);
   assert.match(app, /id="pricing-recipe-form"/);
   assert.match(app, /name="supermarketUnitCost"/);
@@ -432,6 +435,8 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /function pricingDecimalNumber/);
   assert.match(app, /function pricingUnitCostMoney/);
   assert.match(app, /function storeAverageMonthlyUnits/);
+  assert.match(app, /function storeCurrentMonthPace/);
+  assert.match(app, /Usar projeção do mês atual/);
   assert.match(app, /pricingRecipes: state\.pricingRecipes/);
   assert.match(app, /Custos extraordinários/);
   assert.match(app, /Lucro estimado por lote/);

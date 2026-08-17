@@ -11807,19 +11807,24 @@ function pricingRecipeSupermarketUnitCost(recipe = {}) {
 }
 
 function storeAverageMonthlyUnits() {
-  const monthly = new Map();
-  (state.storeProductQuantities || []).forEach(entry => {
-    const month = normalizedStoreProductMonth(entry.month);
-    if (!month) {
-      return;
-    }
-    monthly.set(month, (monthly.get(month) || 0) + pricingDecimalNumber(entry.quantity));
-  });
-  const totals = [...monthly.values()].filter(total => total > 0);
-  if (!totals.length) {
-    return 0;
-  }
-  return Math.round(totals.reduce((sum, total) => sum + total, 0) / totals.length);
+  return storeCurrentMonthPace().projectedMonthlyUnits;
+}
+
+function storeCurrentMonthPace() {
+  const today = new Date();
+  const currentMonth = isoDate(today).slice(0, 7);
+  const quantity = storeProductMonthTotal(currentMonth);
+  const elapsedDays = today.getDate();
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const dailyAverage = elapsedDays > 0 ? quantity / elapsedDays : 0;
+  return {
+    currentMonth,
+    quantity,
+    elapsedDays,
+    daysInMonth,
+    dailyAverage,
+    projectedMonthlyUnits: quantity > 0 ? Math.round(dailyAverage * daysInMonth) : 0
+  };
 }
 
 function pricingRecipeMetrics(recipe, config = state.pricingConfig) {
@@ -12288,7 +12293,8 @@ function pricingRecipesPanel(editingRecipe = null) {
 function pricingCostsPanel() {
   const shared = pricingSharedCosts();
   const staff = shared.staff;
-  const observedAverage = storeAverageMonthlyUnits();
+  const currentMonthPace = storeCurrentMonthPace();
+  const observedAverage = currentMonthPace.projectedMonthlyUnits;
   return `
     ${pricingFlowHtml()}
     <div class="pricing-cost-settings-grid">
@@ -12298,9 +12304,9 @@ function pricingCostsPanel() {
         <form id="pricing-shared-cost-form" class="form-grid">
           <label class="pricing-average-field">Média de cumbucas vendidas por mês
             <input name="averageMonthlyUnits" type="number" min="1" step="1" value="${shared.averageMonthlyUnits || ""}" required>
-            <small>${observedAverage ? `Média observada nos lançamentos de Loja: ${observedAverage} unidades/mês.` : "Você também pode lançar quantidades em Loja > Produtos."}</small>
+            <small>${observedAverage ? `${currentMonthPace.quantity} unidade(s) lançada(s) até o dia ${currentMonthPace.elapsedDays}. Média parcial de ${currentMonthPace.dailyAverage.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}/dia e projeção de ${observedAverage}/mês.` : "Lance as quantidades do mês atual em Loja > Produtos para calcular a média parcial."}</small>
           </label>
-          ${observedAverage ? `<div class="actions pricing-use-store-average"><button class="secondary" type="button" id="use-store-average">Usar média da Loja (${observedAverage})</button></div>` : ""}
+          ${observedAverage ? `<div class="actions pricing-use-store-average"><button class="secondary" type="button" id="use-store-average">Usar projeção do mês atual (${observedAverage})</button></div>` : ""}
           <fieldset class="pricing-cost-group">
             <legend>Produção mensal</legend>
             <label>Gás
@@ -16455,6 +16461,53 @@ function latestStoreProductLaunchDate() {
   return latestTimestamp ? latestTimestamp.slice(0, 10) : "";
 }
 
+function storeProductInputBudget(month) {
+  const rows = sortedStoreProducts().map(product => {
+    const quantity = storeProductQuantityForMonth(product.id, month);
+    const recipe = storeProductRecipe(product);
+    const metrics = recipe ? pricingRecipeMetrics(recipe) : null;
+    const referencePrice = metrics
+      ? (metrics.practicedPrice > 0 ? metrics.practicedPrice : metrics.suggestedPrice)
+      : 0;
+    const otherUnitCosts = metrics
+      ? metrics.packagingCost
+        + metrics.productionCost
+        + metrics.laborCost
+        + metrics.otherCost
+        + metrics.fixedFee
+      : 0;
+    const availablePercent = metrics
+      ? 1 - ((metrics.variableFeePercent + metrics.desiredMarginPercent) / 100)
+      : 0;
+    const maximumInputPerUnit = Math.max(0, (referencePrice * availablePercent) - otherUnitCosts);
+    const configuredInputPerUnit = metrics?.supermarketUnitCost || 0;
+    const configured = quantity > 0
+      && Boolean(recipe)
+      && configuredInputPerUnit > 0
+      && referencePrice > 0
+      && availablePercent > 0;
+    return {
+      product,
+      quantity,
+      configured,
+      configuredInputPerUnit,
+      maximumInputPerUnit,
+      minimumTotal: configured ? quantity * configuredInputPerUnit : 0,
+      maximumTotal: configured ? quantity * maximumInputPerUnit : 0
+    };
+  }).filter(row => row.quantity > 0);
+  const configuredRows = rows.filter(row => row.configured);
+  return {
+    rows,
+    configuredRows,
+    totalQuantity: rows.reduce((sum, row) => sum + row.quantity, 0),
+    configuredQuantity: configuredRows.reduce((sum, row) => sum + row.quantity, 0),
+    minimumTotal: configuredRows.reduce((sum, row) => sum + row.minimumTotal, 0),
+    maximumTotal: configuredRows.reduce((sum, row) => sum + row.maximumTotal, 0),
+    missingProducts: rows.filter(row => !row.configured).length
+  };
+}
+
 function storeProductsPanel(month, editingProduct = null) {
   const selectedMonth = normalizedStoreProductMonth(month) || isoDate(new Date()).slice(0, 7);
   const products = sortedStoreProducts();
@@ -16464,6 +16517,7 @@ function storeProductsPanel(month, editingProduct = null) {
   }).length;
   const previousMonth = previousMonthKeyFromPeriod(selectedMonth);
   const previousTotal = storeProductMonthTotal(previousMonth);
+  const inputBudget = storeProductInputBudget(previousMonth);
   const history = storeProductMonthlyHistory();
   const lastProductLaunchDate = latestStoreProductLaunchDate();
 
@@ -16584,6 +16638,62 @@ function storeProductsPanel(month, editingProduct = null) {
         ` : ""}
       </section>
     </div>
+    <section class="panel report-section" data-store-input-budget>
+      <div class="section-heading">
+        <div>
+          <h2>Quanto posso gastar com insumos</h2>
+          <p class="muted-inline">Estimativa para este mês baseada nas quantidades de ${formatMonthKeyBr(previousMonth)} e na Precificação atual de cada prato.</p>
+        </div>
+      </div>
+      <div class="summary">
+        <div class="metric" data-store-input-budget-minimum>
+          <span>Mínimo previsto</span>
+          <strong>${money(inputBudget.minimumTotal)}</strong>
+          <small>Custo de insumos cadastrado</small>
+        </div>
+        <div class="metric" data-store-input-budget-maximum>
+          <span>Máximo permitido</span>
+          <strong>${money(inputBudget.maximumTotal)}</strong>
+          <small>Preservando a margem desejada</small>
+        </div>
+        <div class="metric">
+          <span>Folga disponível</span>
+          <strong class="${inputBudget.maximumTotal - inputBudget.minimumTotal < 0 ? "negative" : "positive"}">${money(inputBudget.maximumTotal - inputBudget.minimumTotal)}</strong>
+          <small>Máximo menos previsto</small>
+        </div>
+        <div class="metric">
+          <span>Base calculada</span>
+          <strong>${inputBudget.configuredQuantity}/${inputBudget.totalQuantity}</strong>
+          <small>unidades com dados completos</small>
+        </div>
+      </div>
+      ${inputBudget.missingProducts ? `
+        <p class="form-hint warning-text">${inputBudget.missingProducts} prato(s) vendido(s) em ${formatMonthKeyBr(previousMonth)} não entraram no cálculo porque estão sem Precificação completa.</p>
+      ` : inputBudget.totalQuantity === 0 ? `
+        <p class="muted">Lance as quantidades de ${formatMonthKeyBr(previousMonth)} em Produtos para gerar este orçamento.</p>
+      ` : `
+        <p class="form-hint">Cálculo completo para todas as quantidades lançadas no mês anterior.</p>
+      `}
+      ${inputBudget.configuredRows.length ? `
+        <div class="table-wrap report-table">
+          <table>
+            <thead><tr><th>Prato</th><th>Quantidade</th><th>Insumos/un.</th><th>Mínimo previsto</th><th>Teto/un.</th><th>Máximo permitido</th></tr></thead>
+            <tbody>
+              ${inputBudget.configuredRows.map(row => `
+                <tr>
+                  <td><strong>${escapeHtml(row.product.name || "")}</strong></td>
+                  <td>${row.quantity}</td>
+                  <td>${money(row.configuredInputPerUnit)}</td>
+                  <td>${money(row.minimumTotal)}</td>
+                  <td>${money(row.maximumInputPerUnit)}</td>
+                  <td><strong>${money(row.maximumTotal)}</strong></td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      ` : ""}
+    </section>
     <section class="panel report-section store-product-history">
       <div class="section-heading">
         <div>

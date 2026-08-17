@@ -2798,13 +2798,19 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   page,
 }, testInfo) => {
   const database = await mockOnlineDatabase(page);
+  const today = localDateKey();
+  const currentMonth = today.slice(0, 7);
+  const elapsedDays = Number(today.slice(8, 10));
+  const [currentYear, currentMonthNumber] = currentMonth.split('-').map(Number);
+  const daysInMonth = new Date(currentYear, currentMonthNumber, 0).getDate();
+  const partialQuantity = 145;
+  const projectedQuantity = Math.round((partialQuantity / elapsedDays) * daysInMonth);
   database.state = {
     pricingIngredients: [],
     pricingRecipes: [],
     pricingConfig: { sharedCosts: { labels: 3120 } },
     storeProductQuantities: [
-      { id: 'q-1', productId: 'product-1', month: '2026-06', quantity: 100 },
-      { id: 'q-2', productId: 'product-1', month: '2026-07', quantity: 200 },
+      { id: 'q-current', productId: 'product-1', month: currentMonth, quantity: partialQuantity },
     ],
   };
 
@@ -2813,8 +2819,15 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   await expect(costForm).toBeVisible();
   await expect(costForm.locator('input[name="labels"]')).toHaveCount(0);
   await expect(page.locator('[data-pricing-shared-preview="monthly"]')).toContainText('R$ 0,00');
-  await costForm.getByRole('button', { name: 'Usar média da Loja (150)', exact: true }).click();
-  await expect(costForm.locator('input[name="averageMonthlyUnits"]')).toHaveValue('150');
+  await expect(costForm).toContainText(
+    `${partialQuantity} unidade(s) lançada(s) até o dia ${elapsedDays}`
+  );
+  await costForm
+    .getByRole('button', { name: `Usar projeção do mês atual (${projectedQuantity})`, exact: true })
+    .click();
+  await expect(costForm.locator('input[name="averageMonthlyUnits"]')).toHaveValue(
+    String(projectedQuantity)
+  );
   await costForm.locator('input[name="gas"]').fill('100');
   await costForm.locator('input[name="energy"]').fill('50');
   await expect(costForm.locator('input[name="water"]')).toHaveCount(0);
