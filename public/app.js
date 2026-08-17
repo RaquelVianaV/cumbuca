@@ -1525,7 +1525,7 @@ function viewTabsHtml(storageKey, activeTab, tabs) {
     <section class="panel view-tabs-panel">
       <div class="view-tabs" role="tablist" aria-label="Visualizações" data-view-tab-group="${storageKey}">
         ${tabs.map(([key, label]) => `
-          <button class="secondary ${activeTab === key ? "active" : ""}" type="button" data-view-tab="${key}">${label}</button>
+          <button class="secondary ${activeTab === key ? "active" : ""}" type="button" aria-pressed="${activeTab === key}" data-view-tab="${key}">${label}</button>
         `).join("")}
       </div>
     </section>
@@ -2011,7 +2011,13 @@ function routeName() {
 function setActive(route) {
   const moreRoutes = new Set(["menu-semanal"]);
   navLinks.forEach(link => {
-    link.classList.toggle("active", link.dataset.route === route || (link.dataset.route === "mais" && moreRoutes.has(route)));
+    const active = link.dataset.route === route || (link.dataset.route === "mais" && moreRoutes.has(route));
+    link.classList.toggle("active", active);
+    if (active) {
+      link.setAttribute("aria-current", "page");
+    } else {
+      link.removeAttribute("aria-current");
+    }
   });
 }
 
@@ -2376,6 +2382,12 @@ function filterCashEntries(entries, filterOverrides = {}) {
       }
       if (quick === "withdrawals") {
         return isWithdrawalEntry(entry);
+      }
+      if (quick === "review-generic") {
+        return ["outros", "diferenca", "sem-categoria"].includes(normalizedCategory(entry.category));
+      }
+      if (quick === "review-duplicates") {
+        return duplicateCashFingerprints(state.cash).has(cashReviewFingerprint(entry));
       }
       return true;
     })
@@ -6437,6 +6449,10 @@ async function renderCash() {
   const cashParams = new URLSearchParams(location.search);
   const requestedCashPanel = cashParams.get("panel");
   const requestedQuickEntry = cashParams.get("novo");
+  const requestedReview = cashParams.get("review");
+  const requestedReviewMonth = /^\d{4}-\d{2}$/.test(cashParams.get("month") || "")
+    ? cashParams.get("month")
+    : "";
   const quickEntryDrafts = {
     despesa: { type: "expense", category: "outros", description: "" },
     insumos: { type: "expense", category: "supermercado", description: "Compra de insumos" },
@@ -6467,6 +6483,22 @@ async function renderCash() {
   })();
   if (state.cashFilter?.period === "all" && !state.cashFilter.manualAll) {
     state.cashFilter = { period: "week", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", cashAccount: "all", search: "" };
+  }
+  if (["generic", "duplicates"].includes(requestedReview)) {
+    const reviewDate = `${requestedReviewMonth || today.slice(0, 7)}-01`;
+    state.cashFilter = {
+      period: "month",
+      date: reviewDate,
+      month: reviewDate.slice(0, 7),
+      year: reviewDate.slice(0, 4),
+      type: "all",
+      category: "all",
+      cashAccount: "all",
+      quick: `review-${requestedReview}`,
+      search: ""
+    };
+    state.cashPanelTab = "ledger";
+    history.replaceState(null, "", "/fluxo-de-caixa");
   }
   if (requestedEditCashEntry && isAccountTransferCashEntry(requestedEditCashEntry)) {
     state.editCashId = null;
@@ -6724,7 +6756,7 @@ async function renderCash() {
       <section class="panel cash-command-panel">
         <div class="cash-panel-tabs" role="tablist" aria-label="Ferramentas do caixa">
           ${cashPanelTabs.map(([tab, label]) => `
-            <button class="${activeCashPanel === tab ? "active" : ""}" type="button" data-cash-panel="${tab}">${label}</button>
+            <button class="${activeCashPanel === tab ? "active" : ""}" type="button" aria-pressed="${activeCashPanel === tab}" data-cash-panel="${tab}">${label}</button>
           `).join("")}
         </div>
         ${activeCashPanel === "entry" ? `
@@ -18188,6 +18220,80 @@ function financialPlanVsActualPanel(data) {
   `;
 }
 
+function suggestedExpenseLimitsPanel(data) {
+  const monthKey = data.periodKey;
+  const sales = salesRevenueForPeriod(monthKey).total;
+  const profitTargetPercent = 30;
+  const maximumTotalExpenses = sales * (1 - profitTargetPercent / 100);
+  const protectedMonthlyCosts = pricingSharedCosts().monthlyTotal;
+  const flexibleBudget = Math.max(0, maximumTotalExpenses - protectedMonthlyCosts);
+  const inputSpent = productionPurchasesForPeriod(monthKey).combinedTotal;
+  const monthCashEntries = accountingCashEntries(state.cash)
+    .filter(entry => cashAccountingDate(entry).startsWith(monthKey));
+  const operatingExpenses = Number(financialSummary(monthCashEntries).operationalExpenses || 0);
+  const otherSpent = Math.max(0, operatingExpenses - inputSpent);
+  const flexibleOtherSpent = Math.max(0, otherSpent - protectedMonthlyCosts);
+  const currentFlexibleTotal = inputSpent + flexibleOtherSpent;
+  const inputShare = currentFlexibleTotal > 0
+    ? inputSpent / currentFlexibleTotal
+    : 0.7;
+  const suggestedInputs = flexibleBudget * inputShare;
+  const suggestedFlexibleOther = flexibleBudget - suggestedInputs;
+  const suggestedOtherTotal = protectedMonthlyCosts + suggestedFlexibleOther;
+  const structureShortfall = Math.max(0, protectedMonthlyCosts - maximumTotalExpenses);
+  const inputDifference = suggestedInputs - inputSpent;
+  const otherDifference = suggestedOtherTotal - otherSpent;
+
+  return `
+    <section class="panel report-section suggested-limits-panel ${structureShortfall > 0 ? "is-danger" : ""}">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Estimativa protegendo os custos fixos</span>
+          <h2>Quanto você pode gastar e ainda buscar 30% de lucro</h2>
+          <p class="muted-inline">A sugestão nunca reduz os ${money(protectedMonthlyCosts)} cadastrados em Precificação &gt; Custos mensais rateados.</p>
+        </div>
+        <a class="secondary table-action" href="/precificacao?view=costs">Conferir custos fixos</a>
+      </div>
+      ${sales > 0 ? `
+        <div class="suggested-limits-formula">
+          <span><small>Vendas do período</small><strong>${money(sales)}</strong></span>
+          <i aria-hidden="true">−</i>
+          <span><small>Lucro que deve sobrar</small><strong>${money(sales * 0.3)}</strong></span>
+          <i aria-hidden="true">=</i>
+          <span class="total"><small>Máximo para todas as despesas</small><strong>${money(maximumTotalExpenses)}</strong></span>
+        </div>
+        <div class="suggested-limits-grid">
+          <article>
+            <small>Máximo sugerido para insumos</small>
+            <strong>${money(suggestedInputs)}</strong>
+            <span>Realizado: ${money(inputSpent)}</span>
+            <b class="${inputDifference < 0 ? "negative" : "positive"}">${inputDifference >= 0 ? `${money(inputDifference)} ainda disponíveis` : `${money(Math.abs(inputDifference))} acima da sugestão`}</b>
+          </article>
+          <article>
+            <small>Máximo sugerido para demais despesas</small>
+            <strong>${money(suggestedOtherTotal)}</strong>
+            <span>Inclui ${money(protectedMonthlyCosts)} que não podem ser reduzidos</span>
+            <b class="${otherDifference < 0 ? "negative" : "positive"}">${otherDifference >= 0 ? `${money(otherDifference)} ainda disponíveis` : `${money(Math.abs(otherDifference))} acima da sugestão`}</b>
+          </article>
+          <article class="protected">
+            <small>Custos mensais protegidos</small>
+            <strong>${money(protectedMonthlyCosts)}</strong>
+            <span>Produção, equipe e demais custos rateados</span>
+            <b>Não entram como sugestão de corte</b>
+          </article>
+        </div>
+        ${structureShortfall > 0 ? `
+          <p class="suggested-limit-alert danger"><strong>A meta de 30% não cabe na estrutura atual.</strong> Mesmo sem comprar insumos, faltariam ${money(structureShortfall)} para pagar os custos protegidos e preservar o lucro desejado.</p>
+        ` : `
+          <p class="suggested-limit-alert"><strong>Como a sugestão foi dividida:</strong> depois de reservar os custos fixos, os ${money(flexibleBudget)} restantes foram distribuídos conforme a proporção atual entre insumos e outras despesas variáveis.</p>
+        `}
+      ` : `
+        <p class="muted">Cadastre vendas no período para calcular os limites sugeridos.</p>
+      `}
+    </section>
+  `;
+}
+
 function financialPlanningPanel() {
   const planning = state.financialPlanning || {};
 
@@ -19541,6 +19647,7 @@ function simpleFinanceOverviewPanel(data) {
     .reduce((sum, group) => sum + Number(group.distributionBase || 0), 0);
   const divisionWithdrawals = divisionBaseGroups
     .reduce((sum, group) => sum + Number(group.total || 0), 0);
+  const divisionNonCashAmount = Math.max(0, actualDivisionProfit - divisionWithdrawals);
   const actualDivisionProfitPercent = sales > 0 ? (actualDivisionProfit / sales) * 100 : 0;
   const profitTargetGap = actualDivisionProfit - targetProfit;
   const withdrawalTargetPercent = targetProfit > 0 ? (divisionWithdrawals / targetProfit) * 100 : 0;
@@ -19568,8 +19675,43 @@ function simpleFinanceOverviewPanel(data) {
       <div class="analysis-confidence ${quality.tone}">
         <div><span>Confiança da análise</span><strong>${quality.score}%</strong></div>
         <p>${quality.summary}</p>
-        ${quality.issues.length ? `<ul>${quality.issues.map(issue => `<li>${escapeHtml(issue)}</li>`).join("")}</ul>` : ""}
+        ${quality.issues.length ? `
+          <div class="analysis-review-list">
+            ${quality.issues.map(issue => `
+              <a href="${escapeHtml(issue.href)}">
+                <span>${escapeHtml(issue.label)}</span>
+                <strong>${escapeHtml(issue.action)} <span aria-hidden="true">→</span></strong>
+              </a>
+            `).join("")}
+          </div>
+        ` : ""}
       </div>
+      <section class="finance-volume-panel" aria-label="Cumbucas vendidas no período">
+        <div class="finance-volume-heading">
+          <div>
+            <span>Volume vendido</span>
+            <strong>Cumbucas do período</strong>
+          </div>
+          <small>Loja + pedidos do Semanal</small>
+        </div>
+        <div class="finance-volume-grid">
+          <a href="/loja?view=sales">
+            <small>Loja</small>
+            <strong>${Number(data.storeQuantity || 0).toLocaleString("pt-BR")}</strong>
+            <span>cumbucas vendidas</span>
+          </a>
+          <a href="/menu-semanal">
+            <small>Semanal</small>
+            <strong>${Number(data.weeklyCashQuantity || 0).toLocaleString("pt-BR")}</strong>
+            <span>cumbucas vendidas</span>
+          </a>
+          <div class="total">
+            <small>Total</small>
+            <strong>${Number(data.totalSoldQuantity || 0).toLocaleString("pt-BR")}</strong>
+            <span>Loja + Semanal</span>
+          </div>
+        </div>
+      </section>
       <section class="profit-target-panel ${profitTargetGap < 0 ? "warning" : "positive"}">
         <div class="profit-target-heading">
           <div><span>Meta de lucro</span><strong>${profitTargetPercent}% das vendas</strong></div>
@@ -19579,13 +19721,14 @@ function simpleFinanceOverviewPanel(data) {
           <article><small>Lucro que deveria ter</small><strong>${money(targetProfit)}</strong><span>30% de ${money(sales)} em vendas</span></article>
           <article><small>Lucro que realmente teve</small><strong class="${actualDivisionProfit < targetProfit ? "negative" : "positive"}">${money(actualDivisionProfit)}</strong><span>Soma das Bases da divisão · ${actualDivisionProfitPercent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% das vendas</span></article>
           <article><small>Diferença para a meta</small><strong class="${profitTargetGap < 0 ? "negative" : "positive"}">${profitTargetGap < 0 ? "− " : "+ "}${money(Math.abs(profitTargetGap))}</strong><span>${profitTargetGap < 0 ? "Abaixo do esperado" : "Acima do esperado"}</span></article>
-          <article><small>Retiradas das divisões</small><strong>${money(divisionWithdrawals)}</strong><span>${withdrawalBasePercent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% das bases · ${withdrawalTargetPercent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% da meta</span></article>
+          <article><small>Valor que saiu da conta</small><strong>${money(divisionWithdrawals)}</strong><span>${withdrawalBasePercent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% da base saiu da conta · ${withdrawalTargetPercent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% da meta</span></article>
         </div>
         ${divisionBaseGroups.length ? `
           <div class="division-base-list">
             <span>Bases incluídas no lucro real</span>
             ${divisionBaseGroups.map(group => `<b>${formatIsoDateBr(group.date)} · ${cashAccountLabel(group.cashAccount)} · ${money(group.distributionBase)}</b>`).join("")}
           </div>
+          ${divisionNonCashAmount > 0.005 ? `<p class="division-base-note">${money(divisionNonCashAmount)} da base não saiu da conta; foi reconhecido por compensação ou acerto da divisão.</p>` : ""}
         ` : `<p class="division-base-empty">Nenhuma Base da divisão foi registrada neste período.</p>`}
       </section>
       <div class="simple-money-flow">
@@ -19613,13 +19756,11 @@ function financialAnalysisQuality(data, otherIncome = 0) {
   });
   const genericTotal = genericEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
   const fingerprints = new Map();
-  const duplicateCandidates = (data.expenseEntries || []).filter(entry => {
-    if (isWithdrawalEntry(entry) || isSavingsDistributionEntry(entry) || isAccountTransferCashEntry(entry)) return false;
-    const key = [entry.date, normalizedCategory(entry.category), String(entry.description || "").trim().toLowerCase(), Number(entry.amount || 0).toFixed(2)].join("|");
+  (data.expenseEntries || []).forEach(entry => {
+    if (isWithdrawalEntry(entry) || isSavingsDistributionEntry(entry) || isAccountTransferCashEntry(entry)) return;
+    const key = cashReviewFingerprint(entry);
     fingerprints.set(key, (fingerprints.get(key) || 0) + 1);
-    return false;
   });
-  void duplicateCandidates;
   const duplicateCount = [...fingerprints.values()].reduce((sum, count) => sum + Math.max(0, count - 1), 0);
   const productMap = new Map((state.storeProducts || []).map(product => [String(product.id), product]));
   const unlinkedUnits = (data.storeSales || []).reduce((sum, entry) => {
@@ -19630,19 +19771,35 @@ function financialAnalysisQuality(data, otherIncome = 0) {
   let score = 100;
   if (otherIncome >= 0.01) {
     score -= 18;
-    issues.push(`${money(otherIncome)} em entradas operacionais não classificadas como venda.`);
+    issues.push({
+      label: `${money(otherIncome)} em entradas operacionais não classificadas como venda.`,
+      action: "Conferir entradas",
+      href: `/fluxo-de-caixa?panel=ledger&month=${encodeURIComponent(data.periodKey)}&review=generic`
+    });
   }
   if (genericTotal >= 0.01) {
     score -= 12;
-    issues.push(`${money(genericTotal)} em lançamentos genéricos como Outros ou Diferença.`);
+    issues.push({
+      label: `${money(genericTotal)} em lançamentos genéricos como Outros ou Diferença.`,
+      action: "Conferir e corrigir",
+      href: `/fluxo-de-caixa?panel=ledger&month=${encodeURIComponent(data.periodKey)}&review=generic`
+    });
   }
   if (duplicateCount > 0) {
     score -= Math.min(20, duplicateCount * 4);
-    issues.push(`${duplicateCount} possível(is) lançamento(s) duplicado(s) para conferir.`);
+    issues.push({
+      label: `${duplicateCount} possível(is) lançamento(s) duplicado(s) para conferir.`,
+      action: "Ver possíveis duplicados",
+      href: `/fluxo-de-caixa?panel=ledger&month=${encodeURIComponent(data.periodKey)}&review=duplicates`
+    });
   }
   if (unlinkedUnits > 0) {
     score -= 10;
-    issues.push(`${unlinkedUnits} unidade(s) da Loja sem receita de Precificação vinculada.`);
+    issues.push({
+      label: `${unlinkedUnits} unidade(s) da Loja sem receita de Precificação vinculada.`,
+      action: "Vincular receitas",
+      href: `/loja?view=products&month=${encodeURIComponent(data.periodKey)}&review=unlinked`
+    });
   }
   score = Math.max(20, score);
   return {
@@ -19653,6 +19810,25 @@ function financialAnalysisQuality(data, otherIncome = 0) {
       : "O resultado é uma estimativa até os itens abaixo serem conferidos.",
     issues
   };
+}
+
+function cashReviewFingerprint(entry) {
+  return [
+    entry.date,
+    normalizedCategory(entry.category),
+    String(entry.description || "").trim().toLowerCase(),
+    Number(entry.amount || 0).toFixed(2)
+  ].join("|");
+}
+
+function duplicateCashFingerprints(entries = []) {
+  const counts = new Map();
+  entries.forEach(entry => {
+    if (entry.type !== "expense" || isWithdrawalEntry(entry) || isSavingsDistributionEntry(entry) || isAccountTransferCashEntry(entry)) return;
+    const fingerprint = cashReviewFingerprint(entry);
+    counts.set(fingerprint, (counts.get(fingerprint) || 0) + 1);
+  });
+  return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([fingerprint]) => fingerprint));
 }
 
 function renderFinance() {
@@ -19777,6 +19953,7 @@ function renderFinance() {
     if (activeTab === "planning") {
       return `
         ${financialCyclePanel()}
+        ${suggestedExpenseLimitsPanel(data)}
         ${monthlyBudgetPanel()}
         ${financialPlanningPanel()}
       `;

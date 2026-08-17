@@ -210,6 +210,10 @@ test('confirmed financial migration is idempotent and persists the displayed PF 
 
   assert.equal(first.changed, true);
   assert.equal(second.changed, false);
+  assert.equal(
+    state.cashEntries.find((entry) => entry.id === 'withdrawal-confirmed-vanessa').cashImpact,
+    true
+  );
   assert.equal(Math.round(pfBalance * 100) / 100, 160.84);
 });
 
