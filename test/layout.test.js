@@ -148,6 +148,12 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /cashFilter: localValue\("cashFilter", \{ period: "month" \}\)/);
   assert.match(app, /state\.cashFilter = saved\.cashFilter \|\| \{ period: "month" \}/);
   assert.match(app, /period: "month",[\s\S]*?type: "all",[\s\S]*?cashAccount: "all"/);
+  assert.match(app, /function defaultCashLedgerFilter/);
+  assert.match(
+    app,
+    /state\.cashPanelTab === "ledger"[\s\S]*state\.cashFilter = defaultCashLedgerFilter\(\)/
+  );
+  assert.match(app, /lastRenderedRoute !== "fluxo-de-caixa"/);
   assert.match(app, /state\.storeSalesFilter = \{[\s\S]*?period: "month"/);
   assert.match(app, /state\.channelFilter = \{[\s\S]*?period: "month"/);
   assert.match(app, /partnersDashboard\.month\.paidToCashVanessa/);
@@ -440,7 +446,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /function pricingUnitCostMoney/);
   assert.match(app, /function storeAverageMonthlyUnits/);
   assert.match(app, /function storeCurrentMonthPace/);
-  assert.match(app, /Usar projeção do mês atual/);
+  assert.match(app, /Usar total vendido neste mês/);
   assert.match(app, /data-simple-price-details/);
   assert.match(app, /Cálculo completo por unidade/);
   assert.match(app, /pricingRecipes: state\.pricingRecipes/);

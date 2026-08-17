@@ -105,7 +105,19 @@
     let changed = false;
     const repairedEntries = sourceEntries.map(entry => {
       const movementId = String(entry.partnerMovementId || "");
-      if (!movementId || expectedLinks.get(movementId) === String(entry.id || "")) {
+      const validLink = movementId
+        && expectedLinks.get(movementId) === String(entry.id || "");
+      const originalCashAccount = String(entry.partnerAccountOriginal?.cashAccount || "");
+      if (
+        validLink
+        && entry.partnerAccountGenerated === false
+        && originalCashAccount
+        && String(entry.cashAccount || "") !== originalCashAccount
+      ) {
+        changed = true;
+        return { ...entry, cashAccount: originalCashAccount };
+      }
+      if (!movementId || validLink) {
         return entry;
       }
       const repaired = { ...entry };

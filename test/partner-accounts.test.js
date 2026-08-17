@@ -406,3 +406,18 @@ test('reparo mantém somente o vínculo de caixa indicado pela movimentação', 
   assert.equal(repaired[1].partnerMovementId, undefined);
   assert.equal(repaired[1].amount, '100.00');
 });
+
+test('reparo restaura a conta original de um lançamento existente vinculado', () => {
+  const debit = movement({ id: 'debit-pf', cashImpact: true, cashEntryId: 'cash-pf' });
+  const rows = [
+    {
+      ...linkedCashEntry(debit),
+      cashAccount: 'pj',
+      partnerAccountGenerated: false,
+      partnerAccountOriginal: { cashAccount: 'pf' },
+    },
+  ];
+  const repaired = repairPartnerCashLinks(account([debit]), rows);
+  assert.equal(repaired[0].cashAccount, 'pf');
+  assert.equal(repaired.length, 1);
+});

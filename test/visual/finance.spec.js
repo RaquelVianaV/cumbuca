@@ -1213,6 +1213,63 @@ test('partner current accounts are usable without desktop or mobile clipping', a
   });
 });
 
+test('linking an existing cash entry to a partner does not move cash again', async ({ page }) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    cashEntries: [
+      {
+        id: 'existing-personal-expense',
+        date: '2026-08-17',
+        type: 'expense',
+        category: 'outros',
+        description: 'Presente pai',
+        amount: '79.98',
+        cashAccount: 'pf',
+      },
+    ],
+    partnerAccounts: {
+      partners: [
+        { id: 'vanessa', name: 'Vanessa' },
+        { id: 'raquel', name: 'Raquel' },
+      ],
+      movements: [],
+      withdrawalSnapshots: [],
+    },
+  };
+
+  await page.goto('/financeiro?view=partners');
+  await page.locator('[data-new-partner-debit="vanessa"]').click();
+  const form = page.locator('#partner-movement-form');
+  await form.locator('input[name="date"]').fill('2026-08-18');
+  await form.locator('input[name="description"]').fill('Presente pai');
+  await form.locator('input[name="amount"]').fill('159,96');
+  await form.locator('select[name="origin"]').selectOption('pf');
+  await form.locator('select[name="cashMode"]').selectOption('link');
+  await expect(form.locator('.partner-cash-explanation')).toContainText(
+    'não cria outra entrada ou saída'
+  );
+  await form
+    .locator('select[name="existingCashEntryId"]')
+    .selectOption('existing-personal-expense');
+  await form.getByRole('button', { name: 'Registrar movimentação', exact: true }).click();
+
+  await expect.poll(() => database.state.partnerAccounts?.movements?.length).toBe(1);
+  expect(database.state.cashEntries).toHaveLength(1);
+  expect(database.state.cashEntries[0]).toMatchObject({
+    id: 'existing-personal-expense',
+    date: '2026-08-17',
+    type: 'expense',
+    amount: '79.98',
+    cashAccount: 'pf',
+  });
+  expect(database.state.partnerAccounts.movements[0]).toMatchObject({
+    partnerId: 'vanessa',
+    date: '2026-08-17',
+    amount: '79.98',
+    cashEntryId: 'existing-personal-expense',
+  });
+});
+
 test('future bills choose the cash account only when paid', async ({ page }) => {
   const database = await mockOnlineDatabase(page);
   database.state = { cashEntries: [] };
@@ -2801,10 +2858,7 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   const today = localDateKey();
   const currentMonth = today.slice(0, 7);
   const elapsedDays = Number(today.slice(8, 10));
-  const [currentYear, currentMonthNumber] = currentMonth.split('-').map(Number);
-  const daysInMonth = new Date(currentYear, currentMonthNumber, 0).getDate();
   const partialQuantity = 145;
-  const projectedQuantity = Math.round((partialQuantity / elapsedDays) * daysInMonth);
   database.state = {
     pricingIngredients: [],
     pricingRecipes: [],
@@ -2819,13 +2873,13 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   await expect(costForm.locator('input[name="labels"]')).toHaveCount(0);
   await expect(page.locator('[data-pricing-shared-preview="monthly"]')).toContainText('R$ 0,00');
   await expect(costForm).toContainText(
-    `${partialQuantity} cumbuca(s) vendida(s) neste mês: Loja 45 + Semanal 100`
+    `${partialQuantity} cumbuca(s) vendida(s) neste mês até o dia ${elapsedDays}: Loja 45 + Semanal 100`
   );
   await costForm
-    .getByRole('button', { name: `Usar projeção do mês atual (${projectedQuantity})`, exact: true })
+    .getByRole('button', { name: `Usar total vendido neste mês (${partialQuantity})`, exact: true })
     .click();
   await expect(costForm.locator('input[name="averageMonthlyUnits"]')).toHaveValue(
-    String(projectedQuantity)
+    String(partialQuantity)
   );
   await costForm.locator('input[name="gas"]').fill('100');
   await costForm.locator('input[name="energy"]').fill('50');

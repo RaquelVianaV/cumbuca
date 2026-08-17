@@ -2332,6 +2332,22 @@ function getCashFilter() {
   return filter;
 }
 
+function defaultCashLedgerFilter() {
+  const today = isoDate(new Date());
+  return {
+    period: "month",
+    date: today,
+    month: today.slice(0, 7),
+    year: today.slice(0, 4),
+    type: "all",
+    category: "all",
+    cashAccount: "all",
+    quick: "",
+    search: "",
+    manualAll: false
+  };
+}
+
 function filterCashEntries(entries, filterOverrides = {}) {
   const currentFilter = { ...getCashFilter(), ...filterOverrides };
   const { period, date, month, year, search, type, category, cashAccount, quick } = currentFilter;
@@ -4782,7 +4798,8 @@ function detachPartnerCashEntry(movement = {}) {
 
 function partnerCashEntryFromMovement(movement, values, existingEntry = null) {
   const type = movement.type === "payment" ? "income" : "expense";
-  const original = existingEntry && !existingEntry.partnerAccountGenerated
+  const linkedExistingEntry = existingEntry && !existingEntry.partnerAccountGenerated;
+  const original = linkedExistingEntry
     ? existingEntry.partnerAccountOriginal || {
         type: existingEntry.type,
         amount: existingEntry.amount,
@@ -4792,15 +4809,18 @@ function partnerCashEntryFromMovement(movement, values, existingEntry = null) {
         cashAccount: existingEntry.cashAccount
       }
     : undefined;
+  const preservedEntry = original || existingEntry || {};
   return {
     ...(existingEntry || {}),
     id: existingEntry?.id || `partner-cash-${movement.id}`,
-    date: movement.date,
-    type,
+    date: linkedExistingEntry ? preservedEntry.date : movement.date,
+    type: linkedExistingEntry ? preservedEntry.type : type,
     category: "conta-socia",
     description: `${movement.type === "payment" ? "Pagamento recebido" : "Uso pessoal"} - ${partnerAccountName(movement.partnerId)} - ${movement.description}`,
-    amount: Number(movement.amount).toFixed(2),
-    cashAccount: normalizedCashAccount(values.cashAccount || existingEntry?.cashAccount || "pj"),
+    amount: linkedExistingEntry ? preservedEntry.amount : Number(movement.amount).toFixed(2),
+    cashAccount: linkedExistingEntry
+      ? preservedEntry.cashAccount
+      : normalizedCashAccount(values.cashAccount || "pj"),
     partnerMovementId: movement.id,
     nonOperationalPartnerAccount: true,
     partnerAccountGenerated: !existingEntry || Boolean(existingEntry.partnerAccountGenerated),
@@ -4818,6 +4838,12 @@ function updatePartnerMovementFormVisibility(form) {
   form.querySelector("[data-partner-cash-mode]").hidden = isAdjustment;
   form.querySelector("[data-partner-cash-link]").hidden = isAdjustment || cashMode !== "link";
   form.querySelector("[data-partner-cash-account]").hidden = isAdjustment || cashMode !== "create";
+  const explanation = form.querySelector(".partner-cash-explanation");
+  if (explanation) {
+    explanation.textContent = cashMode === "link"
+      ? "O lançamento selecionado já movimentou o Caixa. O vínculo apenas associa esse registro à sócia e não cria outra entrada ou saída."
+      : "Débito pessoal não vira despesa operacional. Pagamento recebido é entrada real de caixa, mas não é receita.";
+  }
   const noCashOption = form.elements.cashMode.querySelector('option[value="none"]');
   noCashOption.disabled = type === "payment";
   if (type === "payment" && cashMode === "none") {
@@ -4875,7 +4901,28 @@ function bindPartnerAccounts() {
         showToast("Movimentação consolidada deve ser estornada.", "error");
         return;
       }
-      const amount = Math.max(0, parseMoneyInput(values.amount));
+      const linkedCashEntry = values.cashMode === "link"
+        ? state.cash.find(entry => String(entry.id) === String(values.existingCashEntryId))
+        : null;
+      if (values.cashMode === "link" && !linkedCashEntry) {
+        showToast("Selecione o lançamento de caixa existente.", "error");
+        return;
+      }
+      const duplicateLink = linkedCashEntry && partnerAccountMovements().some(movement => {
+        return String(movement.id) !== String(existing?.id || "")
+          && String(movement.cashEntryId || "") === String(linkedCashEntry.id);
+      });
+      if (duplicateLink) {
+        showToast("Este lançamento já está vinculado a uma movimentação de sócia.", "error");
+        return;
+      }
+      const linkedOriginal = linkedCashEntry?.partnerAccountOriginal || linkedCashEntry;
+      const amount = linkedCashEntry
+        ? Math.max(0, Number(linkedOriginal?.amount || 0))
+        : Math.max(0, parseMoneyInput(values.amount));
+      const movementDate = linkedCashEntry
+        ? cashAccountingDate(linkedOriginal)
+        : values.date;
       if (amount <= 0) {
         showToast("Informe um valor maior que zero.", "error");
         return;
@@ -4892,12 +4939,12 @@ function bindPartnerAccounts() {
         showToast("Pagamento recebido precisa de entrada real no caixa.", "error");
         return;
       }
-      if (blockClosedPeriod(values.date, existing ? "editar movimentação da sócia" : "registrar movimentação da sócia")) return;
-      if (existing && existing.date !== values.date && blockClosedPeriod(existing.date, "editar movimentação da sócia")) return;
+      if (blockClosedPeriod(movementDate, existing ? "editar movimentação da sócia" : "registrar movimentação da sócia")) return;
+      if (existing && existing.date !== movementDate && blockClosedPeriod(existing.date, "editar movimentação da sócia")) return;
       const movement = {
         id: existing?.id || `partner-movement-${Date.now()}-${Math.random().toString(16).slice(2)}`,
         partnerId: values.partnerId,
-        date: values.date,
+        date: movementDate,
         type: values.type,
         description: String(values.description || "").trim(),
         amount: amount.toFixed(2),
@@ -4920,18 +4967,20 @@ function bindPartnerAccounts() {
       }
       if (existing?.cashEntryId) detachPartnerCashEntry(existing);
       if (movement.cashImpact) {
-        let cashEntry = null;
-        if (values.cashMode === "link") {
-          cashEntry = state.cash.find(entry => String(entry.id) === String(values.existingCashEntryId));
-          if (!cashEntry) {
-            showToast("Selecione o lançamento de caixa existente.", "error");
-            return;
-          }
-        }
+        const cashEntry = linkedCashEntry;
         const nextCashEntry = partnerCashEntryFromMovement(movement, values, cashEntry);
         const cashIndex = state.cash.findIndex(entry => String(entry.id) === String(nextCashEntry.id));
-        if (cashIndex >= 0) state.cash[cashIndex] = nextCashEntry;
-        else state.cash.push(nextCashEntry);
+        if (values.cashMode === "link") {
+          if (cashIndex < 0) {
+            showToast("O lançamento existente não foi encontrado no Caixa.", "error");
+            return;
+          }
+          state.cash[cashIndex] = nextCashEntry;
+        } else if (cashIndex >= 0) {
+          state.cash[cashIndex] = nextCashEntry;
+        } else {
+          state.cash.push(nextCashEntry);
+        }
         movement.cashEntryId = nextCashEntry.id;
       } else {
         movement.cashEntryId = "";
@@ -7261,6 +7310,10 @@ async function renderCash() {
   document.querySelectorAll("[data-cash-panel]").forEach(button => {
     button.addEventListener("click", event => {
       state.cashPanelTab = event.currentTarget.dataset.cashPanel;
+      if (state.cashPanelTab === "ledger") {
+        state.cashFilter = defaultCashLedgerFilter();
+        localStorage.setItem("cashFilter", JSON.stringify(state.cashFilter));
+      }
       if (state.cashPanelTab !== "entry") {
         state.editCashId = null;
       }
@@ -9011,7 +9064,7 @@ async function renderCash() {
     });
 
     document.querySelector("#clear-cash-filter")?.addEventListener("click", () => {
-      state.cashFilter = { period: "month", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", cashAccount: "all", quick: "", search: "" };
+      state.cashFilter = defaultCashLedgerFilter();
       state.cashSort = { key: "date", direction: "desc" };
       persistState();
       renderCash();
@@ -11807,7 +11860,7 @@ function pricingRecipeSupermarketUnitCost(recipe = {}) {
 }
 
 function storeAverageMonthlyUnits() {
-  return storeCurrentMonthPace().projectedMonthlyUnits;
+  return storeCurrentMonthPace().quantity;
 }
 
 function storeCurrentMonthPace() {
@@ -12318,7 +12371,7 @@ function pricingCostsPanel() {
   const shared = pricingSharedCosts();
   const staff = shared.staff;
   const currentMonthPace = storeCurrentMonthPace();
-  const observedAverage = currentMonthPace.projectedMonthlyUnits;
+  const observedAverage = currentMonthPace.quantity;
   return `
     ${pricingFlowHtml()}
     <div class="pricing-cost-settings-grid">
@@ -12328,9 +12381,9 @@ function pricingCostsPanel() {
         <form id="pricing-shared-cost-form" class="form-grid">
           <label class="pricing-average-field">Média de cumbucas vendidas por mês
             <input name="averageMonthlyUnits" type="number" min="1" step="1" value="${shared.averageMonthlyUnits || ""}" required>
-            <small>${observedAverage ? `${currentMonthPace.quantity} cumbuca(s) vendida(s) neste mês: Loja ${currentMonthPace.storeQuantity} + Semanal ${currentMonthPace.menuQuantity}. Média parcial de ${currentMonthPace.dailyAverage.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}/dia até o dia ${currentMonthPace.elapsedDays} e projeção de ${observedAverage}/mês.` : "Lance as vendas do mês atual em Loja e Semanal para calcular a média parcial."}</small>
+            <small>${observedAverage ? `${currentMonthPace.quantity} cumbuca(s) vendida(s) neste mês até o dia ${currentMonthPace.elapsedDays}: Loja ${currentMonthPace.storeQuantity} + Semanal ${currentMonthPace.menuQuantity}.` : "Lance as vendas do mês atual em Loja e Semanal para usar o total realizado."}</small>
           </label>
-          ${observedAverage ? `<div class="actions pricing-use-store-average"><button class="secondary" type="button" id="use-store-average">Usar projeção do mês atual (${observedAverage})</button></div>` : ""}
+          ${observedAverage ? `<div class="actions pricing-use-store-average"><button class="secondary" type="button" id="use-store-average">Usar total vendido neste mês (${observedAverage})</button></div>` : ""}
           <fieldset class="pricing-cost-group">
             <legend>Produção mensal</legend>
             <label>Gás
@@ -21461,6 +21514,7 @@ const routes = {
 };
 
 let routeRenderPromise = Promise.resolve();
+let lastRenderedRoute = "";
 
 function renderCurrentRoute({ scrollToTop = false } = {}) {
   const requestedUrl = location.href;
@@ -21470,11 +21524,17 @@ function renderCurrentRoute({ scrollToTop = false } = {}) {
       if (location.href !== requestedUrl) {
         return;
       }
+      const requestedRoute = routeName();
+      if (requestedRoute === "fluxo-de-caixa" && lastRenderedRoute !== "fluxo-de-caixa") {
+        state.cashFilter = defaultCashLedgerFilter();
+        localStorage.setItem("cashFilter", JSON.stringify(state.cashFilter));
+      }
       applyRouteParams();
       app.setAttribute("aria-busy", "true");
       try {
         const renderRoute = routes[routeName()] || home;
         await renderRoute();
+        lastRenderedRoute = requestedRoute;
         if (scrollToTop) {
           window.scrollTo({ top: 0, behavior: "auto" });
         }
@@ -22135,19 +22195,7 @@ function bindUsersPanel() {
 
 Promise.all([hydrateSession(), hydrateState()]).then(() => {
   const currentDate = new Date();
-  const currentDateKey = isoDate(currentDate);
-  state.cashFilter = {
-    period: "month",
-    date: currentDateKey,
-    month: currentDateKey.slice(0, 7),
-    year: currentDateKey.slice(0, 4),
-    type: "all",
-    category: "all",
-    cashAccount: "all",
-    quick: "",
-    search: "",
-    manualAll: false
-  };
+  state.cashFilter = defaultCashLedgerFilter();
   applyGlobalPeriodToViews(state.globalPeriod || {
     year: currentDate.getFullYear(),
     month: currentDate.getMonth() + 1
