@@ -1180,7 +1180,7 @@ const state = {
   editPricingIngredientId: null,
   editPricingRecipeId: null,
   editFinancialEmployeeId: null,
-  cashFilter: localValue("cashFilter", { period: "week" }),
+  cashFilter: localValue("cashFilter", { period: "month" }),
   financialPlanning: localValue("financialPlanning", {
     savings: "",
     savingsUpdatedAt: "",
@@ -1303,7 +1303,7 @@ function applyPayloadToState(saved = {}) {
   state.ingredients = saved.pricingIngredients || [];
   state.pricingRecipes = saved.pricingRecipes || [];
   state.pricingConfig = saved.pricingConfig || {};
-  state.cashFilter = saved.cashFilter || { period: "week" };
+  state.cashFilter = saved.cashFilter || { period: "month" };
   state.financialPlanning = {
     savings: "",
     savingsUpdatedAt: "",
@@ -2298,7 +2298,7 @@ function allCashCategories() {
 function getCashFilter() {
   const today = isoDate(new Date());
   const filter = {
-    period: "week",
+    period: "month",
     date: today,
     month: today.slice(0, 7),
     year: today.slice(0, 4),
@@ -6482,7 +6482,7 @@ async function renderCash() {
     return isoDate(date);
   })();
   if (state.cashFilter?.period === "all" && !state.cashFilter.manualAll) {
-    state.cashFilter = { period: "week", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", cashAccount: "all", search: "" };
+    state.cashFilter = { period: "month", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", cashAccount: "all", search: "" };
   }
   if (["generic", "duplicates"].includes(requestedReview)) {
     const reviewDate = `${requestedReviewMonth || today.slice(0, 7)}-01`;
@@ -9011,7 +9011,7 @@ async function renderCash() {
     });
 
     document.querySelector("#clear-cash-filter")?.addEventListener("click", () => {
-      state.cashFilter = { period: "week", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", cashAccount: "all", quick: "", search: "" };
+      state.cashFilter = { period: "month", date: today, month: today.slice(0, 7), year: today.slice(0, 4), type: "all", category: "all", cashAccount: "all", quick: "", search: "" };
       state.cashSort = { key: "date", direction: "desc" };
       persistState();
       renderCash();
@@ -22111,7 +22111,7 @@ Promise.all([hydrateSession(), hydrateState()]).then(() => {
   const currentDate = new Date();
   const currentDateKey = isoDate(currentDate);
   state.cashFilter = {
-    period: "week",
+    period: "month",
     date: currentDateKey,
     month: currentDateKey.slice(0, 7),
     year: currentDateKey.slice(0, 4),

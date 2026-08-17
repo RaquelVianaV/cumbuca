@@ -145,6 +145,9 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /localStorage\.setItem\("globalPeriod"/);
   assert.match(app, /state\.reportPeriod = \{[\s\S]*?type: "month"/);
   assert.match(app, /state\.cashFilter = \{[\s\S]*?period: "month"/);
+  assert.match(app, /cashFilter: localValue\("cashFilter", \{ period: "month" \}\)/);
+  assert.match(app, /state\.cashFilter = saved\.cashFilter \|\| \{ period: "month" \}/);
+  assert.match(app, /period: "month",[\s\S]*?type: "all",[\s\S]*?cashAccount: "all"/);
   assert.match(app, /state\.storeSalesFilter = \{[\s\S]*?period: "month"/);
   assert.match(app, /state\.channelFilter = \{[\s\S]*?period: "month"/);
   assert.match(app, /partnersDashboard\.month\.paidToCashVanessa/);
