@@ -11813,13 +11813,16 @@ function storeAverageMonthlyUnits() {
 function storeCurrentMonthPace() {
   const today = new Date();
   const currentMonth = isoDate(today).slice(0, 7);
-  const quantity = storeProductMonthTotal(currentMonth);
+  const soldQuantities = monthlySoldQuantities(currentMonth);
+  const quantity = soldQuantities.totalQuantity;
   const elapsedDays = today.getDate();
   const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
   const dailyAverage = elapsedDays > 0 ? quantity / elapsedDays : 0;
   return {
     currentMonth,
     quantity,
+    menuQuantity: soldQuantities.menuQuantity,
+    storeQuantity: soldQuantities.storeQuantity,
     elapsedDays,
     daysInMonth,
     dailyAverage,
@@ -11963,6 +11966,7 @@ function simplePricingOverviewPanel(rows = []) {
           const price = practiced ? metrics.practicedPrice : metrics.suggestedPrice;
           const cost = practiced ? metrics.realTotalCost : metrics.totalCost;
           const profit = practiced ? metrics.realProfit : metrics.suggestedProfit;
+          const variableFee = practiced ? metrics.realVariableFee : metrics.suggestedVariableFee;
           const margin = practiced ? metrics.realMarginPercent : metrics.desiredMarginPercent;
           const tone = profit < 0 ? "danger" : margin + 0.0001 < metrics.desiredMarginPercent ? "warning" : "positive";
           const message = profit < 0
@@ -11971,13 +11975,33 @@ function simplePricingOverviewPanel(rows = []) {
               ? `Dá lucro, mas está abaixo da meta de ${pricingPercent(metrics.desiredMarginPercent)}`
               : "Preço saudável";
           return `
-            <article class="simple-price-card ${tone}">
-              <div><strong>${escapeHtml(recipe.name || "Produto")}</strong><small>${message}</small></div>
-              <span><small>Custa</small><b>${money(cost)}</b></span>
-              <span><small>Você cobra</small><b>${money(price)}</b></span>
-              <span><small>Sobra</small><b>${money(profit)}</b></span>
-              <span><small>Margem</small><b>${pricingPercent(margin)}</b></span>
-            </article>
+            <details class="simple-price-card ${tone}" data-simple-price-details>
+              <summary class="simple-price-card-summary">
+                <div><strong>${escapeHtml(recipe.name || "Produto")}</strong><small>${message}</small></div>
+                <span><small>Custa</small><b>${money(cost)}</b></span>
+                <span><small>Você cobra</small><b>${money(price)}</b></span>
+                <span><small>Sobra</small><b>${money(profit)}</b></span>
+                <span><small>Margem</small><b>${pricingPercent(margin)}</b></span>
+              </summary>
+              <div class="simple-price-calculation">
+                <div class="simple-price-calculation-heading">
+                  <strong>Cálculo completo por unidade</strong>
+                  <small>${practiced ? "Calculado com o preço praticado" : "Calculado com o preço sugerido"}</small>
+                </div>
+                <span><small>Insumos / supermercado</small><b>${money(metrics.supermarketUnitCost)}</b></span>
+                <span><small>Embalagem</small><b>${money(metrics.packagingCost)}</b></span>
+                <span><small>Produção</small><b>${money(metrics.productionCost)}</b></span>
+                <span><small>Mão de obra</small><b>${money(metrics.laborCost)}</b></span>
+                <span><small>Outros custos</small><b>${money(metrics.otherCost)}</b></span>
+                <span><small>Taxa fixa</small><b>${money(metrics.fixedFee)}</b></span>
+                <span><small>Taxa variável (${pricingPercent(metrics.variableFeePercent)})</small><b>${money(variableFee)}</b></span>
+                <span class="total"><small>Custo total</small><b>${money(cost)}</b></span>
+                <span><small>Preço considerado</small><b>${money(price)}</b></span>
+                <span class="${profit < 0 ? "negative" : "positive"}"><small>Lucro por unidade</small><b>${money(profit)}</b></span>
+                <span><small>Margem atual</small><b>${pricingPercent(margin)}</b></span>
+                <span><small>Meta de margem</small><b>${pricingPercent(metrics.desiredMarginPercent)}</b></span>
+              </div>
+            </details>
           `;
         }).join("") || `<p class="muted">Cadastre um produto para ver a leitura simples.</p>`}
       </div>
@@ -12304,7 +12328,7 @@ function pricingCostsPanel() {
         <form id="pricing-shared-cost-form" class="form-grid">
           <label class="pricing-average-field">Média de cumbucas vendidas por mês
             <input name="averageMonthlyUnits" type="number" min="1" step="1" value="${shared.averageMonthlyUnits || ""}" required>
-            <small>${observedAverage ? `${currentMonthPace.quantity} unidade(s) lançada(s) até o dia ${currentMonthPace.elapsedDays}. Média parcial de ${currentMonthPace.dailyAverage.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}/dia e projeção de ${observedAverage}/mês.` : "Lance as quantidades do mês atual em Loja > Produtos para calcular a média parcial."}</small>
+            <small>${observedAverage ? `${currentMonthPace.quantity} cumbuca(s) vendida(s) neste mês: Loja ${currentMonthPace.storeQuantity} + Semanal ${currentMonthPace.menuQuantity}. Média parcial de ${currentMonthPace.dailyAverage.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}/dia até o dia ${currentMonthPace.elapsedDays} e projeção de ${observedAverage}/mês.` : "Lance as vendas do mês atual em Loja e Semanal para calcular a média parcial."}</small>
           </label>
           ${observedAverage ? `<div class="actions pricing-use-store-average"><button class="secondary" type="button" id="use-store-average">Usar projeção do mês atual (${observedAverage})</button></div>` : ""}
           <fieldset class="pricing-cost-group">
@@ -16517,7 +16541,9 @@ function storeProductsPanel(month, editingProduct = null) {
   }).length;
   const previousMonth = previousMonthKeyFromPeriod(selectedMonth);
   const previousTotal = storeProductMonthTotal(previousMonth);
-  const inputBudget = storeProductInputBudget(previousMonth);
+  const budgetUsesCurrentMonth = previousTotal <= 0 && monthTotal > 0;
+  const budgetMonth = budgetUsesCurrentMonth ? selectedMonth : previousMonth;
+  const inputBudget = storeProductInputBudget(budgetMonth);
   const history = storeProductMonthlyHistory();
   const lastProductLaunchDate = latestStoreProductLaunchDate();
 
@@ -16642,7 +16668,7 @@ function storeProductsPanel(month, editingProduct = null) {
       <div class="section-heading">
         <div>
           <h2>Quanto posso gastar com insumos</h2>
-          <p class="muted-inline">Estimativa para este mês baseada nas quantidades de ${formatMonthKeyBr(previousMonth)} e na Precificação atual de cada prato.</p>
+          <p class="muted-inline">Estimativa baseada nas quantidades de ${formatMonthKeyBr(budgetMonth)}${budgetUsesCurrentMonth ? " (parcial do mês atual, porque o mês anterior está vazio)" : ""} e na Precificação atual de cada prato.</p>
         </div>
       </div>
       <div class="summary">
@@ -16668,9 +16694,9 @@ function storeProductsPanel(month, editingProduct = null) {
         </div>
       </div>
       ${inputBudget.missingProducts ? `
-        <p class="form-hint warning-text">${inputBudget.missingProducts} prato(s) vendido(s) em ${formatMonthKeyBr(previousMonth)} não entraram no cálculo porque estão sem Precificação completa.</p>
+        <p class="form-hint warning-text">${inputBudget.missingProducts} prato(s) com quantidade em ${formatMonthKeyBr(budgetMonth)} não entraram no cálculo porque estão sem Precificação completa.</p>
       ` : inputBudget.totalQuantity === 0 ? `
-        <p class="muted">Lance as quantidades de ${formatMonthKeyBr(previousMonth)} em Produtos para gerar este orçamento.</p>
+        <p class="muted">Lance as quantidades de ${formatMonthKeyBr(previousMonth)} ou do mês atual em Produtos para gerar este orçamento.</p>
       ` : `
         <p class="form-hint">Cálculo completo para todas as quantidades lançadas no mês anterior.</p>
       `}

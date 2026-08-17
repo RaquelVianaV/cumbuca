@@ -2809,9 +2809,8 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
     pricingIngredients: [],
     pricingRecipes: [],
     pricingConfig: { sharedCosts: { labels: 3120 } },
-    storeProductQuantities: [
-      { id: 'q-current', productId: 'product-1', month: currentMonth, quantity: partialQuantity },
-    ],
+    storeSales: [{ id: 'store-current', date: today, saleType: 'unit', quantity: 45 }],
+    orders: [{ id: 'weekly-current', menuKey: `${currentMonth}-semana-1`, totalQuantity: 100 }],
   };
 
   await page.goto('/precificacao?view=costs');
@@ -2820,7 +2819,7 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   await expect(costForm.locator('input[name="labels"]')).toHaveCount(0);
   await expect(page.locator('[data-pricing-shared-preview="monthly"]')).toContainText('R$ 0,00');
   await expect(costForm).toContainText(
-    `${partialQuantity} unidade(s) lançada(s) até o dia ${elapsedDays}`
+    `${partialQuantity} cumbuca(s) vendida(s) neste mês: Loja 45 + Semanal 100`
   );
   await costForm
     .getByRole('button', { name: `Usar projeção do mês atual (${projectedQuantity})`, exact: true })

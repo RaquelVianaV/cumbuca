@@ -11021,11 +11021,60 @@ html.dark-mode .partner-debt-readonly {
 
 .simple-price-list { display: grid; gap: 10px; }
 .simple-price-card {
+  overflow: hidden;
+}
+.simple-price-card-summary {
   display: grid;
   grid-template-columns: minmax(240px, 2fr) repeat(4, minmax(100px, 0.7fr));
   align-items: center;
   gap: 14px;
-  padding: 15px 17px;
+  padding: 15px 48px 15px 17px;
+  cursor: pointer;
+  list-style: none;
+  position: relative;
+}
+.simple-price-card-summary::-webkit-details-marker { display: none; }
+.simple-price-card-summary::after {
+  content: "+";
+  position: absolute;
+  right: 18px;
+  color: var(--primary);
+  font-size: 1.6rem;
+  font-weight: 800;
+}
+.simple-price-card[open] .simple-price-card-summary::after { content: "−"; }
+.simple-price-card[open] .simple-price-card-summary { border-bottom: 1px solid var(--line); }
+.simple-price-calculation {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  gap: 12px;
+  padding: 18px;
+  background: rgba(27, 111, 82, 0.04);
+}
+.simple-price-calculation-heading { grid-column: 1 / -1; }
+.simple-price-calculation small,
+.simple-price-calculation b,
+.simple-price-calculation-heading strong,
+.simple-price-calculation-heading small { display: block; }
+.simple-price-calculation small,
+.simple-price-calculation-heading small { color: var(--muted); }
+.simple-price-calculation > span {
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--surface);
+}
+.simple-price-calculation > span.total { border: 1px solid var(--primary); }
+.simple-price-card-summary > div strong,
+.simple-price-card-summary > div small,
+.simple-price-card-summary > span small,
+.simple-price-card-summary > span b { display: block; }
+.simple-price-card-summary > div small,
+.simple-price-card-summary > span small { color: var(--muted); }
+.simple-price-card > div strong,
+.simple-price-card > div small,
+.simple-price-card > span small,
+.simple-price-card > span b {
+  display: block;
 }
 .simple-price-card > div strong,
 .simple-price-card > div small,
@@ -11060,8 +11109,9 @@ html.dark-mode .planning-simulator {
   .simple-reading-status { width: 100%; }
   .simple-money-flow,
   .simple-concept-grid { grid-template-columns: 1fr; }
-  .simple-price-card { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .simple-price-card > div { grid-column: 1 / -1; }
+  .simple-price-card-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .simple-price-card-summary > div { grid-column: 1 / -1; }
+  .simple-price-calculation { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .analysis-confidence { grid-template-columns: 1fr; }
   .finance-volume-grid { grid-template-columns: 1fr; }
   .suggested-limits-formula { grid-template-columns: 1fr; }

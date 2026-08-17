@@ -333,6 +333,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /Quanto posso gastar com insumos/);
   assert.match(app, /data-store-input-budget-minimum/);
   assert.match(app, /data-store-input-budget-maximum/);
+  assert.match(app, /parcial do mês atual, porque o mês anterior está vazio/);
   assert.match(app, /\["costs", "Custos rateados"\]/);
   assert.match(app, /id="pricing-recipe-form"/);
   assert.match(app, /name="supermarketUnitCost"/);
@@ -440,6 +441,8 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /function storeAverageMonthlyUnits/);
   assert.match(app, /function storeCurrentMonthPace/);
   assert.match(app, /Usar projeção do mês atual/);
+  assert.match(app, /data-simple-price-details/);
+  assert.match(app, /Cálculo completo por unidade/);
   assert.match(app, /pricingRecipes: state\.pricingRecipes/);
   assert.match(app, /Custos extraordinários/);
   assert.match(app, /Lucro estimado por lote/);
