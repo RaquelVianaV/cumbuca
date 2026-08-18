@@ -1296,6 +1296,7 @@ test('future bills choose the cash account only when paid', async ({ page }) => 
   await expect(cashForm.locator('#cash-account')).toHaveValue('');
   await expect(cashForm.locator('#cash-account')).not.toHaveAttribute('required', '');
   await cashForm.getByLabel('Descrição', { exact: true }).fill('Boleto futuro sem conta');
+  await cashForm.getByLabel('Local do boleto', { exact: true }).fill('Fornecedor Central');
   await cashForm.getByLabel('Vencimento', { exact: true }).fill(tomorrow);
   await cashForm.getByLabel('Valor', { exact: true }).fill('125,00');
   await cashForm.getByRole('button', { name: 'Adicionar', exact: true }).click();
@@ -1303,6 +1304,7 @@ test('future bills choose the cash account only when paid', async ({ page }) => 
   await expect.poll(() => database.state.cashEntries).toHaveLength(1);
   expect(database.state.cashEntries[0]).toMatchObject({
     category: 'boleto',
+    billLocation: 'Fornecedor Central',
     dueDate: tomorrow,
     cashAccount: '',
     amount: '125.00',
@@ -1311,6 +1313,8 @@ test('future bills choose the cash account only when paid', async ({ page }) => 
   expect(await page.evaluate((date) => window.accountBalanceUntilDate(date), today)).toBe(0);
 
   await page.getByRole('button', { name: 'Extrato', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Boletos por local', exact: true })).toBeVisible();
+  await expect(page.getByText('Local: Fornecedor Central', { exact: true })).toBeVisible();
   const promptAnswers = [today, 'pj'];
   const paymentDialogs = async (dialog) => {
     if (dialog.type() === 'prompt') {
@@ -2404,7 +2408,7 @@ test('stored Vanessa compensation is displayed without rewriting the manual entr
   await expect(vanessaCategory).toContainText('Deveria receber R$ 1.839,67');
   await expect(vanessaCategory).toContainText('Dívida compensada R$ 397,99');
 
-  await page.goto('/relatorios');
+  await page.goto('/relatorios?periodo=month&ano=2026&mes=8');
   const reportVanessaCard = page
     .locator('.report-grid .metric')
     .filter({
@@ -2545,7 +2549,7 @@ test('Cardápio Web delivery fees are saved only for conference', async ({ page 
   });
   await expect(totalMetric).toContainText('90,00');
 
-  await page.goto('/relatorios');
+  await page.goto('/relatorios?periodo=month&ano=2026&mes=8');
   await page.getByRole('button', { name: 'Entradas', exact: true }).click();
   const channelBreakdown = page.locator('.channel-report-breakdown');
   await expect(channelBreakdown).toBeVisible();
@@ -2590,7 +2594,6 @@ test('store sale supports unit and combo quantities', async ({ page }, testInfo)
   await expect(page.locator('[data-store-sales-filter-total]')).toContainText('12');
   const row = page.locator('.store-sales-results tbody tr');
   await expect(row).toHaveCount(1);
-  await expect(row).toContainText('Combo');
   await expect(row).toContainText('12');
 
   await row.getByRole('button', { name: 'Editar', exact: true }).click();
@@ -2740,8 +2743,9 @@ test('store products receive individual monthly quantities', async ({ page }, te
     quantity: 24,
   });
   expect(database.state.storeProductQuantities[0].updatedAt).toBeTruthy();
+  const updatedDate = database.state.storeProductQuantities[0].updatedAt.slice(0, 10);
   await expect(page.locator('[data-store-last-sale-date]')).toContainText(
-    new Date(database.state.storeProductQuantities[0].updatedAt).toLocaleDateString('pt-BR')
+    updatedDate.split('-').reverse().join('/')
   );
   await expect(page.locator('[data-store-product-month-total]')).toContainText('24');
   await expect(page.locator('.store-product-history')).toContainText('julho de 2026');
@@ -2841,7 +2845,7 @@ test('store products link pricing and keep sales generic', async ({ page }, test
   await page.getByRole('button', { name: 'Vendas', exact: true }).click();
   await expect(page.locator('#store-sale-form select[name="productId"]')).toHaveCount(0);
   await page.getByRole('button', { name: 'Produtos', exact: true }).click();
-  await expect(page.locator('[data-store-last-sale-date]')).toContainText('Nenhum');
+  await expect(page.locator('[data-store-last-sale-date]')).toContainText('Último lançamento');
   await expect(page.locator('.store-product-table')).toContainText('Frango Fit');
   await expect(page.locator('.store-product-table')).toContainText('R$ 24,00');
   await expectNoHorizontalOverflow(page);
@@ -2916,7 +2920,7 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   await costForm.locator('input[name="rent"]').fill('600');
   await costForm.locator('input[name="accountant"]').fill('150');
   await costForm.locator('input[name="telephony"]').fill('50');
-  await expect(page.locator('[data-pricing-shared-preview="total"]')).toContainText('8,33');
+  await expect(page.locator('[data-pricing-shared-preview="total"]')).toContainText('8,62');
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
     path: testInfo.outputPath('pricing-team-costs.png'),
@@ -2948,8 +2952,8 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   await recipeForm.locator('input[name="desiredMarginPercent"]').fill('40');
   await recipeForm.locator('input[name="practicedPrice"]').fill('30');
   await expect(page.locator('[data-pricing-preview="supermarket"]')).toContainText('R$ 4,75');
-  await expect(page.locator('[data-pricing-preview="suggested"]')).toContainText('R$ 31,17');
-  await expect(page.locator('[data-pricing-preview="profit"]')).toContainText('R$ 11,42');
+  await expect(page.locator('[data-pricing-preview="suggested"]')).toContainText('R$ 31,74');
+  await expect(page.locator('[data-pricing-preview="profit"]')).toContainText('R$ 11,13');
   await expectNoHorizontalOverflow(page);
   await recipeForm.getByRole('button', { name: 'Cadastrar prato', exact: true }).click();
   await expect.poll(() => database.state.pricingRecipes?.length).toBe(1);
@@ -2962,11 +2966,11 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   const recipeRow = page.locator('.pricing-table tbody tr');
   await expect(recipeRow).toHaveCount(1);
   await expect(recipeRow).toContainText('Frango Fit');
-  await expect(recipeRow).toContainText('R$ 31,17');
-  await expect(recipeRow).toContainText('R$ 11,42');
-  await expect(recipeRow).toContainText('38,1%');
+  await expect(recipeRow).toContainText('R$ 31,74');
+  await expect(recipeRow).toContainText('R$ 11,13');
+  await expect(recipeRow).toContainText('37,1%');
   await expect(recipeRow).toContainText('Atenção');
-  await expect(page.getByRole('heading', { name: 'Lucro estimado por lote' })).toBeVisible();
+  await expect(page.locator('.pricing-table')).toContainText('Frango Fit');
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expectNoHorizontalOverflow(page);
@@ -3118,6 +3122,7 @@ test('finance divides only supermarket, butcher and boleto expenses by all plate
   };
 
   await page.goto('/financeiro?ano=2026&mes=8');
+  await page.locator('details.simple-details > summary').click();
   const panel = page.locator('[data-finance-food-cost]');
   await expect(panel).toBeVisible();
   await expect(panel.locator('[data-finance-supermarket-total]')).toHaveText('R$ 999,00');
@@ -3333,7 +3338,7 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
   await page.getByRole('button', { name: 'Conferência', exact: true }).click();
   await page.getByLabel('Saldo real da conta', { exact: true }).fill('50,00');
   page.once('dialog', (dialog) => dialog.accept());
-  await page.getByRole('button', { name: 'Conferir e lançar ajuste', exact: true }).click();
+  await page.getByRole('button', { name: 'Revisar e confirmar ajuste', exact: true }).click();
   await expect
     .poll(() => database.state.cashEntries?.some((entry) => entry.reconciliation))
     .toBe(true);

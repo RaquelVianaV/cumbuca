@@ -10,6 +10,7 @@ module.exports = defineConfig({
   use: {
     baseURL: `http://127.0.0.1:${testPort}`,
     trace: 'retain-on-failure',
+    timezoneId: 'America/Fortaleza',
   },
   webServer: {
     command: 'node server.js',

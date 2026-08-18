@@ -282,6 +282,55 @@ button {
   gap: 6px;
 }
 
+.header-more-menu {
+  position: relative;
+}
+
+.header-more-menu > summary {
+  width: 38px;
+  min-height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(8, 127, 91, 0.2);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--green-dark);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  list-style: none;
+}
+
+.header-more-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.header-more-menu[open] > summary {
+  background: var(--green-dark);
+  color: #fff;
+}
+
+.header-more-options {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  min-width: 190px;
+  display: grid;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 18px 44px rgba(40, 31, 23, 0.16);
+}
+
+.header-more-options button {
+  width: 100%;
+  justify-content: flex-start;
+  box-shadow: none;
+}
+
 .current-user {
   min-height: 32px;
   display: inline-flex;
@@ -9612,6 +9661,222 @@ html.dark-mode tbody tr:hover {
   gap: 18px;
 }
 
+.management-now {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: 14px;
+}
+
+.management-balance-card {
+  min-width: 0;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel);
+}
+
+.management-balance-card:first-child {
+  background: linear-gradient(145deg, rgba(8, 127, 91, 0.11), var(--panel) 68%);
+  border-color: rgba(8, 127, 91, 0.28);
+}
+
+.management-balance-card > strong {
+  display: block;
+  margin: 13px 0 9px;
+  font-size: clamp(1.75rem, 3vw, 2.7rem);
+  line-height: 1;
+  letter-spacing: -0.045em;
+}
+
+.management-balance-card > p {
+  min-height: 38px;
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.management-balance-card > a {
+  color: var(--green-dark);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.management-projection-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 13px;
+  border-top: 1px solid var(--line);
+  font-size: 0.76rem;
+}
+
+.management-understanding-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.management-breakdown-card,
+.management-commitments-card,
+.management-reading-card {
+  padding: 22px;
+}
+
+.management-reading-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.management-reading-grid article {
+  position: relative;
+  min-height: 142px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 17px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.management-reading-grid article::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  border-radius: 10px 0 0 10px;
+  background: var(--muted);
+}
+
+.management-reading-grid article.good::before { background: var(--green); }
+.management-reading-grid article.warning::before { background: #c4773b; }
+.management-reading-grid article.danger::before { background: #b42318; }
+
+.management-reading-grid article > span {
+  color: var(--muted);
+  font-size: 0.67rem;
+  font-weight: 850;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.management-reading-grid article > strong {
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.management-reading-grid article > p {
+  margin: auto 0 0;
+  color: var(--muted);
+  font-size: 0.73rem;
+  line-height: 1.5;
+}
+
+.management-breakdown-list,
+.management-commitment-list {
+  display: grid;
+  gap: 13px;
+}
+
+.management-breakdown-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px 14px;
+}
+
+.management-breakdown-row > div {
+  display: grid;
+  gap: 2px;
+}
+
+.management-breakdown-row strong,
+.management-breakdown-row > b {
+  font-size: 0.82rem;
+}
+
+.management-breakdown-row span {
+  color: var(--muted);
+  font-size: 0.69rem;
+}
+
+.management-breakdown-track {
+  grid-column: 1 / -1;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.management-breakdown-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #c4773b;
+}
+
+.management-breakdown-card.income .management-breakdown-track i {
+  background: var(--green);
+}
+
+.management-commitment {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.management-commitment:hover {
+  border-color: rgba(8, 127, 91, 0.35);
+  background: var(--surface);
+}
+
+.management-commitment.overdue {
+  border-left: 3px solid #b42318;
+}
+
+.management-commitment time,
+.management-commitment small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.management-commitment > span {
+  display: grid;
+  gap: 3px;
+}
+
+.management-empty,
+.management-empty-state {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.form-error {
+  margin: 14px 0 0;
+  padding: 12px;
+  border: 1px solid rgba(180, 35, 24, 0.25);
+  border-radius: 9px;
+  background: rgba(180, 35, 24, 0.07);
+  color: #b42318;
+  font-weight: 750;
+}
+
+.management-empty-state {
+  display: grid;
+  gap: 4px;
+  padding: 18px;
+  border-radius: 9px;
+  background: var(--surface);
+}
+
 .executive-toolbar {
   display: flex;
   align-items: center;
@@ -10050,6 +10315,18 @@ html.dark-mode .nav a:hover {
 }
 
 @media (max-width: 1180px) {
+  .management-now {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .management-balance-card:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .management-reading-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .executive-kpi-grid,
   .home-dashboard-kpis.executive-kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -10092,6 +10369,27 @@ html.dark-mode .nav a:hover {
 }
 
 @media (max-width: 700px) {
+  .management-now,
+  .management-understanding-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .management-balance-card:first-child {
+    grid-column: auto;
+  }
+
+  .management-commitment {
+    grid-template-columns: 1fr auto;
+  }
+
+  .management-commitment time {
+    grid-column: 1 / -1;
+  }
+
+  .management-reading-grid {
+    grid-template-columns: 1fr;
+  }
+
   .global-new-options,
   .management-comparison-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

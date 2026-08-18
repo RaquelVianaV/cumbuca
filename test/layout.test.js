@@ -388,6 +388,9 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /Compras por cumbuca/);
   assert.match(app, /Não representa CMV contábil/);
   assert.match(app, /Somente lançamentos na categoria Boleto/);
+  assert.match(app, /Local do boleto/);
+  assert.match(app, /Boletos por local/);
+  assert.match(app, /subcategoria: isBillEntry\(entry\)/);
   assert.match(app, /data-menu-weekly-quantity/);
   assert.match(app, /data-week-summary/);
   assert.match(app, /Supermercado registrado na semana/);
@@ -567,6 +570,35 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(css, /\.operation-priority-list/);
   assert.match(css, /\.plan-vs-actual-grid/);
   assert.match(css, /\.maintenance-health-grid/);
+});
+
+test('home keeps the existing management view and adds read-only financial understanding', () => {
+  assert.match(app, /Situação da empresa/);
+  assert.match(app, /Vendas/);
+  assert.match(app, /Compras de insumos/);
+  assert.match(app, /Lucro operacional/);
+  assert.match(app, /O que precisa da sua atenção/);
+  assert.match(app, /Comparação com mês anterior/);
+  assert.match(app, /Dinheiro disponível hoje/);
+  assert.match(app, /Compromissos em 30 dias/);
+  assert.match(app, /Maiores gastos/);
+  assert.match(app, /Maiores receitas/);
+  assert.match(app, /Contas que precisam de atenção/);
+  assert.match(app, /O que os números estão dizendo/);
+  assert.match(app, /Capacidade de pagamento/);
+  assert.match(app, /Concentração de gastos/);
+  assert.match(app, /Origem das receitas/);
+  assert.match(app, /entry\.kind !== "receivable"/);
+  assert.match(css, /\.management-now/);
+  assert.match(css, /\.management-understanding-grid/);
+});
+
+test('browser failures are recorded without allowing offline writes', () => {
+  assert.match(app, /window\.addEventListener\("unhandledrejection"/);
+  assert.match(app, /safeBrowserIssueText/);
+  assert.match(app, /Offline - alterações bloqueadas/);
+  assert.match(app, /onlineSaveCheck/);
+  assert.match(app, /rollbackUnsavedChange/);
 });
 
 test('desktop navigation has its own vertical scroll area', () => {

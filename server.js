@@ -160,6 +160,13 @@ function cloneJson(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function appStateVersion(state = {}) {
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify(normalizeState(state)))
+    .digest('hex');
+}
+
 function restoreVanessaManualWithdrawal(state) {
   (state.cashEntries || []).forEach((entry) => {
     const isVanessaWithdrawal =
@@ -1037,12 +1044,12 @@ async function clearLoginFailures(req, username) {
   }
 }
 
-function collectBody(req) {
+function collectBody(req, maxBytes = 1_000_000) {
   return new Promise((resolve, reject) => {
     let body = '';
     req.on('data', (chunk) => {
       body += chunk;
-      if (body.length > 1_000_000) {
+      if (body.length > maxBytes) {
         req.destroy();
         reject(new Error('Payload muito grande.'));
       }
@@ -2193,6 +2200,7 @@ async function readAppState() {
   return {
     database: true,
     state: normalizedState,
+    stateVersion: appStateVersion(normalizedState),
   };
 }
 
@@ -2202,6 +2210,16 @@ async function writeAppState(payload = {}, user = null, options = {}) {
   }
 
   const currentBeforeWrite = await readAppState();
+  if (
+    options.expectedStateVersion &&
+    options.expectedStateVersion !== currentBeforeWrite.stateVersion
+  ) {
+    const error = new Error(
+      'Os dados foram alterados em outra sessão. Recarregue a página antes de salvar novamente.'
+    );
+    error.statusCode = 409;
+    throw error;
+  }
   if (Object.prototype.hasOwnProperty.call(payload, 'cashEntries')) {
     payload.cashEntries = repairPartnerCashLinks(
       payload.partnerAccounts || currentBeforeWrite.state.partnerAccounts,
@@ -2307,6 +2325,7 @@ async function writeAppState(payload = {}, user = null, options = {}) {
     database: true,
     saved: entries.map(([key]) => key),
     backup: Boolean(backup.saved || backup.database),
+    stateVersion: current.stateVersion,
   };
 }
 
@@ -3794,7 +3813,13 @@ async function handleRequest(req, res) {
 
     if (req.method === 'POST' && url.pathname === '/api/state') {
       const payload = await collectBody(req);
-      sendJson(res, 200, await writeAppState(payload.state || payload, user));
+      sendJson(
+        res,
+        200,
+        await writeAppState(payload.state || payload, user, {
+          expectedStateVersion: String(payload.expectedStateVersion || ''),
+        })
+      );
       return;
     }
 
@@ -4194,6 +4219,7 @@ if (!process.env.VERCEL) {
 }
 
 handleRequest._test = {
+  appStateVersion,
   applyConfirmedFinancialMigration,
   backupVersionId,
   bulkFinancialClearRequested,

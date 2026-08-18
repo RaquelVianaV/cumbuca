@@ -43,6 +43,7 @@ let systemStatus = {
   persistence: false
 };
 let lastConfirmedPayload = null;
+let lastStateVersion = "";
 let offlineAlertOpen = false;
 let suppressIssueLog = false;
 let serverStatusRequest = null;
@@ -1274,6 +1275,41 @@ function recordSystemIssue(type, message, detail = "") {
   localStorage.setItem("systemIssues", JSON.stringify(issues));
 }
 
+function safeBrowserIssueText(value, maximum = 240) {
+  return String(value || "")
+    .replace(/https?:\/\/[^\s]+/gi, "[endereço ocultado]")
+    .replace(/[?&](token|key|secret|password)=[^\s&]+/gi, "$1=[oculto]")
+    .slice(0, maximum);
+}
+
+window.addEventListener("error", event => {
+  recordSystemIssue(
+    "error",
+    "Erro inesperado na interface",
+    safeBrowserIssueText(event.message || "Erro sem mensagem")
+  );
+});
+
+window.addEventListener("unhandledrejection", event => {
+  recordSystemIssue(
+    "error",
+    "Operação da interface não foi concluída",
+    safeBrowserIssueText(event.reason?.message || event.reason || "Falha sem mensagem")
+  );
+});
+
+window.addEventListener("offline", () => {
+  recordSystemIssue("warning", "Conexão perdida", "O salvamento permaneceu bloqueado enquanto o sistema estava offline.");
+  setSaveStatus("Offline - alterações bloqueadas", "offline");
+  showToast("Você está offline. Nenhuma alteração será salva até a conexão voltar.", "warning");
+});
+
+window.addEventListener("online", () => {
+  showToast("Conexão restabelecida. Conferindo o banco...", "success");
+  updateServerStatus();
+  updatePersistenceStatus();
+});
+
 function applyPayloadToState(saved = {}) {
   state.cash = saved.cashEntries || [];
   state.partnerAccounts = normalizePartnerAccounts(saved.partnerAccounts || defaultPartnerAccounts());
@@ -1387,12 +1423,16 @@ async function persistState() {
     const response = await fetch("/api/state", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ state: appStatePayload() })
+      body: JSON.stringify({
+        state: appStatePayload(),
+        expectedStateVersion: lastStateVersion
+      })
     });
     const result = await response.json();
     if (response.ok && result.database) {
       persistLocal();
       lastConfirmedPayload = clonePayload(appStatePayload());
+      lastStateVersion = String(result.stateVersion || lastStateVersion);
       const now = shortDateTime.format(new Date());
       setSaveStatus(`Salvo no Supabase ${now}`, "online");
       showToast("Salvo no Supabase", "success");
@@ -1429,6 +1469,7 @@ async function hydrateState() {
       applyPayloadToState(saved);
       persistLocal();
       lastConfirmedPayload = clonePayload(appStatePayload());
+      lastStateVersion = String(result.stateVersion || "");
     } else {
       lastConfirmedPayload = clonePayload(appStatePayload());
     }
@@ -2355,6 +2396,7 @@ function filterCashEntries(entries, filterOverrides = {}) {
   const searchedEntries = query
     ? entries.filter(entry => [
       entry.description,
+      entry.billLocation,
       entry.category,
       categoryName(entry.category),
       cashDisplayCategory(entry),
@@ -2470,6 +2512,48 @@ function cashEntriesForSelectedPeriod(entries = state.cash, { includeNonCash = f
     }
     return true;
   });
+}
+
+function billLocations() {
+  return [...new Set(state.cash
+    .filter(entry => isBillEntry(entry))
+    .map(entry => String(entry.billLocation || "").trim())
+    .filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
+}
+
+function billLocationDatalistHtml() {
+  return `<datalist id="bill-location-options">${billLocations()
+    .map(location => `<option value="${escapeHtml(location)}"></option>`)
+    .join("")}</datalist>`;
+}
+
+function billLocationSummary(entries = []) {
+  const rows = Object.values(entries
+    .filter(entry => isBillEntry(entry))
+    .reduce((acc, entry) => {
+      const location = String(entry.billLocation || "Local não informado").trim() || "Local não informado";
+      const key = location.toLocaleLowerCase("pt-BR");
+      if (!acc[key]) acc[key] = { location, total: 0, count: 0 };
+      acc[key].total += Number(entry.amount || 0);
+      acc[key].count += 1;
+      return acc;
+    }, {}))
+    .sort((a, b) => b.total - a.total);
+  if (!rows.length) return "";
+  return `
+    <section class="bill-location-summary" aria-label="Boletos separados por local">
+      <div class="section-heading"><div><h3>Boletos por local</h3><p class="muted-inline">Veja onde cada boleto foi gerado.</p></div></div>
+      <div class="category-summary">
+        ${rows.map(row => `
+          <button class="cash-category-summary-card" type="button" data-bill-location="${escapeHtml(row.location === "Local não informado" ? "" : row.location)}">
+            <b>${escapeHtml(row.location)}</b>
+            <small>${row.count} ${row.count === 1 ? "boleto" : "boletos"}</small>
+            <strong class="negative">${money(row.total)}</strong>
+            <span class="cash-category-summary-action">Ver no extrato <i aria-hidden="true">→</i></span>
+          </button>`).join("")}
+      </div>
+    </section>`;
 }
 
 function categoryName(value) {
@@ -5757,6 +5841,130 @@ function dashboardAccountBreakdown(values = {}) {
   `;
 }
 
+function managementCategoryTotals(periodKey, type) {
+  const entries = businessCashEntries(accountingCashEntries(state.cash))
+    .filter(entry => String(cashAccountingDate(entry) || "").startsWith(periodKey))
+    .filter(entry => type === "expense" ? entry.type === "expense" : entry.type !== "expense")
+    .filter(entry => !isWithdrawalEntry(entry))
+    .filter(entry => !isAccountAdjustmentEntry(entry))
+    .filter(entry => !isAccountTransferCashEntry(entry));
+  const groups = entries.reduce((result, entry) => {
+    const label = categoryName(entry.category) || (type === "expense" ? "Outras despesas" : "Outras receitas");
+    result.set(label, Number(result.get(label) || 0) + Math.abs(Number(entry.amount || 0)));
+    return result;
+  }, new Map());
+  const rows = [...groups.entries()]
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value);
+  const total = entries.reduce((sum, entry) => sum + Math.abs(Number(entry.amount || 0)), 0);
+  return rows.map(row => ({
+    ...row,
+    percent: total > 0 ? (row.value / total) * 100 : 0
+  }));
+}
+
+function managementCategoryBreakdown(periodKey, type, limit = 5) {
+  return managementCategoryTotals(periodKey, type).slice(0, limit);
+}
+
+function managementNarrativeInsights({ periodKey, previousKey, cashBalance, payable30, receivable30 }) {
+  const expenseRows = managementCategoryTotals(periodKey, "expense");
+  const incomeRows = managementCategoryTotals(periodKey, "income");
+  const previousExpenses = new Map(
+    managementCategoryTotals(previousKey, "expense").map(row => [row.label, row.value])
+  );
+  const changes = expenseRows
+    .map(row => ({ ...row, previous: Number(previousExpenses.get(row.label) || 0) }))
+    .map(row => ({ ...row, change: row.value - row.previous }))
+    .filter(row => row.change > 0.005)
+    .sort((a, b) => b.change - a.change);
+  const availableAfterCommitments = roundedMoneyValue(cashBalance + receivable30 - payable30);
+  const coveragePercent = payable30 > 0 ? ((cashBalance + receivable30) / payable30) * 100 : 100;
+  const insights = [{
+    tone: availableAfterCommitments < 0 ? "danger" : "good",
+    label: "Capacidade de pagamento",
+    title: payable30 > 0
+      ? `${coveragePercent.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}% das contas de 30 dias estão cobertas`
+      : "Nenhuma conta futura compromete o saldo agora",
+    detail: availableAfterCommitments < 0
+      ? `Faltariam ${money(Math.abs(availableAfterCommitments))} considerando o saldo e os recebimentos cadastrados.`
+      : `Após os compromissos cadastrados, permanecem ${money(availableAfterCommitments)}.`
+  }];
+  if (expenseRows[0]) {
+    insights.push({
+      tone: expenseRows[0].percent >= 40 ? "warning" : "neutral",
+      label: "Concentração de gastos",
+      title: `${expenseRows[0].label} é seu maior gasto`,
+      detail: `${money(expenseRows[0].value)}, equivalente a ${expenseRows[0].percent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% das despesas operacionais do período.`
+    });
+  }
+  if (incomeRows[0]) {
+    insights.push({
+      tone: incomeRows[0].percent >= 70 ? "warning" : "good",
+      label: "Origem das receitas",
+      title: `${incomeRows[0].label} lidera suas entradas`,
+      detail: `${money(incomeRows[0].value)}, ou ${incomeRows[0].percent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% das receitas operacionais.`
+    });
+  }
+  if (changes[0]) {
+    insights.push({
+      tone: "warning",
+      label: "Mudança no gasto",
+      title: `${changes[0].label} teve a maior alta`,
+      detail: `${money(changes[0].change)} acima de ${formatMonthKeyBr(previousKey)}.`
+    });
+  }
+  return insights.slice(0, 4);
+}
+
+function managementBreakdownHtml(rows, emptyLabel) {
+  if (!rows.length) {
+    return `<p class="management-empty">${escapeHtml(emptyLabel)}</p>`;
+  }
+  const maximum = Math.max(...rows.map(row => row.value), 1);
+  return `
+    <div class="management-breakdown-list">
+      ${rows.map(row => `
+        <div class="management-breakdown-row">
+          <div>
+            <strong>${escapeHtml(row.label)}</strong>
+            <span>${row.percent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% do total</span>
+          </div>
+          <b>${money(row.value)}</b>
+          <span class="management-breakdown-track" aria-hidden="true"><i style="width: ${Math.max(3, (row.value / maximum) * 100)}%"></i></span>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function managementUpcomingPayables(limit = 5) {
+  return upcomingBills(100, { includeOverdue: true })
+    .filter(entry => !entry.plannedAccount || entry.kind !== "receivable")
+    .slice(0, limit);
+}
+
+function managementCommitmentsHtml(limit = 5) {
+  const bills = managementUpcomingPayables(limit);
+  if (!bills.length) {
+    return `<div class="management-empty-state"><strong>Nenhuma conta próxima</strong><span>Não há vencimentos pendentes cadastrados para os próximos 30 dias.</span></div>`;
+  }
+  return `
+    <div class="management-commitment-list">
+      ${bills.map(entry => {
+        const overdue = String(entry.reminderDate || "") < isoDate(new Date());
+        return `
+          <a href="${upcomingBillHref(entry)}" class="management-commitment ${overdue ? "overdue" : ""}">
+            <time datetime="${escapeHtml(entry.reminderDate)}">${formatIsoDateBr(entry.reminderDate)}</time>
+            <span><strong>${escapeHtml(entry.description || categoryName(entry.category))}</strong><small>${dueDateDistanceLabel(entry.reminderDate)}</small></span>
+            <b>${money(entry.amount)}</b>
+          </a>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
 function home() {
   showHomeHero();
   setActive("home");
@@ -5773,6 +5981,21 @@ function home() {
   const average = managementMovingAverage(periodKey, 3);
   const comparisonRows = managementComparisonRows(periodKey);
   const attentionItems = managementAttentionItems(current, previous, average);
+  const cashPosition = homeMetricData();
+  const upcomingPayables = managementUpcomingPayables(100);
+  const payable30 = upcomingPayables.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const projectedBalance30 = roundedMoneyValue(
+    cashPosition.consolidatedBalance + cashPosition.receivable30 - payable30
+  );
+  const expenseBreakdown = managementCategoryBreakdown(periodKey, "expense");
+  const incomeBreakdown = managementCategoryBreakdown(periodKey, "income");
+  const narrativeInsights = managementNarrativeInsights({
+    periodKey,
+    previousKey,
+    cashBalance: cashPosition.consolidatedBalance,
+    payable30,
+    receivable30: cashPosition.receivable30
+  });
   const comparePrevious = localStorage.getItem("managementComparePrevious") !== "false";
   const comparison = (value, previousValue, options = {}) => comparePrevious
     ? managementDeltaHtml(value, previousValue, options)
@@ -5802,6 +6025,71 @@ function home() {
           </label>
           <button type="submit">Aplicar <span class="sr-only">em todo o sistema</span></button>
         </form>
+      </section>
+
+      <section class="management-now" aria-label="Posição financeira de hoje">
+        <article class="management-balance-card">
+          <span class="executive-eyebrow">Dinheiro disponível hoje</span>
+          <strong class="${cashPosition.consolidatedBalance < 0 ? "negative" : "positive"}">${money(cashPosition.consolidatedBalance)}</strong>
+          <p>Saldo consolidado de PF, PJ e Cofrinho antes dos compromissos futuros.</p>
+          ${dashboardAccountBreakdown(cashPosition.accountBalances)}
+        </article>
+        <article class="management-balance-card commitment">
+          <span class="executive-eyebrow">Compromissos em 30 dias</span>
+          <strong>${money(payable30)}</strong>
+          <p>A receber ${money(cashPosition.receivable30)} no mesmo período.</p>
+          <div class="management-projection-line">
+            <span>Saldo após contas cadastradas</span>
+            <b class="${projectedBalance30 < 0 ? "negative" : "positive"}">${money(projectedBalance30)}</b>
+          </div>
+        </article>
+        <article class="management-balance-card result">
+          <span class="executive-eyebrow">Resultado operacional do mês</span>
+          <strong class="${current.operationalProfit < 0 ? "negative" : "positive"}">${money(current.operationalProfit)}</strong>
+          <p>${current.sales > 0 ? `${((current.operationalProfit / current.sales) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% das vendas permaneceu após as despesas operacionais.` : "Registre vendas para acompanhar quanto permanece após as despesas."}</p>
+          <a href="/relatorios">Entender o resultado →</a>
+        </article>
+      </section>
+
+      <section class="management-understanding-grid" aria-label="Entendimento das movimentações">
+        <article class="panel management-breakdown-card expense">
+          <div class="executive-card-heading">
+            <div><span class="executive-eyebrow">Para onde foi o dinheiro</span><h2>Maiores gastos</h2></div>
+            <a href="/despesas">Ver despesas</a>
+          </div>
+          ${managementBreakdownHtml(expenseBreakdown, "Nenhuma despesa operacional neste período.")}
+        </article>
+        <article class="panel management-breakdown-card income">
+          <div class="executive-card-heading">
+            <div><span class="executive-eyebrow">De onde veio o dinheiro</span><h2>Maiores receitas</h2></div>
+            <a href="/relatorios">Ver receitas</a>
+          </div>
+          ${managementBreakdownHtml(incomeBreakdown, "Nenhuma receita operacional neste período.")}
+        </article>
+      </section>
+
+      <section class="panel management-reading-card" aria-labelledby="management-reading-title">
+        <div class="executive-card-heading">
+          <div><span class="executive-eyebrow">O que os números estão dizendo</span><h2 id="management-reading-title">Leitura gerencial</h2></div>
+          <small>Calculada automaticamente com seus lançamentos</small>
+        </div>
+        <div class="management-reading-grid">
+          ${narrativeInsights.map(insight => `
+            <article class="${insight.tone}">
+              <span>${escapeHtml(insight.label)}</span>
+              <strong>${escapeHtml(insight.title)}</strong>
+              <p>${escapeHtml(insight.detail)}</p>
+            </article>
+          `).join("")}
+        </div>
+      </section>
+
+      <section class="panel management-commitments-card">
+        <div class="executive-card-heading">
+          <div><span class="executive-eyebrow">Próximas ações</span><h2>Contas que precisam de atenção</h2></div>
+          <a href="/financeiro?view=accounts">Ver todas as contas</a>
+        </div>
+        ${managementCommitmentsHtml()}
       </section>
 
       <section class="home-overview-band executive-kpi-grid home-dashboard-kpis" aria-label="Indicadores principais">
@@ -6123,6 +6411,11 @@ function renderToday() {
               ${cashCategoryOptions("expense", "outros")}
             </select>
           </label>
+          <label id="today-expense-bill-location-field">Local do boleto
+            <input name="billLocation" list="bill-location-options" aria-label="Local do boleto" placeholder="Ex.: Atacadão, Energia, Contabilidade">
+            <small>Use sempre o mesmo nome para agrupar no extrato.</small>
+          </label>
+          ${billLocationDatalistHtml()}
           <label id="today-expense-employee-field">
             Funcionário
             <select name="employeeId" id="today-expense-employee">
@@ -6394,6 +6687,9 @@ function bindTodayForms() {
         cashAccount,
         amount: amount.toFixed(2)
       };
+      if (shouldTrackBillPayment && values.billLocation) {
+        entry.billLocation = String(values.billLocation).trim();
+      }
       if (isEmployeeExpense) {
         entry.employeeId = String(values.employeeId || "");
       }
@@ -6417,6 +6713,7 @@ function bindTodayForms() {
 
   const todayExpenseCategory = document.querySelector("#today-expense-category");
   const todayExpenseDueDateField = document.querySelector("#today-expense-due-date-field");
+  const todayExpenseBillLocationField = document.querySelector("#today-expense-bill-location-field");
   const todayExpensePaidField = document.querySelector("#today-expense-paid-field");
   const todayExpensePaidDateField = document.querySelector("#today-expense-paid-date-field");
   const todayExpensePaidCheckbox = todayExpensePaidField?.querySelector("input");
@@ -6429,6 +6726,10 @@ function bindTodayForms() {
       const shouldShowBill = isBillCategory(todayExpenseCategory.value);
       const shouldShowPaidDate = shouldShowBill && todayExpensePaidCheckbox.checked;
       todayExpenseDueDateField.hidden = !shouldShowBill;
+      if (todayExpenseBillLocationField) {
+        todayExpenseBillLocationField.hidden = !shouldShowBill;
+        if (!shouldShowBill) todayExpenseBillLocationField.querySelector("input").value = "";
+      }
       todayExpenseDueDateField.querySelector("input").required = shouldShowBill;
       todayExpensePaidField.hidden = !shouldShowBill;
       todayExpensePaidDateField.hidden = !shouldShowPaidDate;
@@ -6581,6 +6882,7 @@ async function renderCash() {
     || (requestedEmployee ? `Pagamento - ${requestedEmployee.name}` : "")
     || requestedQuickDraft?.description
     || "";
+  const cashEntryBillLocation = String(editing?.billLocation || "");
   const cashEntryIsPendingBill = cashEntryType === "expense"
     && isBillCategory(cashEntryCategory)
     && !editing?.paidAt;
@@ -6837,6 +7139,12 @@ async function renderCash() {
               ${cashCategoryOptions(cashEntryType, cashEntryCategory)}
             </select>
           </label>
+          <label id="cash-bill-location-field">
+            Local do boleto
+            <input name="billLocation" list="bill-location-options" aria-label="Local do boleto" value="${escapeHtml(cashEntryBillLocation)}" placeholder="Ex.: Atacadão, Energia, Contabilidade">
+            <small>Subcategoria usada para separar os boletos no extrato.</small>
+          </label>
+          ${billLocationDatalistHtml()}
           <p class="muted-inline wide" id="cash-capital-contribution-hint" hidden>Aporte de sócia aumenta o saldo da empresa, mas não entra em vendas, faturamento ou lucro operacional.</p>
           <label id="cash-employee-field" ${showCashEmployeeField ? "" : "hidden"}>
             Funcionário
@@ -7260,6 +7568,7 @@ async function renderCash() {
         </div>
         ${cashAccountSummary(businessCashEntries(accountedEntries))}
         ${cashCategorySummary(cashCategoryDisplayEntries(categoryMenuEntries), selectedFilterCategory)}
+        ${billLocationSummary(filteredEntries)}
         ${cashTable(filteredLedgerEntries)}
         </div>
         ` : ""}
@@ -7304,6 +7613,23 @@ async function renderCash() {
       requestAnimationFrame(() => {
         document.querySelector("[data-cash-ledger-results]")?.scrollIntoView({ block: "start" });
       });
+    });
+  });
+
+  document.querySelectorAll("[data-bill-location]").forEach(button => {
+    button.addEventListener("click", event => {
+      const currentFilter = getCashFilter();
+      state.cashFilter = {
+        ...currentFilter,
+        type: "expense",
+        category: "boleto",
+        quick: "",
+        search: event.currentTarget.dataset.billLocation || "",
+        manualAll: currentFilter.period === "all"
+      };
+      state.cashSort = { key: "date", direction: "desc" };
+      persistState();
+      renderCash();
     });
   });
 
@@ -7775,6 +8101,11 @@ async function renderCash() {
           cashAccount,
           amount: amount.toFixed(2)
         };
+        if (shouldTrackBillPayment && values.billLocation) {
+          entry.billLocation = String(values.billLocation).trim();
+        } else {
+          delete entry.billLocation;
+        }
         if (values.type === "income" && normalizedCategory(values.category) === "aporte-socia") {
           entry.nonOperationalPartnerContribution = true;
         } else {
@@ -7860,12 +8191,17 @@ async function renderCash() {
   const cashAccountField = document.querySelector("#cash-account");
   const cashEntryDateField = document.querySelector("#cash-entry-date");
   const cashDueDateField = document.querySelector("#cash-due-date-field");
+  const cashBillLocationField = document.querySelector("#cash-bill-location-field");
   const cashPaidField = document.querySelector("#cash-paid-field");
   const cashCapitalContributionHint = document.querySelector("#cash-capital-contribution-hint");
   if (cashTypeField && cashCategoryField && cashDueDateField && cashPaidField) {
     const updateCashBillFieldsVisibility = () => {
       const shouldShow = cashTypeField.value === "expense" && isBillCategory(cashCategoryField.value);
       cashDueDateField.hidden = !shouldShow;
+      if (cashBillLocationField) {
+        cashBillLocationField.hidden = !shouldShow;
+        if (!shouldShow) cashBillLocationField.querySelector("input").value = "";
+      }
       cashDueDateField.querySelector("input").required = shouldShow;
       cashPaidField.hidden = !shouldShow;
       if (cashAccountFieldContainer && cashAccountField) {
@@ -9319,11 +9655,12 @@ function cashTable(entries) {
               <td>${formatIsoDateBr(item.date)}</td>
               <td>
                 ${escapeHtml(item.description)}
+                ${isBillEntry(item) ? `<br><small>Local: ${escapeHtml(item.billLocation || "Não informado")}</small>` : ""}
                 ${employee ? `<br><small>Funcionário: ${escapeHtml(employee.name)}</small>` : ""}
                 ${internalTransfer ? `<br><small>Operação vinculada · ${escapeHtml(item.accountTransferId || item.transferId || "")}</small>` : ""}
               </td>
               <td><span class="cash-type-badge ${item.type === "income" ? "income" : "expense"}">${item.type === "income" ? "Entrada" : "Saída"}</span></td>
-              <td><span class="cash-category-badge ${accountAdjustment ? "account-adjustment" : ""}">${cashDisplayCategoryName(item)}</span></td>
+              <td><span class="cash-category-badge ${accountAdjustment ? "account-adjustment" : ""}">${cashDisplayCategoryName(item)}</span>${isBillEntry(item) && item.billLocation ? `<br><small>${escapeHtml(item.billLocation)}</small>` : ""}</td>
               <td>${isPendingBill(item) ? "Definir ao pagar" : cashAccountLabel(item.cashAccount)}</td>
               <td>
                 ${item.dueDate ? formatIsoDateBr(item.dueDate) : "-"}
@@ -14612,6 +14949,7 @@ function reportCsvRows(kind, data) {
       tipo: entry.type === "expense" ? "saída" : "entrada",
       conta: cashAccountLabel(entry.cashAccount, entry.type),
       categoria: categoryName(entry.category),
+      subcategoria: isBillEntry(entry) ? String(entry.billLocation || "") : "",
       valor: Number(entry.amount || 0)
     }));
   }
@@ -14680,6 +15018,7 @@ function reportCsvRows(kind, data) {
       tipo: entry.type === "expense" ? "saída" : "entrada",
       conta: cashAccountLabel(entry.cashAccount, entry.type),
       categoria: categoryName(entry.category),
+      subcategoria: isBillEntry(entry) ? String(entry.billLocation || "") : "",
       valor: Number(entry.amount || 0)
     })));
   }
@@ -21525,7 +21864,7 @@ function renderCurrentRoute({ scrollToTop = false } = {}) {
         return;
       }
       const requestedRoute = routeName();
-      if (requestedRoute === "fluxo-de-caixa" && lastRenderedRoute !== "fluxo-de-caixa") {
+      if (requestedRoute === "fluxo-de-caixa" && lastRenderedRoute !== "fluxo-de-caixa" && !state.globalPeriod) {
         state.cashFilter = defaultCashLedgerFilter();
         localStorage.setItem("cashFilter", JSON.stringify(state.cashFilter));
       }
@@ -21612,7 +21951,7 @@ function applyRouteParams() {
   const endParam = params.get("fim");
   const dayParam = params.get("dia");
   const reportWeekParam = weekParam && Number(weekParam) >= 1 && Number(weekParam) <= 5 ? Number(weekParam) : null;
-  if (routeName() === "relatorios" && !yearParam && !monthParam && !dayParam) {
+  if (routeName() === "relatorios" && !yearParam && !monthParam && !dayParam && !state.globalPeriod) {
     const range = defaultReportWeekRange();
     const [rangeYear, rangeMonth] = range.start.split("-").map(Number);
     state.reportPeriod = {
@@ -22195,14 +22534,17 @@ function bindUsersPanel() {
 
 Promise.all([hydrateSession(), hydrateState()]).then(() => {
   const currentDate = new Date();
-  state.cashFilter = defaultCashLedgerFilter();
+  const rememberedGlobalPeriod = Boolean(state.globalPeriod);
+  if (!rememberedGlobalPeriod) {
+    state.cashFilter = defaultCashLedgerFilter();
+  }
   applyGlobalPeriodToViews(state.globalPeriod || {
     year: currentDate.getFullYear(),
     month: currentDate.getMonth() + 1
   }, {
-    remember: Boolean(state.globalPeriod),
-    syncReportPeriod: false,
-    syncCashFilter: false
+    remember: rememberedGlobalPeriod,
+    syncReportPeriod: rememberedGlobalPeriod,
+    syncCashFilter: rememberedGlobalPeriod
   });
   if (routeName() === "home") {
     const defaultRoute = configuredDefaultRoute();

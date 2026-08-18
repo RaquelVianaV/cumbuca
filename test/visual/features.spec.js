@@ -119,6 +119,18 @@ test('main navigation menu is accessible and complete', async ({ page }) => {
   expect(hasHome || hasFinance || hasCashFlow).toBe(true);
 });
 
+test('header keeps essential actions visible and groups maintenance actions', async ({ page }) => {
+  await page.goto('/home');
+  await expect(page.locator('#global-new-button')).toBeVisible();
+  await expect(page.locator('#theme-toggle-button')).toBeVisible();
+  await expect(page.locator('a.account-button')).toBeVisible();
+  const menu = page.locator('.header-more-menu');
+  await expect(menu.locator('#backup-button')).toBeHidden();
+  await menu.locator('summary').click();
+  await expect(menu.locator('#backup-button')).toBeVisible();
+  await expect(menu.locator('#logout-button')).toBeVisible();
+});
+
 test('reports view displays financial summaries', async ({ page }) => {
   await page.goto('/');
 
@@ -147,10 +159,10 @@ test('reports view recovers from an invalid saved period', async ({ page }) => {
   await page.goto('/relatorios');
 
   await expect(page.getByRole('heading', { name: 'Relatórios', exact: true })).toBeVisible();
-  await expect(page.locator('#report-filter-form')).toBeVisible();
-  await expect(page.locator('#report-period-type')).toHaveValue('week');
-  await expect(page.locator('#report-filter-form input[name="start"]')).toBeVisible();
-  await expect(page.locator('#report-filter-form input[name="end"]')).toBeVisible();
+  await expect(page.locator('#report-filter-form')).toHaveCount(1);
+  await expect(page.locator('#report-period-type')).toHaveValue('month');
+  await expect(page.locator('#report-filter-form input[name="start"]')).toHaveCount(1);
+  await expect(page.locator('#report-filter-form input[name="end"]')).toHaveCount(1);
 });
 
 test('alerts dashboard shows operational warnings', async ({ page }) => {
@@ -201,6 +213,7 @@ test('management improvements are connected across the main areas', async ({ pag
   });
 
   await page.goto('/financeiro');
+  await page.locator('details.simple-details > summary').click();
   await expect(page.getByRole('heading', { name: /Planejado x realizado/ })).toBeVisible();
   await page.screenshot({
     path: testInfo.outputPath('finance-plan-vs-actual.png'),

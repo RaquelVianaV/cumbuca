@@ -10,6 +10,7 @@ process.env.VERCEL = '1';
 const handleRequest = require('../server');
 const {
   applyConfirmedFinancialMigration,
+  appStateVersion,
   backupVersionId,
   bulkFinancialClearRequested,
   calculateCashFlow,
@@ -29,6 +30,19 @@ const {
   validateBackupPayload,
   weekRangeFromDate,
 } = handleRequest._test;
+
+test('state version detects concurrent changes without changing financial data', () => {
+  const original = normalizeState({
+    cashEntries: [{ id: 'cash-1', date: '2026-08-17', type: 'income', amount: 100 }],
+  });
+  const unchangedCopy = JSON.parse(JSON.stringify(original));
+  const changed = JSON.parse(JSON.stringify(original));
+  changed.cashEntries[0].amount = 101;
+
+  assert.equal(appStateVersion(original), appStateVersion(unchangedCopy));
+  assert.notEqual(appStateVersion(original), appStateVersion(changed));
+  assert.equal(original.cashEntries[0].amount, 100);
+});
 
 test('erros técnicos resolvidos saem das pendências sem apagar o histórico', () => {
   const now = new Date('2026-08-14T12:00:00.000Z').getTime();
