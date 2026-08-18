@@ -443,6 +443,8 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /\["profitability", "Rentabilidade"\]/);
   assert.match(app, /data-profitability-panel/);
   assert.match(app, /data-store-product-performance/);
+  assert.match(app, /data-profitability-store-product/);
+  assert.match(app, /Quantidade mensal/);
   assert.match(app, /\["products", "Produtos"\]/);
   assert.match(app, /function pricingSharedCosts/);
   assert.match(app, /function pricingDecimalNumber/);

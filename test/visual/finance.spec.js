@@ -2848,6 +2848,15 @@ test('store products link pricing and keep sales generic', async ({ page }, test
   await expect(page.locator('[data-store-last-sale-date]')).toContainText('Último lançamento');
   await expect(page.locator('.store-product-table')).toContainText('Frango Fit');
   await expect(page.locator('.store-product-table')).toContainText('R$ 24,00');
+
+  await page.goto('/relatorios');
+  await page.getByRole('button', { name: 'Rentabilidade', exact: true }).click();
+  const profitabilityRow = page.locator(`[data-profitability-store-product="${frango.id}"]`);
+  await expect(profitabilityRow).toContainText('Frango Fit');
+  await expect(profitabilityRow).toContainText('Quantidade mensal');
+  await expect(profitabilityRow).toContainText('10');
+  await expect(profitabilityRow).toContainText('R$ 300,00');
+  await expect(profitabilityRow).toContainText('R$ 200,00');
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
     path: testInfo.outputPath('store-product-performance.png'),
