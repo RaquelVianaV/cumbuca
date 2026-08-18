@@ -593,7 +593,12 @@ test('home keeps the existing management view and adds read-only financial under
   assert.match(app, /Meta de faturamento/);
   assert.match(app, /Boletos por local/);
   assert.match(app, /billLocationBudgets/);
+  assert.match(app, /Resumo semanal automático/);
+  assert.match(app, /etapas conferidas/);
+  assert.match(app, /Corrigir agora/);
   assert.match(css, /\.management-forecast-grid/);
+  assert.match(css, /\.management-weekly-grid/);
+  assert.match(css, /\.closing-guide-progress/);
   assert.match(app, /entry\.kind !== "receivable"/);
   assert.match(css, /\.management-now/);
   assert.match(css, /\.management-understanding-grid/);

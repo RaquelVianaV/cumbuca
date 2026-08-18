@@ -6014,6 +6014,58 @@ function managementForecastHtml(rows) {
     </article>`).join("")}</div>`;
 }
 
+function weeklyManagementSummaryData() {
+  const today = new Date();
+  const currentStart = isoDate(startOfWeek(today));
+  const currentEnd = isoDate(endOfWeek(today));
+  const previousEndDate = new Date(`${currentStart}T12:00:00`);
+  previousEndDate.setDate(previousEndDate.getDate() - 1);
+  const previousEnd = isoDate(previousEndDate);
+  const previousStartDate = new Date(`${previousEnd}T12:00:00`);
+  previousStartDate.setDate(previousStartDate.getDate() - 6);
+  const previousStart = isoDate(previousStartDate);
+  const summarize = (start, end) => {
+    const entries = businessCashEntries(accountingCashEntries(state.cash))
+      .filter(entry => cashAccountingDate(entry) >= start && cashAccountingDate(entry) <= end);
+    const income = entries.filter(entry => entry.type !== "expense").reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+    const expenses = entries.filter(entry => entry.type === "expense").reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+    const storeBowls = state.storeSales.filter(entry => entry.date >= start && entry.date <= end).reduce((sum, entry) => sum + storeSaleUnitQuantity(entry), 0);
+    const weeklyOrdersInRange = state.orders.filter(order => {
+      const date = String(order.date || order.createdAt || "").slice(0, 10);
+      return date >= start && date <= end && !isMonthlyRenewalRecord(order);
+    });
+    return { income, expenses, profit: income - expenses, bowls: storeBowls + weeklyOrdersInRange.reduce((sum, order) => sum + orderQuantity(order), 0) };
+  };
+  const current = summarize(currentStart, currentEnd);
+  const previous = summarize(previousStart, previousEnd);
+  const pending = upcomingBills(100, { includeOverdue: true })
+    .filter(entry => String(entry.reminderDate || "") <= currentEnd).length;
+  return { currentStart, currentEnd, current, previous, pending };
+}
+
+function weeklyManagementSummaryHtml() {
+  const data = weeklyManagementSummaryData();
+  const delta = (current, previous) => current - previous;
+  const metric = (label, value, previous, tone = "") => {
+    const difference = delta(value, previous);
+    return `<article class="${tone}"><span>${label}</span><strong>${typeof value === "number" && label === "Cumbucas" ? value.toLocaleString("pt-BR") : money(value)}</strong><small>${difference === 0 ? "Igual à semana anterior" : `${difference > 0 ? "+" : "−"} ${label === "Cumbucas" ? Math.abs(difference).toLocaleString("pt-BR") : money(Math.abs(difference))} vs. semana anterior`}</small></article>`;
+  };
+  return `
+    <section class="panel management-weekly-card">
+      <div class="executive-card-heading">
+        <div><span class="executive-eyebrow">Resumo semanal automático</span><h2>${formatIsoDateBr(data.currentStart)} a ${formatIsoDateBr(data.currentEnd)}</h2></div>
+        <a href="/relatorios">Abrir relatório</a>
+      </div>
+      <div class="management-weekly-grid">
+        ${metric("Entradas", data.current.income, data.previous.income, "income")}
+        ${metric("Despesas", data.current.expenses, data.previous.expenses, "expense")}
+        ${metric("Resultado", data.current.profit, data.previous.profit, data.current.profit < 0 ? "danger" : "result")}
+        ${metric("Cumbucas", data.current.bowls, data.previous.bowls)}
+        <article class="${data.pending ? "warning" : "good"}"><span>Pendências</span><strong>${data.pending}</strong><small>${data.pending ? "Conta(s) vencida(s) ou vencendo nesta semana" : "Nenhuma conta urgente"}</small></article>
+      </div>
+    </section>`;
+}
+
 function home() {
   showHomeHero();
   setActive("home");
@@ -6128,6 +6180,8 @@ function home() {
         </div>
         ${managementForecastHtml(forecastWindows)}
       </section>
+
+      ${weeklyManagementSummaryHtml()}
 
       <section class="management-understanding-grid management-goals-grid">
         <article class="panel management-goal-card">
@@ -16648,7 +16702,8 @@ function monthlyClosingChecklist(data) {
       label: "Retiradas com fechamento detalhado",
       detail: legacyWithdrawals.length
         ? `${legacyWithdrawals.length} retirada(s) antiga(s) ainda precisam de revisão.`
-        : "Todas as retiradas do mês têm conferência salva."
+        : "Todas as retiradas do mês têm conferência salva.",
+      href: "/financeiro?view=withdrawals"
     },
     {
       id: "entries-without-account",
@@ -16656,7 +16711,8 @@ function monthlyClosingChecklist(data) {
       label: "Lançamentos vinculados a uma conta",
       detail: entriesWithoutAccount.length
         ? `${entriesWithoutAccount.length} lançamento(s) estão sem PF, PJ ou Cofrinho.`
-        : "Todos os lançamentos do mês informam a conta."
+        : "Todos os lançamentos do mês informam a conta.",
+      href: "/fluxo-de-caixa?panel=ledger"
     },
     {
       id: "pending-distribution",
@@ -16664,7 +16720,8 @@ function monthlyClosingChecklist(data) {
       label: "Distribuições pendentes das sócias",
       detail: pendingPartners > 0.009
         ? `${money(pendingPartners)} de direitos ainda não foram pagos nem compensados.`
-        : "Não há distribuição pendente registrada no mês."
+        : "Não há distribuição pendente registrada no mês.",
+      href: "/financeiro?view=withdrawals"
     },
     {
       id: "negative-accounts",
@@ -16672,7 +16729,8 @@ function monthlyClosingChecklist(data) {
       label: "Saldos das contas",
       detail: negativeAccounts.length
         ? `${negativeAccounts.join(" e ")} com saldo negativo; confirme se o banco está conciliado.`
-        : "PF e PJ estão sem saldo negativo no fim do período."
+        : "PF e PJ estão sem saldo negativo no fim do período.",
+      href: "/fluxo-de-caixa?panel=reconciliation"
     }
   ];
 }
@@ -16689,6 +16747,8 @@ function monthlyClosingPanel(data) {
   const distributionDifference = roundedMoneyValue(recognizedDistribution - operationalProfit);
   const closingChecklist = monthlyClosingChecklist(data);
   const closingWarnings = closingChecklist.filter(item => item.level !== "ok");
+  const completedChecklist = closingChecklist.length - closingWarnings.length;
+  const checklistProgress = closingChecklist.length ? (completedChecklist / closingChecklist.length) * 100 : 100;
 
   return `
     <section class="panel report-section">
@@ -16727,11 +16787,16 @@ function monthlyClosingPanel(data) {
       </div>
       <h3>4. Conferência antes de fechar</h3>
       <p class="muted">Itens de atenção não alteram valores automaticamente. Revise-os e decida conscientemente se o mês pode ser fechado.</p>
+      <div class="closing-guide-progress">
+        <div><strong>${completedChecklist} de ${closingChecklist.length} etapas conferidas</strong><span>${closingWarnings.length ? "Revise os pontos sinalizados antes de concluir." : "Checklist concluído. O mês está pronto para fechamento."}</span></div>
+        <div class="management-goal-track" aria-label="${Math.round(checklistProgress)}% concluído"><span style="width:${checklistProgress}%"></span></div>
+      </div>
       <div class="integrity-check-list monthly-closing-checklist">
-        ${closingChecklist.map(item => `
+        ${closingChecklist.map((item, index) => `
           <article class="integrity-check ${item.level}">
-            <span>${item.level === "ok" ? "OK" : "Revisar"}</span>
+            <span>${item.level === "ok" ? "✓" : index + 1}</span>
             <div><b>${escapeHtml(item.label)}</b><small>${escapeHtml(item.detail)}</small></div>
+            ${item.level === "ok" ? "" : `<a class="secondary table-action" href="${escapeHtml(item.href)}">Corrigir agora</a>`}
           </article>
         `).join("")}
       </div>

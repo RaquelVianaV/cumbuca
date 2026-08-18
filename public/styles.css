@@ -6520,6 +6520,11 @@ a.secondary.table-action,
     grid-template-columns: 1fr;
   }
 
+  .management-weekly-grid { grid-template-columns: 1fr 1fr; }
+  .management-weekly-grid article:last-child { grid-column: 1 / -1; }
+  .monthly-closing-checklist .integrity-check { grid-template-columns: auto minmax(0, 1fr); }
+  .monthly-closing-checklist .integrity-check a { grid-column: 1 / -1; }
+
   .reset-confirmation {
     grid-template-columns: 1fr;
   }
@@ -9890,6 +9895,22 @@ html.dark-mode tbody tr:hover {
 .management-location-list .warning { border-left: 3px solid #c4773b; }
 .management-location-list .danger { border-left: 3px solid #b42318; }
 .planning-location-budget { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--line); }
+
+.management-weekly-card { padding: clamp(18px, 3vw, 28px); }
+.management-weekly-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.management-weekly-grid article { display: grid; gap: 7px; min-width: 0; padding: 15px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.management-weekly-grid article.income { border-top: 3px solid #18865f; }
+.management-weekly-grid article.expense { border-top: 3px solid #b42318; }
+.management-weekly-grid article.result { border-top: 3px solid #2979a8; }
+.management-weekly-grid article.warning { border-top: 3px solid #c4773b; }
+.management-weekly-grid article.danger { border-top: 3px solid #b42318; }
+.management-weekly-grid span,
+.management-weekly-grid small { color: var(--muted); }
+.management-weekly-grid strong { font-size: 1.08rem; }
+.closing-guide-progress { display: grid; gap: 12px; margin: 16px 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.closing-guide-progress > div:first-child { display: grid; gap: 4px; }
+.closing-guide-progress span { color: var(--muted); }
+.monthly-closing-checklist .integrity-check { grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; }
 
 .management-commitment time,
 .management-commitment small {
