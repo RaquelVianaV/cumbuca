@@ -897,6 +897,17 @@ test('menu planning divides the manual weekly supermarket total only by its menu
   await expect(
     page.getByRole('heading', { name: 'Mais vendidos na semana', exact: true })
   ).toBeVisible();
+  const weeklyTargets = page.locator('#weekly-targets-form');
+  await weeklyTargets.locator('input[name="revenue"]').fill('100');
+  await weeklyTargets.locator('input[name="profit"]').fill('20');
+  await weeklyTargets.getByRole('button', { name: 'Salvar metas', exact: true }).click();
+  await expect
+    .poll(() => database.state.financialPlanning?.weeklyTargets)
+    .toMatchObject({
+      '2026-08-03_2026-08-09': expect.objectContaining({ revenue: 100, profit: 20 }),
+    });
+  await expect(page.getByRole('heading', { name: 'Contas da próxima semana' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Conferência para fechar' })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
     path: testInfo.outputPath(`profitability-planning-cost-${testInfo.project.name}.png`),

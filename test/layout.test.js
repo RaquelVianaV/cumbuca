@@ -443,6 +443,10 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /function weeklyBusinessResultPanel/);
   assert.match(app, /\["week-result", "Resultado da semana"\]/);
   assert.match(app, /Loja × Semanal/);
+  assert.match(app, /id="weekly-targets-form"/);
+  assert.match(app, /id="weekly-store-quantities-form"/);
+  assert.match(app, /Contas da próxima semana/);
+  assert.match(app, /Conferência para fechar/);
   assert.match(app, /\["profitability", "Rentabilidade"\]/);
   assert.match(app, /data-profitability-panel/);
   assert.match(app, /data-store-product-performance/);

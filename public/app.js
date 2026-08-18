@@ -1199,7 +1199,9 @@ const state = {
     employees: [],
     reconciliationHistory: [],
     dailyClosings: {},
-    monthlyBudgets: {}
+    monthlyBudgets: {},
+    weeklyTargets: {},
+    weeklyStoreQuantities: {}
   }),
   appConfig: localValue("appConfig", defaultAppConfig),
   reportPeriod: localValue("reportPeriod", {
@@ -1358,6 +1360,8 @@ function applyPayloadToState(saved = {}) {
     reconciliationHistory: [],
     dailyClosings: {},
     monthlyBudgets: {},
+    weeklyTargets: {},
+    weeklyStoreQuantities: {},
     ...(saved.financialPlanning || {})
   };
   state.financialPlanning.accountTransfers = normalizeAccountTransfers(
@@ -16068,7 +16072,41 @@ function businessProfitabilityPanel(data) {
   `;
 }
 
-function weeklyResultMetrics(data, orders, storeSales) {
+function weeklyPlanningKey(start, end) {
+  return weeklyClosingKey(start, end);
+}
+
+function weeklyStoreQuantities(start, end) {
+  const key = weeklyPlanningKey(start, end);
+  const values = state.financialPlanning?.weeklyStoreQuantities?.[key];
+  return values && typeof values === "object" ? values : {};
+}
+
+function weeklyTargets(start, end) {
+  const key = weeklyPlanningKey(start, end);
+  const values = state.financialPlanning?.weeklyTargets?.[key];
+  return values && typeof values === "object" ? values : {};
+}
+
+function billsBetweenDates(start, end) {
+  const legacy = state.cash.filter(isPendingBill).map(entry => ({
+    ...entry,
+    reminderDate: paymentReminderDate(entry)
+  }));
+  const planned = financialAccounts()
+    .filter(account => accountOpenAmount(account) >= 0.01)
+    .map(account => ({
+      ...account,
+      amount: accountOpenAmount(account),
+      reminderDate: account.dueDate,
+      plannedAccount: true
+    }));
+  return [...legacy, ...planned]
+    .filter(entry => entry.reminderDate >= start && entry.reminderDate <= end)
+    .sort((a, b) => String(a.reminderDate).localeCompare(String(b.reminderDate)));
+}
+
+function weeklyResultMetrics(data, orders, storeSales, range = reportWeekRange()) {
   const production = productionOrders(orders || []);
   const weeklyUnits = production.reduce((sum, order) => sum + orderQuantity(order), 0);
   const weeklyRevenue = (orders || []).reduce((sum, order) => sum + Number(order.amount || 0), 0);
@@ -16076,7 +16114,25 @@ function weeklyResultMetrics(data, orders, storeSales) {
   const supermarketCost = menuKeys.reduce((sum, key) => sum + weeklyMenuSupermarketTotal(key), 0);
   const packagingCost = weeklyUnits * MENU_DEFAULT_PACKAGING_COST;
   const weeklyCost = supermarketCost + packagingCost;
+  const informedQuantities = weeklyStoreQuantities(range.start, range.end);
   const storeRows = storeProductPerformanceRows({ ...data, type: "week", storeSales: storeSales || [] })
+    .map(row => {
+      if (!row.product) {
+        return row;
+      }
+      const informed = Math.max(0, Number(informedQuantities[row.product.id] || 0));
+      const supplemental = Math.max(0, informed - row.salesUnits);
+      const units = row.salesUnits + supplemental;
+      return {
+        ...row,
+        units,
+        supplementalUnits: supplemental,
+        quantitySource: row.salesUnits > 0 ? supplemental > 0 ? "mixed" : "sales" : informed > 0 ? "weekly" : "none",
+        estimatedRevenue: units * row.referencePrice,
+        estimatedProfit: units * row.unitProfit,
+        estimatedMargin: units * row.referencePrice > 0 ? (row.unitProfit / row.referencePrice) * 100 : null
+      };
+    })
     .filter(row => row.units > 0);
   const storeUnits = storeRows.reduce((sum, row) => sum + row.units, 0);
   const storeRevenue = storeRows.reduce((sum, row) => sum + row.estimatedRevenue, 0);
@@ -16118,8 +16174,15 @@ function weeklyBusinessResultPanel(data) {
     `;
   }
 
-  const current = weeklyResultMetrics(data, data.orders, data.storeSales);
-  const previous = weeklyResultMetrics(data, previousReportOrders(data), previousReportStoreSales(data));
+  const range = reportWeekRange();
+  const previousPeriod = previousComparablePeriod(data);
+  const current = weeklyResultMetrics(data, data.orders, data.storeSales, range);
+  const previous = weeklyResultMetrics(
+    data,
+    previousReportOrders(data),
+    previousReportStoreSales(data),
+    previousPeriod
+  );
   const previousCash = cashTotals(businessCashEntries(previousReportCashEntries(data)));
   const revenueComparison = weeklyResultComparison(current, previous, "totalRevenue");
   const profitComparison = weeklyResultComparison(current, previous, "totalProfit");
@@ -16131,7 +16194,14 @@ function weeklyBusinessResultPanel(data) {
   const storeRanking = [...current.storeRows]
     .sort((a, b) => b.units - a.units || b.estimatedProfit - a.estimatedProfit)
     .slice(0, 5);
-  const previousPeriod = previousComparablePeriod(data);
+  const targets = weeklyTargets(range.start, range.end);
+  const nextStart = addDays(range.end, 1);
+  const nextEnd = addDays(range.end, 7);
+  const nextBills = billsBetweenDates(nextStart, nextEnd);
+  const nextBillsTotal = nextBills.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const goalProgress = (value, target) => Number(target || 0) > 0
+    ? Math.min(100, Math.max(0, (Number(value || 0) / Number(target)) * 100))
+    : 0;
 
   return `
     <section class="panel report-section weekly-result-panel" data-weekly-result-panel>
@@ -16147,6 +16217,48 @@ function weeklyBusinessResultPanel(data) {
         <div class="metric report-metric"><span>Unidades</span><strong>${current.totalUnits}</strong><small class="${unitsComparison.improved ? "positive" : "negative"}">${unitsComparison.label} frente à anterior</small></div>
         <div class="metric report-metric"><span>Saídas no caixa</span><strong>${money(data.expenses)}</strong><small class="${expenseComparison.improved ? "positive" : "negative"}">${expenseComparison.label} frente à anterior</small></div>
       </div>
+    </section>
+    <section class="panel report-section">
+      <h2>Metas da semana</h2>
+      <form id="weekly-targets-form" class="form-grid">
+        <input type="hidden" name="start" value="${range.start}">
+        <input type="hidden" name="end" value="${range.end}">
+        <label>Meta de vendas (R$)<input name="revenue" type="number" min="0" step="0.01" value="${escapeHtml(targets.revenue || "")}"></label>
+        <label>Meta de lucro (R$)<input name="profit" type="number" min="0" step="0.01" value="${escapeHtml(targets.profit || "")}"></label>
+        <label>Meta de margem (%)<input name="margin" type="number" min="0" max="100" step="0.1" value="${escapeHtml(targets.margin || "")}"></label>
+        <label>Meta de unidades<input name="units" type="number" min="0" step="1" value="${escapeHtml(targets.units || "")}"></label>
+        <button type="submit">Salvar metas</button>
+      </form>
+      <div class="summary">
+        <div class="metric"><span>Vendas</span><strong>${Math.round(goalProgress(current.totalRevenue, targets.revenue))}%</strong><small>${money(current.totalRevenue)} de ${targets.revenue ? money(targets.revenue) : "meta não definida"}</small></div>
+        <div class="metric"><span>Lucro</span><strong>${Math.round(goalProgress(current.totalProfit, targets.profit))}%</strong><small>${money(current.totalProfit)} de ${targets.profit ? money(targets.profit) : "meta não definida"}</small></div>
+        <div class="metric"><span>Margem</span><strong>${Math.round(goalProgress(current.margin, targets.margin))}%</strong><small>${pricingPercent(current.margin)} de ${targets.margin ? pricingPercent(targets.margin) : "meta não definida"}</small></div>
+        <div class="metric"><span>Unidades</span><strong>${Math.round(goalProgress(current.totalUnits, targets.units))}%</strong><small>${current.totalUnits} de ${targets.units || "meta não definida"}</small></div>
+      </div>
+    </section>
+    <section class="panel report-section">
+      <h2>Quantidades semanais da Loja</h2>
+      <p class="muted">Informe o total vendido por produto nesta semana. Vendas já registradas com data têm prioridade e não serão duplicadas.</p>
+      ${sortedStoreProducts().length ? `<form id="weekly-store-quantities-form" class="form-grid">
+        <input type="hidden" name="start" value="${range.start}"><input type="hidden" name="end" value="${range.end}">
+        ${sortedStoreProducts().map(product => `<label>${escapeHtml(product.name)}<input type="number" min="0" step="1" data-weekly-store-product="${escapeHtml(product.id)}" value="${Number(weeklyStoreQuantities(range.start, range.end)[product.id] || 0) || ""}"></label>`).join("")}
+        <button type="submit">Salvar quantidades da semana</button>
+      </form>` : `<p class="muted">Cadastre os produtos da Loja primeiro.</p>`}
+    </section>
+    <section class="panel report-section">
+      <h2>Contas da próxima semana</h2>
+      <p class="muted-inline">${formatIsoDateBr(nextStart)} a ${formatIsoDateBr(nextEnd)} · ${money(nextBillsTotal)} já comprometidos.</p>
+      ${nextBills.length ? `<div class="recent-list">${nextBills.map(entry => `<span><b>${money(entry.amount)}</b>${escapeHtml(entry.description || categoryName(entry.category))}<small>Vence em ${formatIsoDateBr(entry.reminderDate)} · ${upcomingBillSourceLabel(entry)}</small></span>`).join("")}</div>` : `<p class="muted">Nenhuma conta cadastrada para a próxima semana.</p>`}
+    </section>
+    <section class="panel report-section">
+      <h2>Conferência para fechar</h2>
+      <div class="recent-list">
+        <span><b>${data.cashEntries.length ? "✓" : "○"} Caixa da semana</b>${data.cashEntries.length} lançamento(s)</span>
+        <span><b>${current.weeklyUnits ? "✓" : "○"} Semanal</b>${current.weeklyUnits} unidade(s)</span>
+        <span><b>${current.storeUnits ? "✓" : "○"} Loja</b>${current.storeUnits} unidade(s)</span>
+        <span><b>${targets.revenue || targets.profit || targets.margin || targets.units ? "✓" : "○"} Metas</b>${targets.revenue || targets.profit || targets.margin || targets.units ? "Configuradas" : "Ainda não definidas"}</span>
+      </div>
+      <p class="form-hint">Depois da conferência, use a aba Fechamento para travar a semana e preservar o resultado registrado.</p>
     </section>
     <section class="panel report-section">
       <h2>Loja × Semanal</h2>
@@ -20130,6 +20242,67 @@ function bindReportPeriodForm(renderFn, path) {
   });
 }
 
+function bindWeeklyResultForms(renderFn) {
+  const targetsForm = document.querySelector("#weekly-targets-form");
+  if (targetsForm) {
+    targetsForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      const values = readForm(event.currentTarget);
+      if (isWeekClosed(values.start)) {
+        showToast("Esta semana está fechada. Reabra antes de alterar as metas.", "warning");
+        return;
+      }
+      const key = weeklyPlanningKey(values.start, values.end);
+      state.financialPlanning.weeklyTargets = {
+        ...(state.financialPlanning.weeklyTargets || {}),
+        [key]: {
+          revenue: Math.max(0, Number(values.revenue || 0)),
+          profit: Math.max(0, Number(values.profit || 0)),
+          margin: Math.min(100, Math.max(0, Number(values.margin || 0))),
+          units: Math.max(0, Math.floor(Number(values.units || 0))),
+          updatedAt: new Date().toISOString()
+        }
+      };
+      recordAudit("Metas semanais salvas", `${formatIsoDateBr(values.start)} a ${formatIsoDateBr(values.end)}`);
+      if (await persistState()) {
+        showToast("Metas da semana salvas.", "success");
+        renderFn();
+      }
+    });
+  }
+
+  const quantitiesForm = document.querySelector("#weekly-store-quantities-form");
+  if (quantitiesForm) {
+    quantitiesForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      const values = readForm(event.currentTarget);
+      if (isWeekClosed(values.start)) {
+        showToast("Esta semana está fechada. Reabra antes de alterar as quantidades.", "warning");
+        return;
+      }
+      const fields = [...event.currentTarget.querySelectorAll("[data-weekly-store-product]")];
+      const invalid = fields.some(field => !Number.isInteger(Number(field.value || 0)) || Number(field.value || 0) < 0);
+      if (invalid) {
+        showToast("Use somente quantidades inteiras iguais ou maiores que zero.", "error");
+        return;
+      }
+      const quantities = Object.fromEntries(fields
+        .map(field => [field.dataset.weeklyStoreProduct, Number(field.value || 0)])
+        .filter(([, quantity]) => quantity > 0));
+      const key = weeklyPlanningKey(values.start, values.end);
+      state.financialPlanning.weeklyStoreQuantities = {
+        ...(state.financialPlanning.weeklyStoreQuantities || {}),
+        [key]: quantities
+      };
+      recordAudit("Quantidades semanais da loja salvas", `${formatIsoDateBr(values.start)} a ${formatIsoDateBr(values.end)} - ${Object.values(quantities).reduce((sum, quantity) => sum + quantity, 0)} unidade(s)`);
+      if (await persistState()) {
+        showToast("Quantidades semanais da Loja salvas.", "success");
+        renderFn();
+      }
+    });
+  }
+}
+
 function bindFinanceMonthCommand(renderFn) {
   document.querySelectorAll("[data-finance-month-action]").forEach(button => {
     button.addEventListener("click", () => {
@@ -21234,6 +21407,7 @@ function renderReports() {
 
   bindReportPeriodForm(renderReports, "relatorios");
   bindViewTabs("reportViewTab", renderReports);
+  bindWeeklyResultForms(renderReports);
   on("[data-open-report-products]", "click", () => {
     state.reportViewTab = "products";
     renderReports();

@@ -135,6 +135,8 @@ const defaultState = {
     reconciliationHistory: [],
     dailyClosings: {},
     monthlyBudgets: {},
+    weeklyTargets: {},
+    weeklyStoreQuantities: {},
   },
   appConfig: {
     storeName: 'Cumbuca',
