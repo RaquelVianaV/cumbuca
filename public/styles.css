@@ -6516,6 +6516,10 @@ a.secondary.table-action,
 }
 
 @media (max-width: 700px) {
+  .management-forecast-grid {
+    grid-template-columns: 1fr;
+  }
+
   .reset-confirmation {
     grid-template-columns: 1fr;
   }
@@ -9841,6 +9845,51 @@ html.dark-mode tbody tr:hover {
 .management-commitment.overdue {
   border-left: 3px solid #b42318;
 }
+
+.management-commitment.urgent {
+  border-left: 3px solid #c4773b;
+  background: color-mix(in srgb, var(--warning-soft) 45%, var(--panel));
+}
+
+.management-forecast-card,
+.management-goal-card,
+.management-location-card {
+  padding: clamp(18px, 3vw, 28px);
+}
+
+.management-forecast-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.management-forecast-grid article {
+  display: grid;
+  gap: 7px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.management-forecast-grid article.good { border-top: 3px solid #18865f; }
+.management-forecast-grid article.danger { border-top: 3px solid #b42318; }
+.management-forecast-grid span,
+.management-forecast-grid small { color: var(--muted); }
+.management-forecast-grid strong { font-size: clamp(1.15rem, 2.4vw, 1.7rem); }
+
+.management-goals-grid { align-items: stretch; }
+.management-goal-card > strong { display: block; margin: 20px 0 10px; font-size: 1.1rem; }
+.management-goal-card p { color: var(--muted); }
+.management-goal-track { height: 12px; overflow: hidden; border-radius: 999px; background: var(--surface); }
+.management-goal-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #2979a8, #18865f); }
+.management-location-list { display: grid; gap: 8px; margin-top: 16px; }
+.management-location-list > div { display: flex; justify-content: space-between; gap: 16px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.management-location-list span { display: grid; gap: 3px; }
+.management-location-list small { color: var(--muted); }
+.management-location-list .warning { border-left: 3px solid #c4773b; }
+.management-location-list .danger { border-left: 3px solid #b42318; }
+.planning-location-budget { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--line); }
 
 .management-commitment time,
 .management-commitment small {

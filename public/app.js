@@ -5953,8 +5953,9 @@ function managementCommitmentsHtml(limit = 5) {
     <div class="management-commitment-list">
       ${bills.map(entry => {
         const overdue = String(entry.reminderDate || "") < isoDate(new Date());
+        const urgent = !overdue && String(entry.reminderDate || "") <= addDays(isoDate(new Date()), 7);
         return `
-          <a href="${upcomingBillHref(entry)}" class="management-commitment ${overdue ? "overdue" : ""}">
+          <a href="${upcomingBillHref(entry)}" class="management-commitment ${overdue ? "overdue" : urgent ? "urgent" : ""}">
             <time datetime="${escapeHtml(entry.reminderDate)}">${formatIsoDateBr(entry.reminderDate)}</time>
             <span><strong>${escapeHtml(entry.description || categoryName(entry.category))}</strong><small>${dueDateDistanceLabel(entry.reminderDate)}</small></span>
             <b>${money(entry.amount)}</b>
@@ -5963,6 +5964,54 @@ function managementCommitmentsHtml(limit = 5) {
       }).join("")}
     </div>
   `;
+}
+
+function managementForecastWindows(cashBalance) {
+  const today = isoDate(new Date());
+  return [7, 15, 30].map(days => {
+    const end = addDays(today, days);
+    const payables = managementUpcomingPayables(200)
+      .filter(entry => String(entry.reminderDate || "") <= end)
+      .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+    const receivables = financialAccounts()
+      .filter(account => account.kind === "receivable" && accountOpenAmount(account) >= 0.01)
+      .filter(account => String(account.dueDate || "") <= end)
+      .reduce((sum, account) => sum + accountOpenAmount(account), 0);
+    return { days, payables, receivables, balance: roundedMoneyValue(cashBalance + receivables - payables) };
+  });
+}
+
+function managementBillLocationRows(periodKey) {
+  const limits = state.financialPlanning?.billLocationBudgets?.[periodKey] || {};
+  const groups = accountingCashEntries(state.cash)
+    .filter(entry => isBillEntry(entry) && entry.type === "expense")
+    .filter(entry => String(cashAccountingDate(entry) || "").startsWith(periodKey))
+    .reduce((acc, entry) => {
+      const location = String(entry.billLocation || "Local não informado").trim() || "Local não informado";
+      const key = location.toLocaleLowerCase("pt-BR");
+      if (!acc[key]) acc[key] = { key, location, spent: 0, count: 0 };
+      acc[key].spent += Number(entry.amount || 0);
+      acc[key].count += 1;
+      return acc;
+    }, {});
+  Object.entries(limits).forEach(([location, limit]) => {
+    const key = location.toLocaleLowerCase("pt-BR");
+    if (!groups[key]) groups[key] = { key, location, spent: 0, count: 0 };
+    groups[key].limit = Number(limit || 0);
+  });
+  return Object.values(groups)
+    .map(row => ({ ...row, limit: Number(row.limit || limits[row.location] || 0) }))
+    .map(row => ({ ...row, percent: row.limit > 0 ? (row.spent / row.limit) * 100 : 0 }))
+    .sort((a, b) => b.spent - a.spent);
+}
+
+function managementForecastHtml(rows) {
+  return `<div class="management-forecast-grid">${rows.map(row => `
+    <article class="${row.balance < 0 ? "danger" : "good"}">
+      <span>Próximos ${row.days} dias</span>
+      <strong class="${row.balance < 0 ? "negative" : "positive"}">${money(row.balance)}</strong>
+      <small>A receber ${money(row.receivables)} · A pagar ${money(row.payables)}</small>
+    </article>`).join("")}</div>`;
 }
 
 function home() {
@@ -5996,6 +6045,10 @@ function home() {
     payable30,
     receivable30: cashPosition.receivable30
   });
+  const forecastWindows = managementForecastWindows(cashPosition.consolidatedBalance);
+  const billLocationRows = managementBillLocationRows(periodKey).slice(0, 6);
+  const revenueGoal = Number(state.financialPlanning?.monthlyRevenueGoal || 0);
+  const revenueProgress = revenueGoal > 0 ? (current.sales / revenueGoal) * 100 : 0;
   const comparePrevious = localStorage.getItem("managementComparePrevious") !== "false";
   const comparison = (value, previousValue, options = {}) => comparePrevious
     ? managementDeltaHtml(value, previousValue, options)
@@ -6065,6 +6118,31 @@ function home() {
             <a href="/relatorios">Ver receitas</a>
           </div>
           ${managementBreakdownHtml(incomeBreakdown, "Nenhuma receita operacional neste período.")}
+        </article>
+      </section>
+
+      <section class="panel management-forecast-card">
+        <div class="executive-card-heading">
+          <div><span class="executive-eyebrow">Previsão do caixa</span><h2>Como o saldo pode ficar</h2></div>
+          <a href="/financeiro?view=accounts">Revisar contas previstas</a>
+        </div>
+        ${managementForecastHtml(forecastWindows)}
+      </section>
+
+      <section class="management-understanding-grid management-goals-grid">
+        <article class="panel management-goal-card">
+          <div class="executive-card-heading"><div><span class="executive-eyebrow">Meta de faturamento</span><h2>${revenueGoal > 0 ? money(revenueGoal) : "Ainda não definida"}</h2></div><a href="/financeiro?view=planning">Definir meta</a></div>
+          <strong class="${revenueGoal > 0 && current.sales < revenueGoal ? "warning-text" : "positive"}">${revenueGoal > 0 ? `${Math.min(999, revenueProgress).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% alcançado` : money(current.sales)}</strong>
+          <div class="management-goal-track"><span style="width:${revenueGoal > 0 ? Math.min(100, revenueProgress) : 0}%"></span></div>
+          <p>${revenueGoal > 0 ? (current.sales >= revenueGoal ? `Meta superada em ${money(current.sales - revenueGoal)}.` : `Faltam ${money(revenueGoal - current.sales)} para atingir a meta.`) : "Cadastre uma meta mensal para acompanhar automaticamente quanto falta."}</p>
+        </article>
+        <article class="panel management-location-card">
+          <div class="executive-card-heading"><div><span class="executive-eyebrow">Fornecedores e locais</span><h2>Boletos por local</h2></div><a href="/fluxo-de-caixa?panel=ledger">Ver extrato</a></div>
+          ${billLocationRows.length ? `<div class="management-location-list">${billLocationRows.map(row => `
+            <div class="${row.limit > 0 && row.percent >= 100 ? "danger" : row.limit > 0 && row.percent >= 80 ? "warning" : ""}">
+              <span><strong>${escapeHtml(row.location)}</strong><small>${row.count} boleto(s)${row.limit > 0 ? ` · ${row.percent.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}% do limite` : ""}</small></span>
+              <b>${money(row.spent)}</b>
+            </div>`).join("")}</div>` : `<p class="management-empty">Nenhum boleto com local neste período.</p>`}
         </article>
       </section>
 
@@ -18939,6 +19017,10 @@ function financialPlanningPanel() {
         <label>Meta de lucro mensal
           <input name="monthlyGoal" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(planning.monthlyGoal)}">
         </label>
+        <label>Meta de faturamento mensal
+          <input name="monthlyRevenueGoal" type="text" inputmode="decimal" placeholder="0,00" value="${moneyInputValue(planning.monthlyRevenueGoal)}">
+          <small>Usada na página inicial para mostrar quanto ainda falta vender.</small>
+        </label>
         <label>Próximas melhorias para a loja
           <textarea name="improvements" rows="5" placeholder="Uma melhoria por linha">${planningText(planning.improvements)}</textarea>
         </label>
@@ -18952,6 +19034,7 @@ function financialPlanningPanel() {
       <div class="summary">
         <div class="metric"><span>Guardado</span><strong>${money(planning.savings)}</strong></div>
         <div class="metric"><span>Meta mensal</span><strong>${money(planning.monthlyGoal)}</strong></div>
+        <div class="metric"><span>Meta de faturamento</span><strong>${money(planning.monthlyRevenueGoal)}</strong></div>
         <div class="metric"><span>Melhorias</span><strong>${(planning.improvements || []).length}</strong></div>
         <div class="metric"><span>Compras</span><strong>${(planning.purchases || []).length}</strong></div>
       </div>
@@ -18965,6 +19048,27 @@ function financialPlanningPanel() {
           ${planningItemsHtml(planning.purchases, "Nenhum item planejado.")}
         </div>
       </div>
+      <section class="planning-location-budget">
+        <div class="section-heading"><div><h3>Orçamento por local do boleto</h3><p class="muted-inline">Defina quanto pretende gastar em cada local durante ${formatMonthKeyBr(reportPeriodKey())}.</p></div></div>
+        <form id="bill-location-budget-form" class="form-grid">
+          <input name="month" type="hidden" value="${reportPeriodKey()}">
+          <label>Local
+            <input name="location" list="bill-location-options" placeholder="Ex.: Atacadão, Energia" required>
+          </label>
+          ${billLocationDatalistHtml()}
+          <label>Limite mensal
+            <input name="limit" type="text" inputmode="decimal" placeholder="0,00" required>
+          </label>
+          <button type="submit">Salvar limite do local</button>
+        </form>
+        ${managementBillLocationRows(reportPeriodKey()).filter(row => row.limit > 0).length ? `<div class="budget-list">${managementBillLocationRows(reportPeriodKey()).filter(row => row.limit > 0).map(row => `
+          <article class="budget-row ${row.percent >= 100 ? "exceeded" : row.percent >= 80 ? "warning" : ""}">
+            <div><strong>${escapeHtml(row.location)}</strong><small>${money(row.spent)} de ${money(row.limit)}</small></div>
+            <div class="budget-progress"><span style="width:${Math.min(100, row.percent)}%"></span></div>
+            <b class="${row.spent > row.limit ? "negative" : "positive"}">${row.spent > row.limit ? "Excedeu " : "Restam "}${money(Math.abs(row.limit - row.spent))}</b>
+            <button class="danger table-action" type="button" data-delete-location-budget="${escapeHtml(row.location)}" data-budget-month="${reportPeriodKey()}">Excluir</button>
+          </article>`).join("")}</div>` : `<p class="muted">Nenhum limite por local cadastrado neste mês.</p>`}
+      </section>
     </section>
   `;
 }
@@ -19462,6 +19566,7 @@ function bindFinancialPlanning() {
       savingsExpectedUpdatedAt: state.financialPlanning?.savingsExpectedUpdatedAt || "",
       partnersHistory: partnersHistoryRows(),
       monthlyGoal: parseMoneyInput(values.monthlyGoal).toFixed(2),
+      monthlyRevenueGoal: parseMoneyInput(values.monthlyRevenueGoal).toFixed(2),
       improvements: textLines(values.improvements),
       purchases: textLines(values.purchases),
       cycleStartDate: state.financialPlanning?.cycleStartDate || "",
@@ -19471,7 +19576,8 @@ function bindFinancialPlanning() {
       cycleNote: state.financialPlanning?.cycleNote || "",
       accounts: financialAccounts(),
       reconciliationHistory: state.financialPlanning?.reconciliationHistory || [],
-      monthlyBudgets: monthlyBudgets()
+      monthlyBudgets: monthlyBudgets(),
+      billLocationBudgets: state.financialPlanning?.billLocationBudgets || {}
     };
     recordAudit("Planejamento financeiro", `Guardado ${money(state.financialPlanning.savings)}`);
     persistState();
@@ -19480,6 +19586,40 @@ function bindFinancialPlanning() {
 }
 
 function bindMonthlyBudget() {
+  on("#bill-location-budget-form", "submit", async event => {
+    event.preventDefault();
+    const values = readForm(event.currentTarget);
+    const location = String(values.location || "").trim();
+    const limit = parseMoneyInput(values.limit);
+    if (!location || limit <= 0) {
+      showToast("Informe o local e um limite maior que zero.", "error");
+      return;
+    }
+    const budgets = state.financialPlanning?.billLocationBudgets || {};
+    state.financialPlanning = {
+      ...(state.financialPlanning || {}),
+      billLocationBudgets: {
+        ...budgets,
+        [values.month]: { ...(budgets[values.month] || {}), [location]: limit.toFixed(2) }
+      }
+    };
+    recordAudit("Orçamento de boleto atualizado", `${formatMonthKeyBr(values.month)} - ${location} - ${money(limit)}`);
+    if (await persistState()) renderFinance();
+  });
+
+  document.querySelectorAll("[data-delete-location-budget]").forEach(button => {
+    button.addEventListener("click", async () => {
+      const month = button.dataset.budgetMonth;
+      const location = button.dataset.deleteLocationBudget;
+      if (!confirm(`Excluir o limite de ${location} em ${formatMonthKeyBr(month)}?`)) return;
+      const budgets = state.financialPlanning?.billLocationBudgets || {};
+      const monthBudgets = { ...(budgets[month] || {}) };
+      delete monthBudgets[location];
+      state.financialPlanning = { ...(state.financialPlanning || {}), billLocationBudgets: { ...budgets, [month]: monthBudgets } };
+      if (await persistState()) renderFinance();
+    });
+  });
+
   on("#monthly-budget-form", "submit", async event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);

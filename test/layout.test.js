@@ -588,6 +588,12 @@ test('home keeps the existing management view and adds read-only financial under
   assert.match(app, /Capacidade de pagamento/);
   assert.match(app, /Concentração de gastos/);
   assert.match(app, /Origem das receitas/);
+  assert.match(app, /Previsão do caixa/);
+  assert.match(app, /managementForecastWindows/);
+  assert.match(app, /Meta de faturamento/);
+  assert.match(app, /Boletos por local/);
+  assert.match(app, /billLocationBudgets/);
+  assert.match(css, /\.management-forecast-grid/);
   assert.match(app, /entry\.kind !== "receivable"/);
   assert.match(css, /\.management-now/);
   assert.match(css, /\.management-understanding-grid/);
