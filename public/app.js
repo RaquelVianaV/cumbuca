@@ -16068,6 +16068,112 @@ function businessProfitabilityPanel(data) {
   `;
 }
 
+function weeklyResultMetrics(data, orders, storeSales) {
+  const production = productionOrders(orders || []);
+  const weeklyUnits = production.reduce((sum, order) => sum + orderQuantity(order), 0);
+  const weeklyRevenue = (orders || []).reduce((sum, order) => sum + Number(order.amount || 0), 0);
+  const menuKeys = [...new Set(production.map(order => String(order.menuKey || "")).filter(Boolean))];
+  const supermarketCost = menuKeys.reduce((sum, key) => sum + weeklyMenuSupermarketTotal(key), 0);
+  const packagingCost = weeklyUnits * MENU_DEFAULT_PACKAGING_COST;
+  const weeklyCost = supermarketCost + packagingCost;
+  const storeRows = storeProductPerformanceRows({ ...data, type: "week", storeSales: storeSales || [] })
+    .filter(row => row.units > 0);
+  const storeUnits = storeRows.reduce((sum, row) => sum + row.units, 0);
+  const storeRevenue = storeRows.reduce((sum, row) => sum + row.estimatedRevenue, 0);
+  const storeProfit = storeRows.reduce((sum, row) => sum + row.estimatedProfit, 0);
+  const storeCost = storeRevenue - storeProfit;
+  const totalRevenue = weeklyRevenue + storeRevenue;
+  const totalCost = weeklyCost + storeCost;
+  const totalProfit = totalRevenue - totalCost;
+  return {
+    weeklyUnits, weeklyRevenue, supermarketCost, packagingCost, weeklyCost,
+    weeklyProfit: weeklyRevenue - weeklyCost,
+    storeRows, storeUnits, storeRevenue, storeCost, storeProfit,
+    totalUnits: weeklyUnits + storeUnits, totalRevenue, totalCost, totalProfit,
+    margin: totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : null
+  };
+}
+
+function weeklyResultComparison(current, previous, key, lowerIsBetter = false) {
+  const currentValue = Number(current[key] || 0);
+  const previousValue = Number(previous[key] || 0);
+  const delta = currentValue - previousValue;
+  const improved = lowerIsBetter ? delta <= 0 : delta >= 0;
+  const variation = Math.abs(previousValue) >= 0.005 ? (delta / Math.abs(previousValue)) * 100 : null;
+  return {
+    improved,
+    label: variation === null
+      ? previousValue === 0 && currentValue === 0 ? "Sem alteração" : "Sem base anterior"
+      : `${delta >= 0 ? "+" : ""}${new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }).format(variation)}%`
+  };
+}
+
+function weeklyBusinessResultPanel(data) {
+  if (data.type !== "week") {
+    return `
+      <section class="panel report-section weekly-result-panel" data-weekly-result-panel>
+        <h2>Resultado da semana</h2>
+        <p class="muted">Abra Filtros, escolha o período Semana, informe as datas e selecione a semana do cardápio para gerar este relatório.</p>
+      </section>
+    `;
+  }
+
+  const current = weeklyResultMetrics(data, data.orders, data.storeSales);
+  const previous = weeklyResultMetrics(data, previousReportOrders(data), previousReportStoreSales(data));
+  const previousCash = cashTotals(businessCashEntries(previousReportCashEntries(data)));
+  const revenueComparison = weeklyResultComparison(current, previous, "totalRevenue");
+  const profitComparison = weeklyResultComparison(current, previous, "totalProfit");
+  const unitsComparison = weeklyResultComparison(current, previous, "totalUnits");
+  const expenseComparison = weeklyResultComparison(
+    { expenses: data.expenses }, { expenses: previousCash.expenses }, "expenses", true
+  );
+  const weeklyRanking = weeklyRecipeProfitabilityRows(data).rows.slice(0, 5);
+  const storeRanking = [...current.storeRows]
+    .sort((a, b) => b.units - a.units || b.estimatedProfit - a.estimatedProfit)
+    .slice(0, 5);
+  const previousPeriod = previousComparablePeriod(data);
+
+  return `
+    <section class="panel report-section weekly-result-panel" data-weekly-result-panel>
+      <div class="section-heading"><div>
+        <h2>Resultado da semana</h2>
+        <p class="muted-inline">${reportWeekRangeLabel()} · Loja e Semanal separados, comparados com ${previousPeriod.label}.</p>
+      </div></div>
+      <div class="summary">
+        <div class="metric report-metric total"><span>Vendas estimadas</span><strong>${money(current.totalRevenue)}</strong><small class="${revenueComparison.improved ? "positive" : "negative"}">${revenueComparison.label} frente à anterior</small></div>
+        <div class="metric report-metric"><span>Custos considerados</span><strong>${money(current.totalCost)}</strong><small>Produção + custos vinculados da loja</small></div>
+        <div class="metric report-metric total"><span>Lucro estimado</span><strong class="${current.totalProfit < 0 ? "negative" : "positive"}">${money(current.totalProfit)}</strong><small class="${profitComparison.improved ? "positive" : "negative"}">${profitComparison.label} frente à anterior</small></div>
+        <div class="metric report-metric"><span>Margem estimada</span><strong>${pricingPercent(current.margin)}</strong></div>
+        <div class="metric report-metric"><span>Unidades</span><strong>${current.totalUnits}</strong><small class="${unitsComparison.improved ? "positive" : "negative"}">${unitsComparison.label} frente à anterior</small></div>
+        <div class="metric report-metric"><span>Saídas no caixa</span><strong>${money(data.expenses)}</strong><small class="${expenseComparison.improved ? "positive" : "negative"}">${expenseComparison.label} frente à anterior</small></div>
+      </div>
+    </section>
+    <section class="panel report-section">
+      <h2>Loja × Semanal</h2>
+      <div class="table-wrap report-table"><table>
+        <thead><tr><th>Operação</th><th>Unidades</th><th>Vendas</th><th>Custos</th><th>Lucro</th><th>Margem</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Semanal</strong></td><td>${current.weeklyUnits}</td><td>${money(current.weeklyRevenue)}</td><td>${money(current.weeklyCost)}</td><td class="${current.weeklyProfit < 0 ? "negative" : "positive"}">${money(current.weeklyProfit)}</td><td>${pricingPercent(current.weeklyRevenue > 0 ? (current.weeklyProfit / current.weeklyRevenue) * 100 : null)}</td></tr>
+          <tr><td><strong>Loja</strong></td><td>${current.storeUnits}</td><td>${money(current.storeRevenue)}</td><td>${money(current.storeCost)}</td><td class="${current.storeProfit < 0 ? "negative" : "positive"}">${money(current.storeProfit)}</td><td>${pricingPercent(current.storeRevenue > 0 ? (current.storeProfit / current.storeRevenue) * 100 : null)}</td></tr>
+          <tr><td><strong>Total</strong></td><td><strong>${current.totalUnits}</strong></td><td><strong>${money(current.totalRevenue)}</strong></td><td><strong>${money(current.totalCost)}</strong></td><td class="${current.totalProfit < 0 ? "negative" : "positive"}"><strong>${money(current.totalProfit)}</strong></td><td><strong>${pricingPercent(current.margin)}</strong></td></tr>
+        </tbody>
+      </table></div>
+      <p class="form-hint">No Semanal, o custo considera supermercado informado e vasilhas. Na Loja, depende da receita vinculada ao produto. As saídas do caixa ficam à parte para não descontar o mesmo custo duas vezes.</p>
+    </section>
+    <section class="panel report-section">
+      <h2>Mais vendidos na semana</h2>
+      <div class="report-grid">
+        <div><h3>Semanal</h3>${weeklyRanking.length
+          ? `<div class="recent-list">${weeklyRanking.map((row, index) => `<span><b>${index + 1}. ${escapeHtml(row.name)}</b>${row.quantity} unidade(s)</span>`).join("")}</div>`
+          : `<p class="muted">Nenhuma cumbuca registrada.</p>`}</div>
+        <div><h3>Loja</h3>${storeRanking.length
+          ? `<div class="recent-list">${storeRanking.map((row, index) => `<span><b>${index + 1}. ${escapeHtml(row.name)}</b>${row.units} unidade(s) · lucro ${row.recipe ? money(row.estimatedProfit) : "não calculado"}</span>`).join("")}</div>`
+          : `<p class="muted">Nenhuma venda com data nesta semana.</p>`}</div>
+      </div>
+    </section>
+  `;
+}
+
 function clientReportRows(data) {
   const rows = data.orders.reduce((acc, order) => {
     const client = clientByPhone(order.clientPhone);
@@ -20971,6 +21077,7 @@ function renderReports() {
   const weekRange = reportWeekRange();
   const tabs = [
     ["summary", "Resumo"],
+    ["week-result", "Resultado da semana"],
     ["financial", "Financeiro e sócias"],
     ["profitability", "Rentabilidade"],
     ["products", "Produtos"],
@@ -21083,6 +21190,7 @@ function renderReports() {
         ${reportMenuTable(data)}
       </section>
     `)}
+    ${viewPaneHtml("week-result", activeTab, weeklyBusinessResultPanel(data))}
     ${viewPaneHtml("financial", activeTab, `
       ${reportFinancialPositionPanel(data)}
       ${withdrawalPersonReportPanel(data)}

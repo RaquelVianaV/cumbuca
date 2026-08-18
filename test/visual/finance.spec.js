@@ -881,6 +881,22 @@ test('menu planning divides the manual weekly supermarket total only by its menu
   );
   await expect(profitability.locator('tbody tr').first()).toContainText('R$ 19,50');
   await expect(profitability.locator('tbody tr').first()).toContainText('R$ 43,20');
+
+  await page.locator('.report-filter-menu').click();
+  const reportFilter = page.locator('#report-filter-form');
+  await reportFilter.locator('select[name="type"]').selectOption('week');
+  await reportFilter.locator('input[name="start"]').fill('2026-08-03');
+  await reportFilter.locator('input[name="end"]').fill('2026-08-09');
+  await reportFilter.locator('select[name="week"]').selectOption('1');
+  await reportFilter.getByRole('button', { name: 'Atualizar', exact: true }).click();
+  await page.getByRole('button', { name: 'Resultado da semana', exact: true }).click();
+  const weeklyResult = page.locator('[data-weekly-result-panel]');
+  await expect(weeklyResult).toContainText('03/08/2026 a 09/08/2026');
+  await expect(weeklyResult).toContainText('R$ 50,00');
+  await expect(page.getByRole('heading', { name: 'Loja × Semanal', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Mais vendidos na semana', exact: true })
+  ).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
     path: testInfo.outputPath(`profitability-planning-cost-${testInfo.project.name}.png`),

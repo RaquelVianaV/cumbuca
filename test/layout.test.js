@@ -440,6 +440,9 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /<span>Raquel pagou<\/span>/);
   assert.match(app, /<span>Raquel deve<\/span>/);
   assert.match(app, /function businessProfitabilityPanel/);
+  assert.match(app, /function weeklyBusinessResultPanel/);
+  assert.match(app, /\["week-result", "Resultado da semana"\]/);
+  assert.match(app, /Loja × Semanal/);
   assert.match(app, /\["profitability", "Rentabilidade"\]/);
   assert.match(app, /data-profitability-panel/);
   assert.match(app, /data-store-product-performance/);
