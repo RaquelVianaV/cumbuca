@@ -21396,7 +21396,7 @@ function renderReports() {
 
     <section class="report-grid">
       <div class="metric report-metric"><span>Receita de pedidos</span><strong>${money(data.orderRevenue)}</strong><small>Pedidos registrados: ${money(data.orderRevenueBreakdown.orders)}<br>Canais: ${money(data.orderRevenueBreakdown.channels)}<br>Taxas de entrega: ${money(data.orderRevenueBreakdown.deliveryFees)}</small></div>
-      <div class="metric report-metric"><span>Total cumbucas</span><strong>${data.totalSoldQuantity}</strong></div>
+      <div class="metric report-metric"><span>Total cumbucas</span><strong>${data.totalSoldQuantity}</strong><small>Semanal: ${data.weeklyCashQuantity}<br>Loja: ${data.storeQuantity}</small></div>
       <div class="metric report-metric"><span>Entradas operacionais no caixa</span><strong>${money(data.cashSaleIncome)}</strong><small>Somente lançamentos como Venda</small></div>
       <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
       <div class="metric report-metric"><span>Saldo da conta PF</span><strong class="${data.accountBalances.pf < 0 ? "negative" : "positive"}">${money(data.accountBalances.pf)}</strong></div>

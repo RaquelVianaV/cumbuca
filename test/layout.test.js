@@ -451,6 +451,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.doesNotMatch(app, /data-open-report-products/);
   assert.match(app, /data-profitability-panel/);
   assert.match(app, /Pedidos registrados: \$\{money\(data\.orderRevenueBreakdown\.orders\)\}/);
+  assert.match(app, /Semanal: \$\{data\.weeklyCashQuantity\}/);
   assert.match(app, /data-internal-transfer-details/);
   assert.match(app, /<span>Conferir transferências<\/span>/);
   assert.match(app, /data-store-product-performance/);

@@ -184,6 +184,12 @@ test('order revenue follows the selected filter and sums orders, channels and de
   await expect(revenue).toContainText('Pedidos registrados: R$ 8.900,00');
   await expect(revenue).toContainText('Canais: R$ 18.552,21');
   await expect(revenue).toContainText('Taxas de entrega: R$ 664,96');
+  const totalBowls = page.locator('.report-grid .report-metric').filter({
+    hasText: 'Total cumbucas',
+  });
+  await expect(totalBowls).toContainText('647');
+  await expect(totalBowls).toContainText('Semanal: 0');
+  await expect(totalBowls).toContainText('Loja: 647');
   const cashSales = page.locator('.report-grid .report-metric').filter({
     hasText: 'Entradas operacionais no caixa',
   });
