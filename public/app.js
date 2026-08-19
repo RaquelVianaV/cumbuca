@@ -15654,7 +15654,8 @@ function dishRankingPanel(data) {
   `;
 }
 
-function storeProductPerformanceRows(data) {
+function storeProductPerformanceRows(data, options = {}) {
+  const linkedProductQuantities = options.linkedProductQuantities === true;
   const rows = new Map();
   sortedStoreProducts().forEach(product => {
     rows.set(String(product.id), {
@@ -15722,6 +15723,22 @@ function storeProductPerformanceRows(data) {
   } else {
     rows.forEach(row => {
       row.quantitySource = row.salesUnits > 0 ? "sales" : "none";
+    });
+  }
+
+  if (linkedProductQuantities) {
+    rows.forEach(row => {
+      if (!row.product || !row.recipe) {
+        return;
+      }
+      const productQuantity = Math.max(
+        0,
+        storeProductQuantityForMonth(row.product.id, data.periodKey)
+      );
+      row.units = productQuantity;
+      row.monthlyQuantity = productQuantity;
+      row.supplementalUnits = 0;
+      row.quantitySource = "products";
     });
   }
 
@@ -15936,7 +15953,7 @@ function weeklyRecipeProfitabilityRows(data) {
 
 function businessProfitabilityPanel(data) {
   const weekly = weeklyRecipeProfitabilityRows(data);
-  const storeRows = storeProductPerformanceRows(data);
+  const storeRows = storeProductPerformanceRows(data, { linkedProductQuantities: true });
   const storeComboSummary = storeSalesSummary(data.storeSales || []);
   const productionReportOrders = productionOrders(data.orders);
   const selectedWeekKeys = [...new Set(productionReportOrders.map(order => String(order.menuKey || "")).filter(Boolean))];
@@ -16053,6 +16070,7 @@ function businessProfitabilityPanel(data) {
       <div class="summary">
         <div class="metric report-metric" data-store-profitability-combos><span>Combos</span><strong>${storeComboSummary.combos}</strong></div>
         <div class="metric report-metric" data-store-profitability-combo-units><span>Unidades nos combos</span><strong>${storeComboSummary.comboUnits}</strong></div>
+        <div class="metric report-metric" data-store-profitability-product-units><span>Quantidade dos produtos</span><strong>${storeRows.filter(row => row.recipe).reduce((sum, row) => sum + row.units, 0)}</strong><small>Loja → Produtos</small></div>
         <div class="metric report-metric"><span>Receita estimada</span><strong>${money(storeRevenue)}</strong></div>
         <div class="metric report-metric"><span>Custo estimado</span><strong>${money(storeCost)}</strong></div>
         <div class="metric report-metric"><span>Lucro estimado</span><strong class="${storeProfit < 0 ? "negative" : "positive"}">${money(storeProfit)}</strong></div>
@@ -16067,6 +16085,7 @@ function businessProfitabilityPanel(data) {
                 <th>Origem da quantidade</th>
                 <th>Combos</th>
                 <th>Unidades nos combos</th>
+                <th>Quantidade usada</th>
                 <th>Receita vinculada</th>
                 <th>Preço ref.</th>
                 <th>Receita estimada</th>
@@ -16079,9 +16098,10 @@ function businessProfitabilityPanel(data) {
               ${activeStoreRows.map(row => `
                 <tr data-profitability-store-product="${escapeHtml(row.key)}">
                   <td><strong>${escapeHtml(row.name)}</strong></td>
-                  <td>${row.combos > 0 ? "Combos registrados" : "Sem combos no período"}</td>
+                  <td>${row.quantitySource === "products" ? "Loja → Produtos" : row.combos > 0 ? "Combos registrados" : "Sem combos no período"}</td>
                   <td><strong>${row.combos}</strong></td>
                   <td><strong>${row.comboUnits}</strong></td>
+                  <td><strong>${row.units}</strong></td>
                   <td>${row.recipe ? escapeHtml(row.recipe.name || "Receita sem nome") : "Sem vínculo"}</td>
                   <td>${row.recipe ? money(row.referencePrice) : "—"}</td>
                   <td>${row.recipe ? money(row.estimatedRevenue) : "—"}</td>

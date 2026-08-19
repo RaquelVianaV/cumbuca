@@ -135,6 +135,9 @@ test('order revenue follows the selected filter and sums orders, channels and de
     storeProducts: [
       { id: 'combo-product', name: 'Produto do combo', pricingRecipeId: 'combo-recipe' },
     ],
+    storeProductQuantities: [
+      { id: 'combo-product-quantity', productId: 'combo-product', month: '2026-08', quantity: 24 },
+    ],
     storeSales: [
       { id: 'unit-sale', date: '2026-08-05', productId: 'combo-product', saleType: 'unit', quantity: 635 },
       { id: 'combo-sale', date: '2026-08-05', productId: 'combo-product', saleType: 'combo', quantity: 3, unitsPerCombo: 4 },
@@ -186,7 +189,12 @@ test('order revenue follows the selected filter and sums orders, channels and de
   const storeProfitability = page.locator('[data-store-profitability-panel]');
   await expect(storeProfitability.locator('[data-store-profitability-combos]')).toContainText('3');
   await expect(storeProfitability.locator('[data-store-profitability-combo-units]')).toContainText('12');
+  await expect(storeProfitability.locator('[data-store-profitability-product-units]')).toContainText('24');
+  await expect(
+    storeProfitability.locator('.metric').filter({ hasText: 'Receita estimada' })
+  ).toContainText('R$ 480,00');
   await expect(storeProfitability).toContainText('3 combo(s)');
+  await expect(storeProfitability).toContainText('Loja → Produtos');
   await expect(storeProfitability).not.toContainText('635');
 
   await page.locator('.report-filter-menu').click();
