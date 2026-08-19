@@ -121,6 +121,12 @@ test('finance menu stays between the hero and period filters', async ({ page }, 
 test('order revenue follows the selected filter and sums orders, channels and delivery fees', async ({ page }) => {
   const database = await mockOnlineDatabase(page);
   database.state = {
+    cashEntries: [
+      { id: 'sale-in-filter', date: '2026-08-05', type: 'income', category: 'venda', amount: '1200.00' },
+      { id: 'other-income', date: '2026-08-05', type: 'income', category: 'aporte-socia', amount: '500.00' },
+      { id: 'channel-category', date: '2026-08-05', type: 'income', category: 'cardapio-web', amount: '300.00' },
+      { id: 'sale-outside-filter', date: '2026-08-12', type: 'income', category: 'venda', amount: '400.00' },
+    ],
     orders: [
       { id: 'weekly-order', menuKey: '2026-08-semana-1', amount: '8900.00' },
     ],
@@ -153,11 +159,17 @@ test('order revenue follows the selected filter and sums orders, channels and de
     hasText: 'Receita de pedidos',
   });
   await expect(revenue).toContainText('R$ 28.117,17');
+  const cashSales = page.locator('.report-grid .report-metric').filter({
+    hasText: 'Entradas operacionais no caixa',
+  });
+  await expect(cashSales).toContainText('R$ 1.200,00');
+  await expect(cashSales).toContainText('Somente lançamentos como Venda');
 
   await page.locator('.report-filter-menu').click();
   await reportFilter.locator('select[name="type"]').selectOption('month');
   await reportFilter.getByRole('button', { name: 'Atualizar', exact: true }).click();
   await expect(revenue).toContainText('R$ 29.215,17');
+  await expect(cashSales).toContainText('R$ 1.600,00');
 });
 
 test('closed July can be reopened from the monthly closing panel', async ({ page }) => {

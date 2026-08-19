@@ -13638,6 +13638,13 @@ function reportData() {
   const storeQuantity = storeSales.reduce((sum, entry) => sum + storeSaleUnitQuantity(entry), 0);
   const weeklyCashQuantity = totalQuantity;
   const totalIncome = income;
+  const cashSaleIncome = incomeEntries
+    .filter(entry => {
+      const rawCategory = slugifyCategory(entry.category);
+      const namedCategory = slugifyCategory(categoryName(entry.category));
+      return [rawCategory, namedCategory].some(category => ["venda", "vendas"].includes(category));
+    })
+    .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
   const paidOrders = soldOrders.filter(order => {
     const client = clientByPhone(order.clientPhone);
     return client.plan === "mensalista" ? Number(order.amount || 0) > 0 : isOrderPaid(order);
@@ -13687,6 +13694,7 @@ function reportData() {
     savingsUpdatedAt: state.financialPlanning?.savingsUpdatedAt || "",
     partnersRecord: partnersRecordForPeriod(periodKey),
     totalIncome,
+    cashSaleIncome,
     balance: totalIncome - expenses,
     orderRevenue,
     deliveryRevenue,
@@ -21337,7 +21345,7 @@ function renderReports() {
     <section class="report-grid">
       <div class="metric report-metric"><span>Receita de pedidos</span><strong>${money(data.orderRevenue)}</strong></div>
       <div class="metric report-metric"><span>Total cumbucas</span><strong>${data.totalSoldQuantity}</strong></div>
-      <div class="metric report-metric"><span>Entradas operacionais no caixa</span><strong>${money(data.income)}</strong></div>
+      <div class="metric report-metric"><span>Entradas operacionais no caixa</span><strong>${money(data.cashSaleIncome)}</strong><small>Somente lançamentos como Venda</small></div>
       <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
       <div class="metric report-metric"><span>Saldo da conta PF</span><strong class="${data.accountBalances.pf < 0 ? "negative" : "positive"}">${money(data.accountBalances.pf)}</strong></div>
       <div class="metric report-metric"><span>Saldo da conta PJ</span><strong class="${data.accountBalances.pj < 0 ? "negative" : "positive"}">${money(data.accountBalances.pj)}</strong></div>
