@@ -21298,7 +21298,7 @@ function renderReports() {
   const weekRange = reportWeekRange();
   const tabs = [
     ["summary", "Resumo"],
-    ["week-result", "Resultado da semana"],
+    ["week-result", "Resultado canais"],
     ["financial", "Financeiro e sócias"],
     ["profitability", "Rentabilidade"],
     ["products", "Produtos"],

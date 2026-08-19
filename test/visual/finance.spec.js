@@ -993,7 +993,7 @@ test('menu planning divides the manual weekly supermarket total only by its menu
   await reportFilter.locator('input[name="end"]').fill('2026-08-09');
   await reportFilter.locator('select[name="week"]').selectOption('1');
   await reportFilter.getByRole('button', { name: 'Atualizar', exact: true }).click();
-  await page.getByRole('button', { name: 'Resultado da semana', exact: true }).click();
+  await page.getByRole('button', { name: 'Resultado canais', exact: true }).click();
   const weeklyResult = page.locator('[data-weekly-result-panel]');
   await expect(weeklyResult).toContainText('03/08/2026 a 09/08/2026');
   await expect(weeklyResult).toContainText('R$ 50,00');
