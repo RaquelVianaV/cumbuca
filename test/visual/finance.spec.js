@@ -911,6 +911,9 @@ test('menu planning divides the manual weekly supermarket total only by its menu
   await page.goto('/relatorios?ano=2026&mes=8');
   await page.getByRole('button', { name: 'Rentabilidade', exact: true }).click();
   const profitability = page.locator('[data-profitability-panel]');
+  const storeProfitability = page.locator('[data-store-profitability-panel]');
+  await expect(profitability.getByRole('heading', { name: /Rentabilidade do Semanal/ })).toBeVisible();
+  await expect(storeProfitability.getByRole('heading', { name: /Rentabilidade da Loja/ })).toBeVisible();
   await expect(profitability).toContainText(
     'A receita considera R$ 19,50 por cumbuca. O custo considera somente todo o supermercado informado mais R$ 1,60 de vasilha por unidade.'
   );

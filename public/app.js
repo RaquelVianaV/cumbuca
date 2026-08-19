@@ -15949,9 +15949,9 @@ function businessProfitabilityPanel(data) {
   const afterSupermarket = weeklyRevenue - weeklySupermarketCost;
   const storeRevenue = storeRows.reduce((sum, row) => sum + row.estimatedRevenue, 0);
   const storeProfit = storeRows.reduce((sum, row) => sum + row.estimatedProfit, 0);
+  const storeCost = storeRevenue - storeProfit;
+  const storeMargin = storeRevenue > 0 ? (storeProfit / storeRevenue) * 100 : null;
   const activeStoreRows = storeRows.filter(row => row.units > 0);
-  const totalRevenue = weeklyRevenue + storeRevenue;
-  const totalProfit = weeklyProfit + storeProfit;
   const unconfiguredRows = weekly.rows.filter(row => !row.costConfigured);
   const lowMarginRows = weekly.rows.filter(row => {
     return row.recipe && row.margin !== null && row.margin + 0.0001 < row.desiredMargin;
@@ -15961,7 +15961,7 @@ function businessProfitabilityPanel(data) {
     <section class="panel report-section profitability-panel" data-profitability-panel>
       <div class="section-heading">
         <div>
-          <h2>Rentabilidade por prato ${reportTitleSuffix(data)}</h2>
+          <h2>Rentabilidade do Semanal ${reportTitleSuffix(data)}</h2>
           <p class="muted-inline">A receita considera ${money(WEEKLY_PROFITABILITY_UNIT_PRICE)} por cumbuca. O custo considera somente todo o supermercado informado mais ${money(MENU_DEFAULT_PACKAGING_COST)} de vasilha por unidade.</p>
         </div>
       </div>
@@ -15971,12 +15971,10 @@ function businessProfitabilityPanel(data) {
         <div class="metric report-metric"><span>Supermercado por cumbuca</span><strong>${money(supermarketPerUnit)}</strong><small>Supermercado ÷ cumbucas</small></div>
         <div class="metric report-metric"><span>Vasilhas</span><strong>${money(packagingTotal)}</strong><small>${weeklyUnits} × ${money(MENU_DEFAULT_PACKAGING_COST)}</small></div>
         <div class="metric report-metric"><span>Sobra após supermercado</span><strong class="${afterSupermarket < 0 ? "negative" : "positive"}">${money(afterSupermarket)}</strong><small>Receita dos pedidos − supermercado</small></div>
-        <div class="metric report-metric"><span>Receita considerada</span><strong>${money(totalRevenue)}</strong></div>
-        <div class="metric report-metric"><span>Custo total considerado</span><strong>${money(weeklyCost + (storeRevenue - storeProfit))}</strong><small>Supermercado + vasilhas</small></div>
-        <div class="metric report-metric"><span>Lucro estimado</span><strong class="${totalProfit < 0 ? "negative" : "positive"}">${money(totalProfit)}</strong></div>
-        <div class="metric report-metric"><span>Margem estimada</span><strong>${pricingPercent(totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : null)}</strong></div>
-        <div class="metric report-metric"><span>Lucro dos pedidos</span><strong class="${weeklyProfit < 0 ? "negative" : "positive"}">${money(weeklyProfit)}</strong></div>
-        <div class="metric report-metric"><span>Lucro da loja</span><strong class="${storeProfit < 0 ? "negative" : "positive"}">${money(storeProfit)}</strong></div>
+        <div class="metric report-metric"><span>Receita considerada</span><strong>${money(weeklyRevenue)}</strong></div>
+        <div class="metric report-metric"><span>Custo total considerado</span><strong>${money(weeklyCost)}</strong><small>Supermercado + vasilhas</small></div>
+        <div class="metric report-metric"><span>Lucro estimado</span><strong class="${weeklyProfit < 0 ? "negative" : "positive"}">${money(weeklyProfit)}</strong></div>
+        <div class="metric report-metric"><span>Margem estimada</span><strong>${pricingPercent(weeklyRevenue > 0 ? (weeklyProfit / weeklyRevenue) * 100 : null)}</strong></div>
       </div>
       ${unconfiguredRows.length || weekly.unallocatedUnits ? `
         <p class="form-hint warning-text">
@@ -16034,13 +16032,20 @@ function businessProfitabilityPanel(data) {
         </div>
       </section>
     ` : ""}
-    <section class="panel report-section">
+    <section class="panel report-section store-profitability-panel" data-store-profitability-panel>
       <div class="section-heading">
         <div>
-          <h2>Detalhamento da loja</h2>
+          <h2>Rentabilidade da Loja ${reportTitleSuffix(data)}</h2>
           <p class="muted-inline">${storeRows.reduce((sum, row) => sum + row.units, 0)} unidade(s) · lucro estimado ${money(storeProfit)}. No mês, a quantidade informada complementa as vendas detalhadas sem duplicá-las.</p>
         </div>
         <button class="secondary table-action" type="button" data-open-report-products>Ver produtos</button>
+      </div>
+      <div class="summary">
+        <div class="metric report-metric"><span>Unidades consideradas</span><strong>${storeRows.reduce((sum, row) => sum + row.units, 0)}</strong></div>
+        <div class="metric report-metric"><span>Receita estimada</span><strong>${money(storeRevenue)}</strong></div>
+        <div class="metric report-metric"><span>Custo estimado</span><strong>${money(storeCost)}</strong></div>
+        <div class="metric report-metric"><span>Lucro estimado</span><strong class="${storeProfit < 0 ? "negative" : "positive"}">${money(storeProfit)}</strong></div>
+        <div class="metric report-metric"><span>Margem estimada</span><strong>${pricingPercent(storeMargin)}</strong></div>
       </div>
       ${activeStoreRows.length ? `
         <div class="table-wrap report-table">
