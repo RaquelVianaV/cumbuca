@@ -15982,8 +15982,13 @@ function businessProfitabilityPanel(data) {
         </p>
       ` : ""}
       ${weekly.rows.length ? `
-        <div class="table-wrap report-table">
-          <table>
+        <details class="profitability-details" data-weekly-dish-details>
+          <summary>
+            <span>Conferir pratos um a um</span>
+            <small>${weekly.rows.length} prato(s) no período</small>
+          </summary>
+          <div class="table-wrap report-table">
+            <table>
             <thead>
               <tr>
                 <th>Prato</th>
@@ -16018,8 +16023,9 @@ function businessProfitabilityPanel(data) {
                 </tr>
               `).join("")}
             </tbody>
-          </table>
-        </div>
+            </table>
+          </div>
+        </details>
       ` : `<p class="muted">Nenhum pedido com pratos detalhados no período.</p>`}
     </section>
     ${lowMarginRows.length ? `

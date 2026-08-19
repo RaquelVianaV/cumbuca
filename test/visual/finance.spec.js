@@ -914,6 +914,12 @@ test('menu planning divides the manual weekly supermarket total only by its menu
   const storeProfitability = page.locator('[data-store-profitability-panel]');
   await expect(profitability.getByRole('heading', { name: /Rentabilidade do Semanal/ })).toBeVisible();
   await expect(storeProfitability.getByRole('heading', { name: /Rentabilidade da Loja/ })).toBeVisible();
+  const dishDetails = profitability.locator('[data-weekly-dish-details]');
+  await expect(dishDetails).not.toHaveAttribute('open', '');
+  await expect(dishDetails.getByText('Conferir pratos um a um')).toBeVisible();
+  await dishDetails.locator('summary').click();
+  await expect(dishDetails).toHaveAttribute('open', '');
+  await expect(dishDetails.locator('tbody')).toBeVisible();
   await expect(profitability).toContainText(
     'A receita considera R$ 19,50 por cumbuca. O custo considera somente todo o supermercado informado mais R$ 1,60 de vasilha por unidade.'
   );
