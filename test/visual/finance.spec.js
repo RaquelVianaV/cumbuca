@@ -121,6 +121,24 @@ test('finance menu stays between the hero and period filters', async ({ page }, 
 test('order revenue follows the selected filter and sums orders, channels and delivery fees', async ({ page }) => {
   const database = await mockOnlineDatabase(page);
   database.state = {
+    pricingRecipes: [
+      {
+        id: 'combo-recipe',
+        name: 'Receita do combo',
+        supermarketUnitCost: 5,
+        packagingCost: 1,
+        practicedPrice: 20,
+        desiredMarginPercent: 30,
+        ingredients: [],
+      },
+    ],
+    storeProducts: [
+      { id: 'combo-product', name: 'Produto do combo', pricingRecipeId: 'combo-recipe' },
+    ],
+    storeSales: [
+      { id: 'unit-sale', date: '2026-08-05', productId: 'combo-product', saleType: 'unit', quantity: 635 },
+      { id: 'combo-sale', date: '2026-08-05', productId: 'combo-product', saleType: 'combo', quantity: 3, unitsPerCombo: 4 },
+    ],
     cashEntries: [
       { id: 'sale-in-filter', date: '2026-08-05', type: 'income', category: 'venda', amount: '1200.00' },
       { id: 'other-income', date: '2026-08-05', type: 'income', category: 'aporte-socia', amount: '500.00' },
@@ -164,6 +182,13 @@ test('order revenue follows the selected filter and sums orders, channels and de
   });
   await expect(cashSales).toContainText('R$ 1.200,00');
   await expect(cashSales).toContainText('Somente lançamentos como Venda');
+  await page.getByRole('button', { name: 'Rentabilidade', exact: true }).click();
+  const storeProfitability = page.locator('[data-store-profitability-panel]');
+  await expect(
+    storeProfitability.locator('.metric').filter({ hasText: 'Unidades consideradas' })
+  ).toContainText('12');
+  await expect(storeProfitability).toContainText('3 combo(s)');
+  await expect(storeProfitability).not.toContainText('635');
 
   await page.locator('.report-filter-menu').click();
   await reportFilter.locator('select[name="type"]').selectOption('month');

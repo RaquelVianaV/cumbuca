@@ -15654,7 +15654,8 @@ function dishRankingPanel(data) {
   `;
 }
 
-function storeProductPerformanceRows(data) {
+function storeProductPerformanceRows(data, options = {}) {
+  const combosOnly = options.combosOnly === true;
   const rows = new Map();
   sortedStoreProducts().forEach(product => {
     rows.set(String(product.id), {
@@ -15672,7 +15673,9 @@ function storeProductPerformanceRows(data) {
     });
   });
 
-  (data.storeSales || []).forEach(entry => {
+  (data.storeSales || [])
+    .filter(entry => !combosOnly || normalizedStoreSaleType(entry) === "combo")
+    .forEach(entry => {
     const product = storeProductById(entry.productId);
     const key = product
       ? String(product.id)
@@ -15703,7 +15706,7 @@ function storeProductPerformanceRows(data) {
     }
   });
 
-  if (data.type === "month") {
+  if (data.type === "month" && !combosOnly) {
     rows.forEach(row => {
       if (!row.product) {
         row.quantitySource = row.salesUnits > 0 ? "sales" : "none";
@@ -15718,7 +15721,7 @@ function storeProductPerformanceRows(data) {
     });
   } else {
     rows.forEach(row => {
-      row.quantitySource = row.salesUnits > 0 ? "sales" : "none";
+      row.quantitySource = row.salesUnits > 0 ? combosOnly ? "combos" : "sales" : "none";
     });
   }
 
@@ -15933,7 +15936,7 @@ function weeklyRecipeProfitabilityRows(data) {
 
 function businessProfitabilityPanel(data) {
   const weekly = weeklyRecipeProfitabilityRows(data);
-  const storeRows = storeProductPerformanceRows(data);
+  const storeRows = storeProductPerformanceRows(data, { combosOnly: true });
   const productionReportOrders = productionOrders(data.orders);
   const selectedWeekKeys = [...new Set(productionReportOrders.map(order => String(order.menuKey || "")).filter(Boolean))];
   const weeklySupermarketCost = selectedWeekKeys.reduce(
@@ -16077,6 +16080,8 @@ function businessProfitabilityPanel(data) {
                     ? `Vendas + mensal<br><small>${row.salesUnits} lançada(s) + ${row.supplementalUnits} complemento</small>`
                     : row.quantitySource === "monthly"
                       ? "Quantidade mensal"
+                      : row.quantitySource === "combos"
+                        ? `Combos registrados<br><small>${row.combos} combo(s)</small>`
                       : "Venda registrada"}</td>
                   <td><strong>${row.units}</strong></td>
                   <td>${row.recipe ? escapeHtml(row.recipe.name || "Receita sem nome") : "Sem vínculo"}</td>
