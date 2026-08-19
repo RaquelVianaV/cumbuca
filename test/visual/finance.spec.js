@@ -181,6 +181,9 @@ test('order revenue follows the selected filter and sums orders, channels and de
     hasText: 'Receita de pedidos',
   });
   await expect(revenue).toContainText('R$ 28.117,17');
+  await expect(revenue).toContainText('Pedidos registrados: R$ 8.900,00');
+  await expect(revenue).toContainText('Canais: R$ 18.552,21');
+  await expect(revenue).toContainText('Taxas de entrega: R$ 664,96');
   const cashSales = page.locator('.report-grid .report-metric').filter({
     hasText: 'Entradas operacionais no caixa',
   });

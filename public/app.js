@@ -13629,9 +13629,11 @@ function reportData() {
     (sum, order) => sum + Number(order.amount || 0),
     0
   );
+  const channelRevenue = channelReceiptTotals(channelReceipts).total;
+  const channelDeliveryFees = cardapioDeliveryFeeTotal(channelReceipts);
   const orderRevenue = ordersRecordedRevenue
-    + channelReceiptTotals(channelReceipts).total
-    + cardapioDeliveryFeeTotal(channelReceipts);
+    + channelRevenue
+    + channelDeliveryFees;
   const soldOrders = productionOrders(orders);
   const deliveryRevenue = soldOrders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0);
   const totalQuantity = soldOrders.reduce((sum, order) => sum + orderQuantity(order), 0);
@@ -13697,6 +13699,11 @@ function reportData() {
     cashSaleIncome,
     balance: totalIncome - expenses,
     orderRevenue,
+    orderRevenueBreakdown: {
+      orders: ordersRecordedRevenue,
+      channels: channelRevenue,
+      deliveryFees: channelDeliveryFees
+    },
     deliveryRevenue,
     totalQuantity,
     weeklyCashQuantity,
@@ -21388,7 +21395,7 @@ function renderReports() {
     </section>
 
     <section class="report-grid">
-      <div class="metric report-metric"><span>Receita de pedidos</span><strong>${money(data.orderRevenue)}</strong></div>
+      <div class="metric report-metric"><span>Receita de pedidos</span><strong>${money(data.orderRevenue)}</strong><small>Pedidos registrados: ${money(data.orderRevenueBreakdown.orders)}<br>Canais: ${money(data.orderRevenueBreakdown.channels)}<br>Taxas de entrega: ${money(data.orderRevenueBreakdown.deliveryFees)}</small></div>
       <div class="metric report-metric"><span>Total cumbucas</span><strong>${data.totalSoldQuantity}</strong></div>
       <div class="metric report-metric"><span>Entradas operacionais no caixa</span><strong>${money(data.cashSaleIncome)}</strong><small>Somente lançamentos como Venda</small></div>
       <div class="metric report-metric"><span>Saídas operacionais</span><strong>${money(data.financial.operationalExpenses)}</strong></div>
