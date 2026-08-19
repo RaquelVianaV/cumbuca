@@ -14607,12 +14607,18 @@ function internalTransfersReportPanel(data) {
         <div class="metric total"><span>Saldo consolidado</span><strong>${money(data.consolidatedBalance)}</strong><small>PF + PJ + Cofrinho</small></div>
       </div>
       ${transfers.length ? `
-        <div class="table-wrap report-table">
-          <table>
-            <thead><tr><th>Data</th><th>Origem</th><th>Destino</th><th>Valor</th><th>Tipo</th><th>Observação</th></tr></thead>
-            <tbody>${accountTransferReportRows(transfers).map(row => `<tr>${row.map(value => `<td>${escapeHtml(value)}</td>`).join("")}</tr>`).join("")}</tbody>
-          </table>
-        </div>
+        <details class="profitability-details" data-internal-transfer-details>
+          <summary>
+            <span>Conferir transferências</span>
+            <small>${transfers.length} operação(ões) no período</small>
+          </summary>
+          <div class="table-wrap report-table">
+            <table>
+              <thead><tr><th>Data</th><th>Origem</th><th>Destino</th><th>Valor</th><th>Tipo</th><th>Observação</th></tr></thead>
+              <tbody>${accountTransferReportRows(transfers).map(row => `<tr>${row.map(value => `<td>${escapeHtml(value)}</td>`).join("")}</tr>`).join("")}</tbody>
+            </table>
+          </div>
+        </details>
       ` : `<p class="muted">Nenhuma transferência interna no período.</p>`}
     </section>
   `;
@@ -15976,6 +15982,11 @@ function businessProfitabilityPanel(data) {
   const storeCost = storeRevenue - storeProfit;
   const storeMargin = storeRevenue > 0 ? (storeProfit / storeRevenue) * 100 : null;
   const activeStoreRows = storeRows.filter(row => row.units > 0 && row.product && row.recipe);
+  const storeMarginRows = activeStoreRows
+    .filter(row => Number.isFinite(row.estimatedMargin))
+    .sort((left, right) => right.estimatedMargin - left.estimatedMargin);
+  const highestMarginProduct = storeMarginRows[0] || null;
+  const lowestMarginProduct = storeMarginRows[storeMarginRows.length - 1] || null;
   const unconfiguredRows = weekly.rows.filter(row => !row.costConfigured);
   const lowMarginRows = weekly.rows.filter(row => {
     return row.recipe && row.margin !== null && row.margin + 0.0001 < row.desiredMargin;
@@ -16069,7 +16080,6 @@ function businessProfitabilityPanel(data) {
           <h2>Rentabilidade da Loja ${reportTitleSuffix(data)}</h2>
           <p class="muted-inline">${storeComboSummary.combos} combo(s) · ${storeComboSummary.comboUnits} unidade(s) nos combos · lucro estimado ${money(storeProfit)}.</p>
         </div>
-        <button class="secondary table-action" type="button" data-open-report-products>Ver produtos</button>
       </div>
       <div class="summary">
         <div class="metric report-metric" data-store-profitability-combos><span>Combos</span><strong>${storeComboSummary.combos}</strong></div>
@@ -16079,6 +16089,8 @@ function businessProfitabilityPanel(data) {
         <div class="metric report-metric"><span>Custo estimado</span><strong>${money(storeCost)}</strong></div>
         <div class="metric report-metric"><span>Lucro estimado</span><strong class="${storeProfit < 0 ? "negative" : "positive"}">${money(storeProfit)}</strong></div>
         <div class="metric report-metric"><span>Margem estimada</span><strong>${pricingPercent(storeMargin)}</strong></div>
+        <div class="metric report-metric" data-store-highest-margin><span>Produto com maior margem de lucro</span><strong>${highestMarginProduct ? escapeHtml(highestMarginProduct.name) : "—"}</strong><small>${highestMarginProduct ? pricingPercent(highestMarginProduct.estimatedMargin) : "Sem dados"}</small></div>
+        <div class="metric report-metric" data-store-lowest-margin><span>Produto com menor margem de lucro</span><strong>${lowestMarginProduct ? escapeHtml(lowestMarginProduct.name) : "—"}</strong><small>${lowestMarginProduct ? pricingPercent(lowestMarginProduct.estimatedMargin) : "Sem dados"}</small></div>
       </div>
       ${activeStoreRows.length ? `
         <div class="table-wrap report-table">
@@ -17633,8 +17645,8 @@ function renderStoreSales() {
   const today = isoDate(new Date());
   const storeTabs = [
     ["sales", "Vendas"],
-    ["products", "Produtos"],
-    ["channels", "Canais"]
+    ["channels", "Canais"],
+    ["products", "Produtos"]
   ];
   const requestedStoreView = new URLSearchParams(location.search).get("view");
   const requestedStoreProductMonth = normalizedStoreProductMonth(new URLSearchParams(location.search).get("month"));
@@ -21301,7 +21313,6 @@ function renderReports() {
     ["week-result", "Resultado canais"],
     ["financial", "Financeiro e sócias"],
     ["profitability", "Rentabilidade"],
-    ["products", "Produtos"],
     ["income", "Entradas"],
     ["expenses", "Saídas"],
     ["withdrawals", "Retiradas"],
@@ -21418,7 +21429,6 @@ function renderReports() {
       ${accountAdjustmentsReportPanel(data)}
     `)}
     ${viewPaneHtml("profitability", activeTab, businessProfitabilityPanel(data))}
-    ${viewPaneHtml("products", activeTab, storeProductPerformancePanel(data))}
     ${viewPaneHtml("income", activeTab, `
       ${channelReportPanel(data)}
       <section class="panel report-section">
@@ -21456,11 +21466,6 @@ function renderReports() {
   bindReportPeriodForm(renderReports, "relatorios");
   bindViewTabs("reportViewTab", renderReports);
   bindWeeklyResultForms(renderReports);
-  on("[data-open-report-products]", "click", () => {
-    state.reportViewTab = "products";
-    renderReports();
-  });
-
   document.querySelectorAll("[data-export-report]").forEach(button => {
     button.addEventListener("click", event => {
       exportReport(event.currentTarget.dataset.exportReport);

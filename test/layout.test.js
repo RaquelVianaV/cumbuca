@@ -448,7 +448,10 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /Contas da próxima semana/);
   assert.match(app, /Conferência para fechar/);
   assert.match(app, /\["profitability", "Rentabilidade"\]/);
+  assert.doesNotMatch(app, /data-open-report-products/);
   assert.match(app, /data-profitability-panel/);
+  assert.match(app, /data-internal-transfer-details/);
+  assert.match(app, /<span>Conferir transferências<\/span>/);
   assert.match(app, /data-store-product-performance/);
   assert.match(app, /data-profitability-store-product/);
   assert.match(app, /Quantidade mensal/);

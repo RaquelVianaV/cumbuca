@@ -168,6 +168,7 @@ test('order revenue follows the selected filter and sums orders, channels and de
   };
 
   await page.goto('/relatorios?ano=2026&mes=8');
+  await expect(page.locator('[data-view-tab-group="reportViewTab"] [data-view-tab="products"]')).toHaveCount(0);
   await page.locator('.report-filter-menu').click();
   const reportFilter = page.locator('#report-filter-form');
   await reportFilter.locator('select[name="type"]').selectOption('week');
@@ -195,6 +196,8 @@ test('order revenue follows the selected filter and sums orders, channels and de
   await expect(
     storeProfitability.locator('.metric').filter({ hasText: 'Receita estimada' })
   ).toContainText('R$ 480,00');
+  await expect(storeProfitability.locator('[data-store-highest-margin]')).toContainText('Produto do combo');
+  await expect(storeProfitability.locator('[data-store-lowest-margin]')).toContainText('Produto do combo');
   await expect(storeProfitability).toContainText('3 combo(s)');
   await expect(storeProfitability).toContainText('Loja → Produtos');
   await expect(storeProfitability).not.toContainText('Sem produto informado');
