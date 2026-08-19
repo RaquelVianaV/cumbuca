@@ -959,14 +959,14 @@ test('menu planning divides the manual weekly supermarket total only by its menu
   await expect(dishDetails).toHaveAttribute('open', '');
   await expect(dishDetails.locator('tbody')).toBeVisible();
   await expect(profitability).toContainText(
-    'A receita considera R$ 19,50 por cumbuca. O custo considera somente todo o supermercado informado mais R$ 1,60 de vasilha por unidade.'
+    'A receita considera R$ 19,50 por cumbuca. O custo soma supermercado, R$ 1,60 de vasilha e R$ 10,00 de custos rateados por unidade.'
   );
   await expect(
     profitability.locator('.metric').filter({ hasText: 'Receita considerada' })
   ).toContainText('R$ 39,00');
   await expect(
     profitability.locator('.metric').filter({ hasText: 'Custo total considerado' })
-  ).toContainText('R$ 43,20');
+  ).toContainText('R$ 63,20');
   await expect(
     profitability.locator('.metric').filter({ hasText: 'Supermercado informado' })
   ).toContainText('R$ 40,00');
@@ -976,12 +976,15 @@ test('menu planning divides the manual weekly supermarket total only by its menu
   await expect(profitability.getByText('Vasilhas', { exact: true }).locator('..')).toContainText(
     'R$ 3,20'
   );
+  await expect(profitability.getByText('Custos rateados', { exact: true }).locator('..')).toContainText(
+    'R$ 20,00'
+  );
   await expect(profitability.locator('tbody tr').first()).toContainText('Cumbuca da semana');
   await expect(profitability.locator('tbody tr').first()).toContainText(
-    'Supermercado da semana + vasilha R$ 1,60'
+    'Supermercado da semana + vasilha R$ 1,60 + rateio R$ 10,00'
   );
   await expect(profitability.locator('tbody tr').first()).toContainText('R$ 19,50');
-  await expect(profitability.locator('tbody tr').first()).toContainText('R$ 43,20');
+  await expect(profitability.locator('tbody tr').first()).toContainText('R$ 63,20');
 
   await page.locator('.report-filter-menu').click();
   const reportFilter = page.locator('#report-filter-form');
