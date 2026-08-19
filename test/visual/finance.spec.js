@@ -335,7 +335,7 @@ test('grouped navigation opens the menu and saves new orders', async ({ page }, 
   );
 });
 
-test('operation menu exposes Semanal, Loja and Precificação while expenses stays separate', async ({
+test('operation menu exposes Semanal, Loja and Precificação without an expenses shortcut', async ({
   page,
 }) => {
   const database = await mockOnlineDatabase(page);
@@ -432,7 +432,10 @@ test('operation menu exposes Semanal, Loja and Precificação while expenses sta
   await expect(page).toHaveURL(/\/precificacao$/);
   await expect(page.locator('#page-title')).toHaveText('Precificação');
 
-  await navigateFromMenu('Despesas');
+  await page.evaluate(() => {
+    history.pushState(null, '', '/despesas');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
   await expect(page).toHaveURL(/\/despesas$/);
   await expect(page.locator('#page-title')).toHaveText('Despesas');
   await expect(page.getByRole('heading', { name: 'Nova despesa', exact: true })).toBeVisible();

@@ -1,4 +1,4 @@
-const CACHE_NAME = "cumbuca-v246";
+const CACHE_NAME = "cumbuca-v247";
 const APP_SHELL = [
   "/",
   "/index.html",

@@ -105,7 +105,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.doesNotMatch(mainNavigation, /href="\/producao"/);
   assert.doesNotMatch(mainNavigation, /href="\/cardapio"/);
   assert.match(mainNavigation, /href="\/financeiro"[^>]*>[\s\S]*?Financeiro<\/a>/);
-  assert.match(mainNavigation, /href="\/despesas"[^>]*>[\s\S]*?Despesas<\/a>/);
+  assert.doesNotMatch(mainNavigation, /href="\/despesas"/);
   assert.match(mainNavigation, /href="\/alertas"[^>]*>[\s\S]*?Alertas<\/a>/);
   assert.match(mainNavigation, /href="\/backups"[^>]*>[\s\S]*?Manutenção<\/a>/);
   assert.match(mainNavigation, /nav-section-label">Financeiro/);
