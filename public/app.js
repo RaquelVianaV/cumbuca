@@ -15972,7 +15972,7 @@ function businessProfitabilityPanel(data) {
   const storeProfit = storeRows.reduce((sum, row) => sum + row.estimatedProfit, 0);
   const storeCost = storeRevenue - storeProfit;
   const storeMargin = storeRevenue > 0 ? (storeProfit / storeRevenue) * 100 : null;
-  const activeStoreRows = storeRows.filter(row => row.units > 0);
+  const activeStoreRows = storeRows.filter(row => row.units > 0 && row.product && row.recipe);
   const unconfiguredRows = weekly.rows.filter(row => !row.costConfigured);
   const lowMarginRows = weekly.rows.filter(row => {
     return row.recipe && row.margin !== null && row.margin + 0.0001 < row.desiredMargin;
@@ -16111,7 +16111,7 @@ function businessProfitabilityPanel(data) {
             </tbody>
           </table>
         </div>
-      ` : `<p class="muted">Nenhum produto da loja com quantidade no período.</p>`}
+      ` : `<p class="muted">Nenhum produto com receita vinculada e quantidade informada no período.</p>`}
     </section>
   `;
 }

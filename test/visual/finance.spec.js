@@ -139,7 +139,7 @@ test('order revenue follows the selected filter and sums orders, channels and de
       { id: 'combo-product-quantity', productId: 'combo-product', month: '2026-08', quantity: 24 },
     ],
     storeSales: [
-      { id: 'unit-sale', date: '2026-08-05', productId: 'combo-product', saleType: 'unit', quantity: 635 },
+      { id: 'unit-sale', date: '2026-08-05', saleType: 'unit', quantity: 635 },
       { id: 'combo-sale', date: '2026-08-05', productId: 'combo-product', saleType: 'combo', quantity: 3, unitsPerCombo: 4 },
     ],
     cashEntries: [
@@ -197,6 +197,7 @@ test('order revenue follows the selected filter and sums orders, channels and de
   ).toContainText('R$ 480,00');
   await expect(storeProfitability).toContainText('3 combo(s)');
   await expect(storeProfitability).toContainText('Loja → Produtos');
+  await expect(storeProfitability).not.toContainText('Sem produto informado');
   await expect(storeProfitability).not.toContainText('635');
 
   await page.locator('.report-filter-menu').click();
