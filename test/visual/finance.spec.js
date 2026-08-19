@@ -184,9 +184,8 @@ test('order revenue follows the selected filter and sums orders, channels and de
   await expect(cashSales).toContainText('Somente lançamentos como Venda');
   await page.getByRole('button', { name: 'Rentabilidade', exact: true }).click();
   const storeProfitability = page.locator('[data-store-profitability-panel]');
-  await expect(
-    storeProfitability.locator('.metric').filter({ hasText: 'Unidades consideradas' })
-  ).toContainText('12');
+  await expect(storeProfitability.locator('[data-store-profitability-combos]')).toContainText('3');
+  await expect(storeProfitability.locator('[data-store-profitability-combo-units]')).toContainText('12');
   await expect(storeProfitability).toContainText('3 combo(s)');
   await expect(storeProfitability).not.toContainText('635');
 
