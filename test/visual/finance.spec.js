@@ -118,7 +118,7 @@ test('finance menu stays between the hero and period filters', async ({ page }, 
   ).toHaveCount(0);
 });
 
-test('weekly order revenue keeps orders and adds channel totals and delivery fees', async ({ page }) => {
+test('order revenue follows the selected filter and sums orders, channels and delivery fees', async ({ page }) => {
   const database = await mockOnlineDatabase(page);
   database.state = {
     orders: [
@@ -153,6 +153,11 @@ test('weekly order revenue keeps orders and adds channel totals and delivery fee
     hasText: 'Receita de pedidos',
   });
   await expect(revenue).toContainText('R$ 28.117,17');
+
+  await page.locator('.report-filter-menu').click();
+  await reportFilter.locator('select[name="type"]').selectOption('month');
+  await reportFilter.getByRole('button', { name: 'Atualizar', exact: true }).click();
+  await expect(revenue).toContainText('R$ 29.215,17');
 });
 
 test('closed July can be reopened from the monthly closing panel', async ({ page }) => {
