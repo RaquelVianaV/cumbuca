@@ -13625,7 +13625,13 @@ function reportData() {
     remainingDebtVanessa: partnerDebtVanessa,
     remainingDebtRaquel: partnerDebtRaquel
   };
-  const orderRevenue = orders.reduce((sum, order) => sum + Number(order.amount || 0), 0);
+  const ordersRecordedRevenue = orders.reduce(
+    (sum, order) => sum + Number(order.amount || 0),
+    0
+  );
+  const orderRevenue = type === "week"
+    ? channelReceiptTotals(channelReceipts).total + cardapioDeliveryFeeTotal(channelReceipts)
+    : ordersRecordedRevenue;
   const soldOrders = productionOrders(orders);
   const deliveryRevenue = soldOrders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0);
   const totalQuantity = soldOrders.reduce((sum, order) => sum + orderQuantity(order), 0);

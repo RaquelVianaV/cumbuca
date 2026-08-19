@@ -118,6 +118,43 @@ test('finance menu stays between the hero and period filters', async ({ page }, 
   ).toHaveCount(0);
 });
 
+test('weekly order revenue adds channel totals and delivery fees', async ({ page }) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    orders: [
+      { id: 'weekly-order', menuKey: '2026-08-semana-1', amount: '8900.00' },
+    ],
+    channelReceipts: [
+      {
+        id: 'weekly-channels',
+        date: '2026-08-05',
+        cardapioWebNet: '18552.21',
+        cardapioWebDeliveryFee: '664.96',
+      },
+      {
+        id: 'outside-week',
+        date: '2026-08-12',
+        cardapioWebNet: '999.00',
+        cardapioWebDeliveryFee: '99.00',
+      },
+    ],
+  };
+
+  await page.goto('/relatorios?ano=2026&mes=8');
+  await page.locator('.report-filter-menu').click();
+  const reportFilter = page.locator('#report-filter-form');
+  await reportFilter.locator('select[name="type"]').selectOption('week');
+  await reportFilter.locator('input[name="start"]').fill('2026-08-03');
+  await reportFilter.locator('input[name="end"]').fill('2026-08-09');
+  await reportFilter.locator('select[name="week"]').selectOption('1');
+  await reportFilter.getByRole('button', { name: 'Atualizar', exact: true }).click();
+
+  const revenue = page.locator('.report-grid .report-metric').filter({
+    hasText: 'Receita de pedidos',
+  });
+  await expect(revenue).toContainText('R$ 19.217,17');
+});
+
 test('closed July can be reopened from the monthly closing panel', async ({ page }) => {
   const database = await mockOnlineDatabase(page);
   database.state = {

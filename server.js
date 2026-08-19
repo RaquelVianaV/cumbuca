@@ -1775,9 +1775,12 @@ function cashEntryIncluded(entry = {}) {
   );
 }
 
-function financialIntegritySummary(state, backup = null) {
+function financialIntegritySummary(state, backup = null, now = new Date()) {
+  const currentMonth = now.toISOString().slice(0, 7);
   const cashEntries = Array.isArray(state.cashEntries)
-    ? state.cashEntries.filter(cashEntryIncluded)
+    ? state.cashEntries
+        .filter(cashEntryIncluded)
+        .filter((entry) => monthKeyFromDate(entry.date) === currentMonth)
     : [];
   const totals = cashEntries.reduce(
     (result, entry) => {
@@ -1803,7 +1806,6 @@ function financialIntegritySummary(state, backup = null) {
   const unlockedWeeks = Object.entries(state.weeklyClosings || {})
     .filter(([, closing]) => closing?.locked === false)
     .map(([key]) => key);
-  const now = new Date();
   const previousMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
     .toISOString()
     .slice(0, 7);

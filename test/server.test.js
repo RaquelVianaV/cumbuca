@@ -490,7 +490,7 @@ test('financial integrity reports negative balance and reopened periods', () => 
     financialPlanning: { savings: 75 },
     monthlyClosings: { '2026-05': { locked: false } },
   });
-  const result = financialIntegritySummary(state, null);
+  const result = financialIntegritySummary(state, null, new Date('2026-06-15T12:00:00.000Z'));
 
   assert.equal(result.status, 'danger');
   assert.equal(result.totals.balance, -50);
@@ -512,7 +512,7 @@ test('financial integrity keeps account adjustments out of accumulated warnings'
       },
     ],
   });
-  const result = financialIntegritySummary(state, null);
+  const result = financialIntegritySummary(state, null, new Date('2026-06-15T12:00:00.000Z'));
 
   assert.equal(result.totals.adjustments, -25);
   assert.equal(
@@ -523,6 +523,25 @@ test('financial integrity keeps account adjustments out of accumulated warnings'
     result.checks.some((check) => check.label === 'Ajustes acumulados'),
     false
   );
+});
+
+test('financial integrity balance includes only entries from the current month', () => {
+  const state = normalizeState({
+    cashEntries: [
+      { id: 'old-expense', date: '2026-05-31', type: 'expense', amount: 900 },
+      { id: 'current-income', date: '2026-06-01', type: 'income', amount: 250 },
+      { id: 'current-expense', date: '2026-06-15', type: 'expense', amount: 50 },
+      { id: 'future-income', date: '2026-07-01', type: 'income', amount: 1000 },
+    ],
+    financialPlanning: { savings: 75 },
+  });
+
+  const result = financialIntegritySummary(state, null, new Date('2026-06-20T12:00:00.000Z'));
+
+  assert.equal(result.totals.income, 250);
+  assert.equal(result.totals.expenses, 50);
+  assert.equal(result.totals.balance, 200);
+  assert.equal(result.totals.consolidatedBalance, 275);
 });
 
 test('financial reset endpoints require authentication', async (t) => {
