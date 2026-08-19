@@ -190,6 +190,8 @@ test('order revenue follows the selected filter and sums orders, channels and de
   await expect(storeProfitability.locator('[data-store-profitability-combos]')).toContainText('3');
   await expect(storeProfitability.locator('[data-store-profitability-combo-units]')).toContainText('12');
   await expect(storeProfitability.locator('[data-store-profitability-product-units]')).toContainText('24');
+  await expect(storeProfitability.locator('thead')).not.toContainText('Unidades nos combos');
+  await expect(storeProfitability.locator('thead')).not.toContainText('Combos');
   await expect(
     storeProfitability.locator('.metric').filter({ hasText: 'Receita estimada' })
   ).toContainText('R$ 480,00');

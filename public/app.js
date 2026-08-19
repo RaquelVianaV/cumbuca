@@ -16083,8 +16083,6 @@ function businessProfitabilityPanel(data) {
               <tr>
                 <th>Produto</th>
                 <th>Origem da quantidade</th>
-                <th>Combos</th>
-                <th>Unidades nos combos</th>
                 <th>Quantidade usada</th>
                 <th>Receita vinculada</th>
                 <th>Preço ref.</th>
@@ -16099,8 +16097,6 @@ function businessProfitabilityPanel(data) {
                 <tr data-profitability-store-product="${escapeHtml(row.key)}">
                   <td><strong>${escapeHtml(row.name)}</strong></td>
                   <td>${row.quantitySource === "products" ? "Loja → Produtos" : row.combos > 0 ? "Combos registrados" : "Sem combos no período"}</td>
-                  <td><strong>${row.combos}</strong></td>
-                  <td><strong>${row.comboUnits}</strong></td>
                   <td><strong>${row.units}</strong></td>
                   <td>${row.recipe ? escapeHtml(row.recipe.name || "Receita sem nome") : "Sem vínculo"}</td>
                   <td>${row.recipe ? money(row.referencePrice) : "—"}</td>
