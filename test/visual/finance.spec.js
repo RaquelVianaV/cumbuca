@@ -118,7 +118,7 @@ test('finance menu stays between the hero and period filters', async ({ page }, 
   ).toHaveCount(0);
 });
 
-test('weekly order revenue adds channel totals and delivery fees', async ({ page }) => {
+test('weekly order revenue keeps orders and adds channel totals and delivery fees', async ({ page }) => {
   const database = await mockOnlineDatabase(page);
   database.state = {
     orders: [
@@ -152,7 +152,7 @@ test('weekly order revenue adds channel totals and delivery fees', async ({ page
   const revenue = page.locator('.report-grid .report-metric').filter({
     hasText: 'Receita de pedidos',
   });
-  await expect(revenue).toContainText('R$ 19.217,17');
+  await expect(revenue).toContainText('R$ 28.117,17');
 });
 
 test('closed July can be reopened from the monthly closing panel', async ({ page }) => {

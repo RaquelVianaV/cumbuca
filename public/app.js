@@ -13630,7 +13630,9 @@ function reportData() {
     0
   );
   const orderRevenue = type === "week"
-    ? channelReceiptTotals(channelReceipts).total + cardapioDeliveryFeeTotal(channelReceipts)
+    ? ordersRecordedRevenue
+      + channelReceiptTotals(channelReceipts).total
+      + cardapioDeliveryFeeTotal(channelReceipts)
     : ordersRecordedRevenue;
   const soldOrders = productionOrders(orders);
   const deliveryRevenue = soldOrders.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0);
