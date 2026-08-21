@@ -421,6 +421,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /function clientLegacyPackageCount/);
   assert.match(app, /id="monthly-renewal-form"/);
   assert.match(app, /data-renew-client/);
+  assert.match(app, /panel\?\.scrollIntoView/);
   assert.match(app, /data-renewal-payment-toggle/);
   assert.match(app, /Definir o saldo final desejado/);
   assert.match(app, /requestedQuantity - currentBalance/);

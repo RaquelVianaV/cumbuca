@@ -11138,11 +11138,14 @@ function clientPanel(currentKey) {
 
 function bindMonthlyRenewalControls(currentKey) {
   document.querySelectorAll("[data-renew-client]").forEach(button => {
-    button.addEventListener("click", event => {
+    button.addEventListener("click", async event => {
       state.renewClientIndex = Number(event.currentTarget.dataset.renewClient);
       state.clientHistoryPhone = "";
       state.clientTab = "list";
-      renderMenu();
+      await renderMenu();
+      const panel = document.querySelector("[data-monthly-renewal-panel]");
+      panel?.scrollIntoView({ behavior: "smooth", block: "start" });
+      panel?.querySelector("[name='renewalQuantity']")?.focus({ preventScroll: true });
     });
   });
 
@@ -11340,6 +11343,7 @@ function clientList(currentKey) {
         <input data-client-search placeholder="Nome, telefone, endereço ou observação" value="${escapeHtml(state.clientSearch || "")}">
       </label>
     </div>
+    ${state.renewClientIndex !== null ? monthlyRenewalPanel(state.clients[state.renewClientIndex], state.renewClientIndex, currentKey) : ""}
     <div class="table-wrap client-table">
       <table>
         <thead><tr><th>Nome</th><th>Endereço</th><th>Complemento</th><th>Telefone</th><th>Plano</th><th>Valor</th><th>Frete / Qtd. restante</th><th>Obs.</th><th></th></tr></thead>
@@ -11372,7 +11376,6 @@ function clientList(currentKey) {
         </tbody>
       </table>
     </div>
-    ${state.renewClientIndex !== null ? monthlyRenewalPanel(state.clients[state.renewClientIndex], state.renewClientIndex, currentKey) : ""}
     ${state.clientHistoryPhone ? clientHistoryPanel(state.clientHistoryPhone) : ""}
   `;
 }
