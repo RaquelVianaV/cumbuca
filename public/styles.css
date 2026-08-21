@@ -5990,8 +5990,8 @@ button.danger:hover {
 
 .dish-option {
   min-height: 104px;
-  display: grid;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
   gap: 7px;
   padding: 12px;
   border: 1px solid var(--line);
@@ -6024,7 +6024,7 @@ button.danger:hover {
 }
 
 .dish-option > input {
-  margin-top: 4px;
+  margin-top: auto;
   min-height: 38px;
   font-weight: 800;
 }
