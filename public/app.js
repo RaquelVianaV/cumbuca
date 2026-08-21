@@ -10457,12 +10457,16 @@ async function renderMenu() {
 
     const planField = clientForm.querySelector("[name='plan']");
     const monthlyQuantityField = clientForm.querySelector("[name='monthlyQuantity']");
+    let monthlyQuantityEdited = false;
     function updateDeliveryVisibility() {
       clientForm.dataset.plan = planField.value;
       const isMonthly = planField.value === "mensalista";
       monthlyQuantityField.required = isMonthly;
     }
     planField.addEventListener("change", updateDeliveryVisibility);
+    monthlyQuantityField.addEventListener("input", () => {
+      monthlyQuantityEdited = true;
+    });
     updateDeliveryVisibility();
 
     clientForm.addEventListener("submit", event => {
@@ -10478,14 +10482,19 @@ async function renderMenu() {
         return;
       }
       const periodKey = currentMenuPeriodKey();
+      const existingClient = state.editClientIndex !== null
+        ? state.clients[state.editClientIndex] || {}
+        : {};
       const monthlyPackages = {
-        ...(state.editClientIndex !== null ? state.clients[state.editClientIndex]?.monthlyPackages || {} : {})
+        ...(existingClient.monthlyPackages || {})
       };
 
       if (data.plan === "mensalista") {
+        const startsNewMonthlyBalance = existingClient.plan !== "mensalista" || monthlyQuantityEdited;
         monthlyPackages[periodKey] = {
           ...(monthlyPackages[periodKey] || {}),
-          monthlyQuantity: data.monthlyQuantity
+          monthlyQuantity: data.monthlyQuantity,
+          ...(startsNewMonthlyBalance ? { balanceStartedAt: new Date().toISOString() } : {})
         };
       }
 
@@ -10496,12 +10505,11 @@ async function renderMenu() {
       };
 
       if (state.editClientIndex !== null) {
-        const existing = state.clients[state.editClientIndex] || {};
         state.clients[state.editClientIndex] = {
-          ...existing,
+          ...existingClient,
           ...client,
-          createdAt: existing.createdAt || new Date().toISOString(),
-          createdMenuKey: existing.createdMenuKey || ""
+          createdAt: existingClient.createdAt || new Date().toISOString(),
+          createdMenuKey: existingClient.createdMenuKey || ""
         };
       } else {
         state.clients.push({
@@ -11399,20 +11407,25 @@ function isMonthlyRenewalRecord(order = {}) {
   return order.monthlyRenewal === true;
 }
 
+function clientMonthlyBalanceOrders(client, currentKey) {
+  const balanceStartedAt = String(clientMonthlyPackage(client, currentKey).balanceStartedAt || "");
+  return monthlyOrders(currentKey)
+    .filter(order => order.clientPhone === client.phone)
+    .filter(order => !balanceStartedAt || String(order.createdAt || "") >= balanceStartedAt);
+}
+
 function productionOrders(orders = []) {
   return orders.filter(order => !isMonthlyRenewalRecord(order));
 }
 
 function clientMonthlyRenewals(client, currentKey, ignoredOrderId = null) {
-  return monthlyOrders(currentKey)
-    .filter(order => order.clientPhone === client.phone)
+  return clientMonthlyBalanceOrders(client, currentKey)
     .filter(order => Number(order.id) !== Number(ignoredOrderId))
     .filter(isMonthlyRenewalRecord);
 }
 
 function clientLegacyPackageCount(client, currentKey, ignoredOrderId = null) {
-  return monthlyOrders(currentKey)
-    .filter(order => order.clientPhone === client.phone)
+  return clientMonthlyBalanceOrders(client, currentKey)
     .filter(order => Number(order.id) !== Number(ignoredOrderId))
     .filter(order => !isMonthlyRenewalRecord(order))
     .reduce((sum, order) => sum + Math.max(0, Number(order.monthlyPackageCount || 0)), 0);
@@ -11433,8 +11446,7 @@ function clientMonthlyCapacity(client, currentKey, ignoredOrderId = null) {
 }
 
 function clientOrderedQuantity(client, currentKey, ignoredOrderId = null) {
-  return monthlyOrders(currentKey)
-    .filter(order => order.clientPhone === client.phone)
+  return clientMonthlyBalanceOrders(client, currentKey)
     .filter(order => Number(order.id) !== Number(ignoredOrderId))
     .reduce((sum, order) => sum + orderQuantity(order), 0);
 }

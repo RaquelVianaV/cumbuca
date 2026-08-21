@@ -416,6 +416,8 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(css, /\.month-summary-note/);
   assert.match(app, /function isMonthlyRenewalRecord/);
   assert.match(app, /function clientMonthlyRenewals/);
+  assert.match(app, /function clientMonthlyBalanceOrders/);
+  assert.match(app, /balanceStartedAt: new Date\(\)\.toISOString\(\)/);
   assert.match(app, /function clientLegacyPackageCount/);
   assert.match(app, /id="monthly-renewal-form"/);
   assert.match(app, /data-renew-client/);
