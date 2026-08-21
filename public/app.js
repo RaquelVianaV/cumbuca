@@ -6018,10 +6018,10 @@ function managementForecastHtml(rows) {
     </article>`).join("")}</div>`;
 }
 
-function weeklyManagementSummaryData() {
+function weeklyManagementSummaryData(selectedStart = "") {
   const today = new Date();
-  const currentStart = isoDate(startOfWeek(today));
-  const currentEnd = isoDate(endOfWeek(today));
+  const currentStart = selectedStart || isoDate(startOfWeek(today));
+  const currentEnd = addDays(currentStart, 6);
   const previousEndDate = new Date(`${currentStart}T12:00:00`);
   previousEndDate.setDate(previousEndDate.getDate() - 1);
   const previousEnd = isoDate(previousEndDate);
@@ -6047,8 +6047,8 @@ function weeklyManagementSummaryData() {
   return { currentStart, currentEnd, current, previous, pending };
 }
 
-function weeklyManagementSummaryHtml() {
-  const data = weeklyManagementSummaryData();
+function weeklyManagementSummaryHtml(selectedStart = "") {
+  const data = weeklyManagementSummaryData(selectedStart);
   const delta = (current, previous) => current - previous;
   const metric = (label, value, previous, tone = "") => {
     const difference = delta(value, previous);
@@ -6070,7 +6070,72 @@ function weeklyManagementSummaryHtml() {
     </section>`;
 }
 
+function isoWeekValue(dateValue = isoDate(new Date())) {
+  const date = new Date(`${dateValue}T12:00:00`);
+  const thursday = new Date(date);
+  thursday.setDate(date.getDate() + 3 - ((date.getDay() + 6) % 7));
+  const firstThursday = new Date(thursday.getFullYear(), 0, 4, 12);
+  const week = 1 + Math.round(((thursday - firstThursday) / 86400000 - 3 + ((firstThursday.getDay() + 6) % 7)) / 7);
+  return `${thursday.getFullYear()}-W${String(week).padStart(2, "0")}`;
+}
+
+function isoWeekStart(weekValue = isoWeekValue()) {
+  const match = String(weekValue || "").match(/^(\d{4})-W(\d{2})$/);
+  if (!match) return isoDate(startOfWeek(new Date()));
+  const year = Number(match[1]);
+  const week = Number(match[2]);
+  const januaryFourth = new Date(year, 0, 4, 12);
+  const firstMonday = startOfWeek(januaryFourth);
+  return addDays(isoDate(firstMonday), (week - 1) * 7);
+}
+
+function weeklyHome() {
+  showHomeHero();
+  setActive("home");
+  document.body.classList.add("home-route");
+  const weekValue = localStorage.getItem("managementWeek") || isoWeekValue();
+  const weekStart = isoWeekStart(weekValue);
+  const weekEnd = addDays(weekStart, 6);
+  app.innerHTML = `
+    <div class="executive-home">
+      <section class="home-command-grid executive-toolbar" aria-labelledby="global-period-title">
+        <div>
+          <span class="executive-eyebrow">Visão geral</span>
+          <h2 id="global-period-title">Situação da empresa</h2>
+          <p>${formatIsoDateBr(weekStart)} a ${formatIsoDateBr(weekEnd)} · comparado com a semana anterior</p>
+        </div>
+        <form id="global-period-form" class="global-period-form executive-period-form">
+          <button class="secondary executive-period-shift" type="button" data-home-week-shift="-1" aria-label="Semana anterior">‹</button>
+          <label><span>Visualização</span><select name="periodType"><option value="month">Mês</option><option value="week" selected>Semana</option></select></label>
+          <label><span>Semana</span><input name="week" type="week" value="${weekValue}" required></label>
+          <button class="secondary executive-period-shift" type="button" data-home-week-shift="1" aria-label="Próxima semana">›</button>
+          <button type="submit">Aplicar</button>
+        </form>
+      </section>
+      ${weeklyManagementSummaryHtml(weekStart)}
+    </div>`;
+
+  on("#global-period-form", "submit", event => {
+    event.preventDefault();
+    const values = readForm(event.currentTarget);
+    localStorage.setItem("managementPeriodType", values.periodType === "week" ? "week" : "month");
+    if (values.periodType === "week") localStorage.setItem("managementWeek", values.week);
+    home();
+  });
+  document.querySelectorAll("[data-home-week-shift]").forEach(button => {
+    button.addEventListener("click", event => {
+      const shiftedStart = addDays(weekStart, Number(event.currentTarget.dataset.homeWeekShift || 0) * 7);
+      localStorage.setItem("managementWeek", isoWeekValue(shiftedStart));
+      home();
+    });
+  });
+}
+
 function home() {
+  if (localStorage.getItem("managementPeriodType") === "week") {
+    weeklyHome();
+    return;
+  }
   showHomeHero();
   setActive("home");
   document.body.classList.add("home-route");
@@ -6123,6 +6188,7 @@ function home() {
         </div>
         <form id="global-period-form" class="global-period-form executive-period-form">
           <button class="secondary executive-period-shift" type="button" data-home-period-shift="-1" aria-label="Mês anterior">‹</button>
+          <label><span>Visualização</span><select name="periodType"><option value="month" selected>Mês</option><option value="week">Semana</option></select></label>
           <label>
             <span>Período</span>
             <input name="period" type="month" value="${periodKey}" required>
@@ -6332,6 +6398,13 @@ function home() {
   on("#global-period-form", "submit", event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
+    if (values.periodType === "week") {
+      localStorage.setItem("managementPeriodType", "week");
+      localStorage.setItem("managementWeek", isoWeekValue());
+      home();
+      return;
+    }
+    localStorage.setItem("managementPeriodType", "month");
     const [year, month] = String(values.period || periodKey).split("-").map(Number);
     localStorage.setItem("managementComparePrevious", values.comparePrevious === "on" ? "true" : "false");
     const selected = applyGlobalPeriodToViews({ year, month });

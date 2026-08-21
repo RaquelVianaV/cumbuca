@@ -3767,6 +3767,28 @@ test('home period applies the selected month across monthly views', async ({ pag
   await expect(page.locator('#report-filter-form select[name="month"]')).toHaveValue('7');
 });
 
+test('home can filter a selected week and compare it with the previous week', async ({ page }) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    cashEntries: [
+      { id: 'week-current-income', date: '2026-08-18', type: 'income', category: 'venda', amount: '200.00' },
+      { id: 'week-current-expense', date: '2026-08-19', type: 'expense', category: 'supermercado', amount: '50.00' },
+      { id: 'week-previous-income', date: '2026-08-11', type: 'income', category: 'venda', amount: '100.00' },
+    ],
+  };
+  await page.goto('/home');
+  const monthlyForm = page.locator('#global-period-form');
+  await monthlyForm.locator('select[name="periodType"]').selectOption('week');
+  await monthlyForm.getByRole('button', { name: 'Aplicar em todo o sistema', exact: true }).click();
+  const weeklyForm = page.locator('#global-period-form');
+  await weeklyForm.locator('input[name="week"]').fill('2026-W34');
+  await weeklyForm.getByRole('button', { name: 'Aplicar', exact: true }).click();
+  await expect(page.locator('.executive-toolbar')).toContainText('17/08/2026 a 23/08/2026');
+  await expect(page.locator('.management-weekly-card')).toContainText('R$ 200,00');
+  await expect(page.locator('.management-weekly-card')).toContainText('R$ 150,00');
+  await expect(page.locator('.management-weekly-card')).toContainText('vs. semana anterior');
+});
+
 test('finance dashboard separates PF, PJ, Cofrinho and consolidated balance', async ({
   page,
 }, testInfo) => {

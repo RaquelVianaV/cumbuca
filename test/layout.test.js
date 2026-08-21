@@ -595,6 +595,9 @@ test('navigation, finance, reports and maintenance expose the expected views', (
 
 test('home keeps the existing management view and adds read-only financial understanding', () => {
   assert.match(app, /Situação da empresa/);
+  assert.match(app, /function weeklyHome/);
+  assert.match(app, /name="periodType"/);
+  assert.match(app, /name="week" type="week"/);
   assert.match(app, /Vendas/);
   assert.match(app, /Compras de insumos/);
   assert.match(app, /Lucro operacional/);
