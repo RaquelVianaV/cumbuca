@@ -795,7 +795,7 @@ test('monthly clients renew quantities manually and choose whether to launch the
     paidAmount: 0,
   });
   await expect(page.locator('[data-client-row="0"]')).toContainText('12 restantes');
-  await expect(page.locator('[data-client-row="0"]')).toContainText('22 liberadas no mês');
+  await expect(page.locator('[data-client-row="0"]')).toContainText('22 no pacote atual');
 
   await page
     .locator('[data-client-row="0"]')
@@ -812,6 +812,8 @@ test('monthly clients renew quantities manually and choose whether to launch the
     renewalQuantity: 3,
   });
   await expect(page.locator('[data-client-row="0"]')).toContainText('15 restantes');
+  await expect(page.locator('[data-client-row="0"]')).toContainText('15 no pacote atual');
+  await expect(page.locator('[data-client-row="0"]')).not.toContainText('3 pacotes');
 
   await page
     .locator('[data-client-row="0"]')
@@ -840,7 +842,7 @@ test('monthly clients renew quantities manually and choose whether to launch the
     paidAmount: 80,
   });
   await expect(page.locator('[data-client-row="0"]')).toContainText('23 restantes');
-  await expect(page.locator('[data-client-row="0"]')).toContainText('33 liberadas no mês');
+  await expect(page.locator('[data-client-row="0"]')).toContainText('23 no pacote atual');
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
     path: testInfo.outputPath(`monthly-client-renewal-${testInfo.project.name}.png`),

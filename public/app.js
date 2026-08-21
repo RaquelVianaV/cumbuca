@@ -11235,6 +11235,8 @@ function bindMonthlyRenewalControls(currentKey) {
           paidAmount: amount,
           monthlyRenewal: true,
           renewalQuantity: quantity,
+          renewalMode: setsFinalBalance ? "target" : "add",
+          renewalTargetQuantity: setsFinalBalance ? requestedQuantity : undefined,
           delivered: true,
           deliveredAt: now,
           notes: `${setsFinalBalance ? `Saldo definido em ${requestedQuantity}; ` : ""}Renovação de ${quantity} cumbuca(s) ${launchValue ? "com mensalidade lançada" : "sem lançamento da mensalidade"}.`,
@@ -11268,7 +11270,7 @@ function monthlyRenewalPanel(client, clientIndex, currentKey) {
   }
 
   const remaining = clientRemainingQuantity(client, currentKey);
-  const capacity = clientMonthlyCapacity(client, currentKey);
+  const capacity = clientDisplayedMonthlyQuantity(client, currentKey);
   const defaultQuantity = clientMonthlyQuantity(client, currentKey);
   const recordedValue = clientMonthlyRecordedValue(client, currentKey);
   return `
@@ -11281,7 +11283,7 @@ function monthlyRenewalPanel(client, clientIndex, currentKey) {
         <button class="secondary" type="button" id="cancel-monthly-renewal">Cancelar</button>
       </div>
       <div class="summary monthly-renewal-summary">
-        <div class="metric"><span>Saldo atual</span><strong>${remaining}</strong><small>de ${capacity} liberadas no mês</small></div>
+        <div class="metric"><span>Saldo atual</span><strong>${remaining}</strong><small>de ${capacity} no pacote atual</small></div>
         <div class="metric"><span>Quantidade sugerida</span><strong>${defaultQuantity}</strong><small>igual ao pacote inicial</small></div>
         <div class="metric"><span>Mensalidade lançada</span><strong>${money(recordedValue)}</strong><small>somente valores informados</small></div>
       </div>
@@ -11357,7 +11359,7 @@ function clientList(currentKey) {
               <td>${client.plan === "mensalista" ? "Mensalista" : "Semanal"}</td>
               <td>${client.plan === "mensalista" ? "Manual ao renovar ou no pedido" : "Variável"}</td>
               <td>
-                ${client.plan === "mensalista" ? `<span class="monthly-quantity-balance"><strong>${clientRemainingQuantity(client, currentKey)} restantes</strong><small>${clientMonthlyCapacity(client, currentKey)} liberadas no mês</small></span> ${clientChargedPackageCount(client, currentKey) > 1 ? `<span class="quantity-badge renewed">${clientChargedPackageCount(client, currentKey)} pacotes</span>` : ""} ${clientQuantityStatus(client, currentKey)}` : money(client.weeklyDeliveryFee || client.deliveryFee)}
+                ${client.plan === "mensalista" ? `<span class="monthly-quantity-balance"><strong>${clientRemainingQuantity(client, currentKey)} restantes</strong><small>${clientDisplayedMonthlyQuantity(client, currentKey)} no pacote atual</small></span> ${clientChargedPackageCount(client, currentKey) > 1 ? `<span class="quantity-badge renewed">${clientChargedPackageCount(client, currentKey)} pacotes</span>` : ""} ${clientQuantityStatus(client, currentKey)}` : money(client.weeklyDeliveryFee || client.deliveryFee)}
               </td>
               <td>${escapeHtml(client.notes || "")}</td>
               <td>
@@ -11410,6 +11412,19 @@ function isMonthlyRenewalRecord(order = {}) {
   return order.monthlyRenewal === true;
 }
 
+function monthlyRenewalTargetQuantity(order = {}) {
+  const recordedTarget = Number(order.renewalTargetQuantity || 0);
+  if (recordedTarget > 0) {
+    return recordedTarget;
+  }
+  const legacyTarget = String(order.notes || "").match(/^Saldo definido em (\d+)/);
+  return legacyTarget ? Number(legacyTarget[1]) : 0;
+}
+
+function isTargetMonthlyRenewal(order = {}) {
+  return order.renewalMode === "target" || monthlyRenewalTargetQuantity(order) > 0;
+}
+
 function clientMonthlyBalanceOrders(client, currentKey) {
   const balanceStartedAt = String(clientMonthlyPackage(client, currentKey).balanceStartedAt || "");
   return monthlyOrders(currentKey)
@@ -11436,7 +11451,34 @@ function clientLegacyPackageCount(client, currentKey, ignoredOrderId = null) {
 
 function clientChargedPackageCount(client, currentKey, ignoredOrderId = null) {
   const legacyPackages = clientLegacyPackageCount(client, currentKey, ignoredOrderId);
-  return Math.max(1, legacyPackages) + clientMonthlyRenewals(client, currentKey, ignoredOrderId).length;
+  const addedPackages = clientMonthlyRenewals(client, currentKey, ignoredOrderId)
+    .filter(order => !isTargetMonthlyRenewal(order)).length;
+  return Math.max(1, legacyPackages) + addedPackages;
+}
+
+function clientDisplayedMonthlyQuantity(client, currentKey) {
+  const renewals = clientMonthlyRenewals(client, currentKey);
+  const latestTarget = renewals
+    .filter(isTargetMonthlyRenewal)
+    .sort((left, right) => (
+      String(right.createdAt || "").localeCompare(String(left.createdAt || "")) ||
+      Number(right.id || 0) - Number(left.id || 0)
+    ))[0];
+  const targetQuantity = monthlyRenewalTargetQuantity(latestTarget);
+  if (!targetQuantity) {
+    return clientMonthlyCapacity(client, currentKey);
+  }
+  const addedAfterTarget = renewals
+    .filter(order => !isTargetMonthlyRenewal(order))
+    .filter(order => (
+      String(order.createdAt || "").localeCompare(String(latestTarget.createdAt || "")) > 0 ||
+      (
+        String(order.createdAt || "") === String(latestTarget.createdAt || "") &&
+        Number(order.id || 0) > Number(latestTarget.id || 0)
+      )
+    ))
+    .reduce((sum, order) => sum + Math.max(0, Number(order.renewalQuantity || 0)), 0);
+  return targetQuantity + addedAfterTarget;
 }
 
 function clientMonthlyCapacity(client, currentKey, ignoredOrderId = null) {
