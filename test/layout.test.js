@@ -420,6 +420,8 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /id="monthly-renewal-form"/);
   assert.match(app, /data-renew-client/);
   assert.match(app, /data-renewal-payment-toggle/);
+  assert.match(app, /Definir o saldo final desejado/);
+  assert.match(app, /requestedQuantity - currentBalance/);
   assert.match(app, /Lançar o valor da mensalidade agora/);
   assert.match(app, /Saldo insuficiente/);
   assert.match(app, /const LOW_MONTHLY_QUANTITY = 5/);

@@ -11151,6 +11151,20 @@ function bindMonthlyRenewalControls(currentKey) {
     const paymentToggle = monthlyRenewalForm.querySelector("[data-renewal-payment-toggle]");
     const valueField = monthlyRenewalForm.querySelector("[data-renewal-value-field]");
     const amountField = monthlyRenewalForm.elements.monthlyFeeAmount;
+    const renewalModeField = monthlyRenewalForm.elements.renewalMode;
+    const quantityField = monthlyRenewalForm.elements.renewalQuantity;
+    const quantityLabel = monthlyRenewalForm.querySelector("[data-renewal-quantity-label]");
+    const quantityHint = monthlyRenewalForm.querySelector("[data-renewal-quantity-hint]");
+    const currentBalance = Number(monthlyRenewalForm.dataset.currentBalance || 0);
+    function updateMonthlyRenewalQuantityMode() {
+      const setsFinalBalance = renewalModeField.value === "target";
+      quantityLabel.textContent = setsFinalBalance
+        ? "Saldo desejado após a renovação"
+        : "Quantidade a acrescentar";
+      quantityHint.textContent = setsFinalBalance
+        ? `O sistema acrescentará somente a diferença sobre o saldo atual de ${currentBalance}.`
+        : "Essa quantidade será acrescentada ao saldo disponível.";
+    }
     function updateMonthlyRenewalPaymentVisibility() {
       const launchValue = paymentToggle.checked;
       valueField.hidden = !launchValue;
@@ -11161,7 +11175,9 @@ function bindMonthlyRenewalControls(currentKey) {
       }
     }
     paymentToggle.addEventListener("change", updateMonthlyRenewalPaymentVisibility);
+    renewalModeField.addEventListener("change", updateMonthlyRenewalQuantityMode);
     updateMonthlyRenewalPaymentVisibility();
+    updateMonthlyRenewalQuantityMode();
 
     monthlyRenewalForm.addEventListener("submit", async event => {
       event.preventDefault();
@@ -11172,15 +11188,23 @@ function bindMonthlyRenewalControls(currentKey) {
       try {
         const clientIndex = Number(event.currentTarget.dataset.clientIndex);
         const client = state.clients[clientIndex];
-        const quantity = Math.max(0, Math.floor(Number(event.currentTarget.elements.renewalQuantity.value || 0)));
+        const requestedQuantity = Math.max(0, Math.floor(Number(quantityField.value || 0)));
+        const setsFinalBalance = renewalModeField.value === "target";
+        const quantity = setsFinalBalance
+          ? Math.max(0, requestedQuantity - currentBalance)
+          : requestedQuantity;
         const launchValue = paymentToggle.checked;
         const amount = launchValue ? Math.max(0, parseMoneyInput(amountField.value)) : 0;
         if (!client || client.plan !== "mensalista") {
           showToast("Mensalista não encontrado.", "error");
           return;
         }
-        if (quantity <= 0) {
-          showToast("Informe a nova quantidade de cumbucas.", "error");
+        if (requestedQuantity <= 0) {
+          showToast("Informe uma quantidade maior que zero.", "error");
+          return;
+        }
+        if (setsFinalBalance && quantity <= 0) {
+          showToast(`O saldo desejado precisa ser maior que o saldo atual de ${currentBalance}.`, "error");
           return;
         }
         if (launchValue && amount <= 0) {
@@ -11202,9 +11226,7 @@ function bindMonthlyRenewalControls(currentKey) {
           renewalQuantity: quantity,
           delivered: true,
           deliveredAt: now,
-          notes: launchValue
-            ? `Renovação de ${quantity} cumbuca(s) com mensalidade lançada.`
-            : `Renovação de ${quantity} cumbuca(s) sem lançamento da mensalidade.`,
+          notes: `${setsFinalBalance ? `Saldo definido em ${requestedQuantity}; ` : ""}Renovação de ${quantity} cumbuca(s) ${launchValue ? "com mensalidade lançada" : "sem lançamento da mensalidade"}.`,
           createdAt: now
         });
         recordAudit(
@@ -11252,10 +11274,16 @@ function monthlyRenewalPanel(client, clientIndex, currentKey) {
         <div class="metric"><span>Quantidade sugerida</span><strong>${defaultQuantity}</strong><small>igual ao pacote inicial</small></div>
         <div class="metric"><span>Mensalidade lançada</span><strong>${money(recordedValue)}</strong><small>somente valores informados</small></div>
       </div>
-      <form id="monthly-renewal-form" class="monthly-renewal-form" data-client-index="${clientIndex}">
-        <label>Nova quantidade de cumbucas
+      <form id="monthly-renewal-form" class="monthly-renewal-form" data-client-index="${clientIndex}" data-current-balance="${remaining}">
+        <label>Como deseja informar a quantidade?
+          <select name="renewalMode">
+            <option value="target">Definir o saldo final desejado</option>
+            <option value="add">Acrescentar ao saldo atual</option>
+          </select>
+        </label>
+        <label><span data-renewal-quantity-label>Quantidade a acrescentar</span>
           <input name="renewalQuantity" type="number" min="1" step="1" value="${defaultQuantity || ""}" required>
-          <small>Essa quantidade será acrescentada ao saldo disponível.</small>
+          <small data-renewal-quantity-hint>Essa quantidade será acrescentada ao saldo disponível.</small>
         </label>
         <label class="checkbox-field monthly-renewal-payment-toggle">
           <input name="launchMonthlyFee" type="checkbox" data-renewal-payment-toggle>

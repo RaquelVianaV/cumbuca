@@ -779,7 +779,9 @@ test('monthly clients renew quantities manually and choose whether to launch the
   let renewalForm = page.locator('#monthly-renewal-form');
   await expect(renewalForm).toBeVisible();
   await expect(renewalForm.locator('input[name="renewalQuantity"]')).toHaveValue('10');
+  await expect(renewalForm.locator('select[name="renewalMode"]')).toHaveValue('target');
   await expect(renewalForm.locator('[data-renewal-value-field]')).toBeHidden();
+  await renewalForm.locator('select[name="renewalMode"]').selectOption('add');
   await renewalForm.locator('input[name="renewalQuantity"]').fill('12');
   await renewalForm.getByRole('button', { name: 'Confirmar renovação', exact: true }).click();
 
@@ -800,6 +802,23 @@ test('monthly clients renew quantities manually and choose whether to launch the
     .getByRole('button', { name: 'Renovar quantidade', exact: true })
     .click();
   renewalForm = page.locator('#monthly-renewal-form');
+  await renewalForm.locator('select[name="renewalMode"]').selectOption('target');
+  await renewalForm.locator('input[name="renewalQuantity"]').fill('15');
+  await renewalForm.getByRole('button', { name: 'Confirmar renovação', exact: true }).click();
+
+  await expect.poll(() => database.state.orders?.length).toBe(3);
+  expect(database.state.orders[2]).toMatchObject({
+    monthlyRenewal: true,
+    renewalQuantity: 3,
+  });
+  await expect(page.locator('[data-client-row="0"]')).toContainText('15 restantes');
+
+  await page
+    .locator('[data-client-row="0"]')
+    .getByRole('button', { name: 'Renovar quantidade', exact: true })
+    .click();
+  renewalForm = page.locator('#monthly-renewal-form');
+  await renewalForm.locator('select[name="renewalMode"]').selectOption('add');
   await renewalForm.locator('input[name="renewalQuantity"]').fill('8');
   await renewalForm.locator('[data-renewal-payment-toggle]').check();
   await expect(renewalForm.locator('[data-renewal-value-field]')).toBeVisible();
@@ -811,8 +830,8 @@ test('monthly clients renew quantities manually and choose whether to launch the
   });
   await renewalForm.getByRole('button', { name: 'Confirmar renovação', exact: true }).click();
 
-  await expect.poll(() => database.state.orders?.length).toBe(3);
-  expect(database.state.orders[2]).toMatchObject({
+  await expect.poll(() => database.state.orders?.length).toBe(4);
+  expect(database.state.orders[3]).toMatchObject({
     clientPhone: '85888888888',
     monthlyRenewal: true,
     renewalQuantity: 8,
@@ -820,8 +839,8 @@ test('monthly clients renew quantities manually and choose whether to launch the
     paid: true,
     paidAmount: 80,
   });
-  await expect(page.locator('[data-client-row="0"]')).toContainText('20 restantes');
-  await expect(page.locator('[data-client-row="0"]')).toContainText('30 liberadas no mês');
+  await expect(page.locator('[data-client-row="0"]')).toContainText('23 restantes');
+  await expect(page.locator('[data-client-row="0"]')).toContainText('33 liberadas no mês');
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
     path: testInfo.outputPath(`monthly-client-renewal-${testInfo.project.name}.png`),
