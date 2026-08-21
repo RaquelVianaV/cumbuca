@@ -1584,6 +1584,7 @@ test('employee registry links employee expenses automatically', async ({ page },
     paymentTiming: 'future',
   });
   const fixedAccount = page.locator('.account-row');
+  await expect(fixedAccount.getByLabel('Data do pagamento', { exact: true })).toHaveValue(localDateKey());
   await fixedAccount
     .locator('form[data-account-settlement] select[name="cashAccount"]')
     .selectOption('pj');
