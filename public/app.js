@@ -11508,7 +11508,12 @@ function clientPaidMonthlyCapacity(client, currentKey) {
   const paidRenewals = orders
     .filter(isMonthlyRenewalRecord)
     .filter(order => Number(order.amount || 0) > 0)
-    .reduce((sum, order) => sum + Math.max(0, Number(order.renewalQuantity || 0)), 0);
+    .reduce((sum, order) => sum + Math.max(
+      0,
+      isTargetMonthlyRenewal(order)
+        ? monthlyRenewalTargetQuantity(order)
+        : Number(order.renewalQuantity || 0)
+    ), 0);
   return (basePackagePaid ? clientMonthlyQuantity(client, currentKey) : 0) + paidRenewals;
 }
 
