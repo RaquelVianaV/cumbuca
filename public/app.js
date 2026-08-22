@@ -3849,15 +3849,53 @@ function cashDisplayCategoryName(entry = {}) {
   return categoryName(cashDisplayCategory(entry));
 }
 
-function withdrawalGroupKey(entry = {}) {
+function withdrawalSourceGroupKey(entry = {}) {
   const match = String(entry.id || "").match(/^withdrawal-(.+)-(savings|vanessa|raquel)$/);
   if (match) return `withdrawal-${match[1]}`;
   if (entry.withdrawalGroup) return String(entry.withdrawalGroup);
-  if (entry.partnerWithdrawalSnapshotId) {
-    return `withdrawal-${entry.partnerWithdrawalSnapshotId}`;
-  }
+  if (entry.partnerWithdrawalSnapshotId) return `withdrawal-${entry.partnerWithdrawalSnapshotId}`;
   const account = normalizedCashAccount(entry.cashAccount, "unassigned");
   return `legacy-withdrawal-${String(entry.date || "sem-data")}-${account}`;
+}
+
+function withdrawalEntryFingerprint(entry = {}) {
+  return [
+    String(entry.date || ""),
+    withdrawalTarget(entry),
+    Number(entry.amount || 0).toFixed(2),
+    Number(entry.expectedAmount || 0).toFixed(2)
+  ].join("|");
+}
+
+function deduplicatedWithdrawalEntries(entries = []) {
+  const sourceGroups = new Map();
+  entries.filter(isWithdrawalEntry).forEach(entry => {
+    const key = withdrawalSourceGroupKey(entry);
+    const group = sourceGroups.get(key) || { key, date: String(entry.date || ""), entries: [] };
+    group.entries.push(entry);
+    sourceGroups.set(key, group);
+  });
+  const groups = [...sourceGroups.values()];
+  const duplicatedKeys = new Set();
+  groups.forEach(candidate => {
+    const candidatePrints = candidate.entries.map(withdrawalEntryFingerprint);
+    const containingGroup = groups.find(other => {
+      if (other.key === candidate.key || other.date !== candidate.date || other.entries.length <= candidate.entries.length) return false;
+      const available = other.entries.map(withdrawalEntryFingerprint);
+      return candidatePrints.every(fingerprint => {
+        const index = available.indexOf(fingerprint);
+        if (index < 0) return false;
+        available.splice(index, 1);
+        return true;
+      });
+    });
+    if (containingGroup) duplicatedKeys.add(candidate.key);
+  });
+  return entries.filter(entry => !isWithdrawalEntry(entry) || !duplicatedKeys.has(withdrawalSourceGroupKey(entry)));
+}
+
+function withdrawalGroupKey(entry = {}) {
+  return `withdrawal-day-${String(entry.date || "sem-data")}`;
 }
 
 function withdrawalSavingsLoanId(groupKey = "") {
@@ -4101,7 +4139,7 @@ function savingsTracePanelHtml(rows = [], { current = 0, expected = 0, debt = 0 
 
 function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod(state.cash, { includeNonCash: true })) {
   const groups = new Map();
-  entries.filter(isWithdrawalEntry).forEach(entry => {
+  deduplicatedWithdrawalEntries(entries).filter(isWithdrawalEntry).forEach(entry => {
     const key = withdrawalGroupKey(entry);
     const group = groups.get(key) || {
       key,

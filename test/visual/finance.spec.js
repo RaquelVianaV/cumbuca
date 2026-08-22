@@ -2455,6 +2455,21 @@ test('withdrawals compensate debt only after an explicit choice', async ({ page 
   });
 });
 
+test('withdrawals from the same day are unified without counting a partial duplicate', async ({ page }) => {
+  await mockOnlineDatabase(page);
+  await page.goto('/financeiro');
+  const groups = await page.evaluate(() => withdrawalHistoryGroups([
+    { id: 'withdrawal-full-savings', description: 'Retirada - cofrinho', date: '2026-08-21', type: 'expense', category: 'retirada', amount: '309.60', expectedAmount: '309.60' },
+    { id: 'withdrawal-full-vanessa', description: 'Retirada - Vanessa', date: '2026-08-21', type: 'expense', category: 'retirada', amount: '1644.23', expectedAmount: '1644.23' },
+    { id: 'withdrawal-full-raquel', description: 'Retirada - Raquel', date: '2026-08-21', type: 'expense', category: 'retirada', amount: '1142.21', expectedAmount: '1142.21' },
+    { id: 'withdrawal-duplicate-vanessa', description: 'Retirada - Vanessa', date: '2026-08-21', type: 'expense', category: 'retirada', amount: '1644.23', expectedAmount: '1644.23' },
+  ]));
+  expect(groups).toHaveLength(1);
+  expect(groups[0].date).toBe('2026-08-21');
+  expect(groups[0].total).toBeCloseTo(3096.04, 2);
+  expect(groups[0].vanessa).toBeCloseTo(1644.23, 2);
+});
+
 test('reviewing a legacy withdrawal saves its detailed closing', async ({ page }) => {
   const database = await mockOnlineDatabase(page);
   const today = localDateKey();
