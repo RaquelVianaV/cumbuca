@@ -175,7 +175,8 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /function pricingRecipeMetrics/);
   assert.match(app, /O custo soma supermercado/);
   assert.match(app, /Valor depositado no Cofrinho/);
-  assert.match(app, /divisionSavingsDeposits = Number\(data\.financial\?\.withdrawals\?\.savings/);
+  assert.match(app, /divisionSavingsDeposits = divisionAmounts\.savings/);
+  assert.match(app, /function unifiedDivisionWithdrawalAmounts/);
   assert.match(app, /Vanessa \+ Raquel/);
   assert.match(app, /Supermercado da semana \+ vasilha[\s\S]*?\+ rateio/);
   assert.match(css, /\.menu-cost-breakdown/);

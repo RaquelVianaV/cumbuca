@@ -21360,9 +21360,12 @@ function simpleFinanceOverviewPanel(data) {
     .filter(group => Number(group.distributionBase || 0) > 0);
   const actualDivisionProfit = divisionBaseGroups
     .reduce((sum, group) => sum + Number(group.distributionBase || 0), 0);
-  const divisionWithdrawals = divisionBaseGroups
-    .reduce((sum, group) => sum + Number(group.vanessa || 0) + Number(group.raquel || 0), 0);
-  const divisionSavingsDeposits = Number(data.financial?.withdrawals?.savings || 0);
+  const divisionAmounts = unifiedDivisionWithdrawalAmounts(
+    divisionBaseGroups,
+    data.financial?.withdrawals
+  );
+  const divisionWithdrawals = divisionAmounts.partners;
+  const divisionSavingsDeposits = divisionAmounts.savings;
   const divisionNonCashAmount = Math.max(
     0,
     actualDivisionProfit - divisionWithdrawals - divisionSavingsDeposits
@@ -21467,6 +21470,22 @@ function simpleFinanceOverviewPanel(data) {
       </div>
     </section>
   `;
+}
+
+function unifiedDivisionWithdrawalAmounts(groups = [], financialWithdrawals = {}) {
+  const grouped = groups.reduce((totals, group) => {
+    totals.vanessa += Number(group.vanessa || 0);
+    totals.raquel += Number(group.raquel || 0);
+    totals.savings += Number(group.savings || 0);
+    return totals;
+  }, { vanessa: 0, raquel: 0, savings: 0 });
+  const financialSavings = Number(financialWithdrawals?.savings || 0);
+  return {
+    vanessa: grouped.vanessa,
+    raquel: grouped.raquel,
+    partners: grouped.vanessa + grouped.raquel,
+    savings: Math.max(grouped.savings, financialSavings)
+  };
 }
 
 function financialAnalysisQuality(data, otherIncome = 0) {
