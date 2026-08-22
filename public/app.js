@@ -6070,6 +6070,25 @@ function weeklyManagementSummaryHtml(selectedStart = "") {
     </section>`;
 }
 
+function weeklyManagementCategoryBreakdown(start, end, type, limit = 5) {
+  const entries = businessCashEntries(accountingCashEntries(state.cash))
+    .filter(entry => {
+      const date = cashAccountingDate(entry);
+      return date >= start && date <= end;
+    })
+    .filter(entry => type === "expense" ? entry.type === "expense" : entry.type !== "expense");
+  const groups = entries.reduce((result, entry) => {
+    const label = categoryName(entry.category) || (type === "expense" ? "Outras despesas" : "Outras receitas");
+    result.set(label, Number(result.get(label) || 0) + Math.abs(Number(entry.amount || 0)));
+    return result;
+  }, new Map());
+  const total = entries.reduce((sum, entry) => sum + Math.abs(Number(entry.amount || 0)), 0);
+  return [...groups.entries()]
+    .map(([label, value]) => ({ label, value, percent: total > 0 ? (value / total) * 100 : 0 }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, limit);
+}
+
 function isoWeekValue(dateValue = isoDate(new Date())) {
   const date = new Date(`${dateValue}T12:00:00`);
   const thursday = new Date(date);
@@ -6096,6 +6115,20 @@ function weeklyHome() {
   const weekValue = localStorage.getItem("managementWeek") || isoWeekValue();
   const weekStart = isoWeekStart(weekValue);
   const weekEnd = addDays(weekStart, 6);
+  const weekly = weeklyManagementSummaryData(weekStart);
+  const cashPosition = homeMetricData();
+  const upcomingPayables = managementUpcomingPayables(100);
+  const payable30 = upcomingPayables.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const projectedBalance30 = roundedMoneyValue(cashPosition.consolidatedBalance + cashPosition.receivable30 - payable30);
+  const expenseBreakdown = weeklyManagementCategoryBreakdown(weekStart, weekEnd, "expense");
+  const incomeBreakdown = weeklyManagementCategoryBreakdown(weekStart, weekEnd, "income");
+  const purchaseEntries = businessCashEntries(accountingCashEntries(state.cash)).filter(entry => {
+    const date = cashAccountingDate(entry);
+    return date >= weekStart && date <= weekEnd && entry.type === "expense" && foodInputExpenseCategory(entry);
+  });
+  const purchases = purchaseEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  const purchasesPercent = weekly.current.income > 0 ? (purchases / weekly.current.income) * 100 : 0;
+  const purchasesPerBowl = weekly.current.bowls > 0 ? purchases / weekly.current.bowls : 0;
   app.innerHTML = `
     <div class="executive-home">
       <section class="home-command-grid executive-toolbar" aria-labelledby="global-period-title">
@@ -6113,6 +6146,58 @@ function weeklyHome() {
         </form>
       </section>
       ${weeklyManagementSummaryHtml(weekStart)}
+      <section class="management-now" aria-label="Posição financeira de hoje">
+        <article class="management-balance-card">
+          <span class="executive-eyebrow">Dinheiro disponível hoje</span>
+          <strong class="${cashPosition.consolidatedBalance < 0 ? "negative" : "positive"}">${money(cashPosition.consolidatedBalance)}</strong>
+          <p>Saldo consolidado de PF, PJ e Cofrinho antes dos compromissos futuros.</p>
+          ${dashboardAccountBreakdown(cashPosition.accountBalances)}
+        </article>
+        <article class="management-balance-card commitment">
+          <span class="executive-eyebrow">Compromissos em 30 dias</span>
+          <strong>${money(payable30)}</strong>
+          <p>A receber ${money(cashPosition.receivable30)} no mesmo período.</p>
+          <div class="management-projection-line"><span>Saldo após contas cadastradas</span><b class="${projectedBalance30 < 0 ? "negative" : "positive"}">${money(projectedBalance30)}</b></div>
+        </article>
+        <article class="management-balance-card result">
+          <span class="executive-eyebrow">Resultado operacional da semana</span>
+          <strong class="${weekly.current.profit < 0 ? "negative" : "positive"}">${money(weekly.current.profit)}</strong>
+          <p>Entradas menos despesas entre ${formatIsoDateBr(weekStart)} e ${formatIsoDateBr(weekEnd)}.</p>
+          <a href="/relatorios">Entender o resultado →</a>
+        </article>
+      </section>
+      <section class="management-understanding-grid" aria-label="Entendimento das movimentações">
+        <article class="panel management-breakdown-card expense">
+          <div class="executive-card-heading"><div><span class="executive-eyebrow">Para onde foi o dinheiro</span><h2>Maiores gastos</h2></div><a href="/despesas">Ver despesas</a></div>
+          ${managementBreakdownHtml(expenseBreakdown, "Nenhuma despesa operacional nesta semana.")}
+        </article>
+        <article class="panel management-breakdown-card income">
+          <div class="executive-card-heading"><div><span class="executive-eyebrow">De onde veio o dinheiro</span><h2>Maiores receitas</h2></div><a href="/relatorios">Ver receitas</a></div>
+          ${managementBreakdownHtml(incomeBreakdown, "Nenhuma receita operacional nesta semana.")}
+        </article>
+      </section>
+      <section class="panel management-forecast-card">
+        <div class="executive-card-heading"><div><span class="executive-eyebrow">Previsão do caixa</span><h2>Como o saldo pode ficar</h2></div><a href="/financeiro?view=accounts">Revisar contas previstas</a></div>
+        ${managementForecastHtml(managementForecastWindows(cashPosition.consolidatedBalance))}
+      </section>
+      <section class="home-overview-band executive-kpi-grid home-dashboard-kpis" aria-label="Indicadores principais">
+        <a class="executive-kpi" href="/financeiro" data-home-projection><span>Entradas</span><strong>${money(weekly.current.income)}</strong><small>Semana selecionada</small></a>
+        <a class="executive-kpi" href="/financeiro" data-home-budget><span>Compras de insumos</span><strong>${money(purchases)}</strong><small>${purchasesPercent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% das entradas</small></a>
+        <div class="executive-kpi"><span>Compras / Entradas</span><strong>${purchasesPercent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%</strong><small>${money(purchases)} em compras</small></div>
+        <a class="executive-kpi" href="/menu-semanal" data-home-volume><span>Cumbucas vendidas</span><strong>${weekly.current.bowls.toLocaleString("pt-BR")}</strong><small>Semana selecionada</small></a>
+        <a class="executive-kpi" href="/financeiro" data-home-cost-per-bowl><span>Compras por cumbuca</span><strong>${money(purchasesPerBowl)}</strong><small>Compras de insumos ÷ cumbucas</small></a>
+        <a class="executive-kpi" href="/relatorios" data-home-priorities><span>Lucro operacional</span><strong class="${weekly.current.profit < 0 ? "negative" : "positive"}">${money(weekly.current.profit)}</strong><small>Entradas − despesas da semana</small></a>
+      </section>
+      <section class="panel executive-production management-comparison-panel">
+        <div class="executive-card-heading"><div><span class="executive-eyebrow">Evolução semanal</span><h2>Comparação com semana anterior</h2></div><span>${formatIsoDateBr(weekStart)} a ${formatIsoDateBr(weekEnd)}</span></div>
+        <div class="management-comparison-grid">
+          ${[["Entradas", weekly.current.income, weekly.previous.income], ["Despesas", weekly.current.expenses, weekly.previous.expenses], ["Resultado", weekly.current.profit, weekly.previous.profit], ["Cumbucas", weekly.current.bowls, weekly.previous.bowls]].map(([label, current, previous]) => `<article><span>${label}</span><strong>${label === "Cumbucas" ? current.toLocaleString("pt-BR") : money(current)}</strong><small>Anterior: ${label === "Cumbucas" ? previous.toLocaleString("pt-BR") : money(previous)}</small><b>${current - previous >= 0 ? "+" : "−"} ${label === "Cumbucas" ? Math.abs(current - previous).toLocaleString("pt-BR") : money(Math.abs(current - previous))}</b></article>`).join("")}
+        </div>
+      </section>
+      <section class="panel management-commitments-card">
+        <div class="executive-card-heading"><div><span class="executive-eyebrow">Próximas ações</span><h2>Contas que precisam de atenção</h2></div><a href="/financeiro?view=accounts">Ver todas as contas</a></div>
+        ${managementCommitmentsHtml()}
+      </section>
     </div>`;
 
   on("#global-period-form", "submit", event => {
@@ -18512,7 +18597,7 @@ function splitMoneyAcrossInstallments(total, count) {
 
 function accountSeriesFromValues(values = {}) {
   const mode = ["installments", "monthly"].includes(values.scheduleMode) ? values.scheduleMode : "single";
-  const count = mode === "single" ? 1 : Math.max(2, Math.min(36, Number(values.scheduleCount || 2)));
+  const count = mode === "installments" ? Math.max(2, Math.min(36, Number(values.scheduleCount || 2))) : 1;
   const amount = parseMoneyInput(values.amount);
   const kind = values.kind === "receivable" ? "receivable" : "payable";
   const amounts = mode === "installments"
@@ -18524,6 +18609,7 @@ function accountSeriesFromValues(values = {}) {
     id: `account-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
     seriesId: count > 1 ? seriesId : "",
     seriesType: mode,
+    recurring: mode === "monthly",
     seriesNumber: index + 1,
     seriesCount: count,
     kind,
@@ -18887,8 +18973,9 @@ function accountsManagementPanel() {
           <select name="scheduleMode" id="financial-account-schedule" ${editing ? "disabled" : ""}>
             <option value="single">Conta única</option>
             <option value="installments">Parcelar valor total</option>
-            <option value="monthly">Repetir valor mensal</option>
+            <option value="monthly">Pagamento recorrente</option>
           </select>
+          <small>Recorrência apenas sinaliza a conta; os próximos meses não serão gerados.</small>
         </label>
         <label id="financial-account-count-field" ${editing ? "hidden" : ""}>Quantidade
           <input name="scheduleCount" type="number" min="2" max="36" step="1" value="2">
@@ -19854,7 +19941,7 @@ function bindFinancialAccounts() {
   const accountPaymentTimingHelp = document.querySelector("#financial-account-payment-timing-help");
   if (scheduleField && scheduleCountField) {
     const updateScheduleFields = () => {
-      scheduleCountField.hidden = scheduleField.value === "single";
+      scheduleCountField.hidden = scheduleField.value !== "installments";
     };
     scheduleField.addEventListener("change", updateScheduleFields);
     updateScheduleFields();
@@ -19969,6 +20056,7 @@ function bindFinancialAccounts() {
         id: `account-settlement-${payment.id}`,
         description: `${account.kind === "receivable" ? "Recebimento" : "Pagamento"} - ${account.description}`,
         date: values.date,
+        paidAt: values.date,
         type: account.kind === "receivable" ? "income" : "expense",
         category: account.category || (account.kind === "receivable" ? "outros" : "reason:outros"),
         employeeId: account.kind === "payable" ? String(account.employeeId || "") : "",

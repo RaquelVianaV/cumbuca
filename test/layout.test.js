@@ -223,6 +223,9 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /data-finance-month-action/);
   assert.match(app, /reconciliationHistory/);
   assert.match(app, /Parcelar valor total/);
+  assert.match(app, /Pagamento recorrente/);
+  assert.match(app, /os próximos meses não serão gerados/);
+  assert.match(app, /scheduleCountField\.hidden = scheduleField\.value !== "installments"/);
   assert.match(app, /data-reverse-payment/);
   assert.match(app, /financialAccountNotifications/);
   assert.match(app, /id="reopen-month-form"/);
@@ -595,6 +598,9 @@ test('navigation, finance, reports and maintenance expose the expected views', (
 
 test('home keeps the existing management view and adds read-only financial understanding', () => {
   assert.match(app, /Situação da empresa/);
+  assert.match(app, /function weeklyManagementCategoryBreakdown/);
+  assert.match(app, /Resultado operacional da semana/);
+  assert.match(app, /Comparação com semana anterior/);
   assert.match(app, /function weeklyHome/);
   assert.match(app, /name="periodType"/);
   assert.match(app, /name="week" type="week"/);

@@ -3445,12 +3445,15 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
   await page.getByLabel('Vencimento', { exact: true }).fill(today);
   await page.getByLabel('Valor total', { exact: true }).fill('25,00');
   await page.locator('#financial-account-schedule').selectOption('monthly');
-  await page.locator('#financial-account-count-field input[name="scheduleCount"]').fill('2');
+  await expect(page.locator('#financial-account-count-field')).toBeHidden();
   await page.getByRole('button', { name: 'Adicionar conta', exact: true }).click();
-  await expect(page.locator('.account-row')).toHaveCount(5);
-  expect(
-    database.state.financialPlanning.accounts.slice(0, 2).map((account) => account.amount)
-  ).toEqual(['25.00', '25.00']);
+  await expect(page.locator('.account-row')).toHaveCount(4);
+  expect(database.state.financialPlanning.accounts[0]).toMatchObject({
+    amount: '25.00',
+    recurring: true,
+    seriesType: 'monthly',
+    seriesCount: 1,
+  });
 
   let firstAccount = page.locator('.account-row').filter({ hasText: 'Teste fornecedor' }).first();
   await expect(firstAccount).toContainText('Definir conta no pagamento');
@@ -3463,6 +3466,26 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
   await expect(firstAccount).toContainText('R$ 30,00');
   await firstAccount.locator('details').click();
   await expect(firstAccount).toContainText('Conta PJ');
+  expect(database.state.cashEntries[0]).toMatchObject({
+    description: 'Pagamento - Teste fornecedor',
+    date: today,
+    paidAt: today,
+    type: 'expense',
+    cashAccount: 'pj',
+    amount: '30.00',
+  });
+  expect(await page.evaluate((date) => window.accountBalanceUntilDate(date, [], 'pj'), today)).toBe(
+    -30
+  );
+
+  await page.goto('/fluxo-de-caixa?panel=ledger');
+  await expect(page.getByRole('heading', { name: 'Extrato', exact: true })).toBeVisible();
+  await expect(page.locator('tr').filter({ hasText: 'Pagamento - Teste fornecedor' })).toContainText(
+    'R$ 30,00'
+  );
+  await page.goto('/financeiro?view=accounts');
+  firstAccount = page.locator('.account-row').filter({ hasText: 'Teste fornecedor' }).first();
+  await firstAccount.locator('details').click();
 
   const reversalDialogs = async (dialog) => {
     if (dialog.type() === 'prompt' && dialog.message().includes('Data do estorno')) {
@@ -3653,6 +3676,20 @@ test('home dashboard prioritizes projected balance and actions', async ({ page }
   await expect(
     page.getByRole('heading', { name: 'Comparação com mês anterior', exact: true })
   ).toBeVisible();
+  await page.locator('#global-period-form select[name="periodType"]').selectOption('week');
+  await page.getByRole('button', { name: /Aplicar/ }).click();
+  await expect(page.getByText('Resumo semanal automático', { exact: true })).toBeVisible();
+  await expect(page.getByText('Resultado operacional da semana', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Maiores gastos', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Maiores receitas', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Como o saldo pode ficar', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Comparação com semana anterior', exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Contas que precisam de atenção', exact: true })
+  ).toBeVisible();
+  await expect(page.locator('.executive-kpi-grid .executive-kpi')).toHaveCount(6);
   await expect(page.locator('#global-new-button')).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await page.screenshot({ path: testInfo.outputPath('home-dashboard.png'), fullPage: true });
