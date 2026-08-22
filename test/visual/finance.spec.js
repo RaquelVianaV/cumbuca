@@ -2476,15 +2476,12 @@ test('unified withdrawal totals include Cofrinho deposits stored in its history'
   await page.goto('/financeiro');
   const totals = await page.evaluate(() => unifiedDivisionWithdrawalAmounts(
     [
-      { date: '2026-08-10', vanessa: 1800, raquel: 828.1, savings: 292.01 },
-      { date: '2026-08-21', vanessa: 2100, raquel: 686.44, savings: 0 },
+      { date: '2026-08-10', distributionBase: 2920.1, expectedSavings: 292.01, vanessa: 1800, raquel: 828.1, savings: 292.01 },
+      { date: '2026-08-21', distributionBase: 3096.04, expectedSavings: 309.6, vanessa: 2100, raquel: 686.44, savings: 0 },
     ],
     { savings: 292.01 },
     [],
-    [
-      { date: '2026-08-10', companyReservePaid: '292.01' },
-      { date: '2026-08-21', companyReservePaid: '309.60' },
-    ]
+    []
   ));
   expect(totals.savings).toBeCloseTo(601.61, 2);
   expect(totals.partners).toBeCloseTo(5414.54, 2);

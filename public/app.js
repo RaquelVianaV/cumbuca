@@ -21478,12 +21478,16 @@ function unifiedDivisionWithdrawalAmounts(
   savingsHistory = [],
   withdrawalSnapshots = []
 ) {
+  const savingsPercent = Math.max(0, Number(state.appConfig?.splitSavingsPercent || 0)) / 100;
   const grouped = groups.reduce((totals, group) => {
     totals.vanessa += Number(group.vanessa || 0);
     totals.raquel += Number(group.raquel || 0);
     totals.savings += Number(group.savings || 0);
+    totals.expectedSavings += Number(
+      group.expectedSavings ?? (Number(group.distributionBase || 0) * savingsPercent)
+    );
     return totals;
-  }, { vanessa: 0, raquel: 0, savings: 0 });
+  }, { vanessa: 0, raquel: 0, savings: 0, expectedSavings: 0 });
   const financialSavings = Number(financialWithdrawals?.savings || 0);
   const divisionDates = new Set(groups.map(group => String(group.date || "")));
   const historySavings = savingsHistory
@@ -21500,7 +21504,13 @@ function unifiedDivisionWithdrawalAmounts(
     vanessa: grouped.vanessa,
     raquel: grouped.raquel,
     partners: grouped.vanessa + grouped.raquel,
-    savings: Math.max(grouped.savings, financialSavings, historySavings, snapshotSavings)
+    savings: Math.max(
+      grouped.savings,
+      grouped.expectedSavings,
+      financialSavings,
+      historySavings,
+      snapshotSavings
+    )
   };
 }
 

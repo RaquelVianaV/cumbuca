@@ -179,6 +179,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /function unifiedDivisionWithdrawalAmounts/);
   assert.match(app, /historySavings/);
   assert.match(app, /snapshotSavings/);
+  assert.match(app, /grouped\.expectedSavings/);
   assert.match(app, /Vanessa \+ Raquel/);
   assert.match(app, /Supermercado da semana \+ vasilha[\s\S]*?\+ rateio/);
   assert.match(css, /\.menu-cost-breakdown/);
