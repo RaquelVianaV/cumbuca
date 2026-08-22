@@ -18611,9 +18611,32 @@ function financialAccountPaymentTimingLabel(value) {
 }
 
 function accountPaidTotal(account = {}) {
+  const month = account.recurring
+    ? String(account.recurrenceMonth || state.financialRecurringMonth || isoDate(new Date()).slice(0, 7))
+    : "";
   return (Array.isArray(account.payments) ? account.payments : [])
     .filter(payment => !payment.reversedAt)
+    .filter(payment => !month || String(payment.recurrenceMonth || payment.date || "").slice(0, 7) === month)
     .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+}
+
+function financialRecurringMonth() {
+  const fallback = isoDate(new Date()).slice(0, 7);
+  const value = String(state.financialRecurringMonth || fallback);
+  state.financialRecurringMonth = /^\d{4}-\d{2}$/.test(value) ? value : fallback;
+  return state.financialRecurringMonth;
+}
+
+function recurringAccountForMonth(account = {}, month = financialRecurringMonth()) {
+  if (!account.recurring) return account;
+  const originalDay = Number(String(account.dueDate || "").slice(8, 10)) || 1;
+  const [year, monthNumber] = month.split("-").map(Number);
+  const lastDay = new Date(year, monthNumber, 0).getDate();
+  return {
+    ...account,
+    recurrenceMonth: month,
+    dueDate: `${month}-${String(Math.min(originalDay, lastDay)).padStart(2, "0")}`
+  };
 }
 
 function splitMoneyAcrossInstallments(total, count) {
@@ -18670,7 +18693,7 @@ function accountStatus(account = {}, today = isoDate(new Date())) {
 
 function accountsSummary() {
   const today = isoDate(new Date());
-  return financialAccounts().reduce((summary, account) => {
+  return financialAccounts().map(account => recurringAccountForMonth(account)).reduce((summary, account) => {
     const open = accountOpenAmount(account);
     const status = accountStatus(account, today);
     if (account.kind === "receivable") {
@@ -18689,7 +18712,7 @@ function accountsSummary() {
 function financialAccountNotifications(days = 7) {
   const today = isoDate(new Date());
   const end = addDays(today, days);
-  return financialAccounts()
+  return financialAccounts().map(account => recurringAccountForMonth(account, today.slice(0, 7)))
     .filter(account => accountOpenAmount(account) >= 0.01)
     .filter(account => String(account.dueDate || "") <= end)
     .sort((a, b) => String(a.dueDate || "").localeCompare(String(b.dueDate || "")))
@@ -18901,7 +18924,11 @@ function accountsManagementPanel() {
   const editingId = state.editFinancialAccountId;
   const editing = financialAccounts().find(account => String(account.id) === String(editingId));
   const filter = financialAccountFilterState();
-  const allAccounts = [...financialAccounts()].sort((a, b) => {
+  const recurringMonth = financialRecurringMonth();
+  const allAccounts = financialAccounts().map(account => recurringAccountForMonth(account, recurringMonth)).sort((a, b) => {
+    if (Boolean(a.recurring) !== Boolean(b.recurring)) {
+      return a.recurring ? -1 : 1;
+    }
     const dueDateOrder = String(a.dueDate || "").localeCompare(String(b.dueDate || ""));
     if (dueDateOrder) {
       return dueDateOrder;
@@ -18952,6 +18979,12 @@ function accountsManagementPanel() {
           <button class="secondary" type="button" id="clear-financial-account-filter">Limpar</button>
           <button type="button" id="new-financial-account">Nova conta</button>
         </div>
+      </form>
+      <form id="financial-recurring-month-form" class="account-toolbar recurring-account-toolbar">
+        <label>Mês das contas recorrentes
+          <input name="month" type="month" value="${recurringMonth}" required>
+        </label>
+        <div class="account-toolbar-actions"><button class="secondary" type="submit">Mostrar mês</button></div>
       </form>
       <form id="financial-account-form" class="form-grid">
         <input name="id" type="hidden" value="${escapeHtml(editing?.id || "")}">
@@ -19020,12 +19053,16 @@ function accountsManagementPanel() {
           <small>Ordenadas por vencimento. Use busca e filtros para achar contas antigas rapidamente.</small>
         </div>
         <div class="account-list">
-          ${accounts.map(account => {
+          ${accounts.map((account, index) => {
             const open = accountOpenAmount(account);
             const status = accountStatus(account);
             const paid = accountPaidTotal(account);
             const isEditing = String(account.id) === String(editingId);
-            return `
+            const previous = accounts[index - 1];
+            const groupHeading = index === 0 || Boolean(previous?.recurring) !== Boolean(account.recurring)
+              ? `<div class="account-group-heading"><strong>${account.recurring ? `Contas recorrentes de ${formatMonthKeyBr(recurringMonth)}` : "Outras contas"}</strong><small>${account.recurring ? "Cada baixa quita somente o mês selecionado." : "Parcelas, boletos e contas únicas."}</small></div>`
+              : "";
+            return `${groupHeading}
               <article class="account-row ${status} ${isEditing ? "editing" : ""}">
                 <div class="account-main">
                   <span class="status-label">${account.kind === "receivable" ? "A receber" : "A pagar"} · ${status === "paid" ? "Quitada" : status === "overdue" ? "Atrasada" : "Pendente"}</span>
@@ -19038,7 +19075,7 @@ function accountsManagementPanel() {
                   <span>Em aberto <b class="${status === "overdue" ? "negative" : ""}">${money(open)}</b></span>
                 </div>
                 ${open >= 0.01 ? `
-                  <form class="account-settlement-form" data-account-settlement="${escapeHtml(account.id)}">
+                  <form class="account-settlement-form" data-account-settlement="${escapeHtml(account.id)}" data-recurring-month="${escapeHtml(account.recurrenceMonth || "")}">
                     <label>Data do pagamento<input name="date" type="date" value="${isoDate(new Date())}" required></label>
                     <label>Conta<select name="cashAccount" required>${cashAccountOptionsHtml(normalizedCashAccount(account.cashAccount, ""), account.kind === "receivable" ? "income" : "expense", false, account.kind === "receivable" ? "Escolha a conta do recebimento" : "Escolha a conta do pagamento")}</select></label>
                     <label>${account.kind === "receivable" ? "Valor recebido" : "Valor pago"}<input name="amount" type="text" inputmode="decimal" value="${moneyInputValue(open)}" required></label>
@@ -19878,6 +19915,17 @@ function bindFinancialEmployees() {
 }
 
 function bindFinancialAccounts() {
+  const recurringMonthForm = document.querySelector("#financial-recurring-month-form");
+  if (recurringMonthForm) {
+    recurringMonthForm.addEventListener("submit", event => {
+      event.preventDefault();
+      const values = readForm(recurringMonthForm);
+      if (/^\d{4}-\d{2}$/.test(values.month || "")) {
+        state.financialRecurringMonth = values.month;
+        renderFinance();
+      }
+    });
+  }
   const filterForm = document.querySelector("#financial-account-filter-form");
   if (filterForm) {
     filterForm.addEventListener("submit", event => {
@@ -20090,9 +20138,15 @@ function bindFinancialAccounts() {
       event.preventDefault();
       const id = settlementForm.dataset.accountSettlement;
       const account = financialAccounts().find(item => String(item.id) === String(id));
+      const recurrenceMonth = account?.recurring
+        ? String(settlementForm.dataset.recurringMonth || financialRecurringMonth())
+        : "";
+      const accountForSettlement = account?.recurring
+        ? recurringAccountForMonth(account, recurrenceMonth)
+        : account;
       const values = readForm(settlementForm);
       const amount = parseMoneyInput(values.amount);
-      if (!account || !values.date || amount <= 0) {
+      if (!accountForSettlement || !values.date || amount <= 0) {
         showToast("Informe data e valor maior que zero.", "error");
         return;
       }
@@ -20109,10 +20163,11 @@ function bindFinancialAccounts() {
         date: values.date,
         amount: amount.toFixed(2),
         cashAccount,
+        recurrenceMonth,
         user: state.currentUser?.name || state.currentUser?.username || "Sistema",
           createdAt: new Date().toISOString()
       };
-      const paidAfterSettlement = accountPaidTotal(account) + amount;
+      const paidAfterSettlement = accountPaidTotal(accountForSettlement) + amount;
       const adjustedAmount = Math.max(Number(account.amount || 0), paidAfterSettlement);
       const settlementCategory = inferredFinancialAccountCategory(account);
       const updated = {
@@ -20137,7 +20192,8 @@ function bindFinancialAccounts() {
         cashAccount: payment.cashAccount,
         amount: amount.toFixed(2),
         financialAccountId: account.id,
-        financialAccountSettlementId: payment.id
+        financialAccountSettlementId: payment.id,
+        recurrenceMonth
       });
       const adjustmentDetail = adjustedAmount > Number(account.amount || 0) + 0.009
         ? ` - valor reajustado para ${money(adjustedAmount)}`

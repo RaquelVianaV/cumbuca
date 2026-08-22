@@ -3522,6 +3522,19 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
   await expect(adjustedAccount).toContainText('Total R$ 28,50');
   await expect(adjustedAccount).toContainText('Baixado R$ 28,50');
 
+  const nextRecurringMonth = await page.evaluate(
+    (date) => addMonthsClamped(date, 1).slice(0, 7),
+    today
+  );
+  const recurringMonthForm = page.locator('#financial-recurring-month-form');
+  await recurringMonthForm.locator('input[name="month"]').fill(nextRecurringMonth);
+  await recurringMonthForm.getByRole('button', { name: 'Mostrar mês', exact: true }).click();
+  adjustedAccount = page.locator('.account-row').filter({ hasText: 'Assinatura mensal' }).first();
+  await expect(page.locator('.account-group-heading').first()).toContainText('Contas recorrentes');
+  await expect(adjustedAccount).toContainText('Pendente');
+  await expect(adjustedAccount).toContainText('Baixado R$ 0,00');
+  await expect(adjustedAccount).toContainText('Em aberto R$ 28,50');
+
   page.once('dialog', (dialog) => dialog.accept());
   await adjustedAccount.getByRole('button', { name: 'Excluir', exact: true }).click();
   await expect(page.locator('.account-row').filter({ hasText: 'Assinatura mensal' })).toHaveCount(

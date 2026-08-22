@@ -3262,6 +3262,27 @@ html.dark-mode .cash-category-summary-action {
   gap: 10px;
 }
 
+.recurring-account-toolbar {
+  grid-template-columns: minmax(220px, 320px) auto;
+  background: #f2f8f5;
+}
+
+.account-group-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px 16px;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #eaf4ef;
+  color: #315c4d;
+}
+
+.account-group-heading small {
+  color: #526b62;
+}
+
 .account-row {
   display: grid;
   grid-template-columns: minmax(320px, 1.35fr) minmax(300px, 1fr) minmax(170px, auto);
