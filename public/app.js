@@ -21362,8 +21362,7 @@ function simpleFinanceOverviewPanel(data) {
     .reduce((sum, group) => sum + Number(group.distributionBase || 0), 0);
   const divisionWithdrawals = divisionBaseGroups
     .reduce((sum, group) => sum + Number(group.vanessa || 0) + Number(group.raquel || 0), 0);
-  const divisionSavingsDeposits = divisionBaseGroups
-    .reduce((sum, group) => sum + Number(group.savings || 0), 0);
+  const divisionSavingsDeposits = Number(data.financial?.withdrawals?.savings || 0);
   const divisionNonCashAmount = Math.max(
     0,
     actualDivisionProfit - divisionWithdrawals - divisionSavingsDeposits
