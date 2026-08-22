@@ -174,6 +174,8 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.doesNotMatch(app, /partnerCashOffsetLabel\(partnersDashboard\.accumulated\.paidToCash/);
   assert.match(app, /function pricingRecipeMetrics/);
   assert.match(app, /O custo soma supermercado/);
+  assert.match(app, /Valor depositado no Cofrinho/);
+  assert.match(app, /Vanessa \+ Raquel/);
   assert.match(app, /Supermercado da semana \+ vasilha[\s\S]*?\+ rateio/);
   assert.match(css, /\.menu-cost-breakdown/);
   assert.match(css, /\.global-period-form/);
