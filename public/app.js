@@ -21372,8 +21372,6 @@ function simpleFinanceOverviewPanel(data) {
   );
   const actualDivisionProfitPercent = sales > 0 ? (actualDivisionProfit / sales) * 100 : 0;
   const profitTargetGap = actualDivisionProfit - targetProfit;
-  const withdrawalTargetPercent = targetProfit > 0 ? (divisionWithdrawals / targetProfit) * 100 : 0;
-  const withdrawalBasePercent = actualDivisionProfit > 0 ? (divisionWithdrawals / actualDivisionProfit) * 100 : 0;
   const resultMessage = operationalProfit < 0
     ? `A operação perdeu ${money(Math.abs(operationalProfit))} no período.`
     : `A operação gerou ${money(operationalProfit)} antes das retiradas.`;
@@ -21443,7 +21441,7 @@ function simpleFinanceOverviewPanel(data) {
           <article><small>Lucro que deveria ter</small><strong>${money(targetProfit)}</strong><span>30% de ${money(sales)} em vendas</span></article>
           <article><small>Lucro que realmente teve</small><strong class="${actualDivisionProfit < targetProfit ? "negative" : "positive"}">${money(actualDivisionProfit)}</strong><span>Soma das Bases da divisão · ${actualDivisionProfitPercent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% das vendas</span></article>
           <article><small>Diferença para a meta</small><strong class="${profitTargetGap < 0 ? "negative" : "positive"}">${profitTargetGap < 0 ? "− " : "+ "}${money(Math.abs(profitTargetGap))}</strong><span>${profitTargetGap < 0 ? "Abaixo do esperado" : "Acima do esperado"}</span></article>
-          <article><small>Valor que saiu da conta</small><strong>${money(divisionWithdrawals)}</strong><span>Vanessa + Raquel · ${withdrawalBasePercent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% da base · ${withdrawalTargetPercent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% da meta</span></article>
+          <article><small>Valor que saiu da conta</small><strong>${money(divisionWithdrawals)}</strong><span>Vanessa + Raquel</span></article>
           <article><small>Valor depositado no Cofrinho</small><strong>${money(divisionSavingsDeposits)}</strong><span>Reserva transferida nas retiradas</span></article>
         </div>
         ${divisionBaseGroups.length ? `
