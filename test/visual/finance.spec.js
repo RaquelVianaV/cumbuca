@@ -3563,6 +3563,42 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
   ).toBe('pf');
 });
 
+test('pay now settles the account and posts it to the selected cash account', async ({ page }) => {
+  const database = await mockOnlineDatabase(page);
+  const today = localDateKey();
+  await page.goto('/financeiro?view=accounts');
+
+  await page.getByLabel('Descrição', { exact: true }).fill('Contador imediato');
+  await page.getByLabel('Vencimento', { exact: true }).fill('2026-01-01');
+  await page.getByLabel('Valor total', { exact: true }).fill('250,00');
+  await page.locator('#financial-account-category').selectOption('contador');
+  await page.locator('#financial-account-payment-timing').selectOption('now');
+  await page.locator('#financial-account-cash-account').selectOption('pj');
+  await page.getByRole('button', { name: 'Adicionar conta', exact: true }).click();
+
+  const account = page.locator('.account-row').filter({ hasText: 'Contador imediato' });
+  await expect(account).toContainText('Quitada');
+  await expect(account).toContainText('Baixado R$ 250,00');
+  expect(database.state.financialPlanning.accounts[0].payments).toHaveLength(1);
+  expect(database.state.cashEntries[0]).toMatchObject({
+    description: 'Pagamento - Contador imediato',
+    date: today,
+    paidAt: today,
+    type: 'expense',
+    category: 'contador',
+    cashAccount: 'pj',
+    amount: '250.00',
+  });
+  expect(await page.evaluate((date) => window.accountBalanceUntilDate(date, [], 'pj'), today)).toBe(
+    -250
+  );
+
+  await page.goto('/fluxo-de-caixa?panel=ledger');
+  await expect(page.locator('tr').filter({ hasText: 'Pagamento - Contador imediato' })).toContainText(
+    'R$ 250,00'
+  );
+});
+
 test('home dashboard prioritizes projected balance and actions', async ({ page }, testInfo) => {
   const database = await mockOnlineDatabase(page);
   const today = localDateKey();

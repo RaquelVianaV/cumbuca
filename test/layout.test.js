@@ -226,6 +226,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /reconciliationHistory/);
   assert.match(app, /Parcelar valor total/);
   assert.match(app, /Pagamento recorrente/);
+  assert.match(app, /Registra a baixa agora, lança no extrato de hoje/);
   assert.match(app, /os próximos meses não serão gerados/);
   assert.match(app, /scheduleCountField\.hidden = scheduleField\.value !== "installments"/);
   assert.match(app, /data-reverse-payment/);

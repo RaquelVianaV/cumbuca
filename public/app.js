@@ -19925,6 +19925,16 @@ function bindFinancialAccounts() {
       }
       const series = current ? [] : accountSeriesFromValues(values);
       const kind = values.kind === "receivable" ? "receivable" : "payable";
+      const paymentTiming = normalizedFinancialAccountPaymentTiming(values.paymentTiming);
+      const immediateCashAccount = normalizedCashAccount(values.cashAccount, "");
+      if (!current && paymentTiming === "now" && !immediateCashAccount) {
+        showToast(kind === "receivable" ? "Selecione a conta do recebimento." : "Selecione a conta usada no pagamento.", "error");
+        return;
+      }
+      const immediateDate = isoDate(new Date());
+      if (!current && paymentTiming === "now" && blockClosedPeriod(immediateDate, kind === "receivable" ? "registrar recebimento" : "registrar pagamento")) {
+        return;
+      }
       const account = current ? {
         ...current,
         kind,
@@ -19932,12 +19942,41 @@ function bindFinancialAccounts() {
         dueDate: values.dueDate,
         amount: amount.toFixed(2),
         category: normalizedFinancialAccountCategory(values.category),
-        paymentTiming: normalizedFinancialAccountPaymentTiming(values.paymentTiming),
+        paymentTiming,
         employeeId: String(current.employeeId || ""),
         cashAccount: normalizedCashAccount(values.cashAccount, ""),
         notes: String(values.notes || "").trim(),
         updatedAt: new Date().toISOString()
       } : series[0];
+      if (!current && paymentTiming === "now") {
+        const immediateAccount = series[0];
+        const immediateAmount = Number(immediateAccount.amount || 0).toFixed(2);
+        const immediateCategory = inferredFinancialAccountCategory(immediateAccount);
+        const payment = {
+          id: `settlement-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          date: immediateDate,
+          amount: immediateAmount,
+          cashAccount: immediateCashAccount,
+          user: state.currentUser?.name || state.currentUser?.username || "Sistema",
+          createdAt: new Date().toISOString()
+        };
+        immediateAccount.category = immediateCategory;
+        immediateAccount.cashAccount = immediateCashAccount;
+        immediateAccount.payments = [payment];
+        immediateAccount.updatedAt = new Date().toISOString();
+        state.cash.push({
+          id: `account-settlement-${payment.id}`,
+          description: `${kind === "receivable" ? "Recebimento" : "Pagamento"} - ${immediateAccount.description}`,
+          date: immediateDate,
+          paidAt: immediateDate,
+          type: kind === "receivable" ? "income" : "expense",
+          category: immediateCategory,
+          cashAccount: immediateCashAccount,
+          amount: immediateAmount,
+          financialAccountId: immediateAccount.id,
+          financialAccountSettlementId: payment.id
+        });
+      }
       state.financialPlanning = {
         ...(state.financialPlanning || {}),
         accounts: current
@@ -19954,6 +19993,9 @@ function bindFinancialAccounts() {
         after: current ? account : series
       });
       if (await persistState()) {
+        if (!current && paymentTiming === "now") {
+          showToast(`${kind === "receivable" ? "Recebimento" : "Pagamento"} registrado no extrato de hoje e descontado da ${cashAccountLabel(immediateCashAccount)}.`, "success");
+        }
         renderFinance();
       }
     });
@@ -19990,9 +20032,10 @@ function bindFinancialAccounts() {
       }
       if (accountPaymentTimingHelp) {
         accountPaymentTimingHelp.textContent = normalizedFinancialAccountPaymentTiming(accountPaymentTimingField?.value) === "now"
-          ? "Sinaliza pagamento agora; o Caixa só muda ao registrar a baixa."
+          ? "Registra a baixa agora, lança no extrato de hoje e altera o saldo da conta escolhida."
           : "Sinaliza pagamento futuro; a conta fica pendente até a baixa.";
       }
+      accountCashAccountField.required = normalizedFinancialAccountPaymentTiming(accountPaymentTimingField?.value) === "now";
     };
     accountKindField.addEventListener("change", () => {
       const isPayable = accountKindField.value === "payable";
