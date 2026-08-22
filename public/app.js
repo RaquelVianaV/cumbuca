@@ -1367,6 +1367,7 @@ function applyPayloadToState(saved = {}) {
   state.financialPlanning.accountTransfers = normalizeAccountTransfers(
     state.financialPlanning.accountTransfers
   );
+  repairFinancialAccountCategories();
   const savedAppConfig = saved.appConfig || {};
   state.appConfig = {
     ...defaultAppConfig,
@@ -18550,6 +18551,35 @@ function financialAccounts() {
     : [];
 }
 
+function inferredFinancialAccountCategory(account = {}) {
+  const current = normalizedFinancialAccountCategory(account.category);
+  if (!["boleto", "conta", "outros", "reason:outros"].includes(current)) {
+    return current;
+  }
+  const description = normalizedEmployeeSearch(account.description);
+  const match = activeExpenseCategories()
+    .filter(([key]) => !["boleto", "conta", "outros"].includes(key))
+    .sort((left, right) => right[1].length - left[1].length)
+    .find(([key, label]) => description.includes(normalizedEmployeeSearch(label || key)));
+  return match?.[0] || current;
+}
+
+function repairFinancialAccountCategories() {
+  const accounts = financialAccounts();
+  const categoriesByAccount = new Map();
+  accounts.forEach(account => {
+    const category = inferredFinancialAccountCategory(account);
+    account.category = category;
+    categoriesByAccount.set(String(account.id || ""), category);
+  });
+  state.cash.forEach(entry => {
+    const linkedCategory = categoriesByAccount.get(String(entry.financialAccountId || ""));
+    if (linkedCategory && ["boleto", "conta", "outros", "reason:outros"].includes(String(entry.category || ""))) {
+      entry.category = linkedCategory;
+    }
+  });
+}
+
 function normalizedFinancialAccountCategory(value) {
   return String(value || "").trim() || "conta";
 }
@@ -20041,8 +20071,10 @@ function bindFinancialAccounts() {
       };
       const paidAfterSettlement = accountPaidTotal(account) + amount;
       const adjustedAmount = Math.max(Number(account.amount || 0), paidAfterSettlement);
+      const settlementCategory = inferredFinancialAccountCategory(account);
       const updated = {
         ...account,
+        category: settlementCategory,
         amount: adjustedAmount.toFixed(2),
         payments: [...(account.payments || []), payment],
         updatedAt: new Date().toISOString()
@@ -20057,7 +20089,7 @@ function bindFinancialAccounts() {
         date: values.date,
         paidAt: values.date,
         type: account.kind === "receivable" ? "income" : "expense",
-        category: account.category || (account.kind === "receivable" ? "outros" : "reason:outros"),
+        category: settlementCategory || (account.kind === "receivable" ? "outros" : "reason:outros"),
         employeeId: account.kind === "payable" ? String(account.employeeId || "") : "",
         cashAccount: payment.cashAccount,
         amount: amount.toFixed(2),

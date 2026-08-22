@@ -197,6 +197,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /Pagar futuramente/);
   assert.match(app, /Conta fixa/);
   assert.match(app, /A categoria escolhida será mantida no extrato/);
+  assert.match(app, /function repairFinancialAccountCategories/);
   assert.match(app, /financial-account-cash-account-field/);
   assert.match(app, /Definir conta no pagamento/);
   assert.doesNotMatch(app, /cashAccount: kind === "payable" \? ""/);

@@ -3424,10 +3424,10 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
     'ao pagar, escolha PF, PJ ou Cofrinho'
   );
 
-  await page.getByLabel('Descrição', { exact: true }).fill('Teste fornecedor');
+  await page.getByLabel('Descrição', { exact: true }).fill('Teste fornecedor Contador');
   await page.getByLabel('Vencimento', { exact: true }).fill(today);
   await page.getByLabel('Valor total', { exact: true }).fill('100,00');
-  await page.locator('#financial-account-category').selectOption('contador');
+  await page.locator('#financial-account-category').selectOption('boleto');
   await page.locator('#financial-account-schedule').selectOption('installments');
   await page.locator('#financial-account-count-field input[name="scheduleCount"]').fill('3');
   await page.getByRole('button', { name: 'Adicionar conta', exact: true }).click();
@@ -3468,7 +3468,7 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
   await firstAccount.locator('details').click();
   await expect(firstAccount).toContainText('Conta PJ');
   expect(database.state.cashEntries[0]).toMatchObject({
-    description: 'Pagamento - Teste fornecedor',
+    description: 'Pagamento - Teste fornecedor Contador',
     date: today,
     paidAt: today,
     type: 'expense',
@@ -3482,7 +3482,7 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
 
   await page.goto('/fluxo-de-caixa?panel=ledger');
   await expect(page.getByRole('heading', { name: 'Extrato', exact: true })).toBeVisible();
-  await expect(page.locator('tr').filter({ hasText: 'Pagamento - Teste fornecedor' })).toContainText(
+  await expect(page.locator('tr').filter({ hasText: 'Pagamento - Teste fornecedor Contador' })).toContainText(
     'R$ 30,00'
   );
   await page.goto('/financeiro?view=accounts');
@@ -3548,7 +3548,7 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
   expect(database.state.cashEntries?.some((entry) => entry.reconciliation)).toBe(false);
   expect(database.state.financialPlanning.accounts).toHaveLength(4);
   const testedAccount = database.state.financialPlanning.accounts.find(
-    (account) => account.description === 'Teste fornecedor'
+    (account) => account.description === 'Teste fornecedor Contador'
   );
   expect(testedAccount.payments[0].reversedAt).toBeTruthy();
   expect(
