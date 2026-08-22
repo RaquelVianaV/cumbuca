@@ -2428,7 +2428,8 @@ test('withdrawals compensate debt only after an explicit choice', async ({ page 
     hasText: 'Lucro operacional',
   });
   await expect(monthSummary).toContainText('Lucro operacionalR$ 5.000,00');
-  await expect(monthSummary).toContainText('Vanessa - recebeu da contaR$ 2.950,00');
+  await expect(monthSummary).toContainText('Vanessa - recebeu da contaR$ 3.150,00');
+  await expect(monthSummary).toContainText('Recebido + dívida compensada');
   await expect(monthSummary).toContainText('Raquel - distribuiçãoR$ 1.350,00');
   expect(
     await page.evaluate((dateKey) => window.accountBalanceUntilDate(dateKey), today)

@@ -161,13 +161,13 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /partnersDashboard\.month\.paidToCashRaquel/);
   assert.match(
     app,
-    /Vanessa - recebeu da conta<\/span><strong>\$\{money\(partnersDashboard\.week\.vanessa\)\}/
+    /Vanessa - recebeu da conta<\/span><strong>\$\{money\(partnersDashboard\.week\.vanessa \+ partnersDashboard\.week\.paidToCashVanessa\)\}/
   );
   assert.match(
     app,
-    /Vanessa - recebeu da conta<\/span><strong>\$\{money\(partnersDashboard\.month\.vanessa\)\}/
+    /Vanessa - recebeu da conta<\/span><strong>\$\{money\(partnersDashboard\.month\.vanessa \+ partnersDashboard\.month\.paidToCashVanessa\)\}/
   );
-  assert.doesNotMatch(
+  assert.match(
     app,
     /money\(partnersDashboard\.(?:week|month)\.vanessa \+ partnersDashboard\.(?:week|month)\.paidToCashVanessa\)/
   );

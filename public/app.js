@@ -7670,7 +7670,7 @@ async function renderCash() {
           <section>
             <h3>Semana de ${formatIsoDateBr(partnersDashboard.weekStart)} a ${formatIsoDateBr(partnersDashboard.weekEnd)}</h3>
             <div class="summary">
-              <div class="metric"><span>Vanessa - recebeu da conta</span><strong>${money(partnersDashboard.week.vanessa)}</strong></div>
+              <div class="metric"><span>Vanessa - recebeu da conta</span><strong>${money(partnersDashboard.week.vanessa + partnersDashboard.week.paidToCashVanessa)}</strong><small>Recebido + dívida compensada</small></div>
               <div class="metric"><span>Raquel - distribuição</span><strong>${money(partnersDashboard.week.raquel + partnersDashboard.week.paidToCashRaquel)}</strong></div>
               <div class="metric"><span>Cofrinho transferido</span><strong>${money(partnersDashboard.week.savings)}</strong></div>
             </div>
@@ -7679,7 +7679,7 @@ async function renderCash() {
             <h3>${formatMonthKeyBr(partnersPeriod)}</h3>
             <div class="summary">
               <div class="metric"><span>Lucro operacional</span><strong>${money(partnersDashboard.monthOperationalProfit)}</strong></div>
-              <div class="metric"><span>Vanessa - recebeu da conta</span><strong>${money(partnersDashboard.month.vanessa)}</strong></div>
+              <div class="metric"><span>Vanessa - recebeu da conta</span><strong>${money(partnersDashboard.month.vanessa + partnersDashboard.month.paidToCashVanessa)}</strong><small>Recebido + dívida compensada</small></div>
               <div class="metric"><span>Raquel - distribuição</span><strong>${money(partnersDashboard.month.raquel + partnersDashboard.month.paidToCashRaquel)}</strong></div>
               <div class="metric"><span>Cofrinho no mês</span><strong>${money(partnersDashboard.month.expectedSavings)}</strong></div>
             </div>
