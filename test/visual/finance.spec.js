@@ -2471,6 +2471,24 @@ test('withdrawals from the same day are unified without counting a partial dupli
   expect(groups[0].vanessa).toBeCloseTo(1644.23, 2);
 });
 
+test('unified withdrawal totals include Cofrinho deposits stored in its history', async ({ page }) => {
+  await mockOnlineDatabase(page);
+  await page.goto('/financeiro');
+  const totals = await page.evaluate(() => unifiedDivisionWithdrawalAmounts(
+    [
+      { date: '2026-08-10', vanessa: 1800, raquel: 828.1, savings: 292.01 },
+      { date: '2026-08-21', vanessa: 2100, raquel: 686.44, savings: 0 },
+    ],
+    { savings: 292.01 },
+    [
+      { date: '2026-08-10', type: 'deposit', amount: '292.01', description: 'Retirada - cofrinho' },
+      { date: '2026-08-21', type: 'deposit', amount: '309.60', description: 'Retirada - cofrinho' },
+    ]
+  ));
+  expect(totals.savings).toBeCloseTo(601.61, 2);
+  expect(totals.partners).toBeCloseTo(5414.54, 2);
+});
+
 test('reviewing a legacy withdrawal saves its detailed closing', async ({ page }) => {
   const database = await mockOnlineDatabase(page);
   const today = localDateKey();

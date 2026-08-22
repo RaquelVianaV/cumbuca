@@ -21362,7 +21362,8 @@ function simpleFinanceOverviewPanel(data) {
     .reduce((sum, group) => sum + Number(group.distributionBase || 0), 0);
   const divisionAmounts = unifiedDivisionWithdrawalAmounts(
     divisionBaseGroups,
-    data.financial?.withdrawals
+    data.financial?.withdrawals,
+    savingsHistoryRows()
   );
   const divisionWithdrawals = divisionAmounts.partners;
   const divisionSavingsDeposits = divisionAmounts.savings;
@@ -21470,7 +21471,7 @@ function simpleFinanceOverviewPanel(data) {
   `;
 }
 
-function unifiedDivisionWithdrawalAmounts(groups = [], financialWithdrawals = {}) {
+function unifiedDivisionWithdrawalAmounts(groups = [], financialWithdrawals = {}, savingsHistory = []) {
   const grouped = groups.reduce((totals, group) => {
     totals.vanessa += Number(group.vanessa || 0);
     totals.raquel += Number(group.raquel || 0);
@@ -21478,11 +21479,19 @@ function unifiedDivisionWithdrawalAmounts(groups = [], financialWithdrawals = {}
     return totals;
   }, { vanessa: 0, raquel: 0, savings: 0 });
   const financialSavings = Number(financialWithdrawals?.savings || 0);
+  const divisionDates = new Set(groups.map(group => String(group.date || "")));
+  const historySavings = savingsHistory
+    .filter(entry => divisionDates.has(String(entry.date || "")))
+    .filter(entry => /retirada.*cofrinho|cofrinho.*retirada/i.test(String(entry.description || "")))
+    .reduce((sum, entry) => {
+      const amount = Number(entry.amount || 0);
+      return sum + (entry.type === "withdrawal" ? -amount : amount);
+    }, 0);
   return {
     vanessa: grouped.vanessa,
     raquel: grouped.raquel,
     partners: grouped.vanessa + grouped.raquel,
-    savings: Math.max(grouped.savings, financialSavings)
+    savings: Math.max(grouped.savings, financialSavings, historySavings)
   };
 }
 
