@@ -21363,7 +21363,8 @@ function simpleFinanceOverviewPanel(data) {
   const divisionAmounts = unifiedDivisionWithdrawalAmounts(
     divisionBaseGroups,
     data.financial?.withdrawals,
-    savingsHistoryRows()
+    savingsHistoryRows(),
+    partnerWithdrawalSnapshots()
   );
   const divisionWithdrawals = divisionAmounts.partners;
   const divisionSavingsDeposits = divisionAmounts.savings;
@@ -21471,7 +21472,12 @@ function simpleFinanceOverviewPanel(data) {
   `;
 }
 
-function unifiedDivisionWithdrawalAmounts(groups = [], financialWithdrawals = {}, savingsHistory = []) {
+function unifiedDivisionWithdrawalAmounts(
+  groups = [],
+  financialWithdrawals = {},
+  savingsHistory = [],
+  withdrawalSnapshots = []
+) {
   const grouped = groups.reduce((totals, group) => {
     totals.vanessa += Number(group.vanessa || 0);
     totals.raquel += Number(group.raquel || 0);
@@ -21487,11 +21493,14 @@ function unifiedDivisionWithdrawalAmounts(groups = [], financialWithdrawals = {}
       const amount = Number(entry.amount || 0);
       return sum + (entry.type === "withdrawal" ? -amount : amount);
     }, 0);
+  const snapshotSavings = withdrawalSnapshots
+    .filter(snapshot => divisionDates.has(String(snapshot.date || "")))
+    .reduce((sum, snapshot) => sum + Number(snapshot.companyReservePaid ?? snapshot.companyReserve ?? 0), 0);
   return {
     vanessa: grouped.vanessa,
     raquel: grouped.raquel,
     partners: grouped.vanessa + grouped.raquel,
-    savings: Math.max(grouped.savings, financialSavings, historySavings)
+    savings: Math.max(grouped.savings, financialSavings, historySavings, snapshotSavings)
   };
 }
 

@@ -2480,9 +2480,10 @@ test('unified withdrawal totals include Cofrinho deposits stored in its history'
       { date: '2026-08-21', vanessa: 2100, raquel: 686.44, savings: 0 },
     ],
     { savings: 292.01 },
+    [],
     [
-      { date: '2026-08-10', type: 'deposit', amount: '292.01', description: 'Retirada - cofrinho' },
-      { date: '2026-08-21', type: 'deposit', amount: '309.60', description: 'Retirada - cofrinho' },
+      { date: '2026-08-10', companyReservePaid: '292.01' },
+      { date: '2026-08-21', companyReservePaid: '309.60' },
     ]
   ));
   expect(totals.savings).toBeCloseTo(601.61, 2);
