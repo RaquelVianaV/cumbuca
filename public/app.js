@@ -18550,23 +18550,22 @@ function financialAccounts() {
     : [];
 }
 
-const financialAccountCategories = [
-  ["boleto", "Boleto"],
-  ["conta", "Conta fixa"]
-];
-
 function normalizedFinancialAccountCategory(value) {
-  return String(value || "").trim().toLowerCase() === "boleto" ? "boleto" : "conta";
+  return String(value || "").trim() || "conta";
 }
 
 function financialAccountCategoryLabel(value) {
-  return financialAccountCategories.find(([key]) => key === normalizedFinancialAccountCategory(value))?.[1]
-    || "Conta fixa";
+  const normalized = normalizedFinancialAccountCategory(value);
+  return normalized === "conta" ? "Conta fixa" : categoryName(normalized);
 }
 
 function financialAccountCategoryOptionsHtml(selected = "") {
   const normalized = normalizedFinancialAccountCategory(selected);
-  return financialAccountCategories.map(([value, label]) => `
+  const categories = activeExpenseCategories();
+  if (!categories.some(([value]) => value === normalized)) {
+    categories.push([normalized, financialAccountCategoryLabel(normalized)]);
+  }
+  return categories.map(([value, label]) => `
     <option value="${value}" ${normalized === value ? "selected" : ""}>${label}</option>
   `).join("");
 }
@@ -18945,7 +18944,7 @@ function accountsManagementPanel() {
           <select name="category" id="financial-account-category">
             ${financialAccountCategoryOptionsHtml(editing?.category)}
           </select>
-          <small>Boleto fica ligado ao Caixa quando a baixa for registrada; conta fixa permanece no planejamento.</small>
+          <small>A categoria escolhida será mantida no extrato quando a baixa for registrada.</small>
         </label>
         <label>Pagamento
           <select name="paymentTiming" id="financial-account-payment-timing">
