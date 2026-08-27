@@ -333,12 +333,16 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.ok(storeTabs);
   assert.doesNotMatch(cashTabs[1], /\["channels", "Canais"\]/);
   assert.match(storeTabs[1], /\["channels", "Canais"\]/);
-  assert.match(storeTabs[1], /\["products", "Produtos"\]/);
+  assert.match(storeTabs[1], /\["sales", "Produtos e vendas"\]/);
+  assert.doesNotMatch(storeTabs[1], /\["products", "Produtos"\]/);
   assert.match(app, /\/loja\?view=channels/);
   assert.match(app, /bindChannelReceipts\(renderStoreSales/);
   assert.match(app, /id="store-product-form"/);
   assert.match(app, /name="pricingRecipeId"/);
   assert.match(app, /name="productId"/);
+  assert.match(app, /Nome da cumbuca/);
+  assert.match(app, /Supermercado previsto/);
+  assert.match(app, /function storeSaleExpectedSupermarketCost/);
   assert.match(app, /id="store-product-quantities-form"/);
   assert.match(app, /data-store-product-quantity/);
   assert.match(app, /function storeProductMonthlyHistory/);
@@ -478,7 +482,6 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /data-store-product-performance/);
   assert.match(app, /data-profitability-store-product/);
   assert.match(app, /Quantidade mensal/);
-  assert.match(app, /\["products", "Produtos"\]/);
   assert.match(app, /function pricingSharedCosts/);
   assert.match(app, /function pricingDecimalNumber/);
   assert.match(app, /function pricingUnitCostMoney/);

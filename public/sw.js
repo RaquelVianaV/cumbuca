@@ -7,7 +7,7 @@ const APP_SHELL = [
   "/styles.css?v=20260821-02",
   "/partner-accounts.js?v=20260817-02",
   "/account-transfers.js?v=20260809-02",
-  "/app.js?v=20260821-20",
+  "/app.js?v=20260827-01",
   "/login.js",
   "/logo-cumbuca-original.png",
   "/mapa-cumbuca.png",

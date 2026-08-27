@@ -17067,12 +17067,15 @@ function storeSalesTable(entries) {
   return `
     <div class="table-wrap report-table">
       <table>
-        <thead><tr><th>Data</th><th>Quantidade</th><th>Observação</th><th>Ações</th></tr></thead>
+        <thead><tr><th>Data</th><th>Cumbuca</th><th>Tipo</th><th>Quantidade</th><th>Supermercado previsto</th><th>Observação</th><th>Ações</th></tr></thead>
         <tbody>
           ${entries.map(entry => `
             <tr>
               <td>${formatIsoDateBr(entry.date)}</td>
-              <td><strong>${storeSaleUnitQuantity(entry)}</strong></td>
+              <td>${escapeHtml(storeSaleProductName(entry))}</td>
+              <td>${storeSaleTypeLabel(entry)}</td>
+              <td><strong>${storeSaleUnitQuantity(entry)}</strong>${normalizedStoreSaleType(entry) === "combo" ? `<br><small>${Number(entry.quantity || 0)} combo(s) × ${storeSaleUnitsPerCombo(entry)}</small>` : ""}</td>
+              <td><strong>${money(storeSaleExpectedSupermarketCost(entry))}</strong></td>
               <td>${escapeHtml(entry.notes || "")}</td>
               <td>
                 <div class="table-actions">
@@ -17586,12 +17589,37 @@ function storeProductById(productId) {
 }
 
 function storeSaleProductName(entry = {}) {
+  if (normalizedStoreSaleType(entry) === "combo" && !entry.productId) {
+    return "Combo (sabores variados)";
+  }
   const product = storeProductById(entry.productId);
   return product?.name || entry.productName || "Sem produto informado";
 }
 
 function storeProductRecipe(product = {}) {
   return pricingRecipeById(product.pricingRecipeId) || null;
+}
+
+function storeProductSupermarketUnitCost(product = {}) {
+  const recipe = storeProductRecipe(product);
+  return recipe ? Math.max(0, Number(pricingRecipeMetrics(recipe).supermarketUnitCost || 0)) : 0;
+}
+
+function averageStoreSupermarketUnitCost() {
+  const costs = sortedStoreProducts().map(storeProductSupermarketUnitCost).filter(cost => cost > 0);
+  return costs.length ? costs.reduce((sum, cost) => sum + cost, 0) / costs.length : 0;
+}
+
+function storeSaleExpectedSupermarketCost(entry = {}) {
+  const savedCost = Number(entry.expectedSupermarketCost);
+  if (entry.expectedSupermarketCost !== undefined && Number.isFinite(savedCost) && savedCost >= 0) {
+    return savedCost;
+  }
+  const product = storeProductById(entry.productId);
+  const unitCost = product
+    ? storeProductSupermarketUnitCost(product)
+    : normalizedStoreSaleType(entry) === "combo" ? averageStoreSupermarketUnitCost() : 0;
+  return storeSaleUnitQuantity(entry) * unitCost;
 }
 
 function storeProductRecipeName(product = {}) {
@@ -17938,13 +17966,14 @@ function renderStoreSales() {
   setActive("loja");
   const today = isoDate(new Date());
   const storeTabs = [
-    ["sales", "Vendas"],
-    ["channels", "Canais"],
-    ["products", "Produtos"]
+    ["sales", "Produtos e vendas"],
+    ["channels", "Canais"]
   ];
   const requestedStoreView = new URLSearchParams(location.search).get("view");
   const requestedStoreProductMonth = normalizedStoreProductMonth(new URLSearchParams(location.search).get("month"));
-  if (storeTabs.some(([tab]) => tab === requestedStoreView)) {
+  if (requestedStoreView === "products") {
+    state.storeViewTab = "sales";
+  } else if (storeTabs.some(([tab]) => tab === requestedStoreView)) {
     state.storeViewTab = requestedStoreView;
   }
   if (requestedStoreProductMonth) {
@@ -17968,6 +17997,7 @@ function renderStoreSales() {
   const filter = storeSalesFilterDefaults();
   const filteredEntries = filteredStoreSales(filter);
   const salesSummary = storeSalesSummary(filteredEntries);
+  const expectedSupermarketTotal = filteredEntries.reduce((sum, entry) => sum + storeSaleExpectedSupermarketCost(entry), 0);
   const comparison = storeSalesMonthComparison(filter);
 
   app.innerHTML = `
@@ -17980,6 +18010,13 @@ function renderStoreSales() {
           <label>Data da venda
             <input name="date" type="date" value="${editing?.date || today}" required>
           </label>
+          ${sortedStoreProducts().length ? `<label id="store-sale-product-field" ${editingSaleType === "combo" ? "hidden" : ""}>Nome da cumbuca
+            <select name="productId" ${editingSaleType === "combo" ? "" : "required"}>
+              <option value="">Selecione a cumbuca</option>
+              ${sortedStoreProducts().map(product => `<option value="${escapeHtml(product.id)}" ${String(product.id) === String(editing?.productId || "") ? "selected" : ""}>${escapeHtml(product.name)} — ${money(storeProductSupermarketUnitCost(product))}/un.</option>`).join("")}
+            </select>
+            <small>Nome e custo vêm dos produtos e precificações cadastrados abaixo.</small>
+          </label>` : `<p class="form-hint">Cadastre a primeira cumbuca na seção Produtos desta página.</p>`}
           <fieldset class="store-sale-type">
             <legend>Tipo da venda</legend>
             <div class="store-sale-type-options">
@@ -18004,6 +18041,11 @@ function renderStoreSales() {
           <div class="store-sale-total" data-store-sale-total ${editingSaleType === "combo" ? "" : "hidden"} aria-live="polite">
             <span>Total deste lançamento</span>
             <strong data-store-sale-total-value>${editing ? storeSaleUnitQuantity(editing) : 0} unidades</strong>
+          </div>
+          <div class="store-sale-total store-sale-cost-preview" data-store-sale-cost-preview aria-live="polite">
+            <span>Supermercado previsto</span>
+            <strong data-store-sale-cost-value>R$ 0,00</strong>
+            <small data-store-sale-cost-hint>Escolha a cumbuca e informe a quantidade.</small>
           </div>
           <label>Observação
             <input name="notes" placeholder="Opcional" value="${escapeHtml(editing?.notes || "")}">
@@ -18047,6 +18089,7 @@ function renderStoreSales() {
           <div class="metric" data-store-sales-filter-standalone-units><span>Unidades avulsas</span><strong>${salesSummary.standaloneUnits}</strong></div>
           <div class="metric" data-store-sales-filter-combo-units><span>Unidades nos combos</span><strong>${salesSummary.comboUnits}</strong></div>
           <div class="metric" data-store-sales-filter-total><span>Total de unidades</span><strong>${salesSummary.totalUnits}</strong></div>
+          <div class="metric" data-store-sales-expected-supermarket><span>Supermercado previsto</span><strong>${money(expectedSupermarketTotal)}</strong><small>Para as unidades vendidas no período</small></div>
           <div class="metric" data-store-sales-filter-best-day>
             <span>Melhor dia</span>
             <strong>${salesSummary.bestDay ? formatIsoDateBr(salesSummary.bestDay.date) : "—"}</strong>
@@ -18083,8 +18126,10 @@ function renderStoreSales() {
         </div>
       </section>
     </div>
+    <div class="store-products-with-sales">
+      ${storeProductsPanel(state.storeProductMonth, editingStoreProduct)}
+    </div>
     `)}
-    ${viewPaneHtml("products", activeStoreView, storeProductsPanel(state.storeProductMonth, editingStoreProduct))}
     ${viewPaneHtml("channels", activeStoreView, `
       <section class="panel store-channels-panel">
         ${channelReceiptsPanel(editingChannelReceipt)}
@@ -18110,6 +18155,10 @@ function renderStoreSales() {
   const storeSaleQuantityLabel = document.querySelector("[data-store-sale-quantity-label]");
   const storeSaleTotal = document.querySelector("[data-store-sale-total]");
   const storeSaleTotalValue = document.querySelector("[data-store-sale-total-value]");
+  const storeSaleProductField = document.querySelector("#store-sale-product-field");
+  const storeSaleProduct = storeSaleForm?.querySelector('select[name="productId"]');
+  const storeSaleCostValue = document.querySelector("[data-store-sale-cost-value]");
+  const storeSaleCostHint = document.querySelector("[data-store-sale-cost-hint]");
   if (storeSaleForm && storeSaleQuantity && storeComboUnits && storeComboUnitsField && storeSaleQuantityLabel && storeSaleTotal && storeSaleTotalValue) {
     const updateStoreSaleType = () => {
       const saleType = storeSaleForm.querySelector('input[name="saleType"]:checked')?.value || "unit";
@@ -18118,9 +18167,24 @@ function renderStoreSales() {
       storeComboUnits.required = combo;
       storeSaleQuantityLabel.textContent = combo ? "Quantidade de combos" : "Quantidade de pratos";
       storeSaleTotal.hidden = !combo;
+      if (storeSaleProductField && storeSaleProduct) {
+        storeSaleProductField.hidden = combo;
+        storeSaleProduct.required = !combo;
+      }
       if (combo) {
         const total = Number(storeSaleQuantity.value || 0) * Number(storeComboUnits.value || 0);
         storeSaleTotalValue.textContent = `${total} unidade(s)`;
+      }
+      if (storeSaleCostValue && storeSaleCostHint) {
+        const product = storeProductById(storeSaleProduct?.value);
+        const unitCost = combo ? averageStoreSupermarketUnitCost() : storeProductSupermarketUnitCost(product || {});
+        const units = combo
+          ? Number(storeSaleQuantity.value || 0) * Number(storeComboUnits.value || 0)
+          : Number(storeSaleQuantity.value || 0);
+        storeSaleCostValue.textContent = money(units * unitCost);
+        storeSaleCostHint.textContent = combo
+          ? `Média de ${money(unitCost)} por unidade, porque o combo não identifica os sabores.`
+          : product ? `${money(unitCost)} por unidade na Precificação.` : "Escolha a cumbuca para calcular.";
       }
     };
     storeSaleForm.querySelectorAll('input[name="saleType"]').forEach(field => {
@@ -18128,6 +18192,7 @@ function renderStoreSales() {
     });
     storeSaleQuantity.addEventListener("input", updateStoreSaleType);
     storeComboUnits.addEventListener("input", updateStoreSaleType);
+    storeSaleProduct?.addEventListener("change", updateStoreSaleType);
     updateStoreSaleType();
   }
 
@@ -18183,7 +18248,7 @@ function renderStoreSales() {
   document.querySelectorAll("[data-edit-store-product]").forEach(button => {
     button.addEventListener("click", event => {
       state.editStoreProductId = event.currentTarget.dataset.editStoreProduct;
-      state.storeViewTab = "products";
+      state.storeViewTab = "sales";
       renderStoreSales();
     });
   });
@@ -18338,12 +18403,17 @@ function renderStoreSales() {
     const saleType = values.saleType === "combo" ? "combo" : "unit";
     const quantity = Number(values.quantity || 0);
     const unitsPerCombo = saleType === "combo" ? Number(values.unitsPerCombo || 0) : 1;
+    const selectedProduct = saleType === "unit" ? storeProductById(values.productId) : null;
     if (!values.date || !Number.isInteger(quantity) || quantity <= 0) {
       showToast("Informe data e uma quantidade inteira maior que zero.", "error");
       return;
     }
     if (saleType === "combo" && (!Number.isInteger(unitsPerCombo) || unitsPerCombo <= 0)) {
       showToast("Informe quantas unidades inteiras existem em cada combo.", "error");
+      return;
+    }
+    if (saleType === "unit" && sortedStoreProducts().length && !selectedProduct) {
+      showToast("Escolha o nome da cumbuca vendida.", "error");
       return;
     }
     if (blockClosedPeriod(values.date, editing ? "editar venda da loja" : "lançar venda da loja")) {
@@ -18355,13 +18425,14 @@ function renderStoreSales() {
     const entry = {
       id: editing?.id || Date.now(),
       date: values.date,
-      productId: editing?.productId || "",
-      productName: editing?.productName || "",
+      productId: selectedProduct?.id || "",
+      productName: selectedProduct?.name || (saleType === "combo" ? "Combo (sabores variados)" : editing?.productName || ""),
       saleType,
       quantity,
       unitsPerCombo,
       notes: values.notes || ""
     };
+    entry.expectedSupermarketCost = storeSaleExpectedSupermarketCost(entry);
     if (editing) {
       state.storeSales = state.storeSales.map(item => String(item.id) === String(editing.id) ? entry : item);
       state.editStoreSaleId = null;
