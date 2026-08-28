@@ -6080,6 +6080,12 @@ html.dark-mode .cash-hero > div:first-child {
   gap: 14px;
 }
 
+@media (min-width: 901px) {
+  .month-summary-panel > .summary {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
 .month-summary-table table {
   min-width: 980px;
 }

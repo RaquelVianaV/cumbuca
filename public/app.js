@@ -11861,6 +11861,10 @@ function monthSummaryPanel(currentKey) {
       result: orderAmount - supermarketCost
     };
   });
+  const totalSupermarketCost = weeklySummary.reduce(
+    (sum, item) => sum + item.supermarketCost,
+    0
+  );
 
   return `
     <section class="month-summary-panel">
@@ -11868,6 +11872,7 @@ function monthSummaryPanel(currentKey) {
         <div class="metric"><span>Cumbucas vendidas</span><strong>${totalQuantity}</strong></div>
         <div class="metric"><span>Pedidos no mês</span><strong>${mealOrders.length}</strong></div>
         <div class="metric"><span>Frete arrecadado</span><strong>${money(totalDeliveryFee)}</strong></div>
+        <div class="metric"><span>Supermercado no mês</span><strong>${money(totalSupermarketCost)}</strong></div>
       </div>
       <div class="table-wrap month-summary-table">
         <p class="muted-inline month-summary-note">O custo considera somente o gasto total de supermercado informado em cada semana. O valor que sobra é o total dos pedidos menos esse gasto de supermercado.</p>
