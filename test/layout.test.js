@@ -344,6 +344,10 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /Supermercado previsto/);
   assert.match(app, /function storeSaleExpectedSupermarketCost/);
   assert.match(app, /STORE_COMBO_SUPERMARKET_UNIT_COST = 7/);
+  assert.match(app, /id="store-daily-sales-form"/);
+  assert.match(app, /Salvar todas as vendas do dia/);
+  assert.match(app, /data-store-sales-day-groups/);
+  assert.match(css, /\.store-sales-day-group/);
   assert.doesNotMatch(app, /id="store-product-quantities-form"/);
   assert.doesNotMatch(app, /data-store-product-quantity/);
   assert.match(app, /Cumbucas disponíveis/);
@@ -362,6 +366,10 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /class="store-catalog-disclosure"/);
   assert.match(app, /data-store-financial-summary/);
   assert.match(app, /Resultado das cumbucas vendidas/);
+  assert.match(app, /Custo total previsto/);
+  assert.match(app, /Máximo para supermercado/);
+  assert.match(app, /Faturamento acumulado/);
+  assert.match(app, /Histórico financeiro mensal/);
   assert.match(css, /\.store-catalog-disclosure\[open\]/);
   assert.match(app, /\["costs", "Custos rateados"\]/);
   assert.match(app, /id="pricing-recipe-form"/);

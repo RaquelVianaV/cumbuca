@@ -4728,6 +4728,174 @@ html.dark-mode .cash-hero > div:first-child {
   line-height: 1.35;
 }
 
+.store-daily-sales-form {
+  display: grid;
+  gap: 14px;
+}
+
+.store-daily-product-list {
+  display: grid;
+  gap: 7px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.store-daily-product-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 78px;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.store-daily-product-row span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.store-daily-product-row b {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 0.84rem;
+}
+
+.store-daily-product-row small,
+.store-daily-combo-card small {
+  color: var(--muted);
+  font-size: 0.69rem;
+}
+
+.store-daily-product-row input {
+  width: 100%;
+  min-height: 40px;
+  padding-inline: 8px;
+  text-align: center;
+  font-weight: 850;
+}
+
+.store-daily-combo-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(2, minmax(90px, 0.65fr));
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid rgba(8, 127, 91, 0.24);
+  border-radius: 9px;
+  background: rgba(8, 127, 91, 0.055);
+}
+
+.store-daily-combo-card > div {
+  display: grid;
+  gap: 2px;
+  align-self: center;
+}
+
+.store-daily-combo-card label {
+  font-size: 0.68rem;
+}
+
+.store-daily-preview {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  align-items: center;
+  padding: 13px 14px;
+  border-radius: 9px;
+  background: var(--green-dark);
+  color: #ffffff;
+}
+
+.store-daily-preview span {
+  grid-column: 1 / -1;
+  opacity: 0.76;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.store-daily-preview strong {
+  font-size: 1rem;
+}
+
+.store-daily-preview b {
+  font-size: 1.08rem;
+}
+
+.store-sales-day-groups {
+  display: grid;
+  gap: 9px;
+}
+
+.store-sales-day-group {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.store-sales-day-group > summary {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.2fr) repeat(3, minmax(86px, 0.8fr)) 18px;
+  gap: 12px;
+  align-items: center;
+  padding: 13px 15px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.store-sales-day-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.store-sales-day-group > summary:hover {
+  background: rgba(8, 127, 91, 0.04);
+}
+
+.store-sales-day-group > summary span {
+  display: grid;
+  gap: 2px;
+}
+
+.store-sales-day-group > summary small {
+  color: var(--muted);
+  font-size: 0.67rem;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.store-sales-day-group > summary strong {
+  color: var(--ink);
+  font-size: 0.92rem;
+}
+
+.store-sales-day-group > summary i {
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+  transition: transform 160ms ease;
+}
+
+.store-sales-day-group[open] > summary {
+  border-bottom: 1px solid var(--line);
+  background: rgba(8, 127, 91, 0.045);
+}
+
+.store-sales-day-group[open] > summary i {
+  transform: rotate(225deg);
+}
+
+.store-sales-day-group .table-wrap {
+  border: 0;
+  border-radius: 0;
+}
+
 .store-products-with-sales {
   margin-top: 22px;
 }
@@ -4887,6 +5055,57 @@ html.dark-mode .cash-hero > div:first-child {
 }
 
 .store-financial-table table {
+  min-width: 1280px;
+}
+
+.store-financial-history {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.store-financial-history > summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  color: var(--ink);
+  font-weight: 850;
+  cursor: pointer;
+  list-style: none;
+}
+
+.store-financial-history > summary::-webkit-details-marker {
+  display: none;
+}
+
+.store-financial-history > summary::after {
+  content: "+";
+  color: var(--green-dark);
+  font-size: 1.1rem;
+}
+
+.store-financial-history[open] > summary::after {
+  content: "−";
+}
+
+.store-financial-history > summary span {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.store-financial-history[open] > summary {
+  border-bottom: 1px solid var(--line);
+  background: rgba(8, 127, 91, 0.035);
+}
+
+.store-financial-history .table-wrap {
+  border: 0;
+  border-radius: 0;
+}
+
+.store-financial-history table {
   min-width: 680px;
 }
 
@@ -4936,6 +5155,20 @@ html.dark-mode .cash-hero > div:first-child {
 
   .store-catalog-summary-meta {
     font-size: 0;
+  }
+
+  .store-daily-combo-card,
+  .store-sales-day-group > summary {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .store-daily-combo-card > div,
+  .store-sales-day-group > summary span:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .store-sales-day-group > summary i {
+    display: none;
   }
 }
 

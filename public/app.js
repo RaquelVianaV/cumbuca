@@ -17063,30 +17063,44 @@ function storeSalesTable(entries) {
   if (!entries.length) {
     return `<p class="muted">Nenhuma cumbuca da loja lançada neste período.</p>`;
   }
-
+  const days = new Map();
+  entries.forEach(entry => {
+    const date = String(entry.date || "");
+    const day = days.get(date) || { date, entries: [], units: 0, combos: 0, supermarket: 0 };
+    day.entries.push(entry);
+    day.units += storeSaleUnitQuantity(entry);
+    day.combos += normalizedStoreSaleType(entry) === "combo" ? Number(entry.quantity || 0) : 0;
+    day.supermarket += storeSaleExpectedSupermarketCost(entry);
+    days.set(date, day);
+  });
   return `
-    <div class="table-wrap report-table">
-      <table>
-        <thead><tr><th>Data</th><th>Cumbuca</th><th>Tipo</th><th>Quantidade</th><th>Supermercado previsto</th><th>Observação</th><th>Ações</th></tr></thead>
-        <tbody>
-          ${entries.map(entry => `
-            <tr>
-              <td>${formatIsoDateBr(entry.date)}</td>
-              <td>${escapeHtml(storeSaleProductName(entry))}</td>
-              <td>${storeSaleTypeLabel(entry)}</td>
-              <td><strong>${storeSaleUnitQuantity(entry)}</strong>${normalizedStoreSaleType(entry) === "combo" ? `<br><small>${Number(entry.quantity || 0)} combo(s) × ${storeSaleUnitsPerCombo(entry)}</small>` : ""}</td>
-              <td><strong>${money(storeSaleExpectedSupermarketCost(entry))}</strong></td>
-              <td>${escapeHtml(entry.notes || "")}</td>
-              <td>
-                <div class="table-actions">
-                  <button class="secondary table-action" type="button" data-edit-store-sale="${entry.id}">Editar</button>
-                  <button class="danger table-action" type="button" data-delete-store-sale="${entry.id}">Excluir</button>
-                </div>
-              </td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
+    <div class="store-sales-day-groups" data-store-sales-day-groups>
+      ${[...days.values()].map(day => `
+        <details class="store-sales-day-group">
+          <summary>
+            <span><small>Data</small><strong>${formatIsoDateBr(day.date)}</strong></span>
+            <span><small>Unidades</small><strong>${day.units}</strong></span>
+            <span><small>Combos</small><strong>${day.combos}</strong></span>
+            <span><small>Supermercado</small><strong>${money(day.supermarket)}</strong></span>
+            <i aria-hidden="true"></i>
+          </summary>
+          <div class="table-wrap report-table">
+            <table>
+              <thead><tr><th>Cumbuca</th><th>Tipo</th><th>Quantidade</th><th>Supermercado previsto</th><th>Observação</th><th>Ações</th></tr></thead>
+              <tbody>${day.entries.map(entry => `
+                <tr>
+                  <td>${escapeHtml(storeSaleProductName(entry))}</td>
+                  <td>${storeSaleTypeLabel(entry)}</td>
+                  <td><strong>${storeSaleUnitQuantity(entry)}</strong>${normalizedStoreSaleType(entry) === "combo" ? `<br><small>${Number(entry.quantity || 0)} combo(s) × ${storeSaleUnitsPerCombo(entry)}</small>` : ""}</td>
+                  <td><strong>${money(storeSaleExpectedSupermarketCost(entry))}</strong></td>
+                  <td>${escapeHtml(entry.notes || "")}</td>
+                  <td><div class="table-actions"><button class="secondary table-action" type="button" data-edit-store-sale="${entry.id}">Editar</button><button class="danger table-action" type="button" data-delete-store-sale="${entry.id}">Excluir</button></div></td>
+                </tr>
+              `).join("")}</tbody>
+            </table>
+          </div>
+        </details>
+      `).join("")}
     </div>
   `;
 }
@@ -17566,6 +17580,26 @@ function storeSalesMonthComparison(filter = storeSalesFilterDefaults()) {
   };
 }
 
+function storeDailyProductQuantity(date, productId) {
+  return (state.storeSales || [])
+    .filter(entry => String(entry.date || "") === String(date || ""))
+    .filter(entry => normalizedStoreSaleType(entry) === "unit")
+    .filter(entry => String(entry.productId || "") === String(productId || ""))
+    .reduce((sum, entry) => sum + Math.max(0, Number(entry.quantity || 0)), 0);
+}
+
+function storeDailyComboValues(date) {
+  const combos = (state.storeSales || []).filter(entry => {
+    return String(entry.date || "") === String(date || "")
+      && normalizedStoreSaleType(entry) === "combo";
+  });
+  const unitsPerComboValues = [...new Set(combos.map(storeSaleUnitsPerCombo))];
+  return {
+    quantity: combos.reduce((sum, entry) => sum + Math.max(0, Number(entry.quantity || 0)), 0),
+    unitsPerCombo: unitsPerComboValues.length === 1 ? unitsPerComboValues[0] : ""
+  };
+}
+
 function normalizedStoreProductMonth(value) {
   const month = String(value || "").trim();
   if (!/^\d{4}-\d{2}$/.test(month)) {
@@ -17651,11 +17685,50 @@ function storeProductQuantityForMonth(productId, month) {
 function storeSalesFinancialSummary(entries = [], periodLabel = "") {
   const rows = storeProductPerformanceRows({ type: "week", storeSales: entries })
     .filter(row => row.salesUnits > 0);
+  const accumulatedRows = new Map(
+    storeProductPerformanceRows({ type: "week", storeSales: state.storeSales || [] })
+      .map(row => [row.key, row])
+  );
   const totalUnits = rows.reduce((sum, row) => sum + row.salesUnits, 0);
   const estimatedRevenue = rows.reduce((sum, row) => sum + row.estimatedRevenue, 0);
   const estimatedProfit = rows.reduce((sum, row) => sum + row.estimatedProfit, 0);
+  const estimatedTotalCost = rows.reduce((sum, row) => {
+    const unitCost = row.metrics
+      ? row.practiced ? row.metrics.realTotalCost : row.metrics.totalCost
+      : 0;
+    return sum + (row.salesUnits * unitCost);
+  }, 0);
   const supermarketCost = entries.reduce((sum, entry) => sum + storeSaleExpectedSupermarketCost(entry), 0);
   const linkedUnits = rows.filter(row => row.recipe).reduce((sum, row) => sum + row.salesUnits, 0);
+  const maximumSupermarket = rows.reduce((sum, row) => {
+    if (!row.metrics || !row.referencePrice) {
+      return sum;
+    }
+    const otherUnitCosts = row.metrics.packagingCost
+      + row.metrics.productionCost
+      + row.metrics.laborCost
+      + row.metrics.otherCost
+      + row.metrics.fixedFee;
+    const availablePercent = 1 - ((row.metrics.variableFeePercent + row.metrics.desiredMarginPercent) / 100);
+    return sum + (row.salesUnits * Math.max(0, (row.referencePrice * availablePercent) - otherUnitCosts));
+  }, 0);
+  const inputAllowance = maximumSupermarket - supermarketCost;
+  const history = [...new Set((state.storeSales || [])
+    .map(entry => String(entry.date || "").slice(0, 7))
+    .filter(month => /^\d{4}-\d{2}$/.test(month)))]
+    .sort((a, b) => b.localeCompare(a))
+    .slice(0, 12)
+    .map(month => {
+      const monthEntries = state.storeSales.filter(entry => String(entry.date || "").startsWith(month));
+      const monthRows = storeProductPerformanceRows({ type: "week", storeSales: monthEntries });
+      return {
+        month,
+        units: monthEntries.reduce((sum, entry) => sum + storeSaleUnitQuantity(entry), 0),
+        supermarket: monthEntries.reduce((sum, entry) => sum + storeSaleExpectedSupermarketCost(entry), 0),
+        revenue: monthRows.reduce((sum, row) => sum + row.estimatedRevenue, 0),
+        profit: monthRows.reduce((sum, row) => sum + row.estimatedProfit, 0)
+      };
+    });
 
   return `
     <section class="panel store-financial-summary" data-store-financial-summary>
@@ -17671,26 +17744,59 @@ function storeSalesFinancialSummary(entries = [], periodLabel = "") {
         <div class="metric"><span>Faturamento previsto</span><strong>${money(estimatedRevenue)}</strong><small>preço × quantidade</small></div>
         <div class="metric"><span>Supermercado previsto</span><strong>${money(supermarketCost)}</strong><small>custo dos insumos</small></div>
         <div class="metric"><span>Lucro previsto</span><strong class="${estimatedProfit < 0 ? "negative" : "positive"}">${money(estimatedProfit)}</strong><small>conforme a precificação</small></div>
+        <div class="metric"><span>Custo total previsto</span><strong>${money(estimatedTotalCost)}</strong><small>todos os custos das receitas</small></div>
+        <div class="metric"><span>Máximo para supermercado</span><strong>${money(maximumSupermarket)}</strong><small>preservando a margem desejada</small></div>
+        <div class="metric"><span>Folga para insumos</span><strong class="${inputAllowance < 0 ? "negative" : "positive"}">${money(inputAllowance)}</strong><small>máximo menos supermercado</small></div>
+        <div class="metric"><span>Base calculada</span><strong>${linkedUnits}/${totalUnits}</strong><small>unidades com precificação</small></div>
       </div>
       ${rows.length ? `
         <div class="table-wrap store-financial-table">
           <table>
-            <thead><tr><th>Cumbuca</th><th>Vendidas</th><th>Preço/un.</th><th>Faturamento</th><th>Lucro previsto</th></tr></thead>
+            <thead><tr><th>Cumbuca</th><th>Vendidas</th><th>Custo/un.</th><th>Preço/un.</th><th>Lucro/un.</th><th>Faturamento</th><th>Lucro previsto</th><th>Qtd. acumulada</th><th>Faturamento acumulado</th><th>Lucro acumulado</th></tr></thead>
             <tbody>
-              ${rows.map(row => `
+              ${rows.map(row => {
+                const accumulated = accumulatedRows.get(row.key) || row;
+                const unitCost = row.metrics
+                  ? row.practiced ? row.metrics.realTotalCost : row.metrics.totalCost
+                  : 0;
+                return `
                 <tr>
                   <td><strong>${escapeHtml(row.name)}</strong>${row.combos ? `<br><small>${row.combos} combo(s)</small>` : ""}</td>
                   <td>${row.salesUnits}</td>
+                  <td>${row.recipe ? money(unitCost) : "—"}</td>
                   <td>${row.recipe ? money(row.referencePrice) : "—"}</td>
+                  <td class="${row.unitProfit < 0 ? "negative" : row.recipe ? "positive" : ""}">${row.recipe ? money(row.unitProfit) : "—"}</td>
                   <td>${row.recipe ? money(row.estimatedRevenue) : "—"}</td>
                   <td class="${row.estimatedProfit < 0 ? "negative" : row.recipe ? "positive" : ""}">${row.recipe ? money(row.estimatedProfit) : "—"}</td>
+                  <td><strong>${accumulated.salesUnits}</strong></td>
+                  <td>${accumulated.recipe ? money(accumulated.estimatedRevenue) : "—"}</td>
+                  <td class="${accumulated.estimatedProfit < 0 ? "negative" : accumulated.recipe ? "positive" : ""}">${accumulated.recipe ? money(accumulated.estimatedProfit) : "—"}</td>
                 </tr>
-              `).join("")}
+              `; }).join("")}
             </tbody>
           </table>
         </div>
       ` : `<p class="muted">Nenhuma venda registrada neste período.</p>`}
       ${totalUnits > linkedUnits ? `<p class="form-hint warning-text">${totalUnits - linkedUnits} unidade(s) sem precificação vinculada não entram no faturamento e no lucro previstos.</p>` : ""}
+      <details class="store-financial-history">
+        <summary>Histórico financeiro mensal <span>${history.length} mês(es)</span></summary>
+        ${history.length ? `
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Mês</th><th>Unidades</th><th>Supermercado</th><th>Faturamento</th><th>Lucro previsto</th></tr></thead>
+              <tbody>${history.map(row => `
+                <tr>
+                  <td><strong>${formatMonthKeyBr(row.month)}</strong></td>
+                  <td>${row.units}</td>
+                  <td>${money(row.supermarket)}</td>
+                  <td>${money(row.revenue)}</td>
+                  <td class="${row.profit < 0 ? "negative" : "positive"}">${money(row.profit)}</td>
+                </tr>
+              `).join("")}</tbody>
+            </table>
+          </div>
+        ` : `<p class="muted">Nenhuma venda registrada no histórico.</p>`}
+      </details>
     </section>
   `;
 }
@@ -17808,7 +17914,35 @@ function renderStoreSales() {
           <h2>${editing ? "Editar venda" : "Lançar venda"}</h2>
           <p>Informe a cumbuca e a quantidade. O custo previsto é calculado automaticamente.</p>
         </div>
-        <form id="store-sale-form" class="form-grid single">
+        ${!editing ? (() => {
+          const dailyCombos = storeDailyComboValues(today);
+          return `
+          <form id="store-daily-sales-form" class="store-daily-sales-form">
+            <label class="store-daily-date">Data do fechamento
+              <input name="date" type="date" value="${today}" required>
+              <small>Se já houver vendas nesta data, elas aparecem para conferência e atualização.</small>
+            </label>
+            <div class="store-daily-product-list">
+              ${sortedStoreProducts().map(product => `
+                <label class="store-daily-product-row">
+                  <span><b>${escapeHtml(product.name || "")}</b><small>${money(storeProductSupermarketUnitCost(product))} de supermercado/un.</small></span>
+                  <input type="number" min="0" step="1" inputmode="numeric" placeholder="0" value="${storeDailyProductQuantity(today, product.id) || ""}" data-store-daily-product="${escapeHtml(product.id)}" aria-label="Quantidade de ${escapeHtml(product.name || "")}">
+                </label>
+              `).join("")}
+            </div>
+            <div class="store-daily-combo-card">
+              <div><b>Combos do dia</b><small>Use R$ 7,00 de supermercado por unidade.</small></div>
+              <label>Quantidade de combos<input name="comboQuantity" type="number" min="0" step="1" inputmode="numeric" placeholder="0" value="${dailyCombos.quantity || ""}"></label>
+              <label>Unidades por combo<input name="unitsPerCombo" type="number" min="1" step="1" inputmode="numeric" placeholder="Ex.: 4" value="${dailyCombos.unitsPerCombo || ""}"></label>
+            </div>
+            <label>Observação do dia
+              <input name="notes" placeholder="Opcional">
+            </label>
+            <div class="store-daily-preview" data-store-daily-preview><span>Total do fechamento</span><strong data-store-daily-preview-units>0 unidades</strong><b data-store-daily-preview-cost>R$ 0,00</b></div>
+            <button type="submit">Salvar todas as vendas do dia</button>
+          </form>`;
+        })() : ""}
+        <form id="store-sale-form" class="form-grid single" ${editing ? "" : "hidden"}>
           <label>Data da venda
             <input name="date" type="date" value="${editing?.date || today}" required>
           </label>
@@ -17955,6 +18089,109 @@ function renderStoreSales() {
       renderStoreSales();
     });
   });
+
+  const storeDailySalesForm = document.querySelector("#store-daily-sales-form");
+  if (storeDailySalesForm) {
+    const dailyDate = storeDailySalesForm.elements.date;
+    const comboQuantity = storeDailySalesForm.elements.comboQuantity;
+    const comboUnits = storeDailySalesForm.elements.unitsPerCombo;
+    const previewUnits = storeDailySalesForm.querySelector("[data-store-daily-preview-units]");
+    const previewCost = storeDailySalesForm.querySelector("[data-store-daily-preview-cost]");
+    const productFields = [...storeDailySalesForm.querySelectorAll("[data-store-daily-product]")];
+    const updateDailyPreview = () => {
+      const productTotals = productFields.reduce((totals, field) => {
+        const quantity = Math.max(0, Number(field.value || 0));
+        const product = storeProductById(field.dataset.storeDailyProduct);
+        totals.units += quantity;
+        totals.cost += quantity * storeProductSupermarketUnitCost(product || {});
+        return totals;
+      }, { units: 0, cost: 0 });
+      const comboTotalUnits = Math.max(0, Number(comboQuantity.value || 0)) * Math.max(0, Number(comboUnits.value || 0));
+      previewUnits.textContent = `${productTotals.units + comboTotalUnits} unidade(s)`;
+      previewCost.textContent = money(productTotals.cost + (comboTotalUnits * STORE_COMBO_SUPERMARKET_UNIT_COST));
+    };
+    const loadDailyDate = () => {
+      productFields.forEach(field => {
+        field.value = storeDailyProductQuantity(dailyDate.value, field.dataset.storeDailyProduct) || "";
+      });
+      const combos = storeDailyComboValues(dailyDate.value);
+      comboQuantity.value = combos.quantity || "";
+      comboUnits.value = combos.unitsPerCombo || "";
+      updateDailyPreview();
+    };
+    [...productFields, comboQuantity, comboUnits].forEach(field => {
+      field.addEventListener("input", updateDailyPreview);
+    });
+    dailyDate.addEventListener("change", loadDailyDate);
+    updateDailyPreview();
+
+    storeDailySalesForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      const date = dailyDate.value;
+      if (!date || blockClosedPeriod(date, "salvar o fechamento diário da loja")) {
+        return;
+      }
+      const productValues = productFields.map(field => ({
+        product: storeProductById(field.dataset.storeDailyProduct),
+        quantity: Number(field.value || 0)
+      }));
+      const combos = Number(comboQuantity.value || 0);
+      const unitsPerCombo = Number(comboUnits.value || 0);
+      if (productValues.some(item => !Number.isInteger(item.quantity) || item.quantity < 0)) {
+        showToast("Use quantidades inteiras iguais ou maiores que zero.", "error");
+        return;
+      }
+      if (!Number.isInteger(combos) || combos < 0 || (combos > 0 && (!Number.isInteger(unitsPerCombo) || unitsPerCombo <= 0))) {
+        showToast("Informe a quantidade de combos e quantas unidades existem em cada um.", "error");
+        return;
+      }
+      const notes = String(storeDailySalesForm.elements.notes.value || "").trim();
+      const baseId = Date.now();
+      const dailyEntries = productValues
+        .filter(item => item.product && item.quantity > 0)
+        .map((item, index) => {
+          const entry = {
+            id: baseId + index,
+            date,
+            productId: item.product.id,
+            productName: item.product.name,
+            saleType: "unit",
+            quantity: item.quantity,
+            unitsPerCombo: 1,
+            notes
+          };
+          entry.expectedSupermarketCost = storeSaleExpectedSupermarketCost(entry);
+          return entry;
+        });
+      if (combos > 0) {
+        const comboEntry = {
+          id: baseId + dailyEntries.length,
+          date,
+          productId: "",
+          productName: "Combo (sabores variados)",
+          saleType: "combo",
+          quantity: combos,
+          unitsPerCombo,
+          notes
+        };
+        comboEntry.expectedSupermarketCost = storeSaleExpectedSupermarketCost(comboEntry);
+        dailyEntries.push(comboEntry);
+      }
+      if (!dailyEntries.length) {
+        showToast("Informe pelo menos uma venda para este dia.", "error");
+        return;
+      }
+      state.storeSales = [
+        ...state.storeSales.filter(entry => String(entry.date || "") !== date),
+        ...dailyEntries
+      ];
+      recordAudit("Fechamento diário da loja salvo", `${formatIsoDateBr(date)} - ${dailyEntries.reduce((sum, entry) => sum + storeSaleUnitQuantity(entry), 0)} unidade(s)`);
+      if (await persistState()) {
+        renderStoreSales();
+        showToast("Todas as vendas do dia foram salvas.", "success");
+      }
+    });
+  }
 
   const storeSaleForm = document.querySelector("#store-sale-form");
   const storeSaleQuantity = storeSaleForm?.querySelector('input[name="quantity"]');
