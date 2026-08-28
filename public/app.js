@@ -17580,26 +17580,6 @@ function storeSalesMonthComparison(filter = storeSalesFilterDefaults()) {
   };
 }
 
-function storeDailyProductQuantity(date, productId) {
-  return (state.storeSales || [])
-    .filter(entry => String(entry.date || "") === String(date || ""))
-    .filter(entry => normalizedStoreSaleType(entry) === "unit")
-    .filter(entry => String(entry.productId || "") === String(productId || ""))
-    .reduce((sum, entry) => sum + Math.max(0, Number(entry.quantity || 0)), 0);
-}
-
-function storeDailyComboValues(date) {
-  const combos = (state.storeSales || []).filter(entry => {
-    return String(entry.date || "") === String(date || "")
-      && normalizedStoreSaleType(entry) === "combo";
-  });
-  const unitsPerComboValues = [...new Set(combos.map(storeSaleUnitsPerCombo))];
-  return {
-    quantity: combos.reduce((sum, entry) => sum + Math.max(0, Number(entry.quantity || 0)), 0),
-    unitsPerCombo: unitsPerComboValues.length === 1 ? unitsPerComboValues[0] : ""
-  };
-}
-
 function normalizedStoreProductMonth(value) {
   const month = String(value || "").trim();
   if (!/^\d{4}-\d{2}$/.test(month)) {
@@ -17914,42 +17894,26 @@ function renderStoreSales() {
           <h2>${editing ? "Editar venda" : "Lançar venda"}</h2>
           <p>Informe a cumbuca e a quantidade. O custo previsto é calculado automaticamente.</p>
         </div>
-        ${!editing ? (() => {
-          const dailyCombos = storeDailyComboValues(today);
-          return `
+        ${!editing ? `
           <form id="store-daily-sales-form" class="store-daily-sales-form">
             <label class="store-daily-date">Data do fechamento
               <input name="date" type="date" value="${today}" required>
               <small>Se já houver vendas nesta data, elas aparecem para conferência e atualização.</small>
             </label>
             <div class="store-daily-list-heading">
-              <span><b>Quantidades por cumbuca</b><small>Use + e − para lançar rapidamente.</small></span>
-              <button class="secondary" type="button" data-store-daily-clear>Zerar quantidades</button>
+              <span><b>Itens vendidos</b><small>Selecione apenas o que saiu neste dia.</small></span>
             </div>
-            <div class="store-daily-product-list">
-              ${sortedStoreProducts().map(product => `
-                <div class="store-daily-product-row">
-                  <span><b>${escapeHtml(product.name || "")}</b><small>${money(storeProductSupermarketUnitCost(product))} de supermercado/un.</small></span>
-                  <span class="store-daily-quantity-control">
-                    <button type="button" data-store-daily-step="-1" aria-label="Diminuir ${escapeHtml(product.name || "")}">−</button>
-                    <input type="number" min="0" step="1" inputmode="numeric" placeholder="0" value="${storeDailyProductQuantity(today, product.id) || ""}" data-store-daily-product="${escapeHtml(product.id)}" aria-label="Quantidade de ${escapeHtml(product.name || "")}">
-                    <button type="button" data-store-daily-step="1" aria-label="Aumentar ${escapeHtml(product.name || "")}">+</button>
-                  </span>
-                </div>
-              `).join("")}
-            </div>
-            <div class="store-daily-combo-card">
-              <div><b>Combos do dia</b><small>Use R$ 7,00 de supermercado por unidade.</small></div>
-              <label>Quantidade de combos<input name="comboQuantity" type="number" min="0" step="1" inputmode="numeric" placeholder="0" value="${dailyCombos.quantity || ""}"></label>
-              <label>Unidades por combo<input name="unitsPerCombo" type="number" min="1" step="1" inputmode="numeric" placeholder="Ex.: 4" value="${dailyCombos.unitsPerCombo || ""}"></label>
+            <div class="store-daily-sale-lines" data-store-daily-sale-lines></div>
+            <button class="secondary store-daily-add-line" type="button" data-store-daily-add-line>+ Adicionar outro item</button>
+            <div class="store-daily-line-help">
+              <span>Selecione “Combo” para informar também quantas unidades há em cada combo.</span>
             </div>
             <label>Observação do dia
               <input name="notes" placeholder="Opcional">
             </label>
             <div class="store-daily-preview" data-store-daily-preview><span>Total do fechamento</span><strong data-store-daily-preview-units>0 unidades</strong><b data-store-daily-preview-cost>R$ 0,00</b></div>
             <button type="submit">Salvar todas as vendas do dia</button>
-          </form>`;
-        })() : ""}
+          </form>` : ""}
         <form id="store-sale-form" class="form-grid single" ${editing ? "" : "hidden"}>
           <label>Data da venda
             <input name="date" type="date" value="${editing?.date || today}" required>
@@ -18101,51 +18065,104 @@ function renderStoreSales() {
   const storeDailySalesForm = document.querySelector("#store-daily-sales-form");
   if (storeDailySalesForm) {
     const dailyDate = storeDailySalesForm.elements.date;
-    const comboQuantity = storeDailySalesForm.elements.comboQuantity;
-    const comboUnits = storeDailySalesForm.elements.unitsPerCombo;
+    const linesContainer = storeDailySalesForm.querySelector("[data-store-daily-sale-lines]");
     const previewUnits = storeDailySalesForm.querySelector("[data-store-daily-preview-units]");
     const previewCost = storeDailySalesForm.querySelector("[data-store-daily-preview-cost]");
-    const productFields = [...storeDailySalesForm.querySelectorAll("[data-store-daily-product]")];
+    const productOptions = sortedStoreProducts().map(product => {
+      return `<option value="product:${escapeHtml(product.id)}">${escapeHtml(product.name)} · ${money(storeProductSupermarketUnitCost(product))}/un.</option>`;
+    }).join("");
+    const dailyLines = () => [...linesContainer.querySelectorAll("[data-store-daily-line]")];
+    const addDailyLine = ({ item = "", quantity = "", unitsPerCombo = "" } = {}) => {
+      linesContainer.insertAdjacentHTML("beforeend", `
+        <div class="store-daily-sale-line" data-store-daily-line>
+          <label class="store-daily-item-select">Item vendido
+            <select data-store-daily-item required>
+              <option value="">Selecione</option>
+              ${productOptions}
+              <option value="combo">Combo · ${money(STORE_COMBO_SUPERMARKET_UNIT_COST)}/un.</option>
+            </select>
+          </label>
+          <label>Quantidade
+            <input data-store-daily-quantity type="number" min="1" step="1" inputmode="numeric" placeholder="0" value="${quantity || ""}" required>
+          </label>
+          <label data-store-daily-combo-units ${item === "combo" ? "" : "hidden"}>Unidades por combo
+            <input data-store-daily-units-per-combo type="number" min="1" step="1" inputmode="numeric" placeholder="Ex.: 4" value="${unitsPerCombo || ""}">
+          </label>
+          <button class="store-daily-remove-line" type="button" data-store-daily-remove-line aria-label="Remover item">×</button>
+        </div>
+      `);
+      const line = linesContainer.lastElementChild;
+      line.querySelector("[data-store-daily-item]").value = item;
+      updateDailyLine(line);
+    };
+    const updateDailyLine = line => {
+      const combo = line.querySelector("[data-store-daily-item]").value === "combo";
+      const comboField = line.querySelector("[data-store-daily-combo-units]");
+      const comboInput = line.querySelector("[data-store-daily-units-per-combo]");
+      comboField.hidden = !combo;
+      comboInput.required = combo;
+      if (!combo) {
+        comboInput.value = "";
+      }
+    };
     const updateDailyPreview = () => {
-      const productTotals = productFields.reduce((totals, field) => {
-        const quantity = Math.max(0, Number(field.value || 0));
-        const product = storeProductById(field.dataset.storeDailyProduct);
-        totals.units += quantity;
-        totals.cost += quantity * storeProductSupermarketUnitCost(product || {});
+      const totals = dailyLines().reduce((totals, line) => {
+        const item = line.querySelector("[data-store-daily-item]").value;
+        const quantity = Math.max(0, Number(line.querySelector("[data-store-daily-quantity]").value || 0));
+        const unitsPerCombo = Math.max(0, Number(line.querySelector("[data-store-daily-units-per-combo]").value || 0));
+        if (item === "combo") {
+          totals.units += quantity * unitsPerCombo;
+          totals.cost += quantity * unitsPerCombo * STORE_COMBO_SUPERMARKET_UNIT_COST;
+        } else if (item.startsWith("product:")) {
+          const product = storeProductById(item.slice(8));
+          totals.units += quantity;
+          totals.cost += quantity * storeProductSupermarketUnitCost(product || {});
+        }
         return totals;
       }, { units: 0, cost: 0 });
-      const comboTotalUnits = Math.max(0, Number(comboQuantity.value || 0)) * Math.max(0, Number(comboUnits.value || 0));
-      previewUnits.textContent = `${productTotals.units + comboTotalUnits} unidade(s)`;
-      previewCost.textContent = money(productTotals.cost + (comboTotalUnits * STORE_COMBO_SUPERMARKET_UNIT_COST));
+      previewUnits.textContent = `${totals.units} unidade(s)`;
+      previewCost.textContent = money(totals.cost);
     };
     const loadDailyDate = () => {
-      productFields.forEach(field => {
-        field.value = storeDailyProductQuantity(dailyDate.value, field.dataset.storeDailyProduct) || "";
+      linesContainer.innerHTML = "";
+      const entries = (state.storeSales || []).filter(entry => String(entry.date || "") === dailyDate.value);
+      entries.forEach(entry => {
+        addDailyLine({
+          item: normalizedStoreSaleType(entry) === "combo" ? "combo" : `product:${entry.productId}`,
+          quantity: Number(entry.quantity || 0),
+          unitsPerCombo: normalizedStoreSaleType(entry) === "combo" ? storeSaleUnitsPerCombo(entry) : ""
+        });
       });
-      const combos = storeDailyComboValues(dailyDate.value);
-      comboQuantity.value = combos.quantity || "";
-      comboUnits.value = combos.unitsPerCombo || "";
+      if (!entries.length) {
+        addDailyLine();
+      }
       updateDailyPreview();
     };
-    [...productFields, comboQuantity, comboUnits].forEach(field => {
-      field.addEventListener("input", updateDailyPreview);
-    });
-    storeDailySalesForm.querySelectorAll("[data-store-daily-step]").forEach(button => {
-      button.addEventListener("click", event => {
-        const field = event.currentTarget.parentElement.querySelector("[data-store-daily-product]");
-        const step = Number(event.currentTarget.dataset.storeDailyStep || 0);
-        field.value = Math.max(0, Number(field.value || 0) + step) || "";
+    linesContainer.addEventListener("change", event => {
+      const line = event.target.closest("[data-store-daily-line]");
+      if (line && event.target.matches("[data-store-daily-item]")) {
+        updateDailyLine(line);
         updateDailyPreview();
-      });
+      }
     });
-    storeDailySalesForm.querySelector("[data-store-daily-clear]")?.addEventListener("click", () => {
-      productFields.forEach(field => { field.value = ""; });
-      comboQuantity.value = "";
-      comboUnits.value = "";
+    linesContainer.addEventListener("input", updateDailyPreview);
+    linesContainer.addEventListener("click", event => {
+      const remove = event.target.closest("[data-store-daily-remove-line]");
+      if (!remove) {
+        return;
+      }
+      remove.closest("[data-store-daily-line]").remove();
+      if (!dailyLines().length) {
+        addDailyLine();
+      }
       updateDailyPreview();
     });
+    storeDailySalesForm.querySelector("[data-store-daily-add-line]").addEventListener("click", () => {
+      addDailyLine();
+      linesContainer.lastElementChild.querySelector("[data-store-daily-item]").focus();
+    });
     dailyDate.addEventListener("change", loadDailyDate);
-    updateDailyPreview();
+    loadDailyDate();
 
     storeDailySalesForm.addEventListener("submit", async event => {
       event.preventDefault();
@@ -18153,52 +18170,41 @@ function renderStoreSales() {
       if (!date || blockClosedPeriod(date, "salvar o fechamento diário da loja")) {
         return;
       }
-      const productValues = productFields.map(field => ({
-        product: storeProductById(field.dataset.storeDailyProduct),
-        quantity: Number(field.value || 0)
+      const values = dailyLines().map(line => ({
+        item: line.querySelector("[data-store-daily-item]").value,
+        quantity: Number(line.querySelector("[data-store-daily-quantity]").value || 0),
+        unitsPerCombo: Number(line.querySelector("[data-store-daily-units-per-combo]").value || 0)
       }));
-      const combos = Number(comboQuantity.value || 0);
-      const unitsPerCombo = Number(comboUnits.value || 0);
-      if (productValues.some(item => !Number.isInteger(item.quantity) || item.quantity < 0)) {
-        showToast("Use quantidades inteiras iguais ou maiores que zero.", "error");
+      if (values.some(value => !value.item || !Number.isInteger(value.quantity) || value.quantity <= 0)) {
+        showToast("Selecione cada item e informe uma quantidade maior que zero.", "error");
         return;
       }
-      if (!Number.isInteger(combos) || combos < 0 || (combos > 0 && (!Number.isInteger(unitsPerCombo) || unitsPerCombo <= 0))) {
-        showToast("Informe a quantidade de combos e quantas unidades existem em cada um.", "error");
+      if (values.some(value => value.item === "combo" && (!Number.isInteger(value.unitsPerCombo) || value.unitsPerCombo <= 0))) {
+        showToast("Informe quantas unidades existem em cada combo.", "error");
+        return;
+      }
+      if (new Set(values.map(value => value.item)).size !== values.length) {
+        showToast("Cada item deve aparecer somente uma vez no fechamento.", "error");
         return;
       }
       const notes = String(storeDailySalesForm.elements.notes.value || "").trim();
       const baseId = Date.now();
-      const dailyEntries = productValues
-        .filter(item => item.product && item.quantity > 0)
-        .map((item, index) => {
+      const dailyEntries = values.map((value, index) => {
+          const combo = value.item === "combo";
+          const product = combo ? null : storeProductById(value.item.slice(8));
           const entry = {
             id: baseId + index,
             date,
-            productId: item.product.id,
-            productName: item.product.name,
-            saleType: "unit",
-            quantity: item.quantity,
-            unitsPerCombo: 1,
+            productId: product?.id || "",
+            productName: product?.name || "Combo (sabores variados)",
+            saleType: combo ? "combo" : "unit",
+            quantity: value.quantity,
+            unitsPerCombo: combo ? value.unitsPerCombo : 1,
             notes
           };
           entry.expectedSupermarketCost = storeSaleExpectedSupermarketCost(entry);
           return entry;
         });
-      if (combos > 0) {
-        const comboEntry = {
-          id: baseId + dailyEntries.length,
-          date,
-          productId: "",
-          productName: "Combo (sabores variados)",
-          saleType: "combo",
-          quantity: combos,
-          unitsPerCombo,
-          notes
-        };
-        comboEntry.expectedSupermarketCost = storeSaleExpectedSupermarketCost(comboEntry);
-        dailyEntries.push(comboEntry);
-      }
       if (!dailyEntries.length) {
         showToast("Informe pelo menos uma venda para este dia.", "error");
         return;

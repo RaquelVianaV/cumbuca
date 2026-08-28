@@ -4733,13 +4733,9 @@ html.dark-mode .cash-hero > div:first-child {
   gap: 14px;
 }
 
-.store-daily-product-list {
+.store-daily-sale-lines {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 7px;
-  max-height: 420px;
-  overflow-y: auto;
-  padding-right: 4px;
+  gap: 10px;
 }
 
 .store-daily-list-heading {
@@ -4764,102 +4760,55 @@ html.dark-mode .cash-hero > div:first-child {
   font-size: 0.7rem;
 }
 
-.store-daily-list-heading button {
-  min-height: 34px;
-  padding: 7px 10px;
-  font-size: 0.7rem;
-  white-space: nowrap;
-}
-
-.store-daily-product-row {
+.store-daily-sale-line {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-  min-height: 68px;
-  padding: 8px 9px 8px 11px;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) 38px;
+  gap: 9px;
+  align-items: end;
+  padding: 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--surface);
 }
 
-.store-daily-product-row span {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
+.store-daily-item-select {
+  grid-column: 1 / -1;
 }
 
-.store-daily-product-row b {
-  overflow-wrap: anywhere;
-  color: var(--ink);
-  font-size: 0.78rem;
-  line-height: 1.25;
+.store-daily-sale-line label {
+  font-size: 0.7rem;
 }
 
-.store-daily-product-row small,
-.store-daily-combo-card small {
-  color: var(--muted);
-  font-size: 0.69rem;
+.store-daily-sale-line select,
+.store-daily-sale-line input {
+  min-height: 44px;
+  font-size: 0.88rem;
+  font-weight: 780;
 }
 
-.store-daily-quantity-control {
-  display: flex;
-  gap: 3px;
-  align-items: center;
-}
-
-.store-daily-quantity-control input {
-  width: 50px;
-  min-height: 38px;
-  padding-inline: 3px;
-  text-align: center;
-  font-weight: 850;
-  appearance: textfield;
-}
-
-.store-daily-quantity-control input::-webkit-inner-spin-button,
-.store-daily-quantity-control input::-webkit-outer-spin-button {
-  margin: 0;
-  appearance: none;
-}
-
-.store-daily-quantity-control button {
-  width: 34px;
-  min-width: 34px;
-  min-height: 38px;
+.store-daily-remove-line {
+  width: 38px;
+  min-width: 38px;
+  min-height: 44px;
   padding: 0;
-  border: 1px solid rgba(8, 127, 91, 0.24);
-  border-radius: 7px;
-  background: rgba(8, 127, 91, 0.07);
-  color: var(--green-dark);
-  font-size: 1.05rem;
-  font-weight: 900;
+  border: 1px solid rgba(184, 66, 43, 0.18);
+  border-radius: 8px;
+  background: rgba(184, 66, 43, 0.07);
+  color: var(--tomato);
+  font-size: 1.15rem;
 }
 
-.store-daily-quantity-control button:active {
-  transform: scale(0.94);
-  background: rgba(8, 127, 91, 0.14);
+.store-daily-add-line {
+  width: 100%;
+  min-height: 42px;
+  border-style: dashed;
 }
 
-.store-daily-combo-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) repeat(2, minmax(90px, 0.65fr));
-  gap: 10px;
-  align-items: end;
-  padding: 12px;
-  border: 1px solid rgba(8, 127, 91, 0.24);
-  border-radius: 9px;
-  background: rgba(8, 127, 91, 0.055);
-}
-
-.store-daily-combo-card > div {
-  display: grid;
-  gap: 2px;
-  align-self: center;
-}
-
-.store-daily-combo-card label {
-  font-size: 0.68rem;
+.store-daily-line-help {
+  margin-top: -7px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.35;
 }
 
 .store-daily-preview {
@@ -5220,12 +5169,10 @@ html.dark-mode .cash-hero > div:first-child {
     font-size: 0;
   }
 
-  .store-daily-combo-card,
   .store-sales-day-group > summary {
     grid-template-columns: 1fr 1fr;
   }
 
-  .store-daily-combo-card > div,
   .store-sales-day-group > summary span:first-child {
     grid-column: 1 / -1;
   }

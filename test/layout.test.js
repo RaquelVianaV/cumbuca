@@ -346,8 +346,8 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /STORE_COMBO_SUPERMARKET_UNIT_COST = 7/);
   assert.match(app, /id="store-daily-sales-form"/);
   assert.match(app, /Salvar todas as vendas do dia/);
-  assert.match(app, /data-store-daily-step="-1"/);
-  assert.match(app, /data-store-daily-step="1"/);
+  assert.match(app, /data-store-daily-add-line/);
+  assert.match(app, /data-store-daily-item/);
   assert.match(app, /data-store-sales-day-groups/);
   assert.match(css, /\.store-sales-day-group/);
   assert.doesNotMatch(app, /id="store-product-quantities-form"/);
