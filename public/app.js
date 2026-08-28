@@ -17750,9 +17750,6 @@ function storeProductsPanel(month, editingProduct = null) {
   const selectedMonth = normalizedStoreProductMonth(month) || isoDate(new Date()).slice(0, 7);
   const products = sortedStoreProducts();
   const monthTotal = storeProductMonthTotal(selectedMonth);
-  const productsWithQuantity = products.filter(product => {
-    return storeProductQuantityForMonth(product.id, selectedMonth) > 0;
-  }).length;
   const previousMonth = previousMonthKeyFromPeriod(selectedMonth);
   const previousTotal = storeProductMonthTotal(previousMonth);
   const budgetUsesCurrentMonth = previousTotal <= 0 && monthTotal > 0;
@@ -17830,53 +17827,6 @@ function storeProductsPanel(month, editingProduct = null) {
         ` : `<p class="muted">Cadastre o primeiro prato para selecioná-lo nas vendas.</p>`}
       </section>
 
-      <section class="panel report-section store-product-monthly">
-        <div class="section-heading">
-          <div>
-            <h2>Quantidades por produto</h2>
-            <p class="muted-inline">Controle detalhado do mês. Estes valores não alteram os totais da aba Vendas.</p>
-          </div>
-        </div>
-        <form id="store-product-month-form" class="period-picker store-product-month-picker">
-          <label>Mês
-            <input name="month" type="month" value="${selectedMonth}" required>
-          </label>
-          <button type="submit">Abrir mês</button>
-        </form>
-        <div class="summary">
-          <div class="metric" data-store-product-month-total><span>Unidades no mês</span><strong>${monthTotal}</strong></div>
-          <div class="metric"><span>Produtos com quantidade</span><strong>${productsWithQuantity}</strong></div>
-          <div class="metric"><span>${formatMonthKeyBr(previousMonth)}</span><strong>${previousTotal}</strong></div>
-        </div>
-        ${products.length ? `
-          <form id="store-product-quantities-form" class="store-product-quantities-form">
-            <input name="month" type="hidden" value="${selectedMonth}">
-            <div class="store-product-quantity-list">
-              ${products.map(product => `
-                <label class="store-product-quantity-row">
-                  <span>
-                    <b>${escapeHtml(product.name || "")}</b>
-                    <small>Quantidade em ${formatMonthKeyBr(selectedMonth)}</small>
-                  </span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    inputmode="numeric"
-                    value="${storeProductQuantityForMonth(product.id, selectedMonth) || ""}"
-                    placeholder="0"
-                    data-store-product-quantity="${escapeHtml(product.id)}"
-                    aria-label="Quantidade de ${escapeHtml(product.name || "")}"
-                  >
-                </label>
-              `).join("")}
-            </div>
-            <div class="actions">
-              <button type="submit">Salvar quantidades do mês</button>
-            </div>
-          </form>
-        ` : ""}
-      </section>
     </div>
     <section class="panel report-section" data-store-input-budget>
       <div class="section-heading">
@@ -18294,70 +18244,6 @@ function renderStoreSales() {
       }
     });
   });
-
-  const storeProductMonthForm = document.querySelector("#store-product-month-form");
-  if (storeProductMonthForm) {
-    storeProductMonthForm.addEventListener("submit", event => {
-      event.preventDefault();
-      const month = normalizedStoreProductMonth(readForm(event.currentTarget).month);
-      if (!month) {
-        showToast("Informe um mês válido.", "error");
-        return;
-      }
-      state.storeProductMonth = month;
-      localStorage.setItem("storeProductMonth", JSON.stringify(month));
-      history.replaceState(null, "", `/loja?view=products&month=${month}`);
-      renderStoreSales();
-    });
-  }
-
-  const storeProductQuantitiesForm = document.querySelector("#store-product-quantities-form");
-  if (storeProductQuantitiesForm) {
-    storeProductQuantitiesForm.addEventListener("submit", async event => {
-      event.preventDefault();
-      const month = normalizedStoreProductMonth(readForm(event.currentTarget).month);
-      if (!month) {
-        showToast("Informe um mês válido.", "error");
-        return;
-      }
-      if (isMonthClosed(`${month}-01`)) {
-        showToast(`O mês ${formatMonthKeyBr(month)} está fechado. Reabra antes de alterar quantidades.`, "warning");
-        return;
-      }
-      const fields = [...event.currentTarget.querySelectorAll("[data-store-product-quantity]")];
-      const values = fields.map(field => ({
-        productId: field.dataset.storeProductQuantity,
-        quantity: Number(field.value || 0)
-      }));
-      if (values.some(item => !Number.isInteger(item.quantity) || item.quantity < 0)) {
-        showToast("Use somente quantidades inteiras iguais ou maiores que zero.", "error");
-        return;
-      }
-      const currentEntries = state.storeProductQuantities.filter(entry => entry.month === month);
-      const nextEntries = values
-        .filter(item => item.quantity > 0)
-        .map(item => {
-          const existing = currentEntries.find(entry => {
-            return String(entry.productId) === String(item.productId);
-          });
-          return {
-            id: existing?.id || `store-product-quantity-${month}-${item.productId}`,
-            productId: item.productId,
-            month,
-            quantity: item.quantity,
-            updatedAt: new Date().toISOString()
-          };
-        });
-      state.storeProductQuantities = [
-        ...state.storeProductQuantities.filter(entry => entry.month !== month),
-        ...nextEntries
-      ];
-      recordAudit("Quantidades mensais da loja salvas", `${formatMonthKeyBr(month)} - ${nextEntries.length} produto(s) - ${nextEntries.reduce((sum, entry) => sum + entry.quantity, 0)} unidade(s)`);
-      if (await persistState()) {
-        renderStoreSales();
-      }
-    });
-  }
 
   const filterForm = document.querySelector("#store-sales-filter-form");
   const filterPeriod = document.querySelector("#store-sales-filter-period");

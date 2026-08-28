@@ -343,8 +343,8 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /Nome da cumbuca/);
   assert.match(app, /Supermercado previsto/);
   assert.match(app, /function storeSaleExpectedSupermarketCost/);
-  assert.match(app, /id="store-product-quantities-form"/);
-  assert.match(app, /data-store-product-quantity/);
+  assert.doesNotMatch(app, /id="store-product-quantities-form"/);
+  assert.doesNotMatch(app, /data-store-product-quantity/);
   assert.match(app, /function storeProductMonthlyHistory/);
   assert.match(app, /storeProductQuantities: state\.storeProductQuantities/);
   assert.match(app, /storeProductQuantities: state\.storeProductQuantities\.filter/);
