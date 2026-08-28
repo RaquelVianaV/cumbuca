@@ -4,7 +4,7 @@ const APP_SHELL = [
   "/index.html",
   "/login",
   "/login.html",
-  "/styles.css?v=20260828-02",
+  "/styles.css?v=20260828-04",
   "/partner-accounts.js?v=20260817-02",
   "/account-transfers.js?v=20260809-02",
   "/app.js?v=20260828-01",

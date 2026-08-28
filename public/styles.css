@@ -4073,7 +4073,22 @@ html.dark-mode .cash-category-summary-action {
 }
 
 .store-sales-summary {
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: start;
+}
+
+.store-sales-summary .metric {
+  min-height: 104px;
+  align-self: start;
+  align-content: start;
+}
+
+.store-sales-summary .metric strong {
+  max-width: 100%;
+  font-size: clamp(1rem, 1.45vw, 1.32rem);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  white-space: nowrap;
 }
 
 .store-sales-summary .metric small {
@@ -5051,11 +5066,20 @@ html.dark-mode .cash-hero > div:first-child {
 }
 
 .store-financial-metrics {
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .store-financial-metrics .metric {
-  min-height: 112px;
+  min-height: 104px;
+  align-content: start;
+}
+
+.store-financial-metrics .metric strong {
+  max-width: 100%;
+  font-size: clamp(0.96rem, 1.35vw, 1.24rem);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  white-space: nowrap;
 }
 
 .store-financial-metrics small {
@@ -5149,6 +5173,14 @@ html.dark-mode .cash-hero > div:first-child {
   .store-daily-sale-line {
     grid-template-columns: minmax(220px, 1fr) minmax(100px, 0.4fr) minmax(130px, 0.5fr) 38px;
   }
+
+  .store-financial-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .store-sales-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 760px) {
@@ -5183,8 +5215,11 @@ html.dark-mode .cash-hero > div:first-child {
 
 @media (max-width: 480px) {
   .store-product-management,
-  .store-financial-metrics,
   .store-sales-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .store-financial-metrics {
     grid-template-columns: minmax(0, 1fr);
   }
 }

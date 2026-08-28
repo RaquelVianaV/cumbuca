@@ -351,7 +351,9 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /data-store-sales-day-groups/);
   assert.match(css, /\.store-sales-day-group/);
   assert.match(css, /\.store-sales-workspace \{\s*grid-template-columns: minmax\(0, 1fr\)/);
-  assert.match(css, /repeat\(auto-fit, minmax\(160px, 1fr\)\)/);
+  assert.match(css, /\.store-sales-summary \{[\s\S]*?grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/);
+  assert.match(css, /\.store-sales-summary \.metric strong[\s\S]*?white-space: nowrap/);
+  assert.match(css, /\.store-financial-metrics \.metric strong[\s\S]*?white-space: nowrap/);
   assert.doesNotMatch(app, /id="store-product-quantities-form"/);
   assert.doesNotMatch(app, /data-store-product-quantity/);
   assert.match(app, /Cumbucas disponíveis/);
