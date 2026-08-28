@@ -4735,18 +4735,49 @@ html.dark-mode .cash-hero > div:first-child {
 
 .store-daily-product-list {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 7px;
   max-height: 420px;
   overflow-y: auto;
   padding-right: 4px;
 }
 
-.store-daily-product-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 78px;
+.store-daily-list-heading {
+  display: flex;
+  justify-content: space-between;
   gap: 10px;
   align-items: center;
-  padding: 10px 11px;
+}
+
+.store-daily-list-heading > span {
+  display: grid;
+  gap: 2px;
+}
+
+.store-daily-list-heading b {
+  color: var(--ink);
+  font-size: 0.82rem;
+}
+
+.store-daily-list-heading small {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.store-daily-list-heading button {
+  min-height: 34px;
+  padding: 7px 10px;
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+.store-daily-product-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 68px;
+  padding: 8px 9px 8px 11px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
@@ -4761,7 +4792,8 @@ html.dark-mode .cash-hero > div:first-child {
 .store-daily-product-row b {
   overflow-wrap: anywhere;
   color: var(--ink);
-  font-size: 0.84rem;
+  font-size: 0.78rem;
+  line-height: 1.25;
 }
 
 .store-daily-product-row small,
@@ -4770,12 +4802,43 @@ html.dark-mode .cash-hero > div:first-child {
   font-size: 0.69rem;
 }
 
-.store-daily-product-row input {
-  width: 100%;
-  min-height: 40px;
-  padding-inline: 8px;
+.store-daily-quantity-control {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+}
+
+.store-daily-quantity-control input {
+  width: 50px;
+  min-height: 38px;
+  padding-inline: 3px;
   text-align: center;
   font-weight: 850;
+  appearance: textfield;
+}
+
+.store-daily-quantity-control input::-webkit-inner-spin-button,
+.store-daily-quantity-control input::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.store-daily-quantity-control button {
+  width: 34px;
+  min-width: 34px;
+  min-height: 38px;
+  padding: 0;
+  border: 1px solid rgba(8, 127, 91, 0.24);
+  border-radius: 7px;
+  background: rgba(8, 127, 91, 0.07);
+  color: var(--green-dark);
+  font-size: 1.05rem;
+  font-weight: 900;
+}
+
+.store-daily-quantity-control button:active {
+  transform: scale(0.94);
+  background: rgba(8, 127, 91, 0.14);
 }
 
 .store-daily-combo-card {

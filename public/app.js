@@ -17922,12 +17922,20 @@ function renderStoreSales() {
               <input name="date" type="date" value="${today}" required>
               <small>Se já houver vendas nesta data, elas aparecem para conferência e atualização.</small>
             </label>
+            <div class="store-daily-list-heading">
+              <span><b>Quantidades por cumbuca</b><small>Use + e − para lançar rapidamente.</small></span>
+              <button class="secondary" type="button" data-store-daily-clear>Zerar quantidades</button>
+            </div>
             <div class="store-daily-product-list">
               ${sortedStoreProducts().map(product => `
-                <label class="store-daily-product-row">
+                <div class="store-daily-product-row">
                   <span><b>${escapeHtml(product.name || "")}</b><small>${money(storeProductSupermarketUnitCost(product))} de supermercado/un.</small></span>
-                  <input type="number" min="0" step="1" inputmode="numeric" placeholder="0" value="${storeDailyProductQuantity(today, product.id) || ""}" data-store-daily-product="${escapeHtml(product.id)}" aria-label="Quantidade de ${escapeHtml(product.name || "")}">
-                </label>
+                  <span class="store-daily-quantity-control">
+                    <button type="button" data-store-daily-step="-1" aria-label="Diminuir ${escapeHtml(product.name || "")}">−</button>
+                    <input type="number" min="0" step="1" inputmode="numeric" placeholder="0" value="${storeDailyProductQuantity(today, product.id) || ""}" data-store-daily-product="${escapeHtml(product.id)}" aria-label="Quantidade de ${escapeHtml(product.name || "")}">
+                    <button type="button" data-store-daily-step="1" aria-label="Aumentar ${escapeHtml(product.name || "")}">+</button>
+                  </span>
+                </div>
               `).join("")}
             </div>
             <div class="store-daily-combo-card">
@@ -18121,6 +18129,20 @@ function renderStoreSales() {
     };
     [...productFields, comboQuantity, comboUnits].forEach(field => {
       field.addEventListener("input", updateDailyPreview);
+    });
+    storeDailySalesForm.querySelectorAll("[data-store-daily-step]").forEach(button => {
+      button.addEventListener("click", event => {
+        const field = event.currentTarget.parentElement.querySelector("[data-store-daily-product]");
+        const step = Number(event.currentTarget.dataset.storeDailyStep || 0);
+        field.value = Math.max(0, Number(field.value || 0) + step) || "";
+        updateDailyPreview();
+      });
+    });
+    storeDailySalesForm.querySelector("[data-store-daily-clear]")?.addEventListener("click", () => {
+      productFields.forEach(field => { field.value = ""; });
+      comboQuantity.value = "";
+      comboUnits.value = "";
+      updateDailyPreview();
     });
     dailyDate.addEventListener("change", loadDailyDate);
     updateDailyPreview();
