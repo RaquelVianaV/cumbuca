@@ -4059,7 +4059,7 @@ html.dark-mode .cash-category-summary-action {
 }
 
 .store-sales-filter {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
 .store-sales-filter-actions {
@@ -4073,7 +4073,7 @@ html.dark-mode .cash-category-summary-action {
 }
 
 .store-sales-summary {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
 
 .store-sales-summary .metric small {
@@ -4678,13 +4678,12 @@ html.dark-mode .cash-hero > div:first-child {
 }
 
 .store-sales-workspace {
-  grid-template-columns: minmax(320px, 390px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 22px;
 }
 
 .store-sale-entry-panel {
-  position: sticky;
-  top: 18px;
+  position: static;
   border-top: 4px solid var(--green-dark);
 }
 
@@ -4762,7 +4761,7 @@ html.dark-mode .cash-hero > div:first-child {
 
 .store-daily-sale-line {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) 38px;
+  grid-template-columns: minmax(240px, 1fr) minmax(100px, 0.32fr) minmax(140px, 0.4fr) 38px;
   gap: 9px;
   align-items: end;
   padding: 12px;
@@ -4772,7 +4771,7 @@ html.dark-mode .cash-hero > div:first-child {
 }
 
 .store-daily-item-select {
-  grid-column: 1 / -1;
+  grid-column: auto;
 }
 
 .store-daily-sale-line label {
@@ -5002,7 +5001,7 @@ html.dark-mode .cash-hero > div:first-child {
 
 .store-product-management {
   display: grid;
-  grid-template-columns: minmax(260px, 0.38fr) minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 20px;
   align-items: start;
   padding: 20px;
@@ -5052,7 +5051,7 @@ html.dark-mode .cash-hero > div:first-child {
 }
 
 .store-financial-metrics {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
 }
 
 .store-financial-metrics .metric {
@@ -5147,18 +5146,18 @@ html.dark-mode .cash-hero > div:first-child {
 }
 
 @media (max-width: 1280px) {
-  .store-sale-entry-panel {
-    position: static;
-  }
-
-  .store-product-management {
-    grid-template-columns: 1fr;
+  .store-daily-sale-line {
+    grid-template-columns: minmax(220px, 1fr) minmax(100px, 0.4fr) minmax(130px, 0.5fr) 38px;
   }
 }
 
 @media (max-width: 760px) {
-  .store-financial-metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .store-daily-sale-line {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) 38px;
+  }
+
+  .store-daily-item-select {
+    grid-column: 1 / -1;
   }
 
   .store-catalog-heading {
@@ -5179,6 +5178,14 @@ html.dark-mode .cash-hero > div:first-child {
 
   .store-sales-day-group > summary i {
     display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .store-product-management,
+  .store-financial-metrics,
+  .store-sales-summary {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

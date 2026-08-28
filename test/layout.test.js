@@ -350,6 +350,8 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /data-store-daily-item/);
   assert.match(app, /data-store-sales-day-groups/);
   assert.match(css, /\.store-sales-day-group/);
+  assert.match(css, /\.store-sales-workspace \{\s*grid-template-columns: minmax\(0, 1fr\)/);
+  assert.match(css, /repeat\(auto-fit, minmax\(160px, 1fr\)\)/);
   assert.doesNotMatch(app, /id="store-product-quantities-form"/);
   assert.doesNotMatch(app, /data-store-product-quantity/);
   assert.match(app, /Cumbucas disponíveis/);
