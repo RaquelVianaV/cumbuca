@@ -5675,6 +5675,16 @@ html.dark-mode .cash-hero > div:first-child {
   gap: 8px;
 }
 
+.pricing-preview-result .pricing-status {
+  width: 100%;
+  max-width: 100%;
+  min-height: 34px;
+  padding-block: 5px;
+  line-height: 1.2;
+  text-align: center;
+  white-space: normal;
+}
+
 .pricing-formula {
   margin: 0;
   padding: 11px;
@@ -11184,6 +11194,22 @@ html.dark-mode .nav a:hover {
 }
 
 @media (max-width: 560px) {
+  .maintenance-grid .period-picker {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .maintenance-grid .period-picker button {
+    width: 100%;
+  }
+
+  .cleanup-preview,
+  .cleanup-preview .summary {
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   body {
     padding-bottom: 190px;
   }

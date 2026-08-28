@@ -2971,8 +2971,8 @@ test('store products link pricing and keep sales generic', async ({ page }, test
     storeSales: [],
   };
 
-  await page.goto('/loja?view=products');
-  await page.locator('.store-catalog-disclosure summary').click();
+  await page.goto('/loja?view=sales&catalog=open');
+  await expect(page.locator('.store-catalog-disclosure')).toHaveAttribute('open', '');
   const productForm = page.locator('#store-product-form');
   const createProduct = async (name, recipeId) => {
     const currentCatalog = page.locator('.store-catalog-disclosure');

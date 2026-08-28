@@ -12770,7 +12770,7 @@ function simplePricingOverviewPanel(rows = []) {
       ${unlinkedUnits > 0 ? `
         <div class="pricing-link-warning">
           <div><strong>${unlinkedUnits} unidade(s) ainda não entram no lucro por produto</strong><span>As vendas da Loja precisam estar ligadas a um produto e a uma receita.</span></div>
-          <a class="secondary" href="/loja?view=products">Revisar vínculos</a>
+          <a class="secondary" href="/loja?view=sales&amp;catalog=open">Revisar vínculos</a>
         </div>
       ` : ""}
       <div class="simple-price-list">
@@ -17781,13 +17781,13 @@ function storeSalesFinancialSummary(entries = [], periodLabel = "") {
   `;
 }
 
-function storeProductsPanel(_month, editingProduct = null) {
+function storeProductsPanel(_month, editingProduct = null, expandCatalog = false) {
   const products = sortedStoreProducts();
 
   return `
     <div class="tool-grid store-products-layout">
       <section class="panel store-product-catalog">
-        <details class="store-catalog-disclosure" ${editingProduct ? "open" : ""}>
+        <details class="store-catalog-disclosure" ${editingProduct || expandCatalog ? "open" : ""}>
           <summary class="store-catalog-heading">
             <span class="store-catalog-title">
               <span class="section-kicker">Catálogo</span>
@@ -17853,10 +17853,15 @@ function renderStoreSales() {
     ["sales", "Produtos e vendas"],
     ["channels", "Canais"]
   ];
-  const requestedStoreView = new URLSearchParams(location.search).get("view");
-  const requestedStoreProductMonth = normalizedStoreProductMonth(new URLSearchParams(location.search).get("month"));
+  const storeParams = new URLSearchParams(location.search);
+  const requestedStoreView = storeParams.get("view");
+  const expandStoreCatalog = requestedStoreView === "products" || storeParams.get("catalog") === "open";
+  const requestedStoreProductMonth = normalizedStoreProductMonth(storeParams.get("month"));
   if (requestedStoreView === "products") {
     state.storeViewTab = "sales";
+    storeParams.set("view", "sales");
+    storeParams.set("catalog", "open");
+    history.replaceState(null, "", `/loja?${storeParams.toString()}`);
   } else if (storeTabs.some(([tab]) => tab === requestedStoreView)) {
     state.storeViewTab = requestedStoreView;
   }
@@ -18041,7 +18046,7 @@ function renderStoreSales() {
     </div>
     ${storeSalesFinancialSummary(filteredEntries, storeSalesFilterTitle(filter))}
     <div class="store-products-with-sales">
-      ${storeProductsPanel(state.storeProductMonth, editingStoreProduct)}
+      ${storeProductsPanel(state.storeProductMonth, editingStoreProduct, expandStoreCatalog)}
     </div>
     `)}
     ${viewPaneHtml("channels", activeStoreView, `
@@ -21643,7 +21648,7 @@ function financialAnalysisQuality(data, otherIncome = 0) {
     issues.push({
       label: `${unlinkedUnits} unidade(s) da Loja sem receita de Precificação vinculada.`,
       action: "Vincular receitas",
-      href: `/loja?view=products&month=${encodeURIComponent(data.periodKey)}&review=unlinked`
+      href: `/loja?view=sales&catalog=open&month=${encodeURIComponent(data.periodKey)}&review=unlinked`
     });
   }
   score = Math.max(20, score);
