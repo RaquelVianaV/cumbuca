@@ -4737,13 +4737,76 @@ html.dark-mode .cash-hero > div:first-child {
 }
 
 .store-product-catalog {
-  gap: 18px;
+  display: block;
+  padding: 0;
+  overflow: hidden;
 }
 
 .store-catalog-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
   align-items: center;
-  padding-bottom: 16px;
+  padding: 18px 20px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.store-catalog-heading::-webkit-details-marker {
+  display: none;
+}
+
+.store-catalog-heading:hover {
+  background: rgba(8, 127, 91, 0.04);
+}
+
+.store-catalog-title {
+  display: grid;
+  gap: 3px;
+}
+
+.store-catalog-title strong {
+  color: var(--ink);
+  font-size: 1.12rem;
+}
+
+.store-catalog-title small {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.store-catalog-summary-meta {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.store-catalog-summary-meta b {
+  color: var(--green-dark);
+  font-size: 1rem;
+}
+
+.store-catalog-summary-meta i {
+  width: 9px;
+  height: 9px;
+  margin-left: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 160ms ease;
+}
+
+.store-catalog-disclosure[open] .store-catalog-summary-meta i {
+  transform: rotate(225deg) translate(-2px, -2px);
+}
+
+.store-catalog-disclosure[open] .store-catalog-heading {
   border-bottom: 1px solid var(--line);
+  background: rgba(8, 127, 91, 0.035);
 }
 
 .store-catalog-count {
@@ -4762,6 +4825,7 @@ html.dark-mode .cash-hero > div:first-child {
   grid-template-columns: minmax(260px, 0.38fr) minmax(0, 1fr);
   gap: 20px;
   align-items: start;
+  padding: 20px;
 }
 
 .store-product-compact-form {
@@ -4793,6 +4857,37 @@ html.dark-mode .cash-hero > div:first-child {
 
 .store-product-empty strong {
   color: var(--ink);
+}
+
+.store-financial-summary {
+  display: grid;
+  gap: 16px;
+  margin-top: 22px;
+  border-left: 4px solid var(--green-dark);
+}
+
+.store-financial-summary .section-heading h2,
+.store-financial-summary .section-heading p {
+  margin: 0;
+}
+
+.store-financial-metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.store-financial-metrics .metric {
+  min-height: 112px;
+}
+
+.store-financial-metrics small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.store-financial-table table {
+  min-width: 680px;
 }
 
 .store-product-catalog,
@@ -4827,6 +4922,20 @@ html.dark-mode .cash-hero > div:first-child {
 
   .store-product-management {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .store-financial-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .store-catalog-heading {
+    align-items: flex-start;
+  }
+
+  .store-catalog-summary-meta {
+    font-size: 0;
   }
 }
 

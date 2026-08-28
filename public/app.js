@@ -17605,9 +17605,10 @@ function storeProductSupermarketUnitCost(product = {}) {
   return recipe ? Math.max(0, Number(pricingRecipeMetrics(recipe).supermarketUnitCost || 0)) : 0;
 }
 
+const STORE_COMBO_SUPERMARKET_UNIT_COST = 7;
+
 function averageStoreSupermarketUnitCost() {
-  const costs = sortedStoreProducts().map(storeProductSupermarketUnitCost).filter(cost => cost > 0);
-  return costs.length ? costs.reduce((sum, cost) => sum + cost, 0) / costs.length : 0;
+  return STORE_COMBO_SUPERMARKET_UNIT_COST;
 }
 
 function storeSaleExpectedSupermarketCost(entry = {}) {
@@ -17647,21 +17648,69 @@ function storeProductQuantityForMonth(productId, month) {
   return Number(entry?.quantity || 0);
 }
 
+function storeSalesFinancialSummary(entries = [], periodLabel = "") {
+  const rows = storeProductPerformanceRows({ type: "week", storeSales: entries })
+    .filter(row => row.salesUnits > 0);
+  const totalUnits = rows.reduce((sum, row) => sum + row.salesUnits, 0);
+  const estimatedRevenue = rows.reduce((sum, row) => sum + row.estimatedRevenue, 0);
+  const estimatedProfit = rows.reduce((sum, row) => sum + row.estimatedProfit, 0);
+  const supermarketCost = entries.reduce((sum, entry) => sum + storeSaleExpectedSupermarketCost(entry), 0);
+  const linkedUnits = rows.filter(row => row.recipe).reduce((sum, row) => sum + row.salesUnits, 0);
+
+  return `
+    <section class="panel store-financial-summary" data-store-financial-summary>
+      <div class="section-heading">
+        <div>
+          <span class="section-kicker">Resumo financeiro</span>
+          <h2>Resultado das cumbucas vendidas</h2>
+          <p class="muted-inline">${escapeHtml(periodLabel)} · valores estimados pela precificação vinculada.</p>
+        </div>
+      </div>
+      <div class="summary store-financial-metrics">
+        <div class="metric"><span>Quantidade vendida</span><strong>${totalUnits}</strong><small>unidades no período</small></div>
+        <div class="metric"><span>Faturamento previsto</span><strong>${money(estimatedRevenue)}</strong><small>preço × quantidade</small></div>
+        <div class="metric"><span>Supermercado previsto</span><strong>${money(supermarketCost)}</strong><small>custo dos insumos</small></div>
+        <div class="metric"><span>Lucro previsto</span><strong class="${estimatedProfit < 0 ? "negative" : "positive"}">${money(estimatedProfit)}</strong><small>conforme a precificação</small></div>
+      </div>
+      ${rows.length ? `
+        <div class="table-wrap store-financial-table">
+          <table>
+            <thead><tr><th>Cumbuca</th><th>Vendidas</th><th>Preço/un.</th><th>Faturamento</th><th>Lucro previsto</th></tr></thead>
+            <tbody>
+              ${rows.map(row => `
+                <tr>
+                  <td><strong>${escapeHtml(row.name)}</strong>${row.combos ? `<br><small>${row.combos} combo(s)</small>` : ""}</td>
+                  <td>${row.salesUnits}</td>
+                  <td>${row.recipe ? money(row.referencePrice) : "—"}</td>
+                  <td>${row.recipe ? money(row.estimatedRevenue) : "—"}</td>
+                  <td class="${row.estimatedProfit < 0 ? "negative" : row.recipe ? "positive" : ""}">${row.recipe ? money(row.estimatedProfit) : "—"}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      ` : `<p class="muted">Nenhuma venda registrada neste período.</p>`}
+      ${totalUnits > linkedUnits ? `<p class="form-hint warning-text">${totalUnits - linkedUnits} unidade(s) sem precificação vinculada não entram no faturamento e no lucro previstos.</p>` : ""}
+    </section>
+  `;
+}
+
 function storeProductsPanel(_month, editingProduct = null) {
   const products = sortedStoreProducts();
 
   return `
     <div class="tool-grid store-products-layout">
       <section class="panel store-product-catalog">
-        <div class="section-heading store-catalog-heading">
-          <div>
-            <span class="section-kicker">Catálogo</span>
-            <h2>Cumbucas disponíveis</h2>
-            <p class="muted-inline">Cadastre os nomes usados no lançamento diário e vincule cada um à sua precificação.</p>
-          </div>
-          <span class="store-catalog-count">${products.length} cadastrado(s)</span>
-        </div>
-        <div class="store-product-management">
+        <details class="store-catalog-disclosure" ${editingProduct ? "open" : ""}>
+          <summary class="store-catalog-heading">
+            <span class="store-catalog-title">
+              <span class="section-kicker">Catálogo</span>
+              <strong>Cumbucas disponíveis</strong>
+              <small>Clique para ${editingProduct ? "recolher" : "expandir e gerenciar"}</small>
+            </span>
+            <span class="store-catalog-summary-meta"><b>${products.length}</b> cadastrada(s)<i aria-hidden="true"></i></span>
+          </summary>
+          <div class="store-product-management">
           <form id="store-product-form" class="form-grid single store-product-compact-form">
             <h3>${editingProduct ? "Editar cumbuca" : "Nova cumbuca"}</h3>
             <input name="productId" type="hidden" value="${escapeHtml(editingProduct?.id || "")}">
@@ -17703,7 +17752,8 @@ function storeProductsPanel(_month, editingProduct = null) {
               </div>
             ` : `<div class="store-product-empty"><strong>Nenhuma cumbuca cadastrada</strong><small>Use o formulário ao lado para começar.</small></div>`}
           </div>
-        </div>
+          </div>
+        </details>
       </section>
     </div>
   `;
@@ -17883,6 +17933,7 @@ function renderStoreSales() {
         </div>
       </section>
     </div>
+    ${storeSalesFinancialSummary(filteredEntries, storeSalesFilterTitle(filter))}
     <div class="store-products-with-sales">
       ${storeProductsPanel(state.storeProductMonth, editingStoreProduct)}
     </div>
@@ -17940,7 +17991,7 @@ function renderStoreSales() {
           : Number(storeSaleQuantity.value || 0);
         storeSaleCostValue.textContent = money(units * unitCost);
         storeSaleCostHint.textContent = combo
-          ? `Média de ${money(unitCost)} por unidade, porque o combo não identifica os sabores.`
+          ? `Média fixa de ${money(unitCost)} por unidade, porque o combo não identifica os sabores.`
           : product ? `${money(unitCost)} por unidade na Precificação.` : "Escolha a cumbuca para calcular.";
       }
     };
