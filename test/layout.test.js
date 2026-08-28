@@ -345,7 +345,7 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /function storeSaleExpectedSupermarketCost/);
   assert.doesNotMatch(app, /id="store-product-quantities-form"/);
   assert.doesNotMatch(app, /data-store-product-quantity/);
-  assert.match(app, /function storeProductMonthlyHistory/);
+  assert.match(app, /Cumbucas disponíveis/);
   assert.match(app, /storeProductQuantities: state\.storeProductQuantities/);
   assert.match(app, /storeProductQuantities: state\.storeProductQuantities\.filter/);
   assert.match(server, /'storeProducts'/);
@@ -354,10 +354,10 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /\["dashboard", "Visão geral"\]/);
   assert.doesNotMatch(app, /\["ingredients", "Ingredientes"\]/);
   assert.match(app, /\["recipes", "Pratos"\]/);
-  assert.match(app, /Quanto posso gastar com insumos/);
-  assert.match(app, /data-store-input-budget-minimum/);
-  assert.match(app, /data-store-input-budget-maximum/);
-  assert.match(app, /parcial do mês atual, porque o mês anterior está vazio/);
+  assert.doesNotMatch(app, /Quanto posso gastar com insumos/);
+  assert.match(app, /class="tool-grid store-sales-workspace"/);
+  assert.match(app, /class="store-product-management"/);
+  assert.match(css, /\.store-product-management/);
   assert.match(app, /\["costs", "Custos rateados"\]/);
   assert.match(app, /id="pricing-recipe-form"/);
   assert.match(app, /name="supermarketUnitCost"/);

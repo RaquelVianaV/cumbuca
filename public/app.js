@@ -17626,21 +17626,6 @@ function storeProductRecipeName(product = {}) {
   return storeProductRecipe(product)?.name || "Sem receita vinculada";
 }
 
-function storeProductPricingComparison(product = {}) {
-  const recipe = storeProductRecipe(product);
-  if (!recipe) {
-    return null;
-  }
-  const metrics = pricingRecipeMetrics(recipe);
-  const practiced = metrics.practicedPrice > 0;
-  return {
-    cost: practiced ? metrics.realTotalCost : metrics.totalCost,
-    price: practiced ? metrics.practicedPrice : metrics.suggestedPrice,
-    profit: practiced ? metrics.realProfit : metrics.suggestedProfit,
-    priceKind: practiced ? "Praticado" : "Sugerido"
-  };
-}
-
 function storeProductRecipeOptions(selectedRecipeId = "") {
   const recipes = [...(state.pricingRecipes || [])].sort((a, b) => {
     return String(a.name || "").localeCompare(String(b.name || ""), "pt-BR");
@@ -17662,252 +17647,65 @@ function storeProductQuantityForMonth(productId, month) {
   return Number(entry?.quantity || 0);
 }
 
-function storeProductAccumulatedQuantity(productId) {
-  return (state.storeProductQuantities || [])
-    .filter(entry => String(entry.productId) === String(productId))
-    .reduce((sum, entry) => sum + Math.max(0, Number(entry.quantity || 0)), 0);
-}
-
-function storeProductMonthTotal(month) {
-  return (state.storeProductQuantities || [])
-    .filter(entry => entry.month === month)
-    .reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
-}
-
-function storeProductMonthlyHistory() {
-  const grouped = new Map();
-  (state.storeProductQuantities || []).forEach(entry => {
-    const month = normalizedStoreProductMonth(entry.month);
-    if (!month) {
-      return;
-    }
-    const current = grouped.get(month) || { month, quantity: 0, products: 0 };
-    current.quantity += Number(entry.quantity || 0);
-    if (Number(entry.quantity || 0) > 0) {
-      current.products += 1;
-    }
-    grouped.set(month, current);
-  });
-  return [...grouped.values()].sort((a, b) => b.month.localeCompare(a.month)).slice(0, 12);
-}
-
-function latestStoreProductLaunchDate() {
-  const latestTimestamp = (state.storeProductQuantities || []).reduce((latest, entry) => {
-    const timestamp = String(entry.updatedAt || "");
-    return timestamp > latest ? timestamp : latest;
-  }, "");
-  return latestTimestamp ? latestTimestamp.slice(0, 10) : "";
-}
-
-function storeProductInputBudget(month) {
-  const rows = sortedStoreProducts().map(product => {
-    const quantity = storeProductQuantityForMonth(product.id, month);
-    const recipe = storeProductRecipe(product);
-    const metrics = recipe ? pricingRecipeMetrics(recipe) : null;
-    const referencePrice = metrics
-      ? (metrics.practicedPrice > 0 ? metrics.practicedPrice : metrics.suggestedPrice)
-      : 0;
-    const otherUnitCosts = metrics
-      ? metrics.packagingCost
-        + metrics.productionCost
-        + metrics.laborCost
-        + metrics.otherCost
-        + metrics.fixedFee
-      : 0;
-    const availablePercent = metrics
-      ? 1 - ((metrics.variableFeePercent + metrics.desiredMarginPercent) / 100)
-      : 0;
-    const maximumInputPerUnit = Math.max(0, (referencePrice * availablePercent) - otherUnitCosts);
-    const configuredInputPerUnit = metrics?.supermarketUnitCost || 0;
-    const configured = quantity > 0
-      && Boolean(recipe)
-      && configuredInputPerUnit > 0
-      && referencePrice > 0
-      && availablePercent > 0;
-    return {
-      product,
-      quantity,
-      configured,
-      configuredInputPerUnit,
-      maximumInputPerUnit,
-      minimumTotal: configured ? quantity * configuredInputPerUnit : 0,
-      maximumTotal: configured ? quantity * maximumInputPerUnit : 0
-    };
-  }).filter(row => row.quantity > 0);
-  const configuredRows = rows.filter(row => row.configured);
-  return {
-    rows,
-    configuredRows,
-    totalQuantity: rows.reduce((sum, row) => sum + row.quantity, 0),
-    configuredQuantity: configuredRows.reduce((sum, row) => sum + row.quantity, 0),
-    minimumTotal: configuredRows.reduce((sum, row) => sum + row.minimumTotal, 0),
-    maximumTotal: configuredRows.reduce((sum, row) => sum + row.maximumTotal, 0),
-    missingProducts: rows.filter(row => !row.configured).length
-  };
-}
-
-function storeProductsPanel(month, editingProduct = null) {
-  const selectedMonth = normalizedStoreProductMonth(month) || isoDate(new Date()).slice(0, 7);
+function storeProductsPanel(_month, editingProduct = null) {
   const products = sortedStoreProducts();
-  const monthTotal = storeProductMonthTotal(selectedMonth);
-  const previousMonth = previousMonthKeyFromPeriod(selectedMonth);
-  const previousTotal = storeProductMonthTotal(previousMonth);
-  const budgetUsesCurrentMonth = previousTotal <= 0 && monthTotal > 0;
-  const budgetMonth = budgetUsesCurrentMonth ? selectedMonth : previousMonth;
-  const inputBudget = storeProductInputBudget(budgetMonth);
-  const history = storeProductMonthlyHistory();
-  const lastProductLaunchDate = latestStoreProductLaunchDate();
 
   return `
     <div class="tool-grid store-products-layout">
       <section class="panel store-product-catalog">
-        <h2>${editingProduct ? "Editar prato" : "Cadastrar prato"}</h2>
-        <form id="store-product-form" class="form-grid single">
-          <input name="productId" type="hidden" value="${escapeHtml(editingProduct?.id || "")}">
-          <label>Nome do prato
-            <input name="name" placeholder="Ex.: Frango cremoso" value="${escapeHtml(editingProduct?.name || "")}" required>
-            <small>O nome é cadastrado somente aqui e identifica as quantidades e os valores financeiros do prato.</small>
-          </label>
-          <label>Precificação vinculada
-            <select name="pricingRecipeId">
-              ${storeProductRecipeOptions(editingProduct?.pricingRecipeId)}
-            </select>
-            <small>Use o prato correspondente da Precificação para comparar custo, preço e lucro.</small>
-          </label>
-          <div class="actions">
-            <button type="submit">${editingProduct ? "Salvar prato" : "Cadastrar prato"}</button>
-            ${editingProduct ? `<button class="secondary" type="button" id="cancel-store-product-edit">Cancelar</button>` : ""}
-          </div>
-        </form>
-        <div class="section-heading store-product-heading">
+        <div class="section-heading store-catalog-heading">
           <div>
-            <h3>Pratos cadastrados</h3>
-            <p class="muted-inline">${products.length} prato(s)</p>
+            <span class="section-kicker">Catálogo</span>
+            <h2>Cumbucas disponíveis</h2>
+            <p class="muted-inline">Cadastre os nomes usados no lançamento diário e vincule cada um à sua precificação.</p>
+          </div>
+          <span class="store-catalog-count">${products.length} cadastrado(s)</span>
+        </div>
+        <div class="store-product-management">
+          <form id="store-product-form" class="form-grid single store-product-compact-form">
+            <h3>${editingProduct ? "Editar cumbuca" : "Nova cumbuca"}</h3>
+            <input name="productId" type="hidden" value="${escapeHtml(editingProduct?.id || "")}">
+            <label>Nome
+              <input name="name" placeholder="Ex.: Frango cremoso" value="${escapeHtml(editingProduct?.name || "")}" required>
+            </label>
+            <label>Precificação vinculada
+              <select name="pricingRecipeId">
+                ${storeProductRecipeOptions(editingProduct?.pricingRecipeId)}
+              </select>
+              <small>Define o custo de supermercado usado nas vendas.</small>
+            </label>
+            <div class="actions">
+              <button type="submit">${editingProduct ? "Salvar alterações" : "Cadastrar"}</button>
+              ${editingProduct ? `<button class="secondary" type="button" id="cancel-store-product-edit">Cancelar</button>` : ""}
+            </div>
+          </form>
+          <div class="store-product-list">
+            ${products.length ? `
+              <div class="table-wrap report-table store-product-table">
+                <table>
+                  <thead><tr><th>Cumbuca</th><th>Supermercado/un.</th><th>Precificação</th><th>Ações</th></tr></thead>
+                  <tbody>
+                    ${products.map(product => `
+                      <tr data-store-product-financial="${escapeHtml(product.id)}">
+                        <td><strong>${escapeHtml(product.name || "")}</strong></td>
+                        <td><strong>${storeProductSupermarketUnitCost(product) > 0 ? money(storeProductSupermarketUnitCost(product)) : "—"}</strong></td>
+                        <td>${escapeHtml(storeProductRecipeName(product))}</td>
+                        <td>
+                          <div class="table-actions">
+                            <button class="secondary table-action" type="button" data-edit-store-product="${escapeHtml(product.id)}">Editar</button>
+                            <button class="danger table-action" type="button" data-delete-store-product="${escapeHtml(product.id)}">Excluir</button>
+                          </div>
+                        </td>
+                      </tr>
+                    `).join("")}
+                  </tbody>
+                </table>
+              </div>
+            ` : `<div class="store-product-empty"><strong>Nenhuma cumbuca cadastrada</strong><small>Use o formulário ao lado para começar.</small></div>`}
           </div>
         </div>
-        <div class="summary">
-          <div class="metric" data-store-last-sale-date>
-            <span>Último lançamento em Produtos</span>
-            <strong>${lastProductLaunchDate ? formatIsoDateBr(lastProductLaunchDate) : "Nenhum"}</strong>
-            <small>Confira esta data antes de lançar novamente.</small>
-          </div>
-        </div>
-        ${products.length ? `
-          <div class="table-wrap report-table store-product-table">
-            <table>
-              <thead><tr><th>Prato</th><th>Precificação vinculada</th><th>Custo/un.</th><th>Preço na precificação</th><th>Lucro/un.</th><th>Quantidade acumulada</th><th>Faturamento acumulado</th><th>Lucro acumulado</th><th>${formatMonthKeyBr(selectedMonth)}</th><th>Ações</th></tr></thead>
-              <tbody>
-                ${products.map(product => {
-                  const comparison = storeProductPricingComparison(product);
-                  const accumulatedQuantity = storeProductAccumulatedQuantity(product.id);
-                  const accumulatedRevenue = comparison ? accumulatedQuantity * comparison.price : 0;
-                  const accumulatedProfit = comparison ? accumulatedQuantity * comparison.profit : 0;
-                  return `
-                  <tr data-store-product-financial="${escapeHtml(product.id)}">
-                    <td><strong>${escapeHtml(product.name || "")}</strong></td>
-                    <td>${escapeHtml(storeProductRecipeName(product))}</td>
-                    <td>${comparison ? money(comparison.cost) : "—"}</td>
-                    <td>${comparison ? `${money(comparison.price)}<br><small>${comparison.priceKind}</small>` : "—"}</td>
-                    <td class="${comparison?.profit < 0 ? "negative" : comparison ? "positive" : ""}">${comparison ? money(comparison.profit) : "—"}</td>
-                    <td><strong>${accumulatedQuantity}</strong></td>
-                    <td>${comparison ? money(accumulatedRevenue) : "—"}</td>
-                    <td class="${accumulatedProfit < 0 ? "negative" : comparison ? "positive" : ""}">${comparison ? money(accumulatedProfit) : "—"}</td>
-                    <td>${storeProductQuantityForMonth(product.id, selectedMonth)}</td>
-                    <td>
-                      <div class="table-actions">
-                        <button class="secondary table-action" type="button" data-edit-store-product="${escapeHtml(product.id)}">Editar</button>
-                        <button class="danger table-action" type="button" data-delete-store-product="${escapeHtml(product.id)}">Excluir</button>
-                      </div>
-                    </td>
-                  </tr>
-                `; }).join("")}
-              </tbody>
-            </table>
-          </div>
-        ` : `<p class="muted">Cadastre o primeiro prato para selecioná-lo nas vendas.</p>`}
       </section>
-
     </div>
-    <section class="panel report-section" data-store-input-budget>
-      <div class="section-heading">
-        <div>
-          <h2>Quanto posso gastar com insumos</h2>
-          <p class="muted-inline">Estimativa baseada nas quantidades de ${formatMonthKeyBr(budgetMonth)}${budgetUsesCurrentMonth ? " (parcial do mês atual, porque o mês anterior está vazio)" : ""} e na Precificação atual de cada prato.</p>
-        </div>
-      </div>
-      <div class="summary">
-        <div class="metric" data-store-input-budget-minimum>
-          <span>Mínimo previsto</span>
-          <strong>${money(inputBudget.minimumTotal)}</strong>
-          <small>Custo de insumos cadastrado</small>
-        </div>
-        <div class="metric" data-store-input-budget-maximum>
-          <span>Máximo permitido</span>
-          <strong>${money(inputBudget.maximumTotal)}</strong>
-          <small>Preservando a margem desejada</small>
-        </div>
-        <div class="metric">
-          <span>Folga disponível</span>
-          <strong class="${inputBudget.maximumTotal - inputBudget.minimumTotal < 0 ? "negative" : "positive"}">${money(inputBudget.maximumTotal - inputBudget.minimumTotal)}</strong>
-          <small>Máximo menos previsto</small>
-        </div>
-        <div class="metric">
-          <span>Base calculada</span>
-          <strong>${inputBudget.configuredQuantity}/${inputBudget.totalQuantity}</strong>
-          <small>unidades com dados completos</small>
-        </div>
-      </div>
-      ${inputBudget.missingProducts ? `
-        <p class="form-hint warning-text">${inputBudget.missingProducts} prato(s) com quantidade em ${formatMonthKeyBr(budgetMonth)} não entraram no cálculo porque estão sem Precificação completa.</p>
-      ` : inputBudget.totalQuantity === 0 ? `
-        <p class="muted">Lance as quantidades de ${formatMonthKeyBr(previousMonth)} ou do mês atual em Produtos para gerar este orçamento.</p>
-      ` : `
-        <p class="form-hint">Cálculo completo para todas as quantidades lançadas no mês anterior.</p>
-      `}
-      ${inputBudget.configuredRows.length ? `
-        <div class="table-wrap report-table">
-          <table>
-            <thead><tr><th>Prato</th><th>Quantidade</th><th>Insumos/un.</th><th>Mínimo previsto</th><th>Teto/un.</th><th>Máximo permitido</th></tr></thead>
-            <tbody>
-              ${inputBudget.configuredRows.map(row => `
-                <tr>
-                  <td><strong>${escapeHtml(row.product.name || "")}</strong></td>
-                  <td>${row.quantity}</td>
-                  <td>${money(row.configuredInputPerUnit)}</td>
-                  <td>${money(row.minimumTotal)}</td>
-                  <td>${money(row.maximumInputPerUnit)}</td>
-                  <td><strong>${money(row.maximumTotal)}</strong></td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
-        </div>
-      ` : ""}
-    </section>
-    <section class="panel report-section store-product-history">
-      <div class="section-heading">
-        <div>
-          <h2>Histórico mensal</h2>
-          <p class="muted-inline">Últimos 12 meses com quantidades lançadas por produto.</p>
-        </div>
-      </div>
-      ${history.length ? `
-        <div class="table-wrap report-table">
-          <table>
-            <thead><tr><th>Mês</th><th>Produtos</th><th>Total de unidades</th></tr></thead>
-            <tbody>
-              ${history.map(row => `
-                <tr>
-                  <td>${formatMonthKeyBr(row.month)}</td>
-                  <td>${row.products}</td>
-                  <td><strong>${row.quantity}</strong></td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
-        </div>
-      ` : `<p class="muted">Nenhuma quantidade mensal lançada ainda.</p>`}
-    </section>
   `;
 }
 
@@ -17953,9 +17751,13 @@ function renderStoreSales() {
   app.innerHTML = `
     ${viewTabsHtml("storeViewTab", activeStoreView, storeTabs)}
     ${viewPaneHtml("sales", activeStoreView, `
-    <div class="tool-grid">
-      <section class="panel">
-        <h2>${editing ? "Editar quantidade vendida" : "Lançar quantidade vendida"}</h2>
+    <div class="tool-grid store-sales-workspace">
+      <section class="panel store-sale-entry-panel">
+        <div class="store-panel-heading">
+          <span class="section-kicker">Registro diário</span>
+          <h2>${editing ? "Editar venda" : "Lançar venda"}</h2>
+          <p>Informe a cumbuca e a quantidade. O custo previsto é calculado automaticamente.</p>
+        </div>
         <form id="store-sale-form" class="form-grid single">
           <label>Data da venda
             <input name="date" type="date" value="${editing?.date || today}" required>
@@ -18007,6 +17809,11 @@ function renderStoreSales() {
         </form>
       </section>
       <section class="panel report-section store-sales-results">
+        <div class="store-panel-heading">
+          <span class="section-kicker">Acompanhamento</span>
+          <h2>Resumo das vendas</h2>
+          <p>Filtre o período para conferir unidades, combos e supermercado previsto.</p>
+        </div>
         <form id="store-sales-filter-form" class="period-picker store-sales-filter" data-period="${filter.period}">
           <label>Período
             <select name="period" id="store-sales-filter-period">
