@@ -1752,6 +1752,8 @@ test('an open cash statement updates automatically after another tab saves', asy
   await page.goto('/fluxo-de-caixa');
   await statementPage.goto('/fluxo-de-caixa');
   await statementPage.getByRole('button', { name: 'Extrato', exact: true }).click();
+  await statementPage.locator('.cash-filter-disclosure').click();
+  await statementPage.locator('#cash-filter-form input[name="search"]').focus();
 
   const cashForm = page.locator('#cash-form');
   await cashForm.locator('input[name="description"]').fill('Entrada sincronizada');

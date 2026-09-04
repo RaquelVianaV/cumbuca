@@ -1472,7 +1472,14 @@ async function hydrateState() {
 }
 
 function stateSyncShouldWait() {
-  return stateSaveInFlight || Boolean(document.activeElement?.closest?.("form"));
+  if (stateSaveInFlight) return true;
+  if (["fluxo-de-caixa", "despesas"].includes(routeName()) && state.cashPanelTab === "ledger") {
+    return false;
+  }
+  const activeElement = document.activeElement;
+  return Boolean(
+    activeElement?.matches?.("input:not([readonly]), textarea:not([readonly]), select, [contenteditable='true']")
+  );
 }
 
 function applySyncedState(payload, stateVersion) {
