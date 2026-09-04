@@ -7590,6 +7590,30 @@ a.secondary.table-action,
   }
 }
 
+@media (min-width: 701px) and (max-width: 1200px) {
+  .table-wrap td:has(.table-actions),
+  .report-table td:has(.table-actions) {
+    width: 210px;
+    min-width: 210px;
+  }
+
+  .table-wrap .table-actions,
+  .report-table .table-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .table-wrap .table-actions button,
+  .table-wrap .table-actions a,
+  .report-table .table-actions button,
+  .report-table .table-actions a {
+    min-width: 0;
+    width: 100%;
+    white-space: normal;
+  }
+}
+
 @media (max-width: 560px) {
   body {
     padding-bottom: 128px;

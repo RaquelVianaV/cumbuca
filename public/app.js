@@ -54,7 +54,7 @@ let pendingStateSync = false;
 let stateSyncChannel = null;
 let stateSyncStarted = false;
 const STATUS_REQUEST_TIMEOUT_MS = 10000;
-const STATE_SYNC_INTERVAL_MS = 5000;
+const STATE_SYNC_INTERVAL_MS = 2500;
 const STATE_SYNC_STORAGE_KEY = "cumbuca-state-sync";
 const STATE_SYNC_SOURCE = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const APP_DATA_RESET_VERSION = "2026-05-29-clean-start";
@@ -805,7 +805,55 @@ function updateThemeButtonText() {
 }
 
 function clonePayload(payload) {
+  if (payload === undefined) return undefined;
   return JSON.parse(JSON.stringify(payload));
+}
+
+function sameStateValue(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function isStateRecord(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function mergeConcurrentState(base, local, remote) {
+  if (sameStateValue(local, base)) return clonePayload(remote);
+  if (sameStateValue(remote, base)) return clonePayload(local);
+  if (Array.isArray(local) && Array.isArray(remote) && Array.isArray(base)) {
+    const records = [...base, ...local, ...remote];
+    if (records.every(item => isStateRecord(item) && item.id != null)) {
+      const byId = items => new Map(items.map(item => [String(item.id), item]));
+      const baseById = byId(base);
+      const localById = byId(local);
+      const remoteById = byId(remote);
+      const orderedIds = [...new Set([
+        ...remote.map(item => String(item.id)),
+        ...local.map(item => String(item.id))
+      ])];
+      return orderedIds.flatMap(id => {
+        const baseItem = baseById.get(id);
+        const localItem = localById.get(id);
+        const remoteItem = remoteById.get(id);
+        if (baseItem && !localItem) return [];
+        if (!localItem) return remoteItem ? [clonePayload(remoteItem)] : [];
+        if (!remoteItem) return baseItem ? [] : [clonePayload(localItem)];
+        return [mergeConcurrentState(baseItem || {}, localItem, remoteItem)];
+      });
+    }
+    return clonePayload(local);
+  }
+  if (isStateRecord(local) && isStateRecord(remote) && isStateRecord(base)) {
+    return Object.fromEntries([...new Set([
+      ...Object.keys(base),
+      ...Object.keys(remote),
+      ...Object.keys(local)
+    ])].map(key => [
+      key,
+      mergeConcurrentState(base[key], local[key], remote[key])
+    ]).filter(([, value]) => value !== undefined));
+  }
+  return clonePayload(local);
 }
 
 function alertOfflineSave(reason) {
@@ -1404,15 +1452,27 @@ async function persistState() {
   setSaveStatus("Salvando...");
   stateSaveInFlight = true;
   try {
-    const response = await fetch("/api/state", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        state: appStatePayload(),
-        expectedStateVersion: lastStateVersion
-      })
-    });
-    const result = await response.json();
+    let payload = clonePayload(appStatePayload());
+    let expectedStateVersion = lastStateVersion;
+    let result = null;
+    let response = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      response = await fetch("/api/state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ state: payload, expectedStateVersion })
+      });
+      result = await response.json();
+      if (response.status !== 409 || attempt > 0) break;
+      const latestResponse = await fetch("/api/state", { cache: "no-store" });
+      if (!latestResponse.ok) break;
+      const latest = await latestResponse.json();
+      if (!latest.database || !latest.stateVersion) break;
+      payload = mergeConcurrentState(lastConfirmedPayload || {}, payload, latest.state || {});
+      applyPayloadToState(payload);
+      expectedStateVersion = String(latest.stateVersion);
+      lastStateVersion = expectedStateVersion;
+    }
     if (response.ok && result.database) {
       persistLocal();
       lastConfirmedPayload = clonePayload(appStatePayload());
@@ -1491,11 +1551,27 @@ function applySyncedState(payload, stateVersion) {
     pendingStateSync = true;
     return false;
   }
+  const priorCash = clonePayload(state.cash || []);
+  const ledger = document.querySelector("[data-cash-ledger-results]");
+  const viewPosition = {
+    windowY: window.scrollY,
+    ledgerTop: ledger?.scrollTop || 0,
+    ledgerLeft: ledger?.scrollLeft || 0
+  };
   applyPayloadToState(payload);
   persistLocal();
   lastConfirmedPayload = clonePayload(appStatePayload());
   lastStateVersion = version;
-  renderCurrentRoute();
+  const cashChanged = !sameStateValue(priorCash, state.cash || []);
+  renderCurrentRoute().then(() => {
+    window.scrollTo({ top: viewPosition.windowY, behavior: "auto" });
+    const nextLedger = document.querySelector("[data-cash-ledger-results]");
+    if (nextLedger) {
+      nextLedger.scrollTop = viewPosition.ledgerTop;
+      nextLedger.scrollLeft = viewPosition.ledgerLeft;
+    }
+    if (cashChanged) showToast("Extrato atualizado em outra sessão", "success");
+  });
   return true;
 }
 

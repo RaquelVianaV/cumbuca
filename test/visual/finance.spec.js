@@ -22,12 +22,14 @@ function localDateKey(date = new Date()) {
   ).padStart(2, '0')}`;
 }
 
-async function mockOnlineDatabase(page) {
-  const holder = {
+async function mockOnlineDatabase(page, sharedHolder = null) {
+  const holder = sharedHolder || {
     state: {},
     stateGetCount: 0,
     statePostCount: 0,
     statePostDelayMs: 0,
+    stateVersion: 'test-state-0',
+    conflictState: null,
   };
   const json = (body) => ({
     status: 200,
@@ -56,15 +58,31 @@ async function mockOnlineDatabase(page) {
   await page.route('**/api/state', async (route) => {
     if (route.request().method() === 'POST') {
       holder.statePostCount += 1;
+      if (holder.conflictState) {
+        holder.state = holder.conflictState;
+        holder.conflictState = null;
+        holder.stateVersion = `test-conflict-${holder.statePostCount}`;
+        await route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Os dados foram alterados em outra sessão.' }),
+        });
+        return;
+      }
       if (holder.statePostDelayMs) {
         await new Promise((resolve) => setTimeout(resolve, holder.statePostDelayMs));
       }
       holder.state = JSON.parse(route.request().postData() || '{}').state || {};
-      await route.fulfill(json({ database: true, saved: true }));
+      holder.stateVersion = `test-state-${holder.statePostCount}`;
+      await route.fulfill(
+        json({ database: true, saved: true, stateVersion: holder.stateVersion })
+      );
       return;
     }
     holder.stateGetCount += 1;
-    await route.fulfill(json({ database: true, state: holder.state }));
+    await route.fulfill(
+      json({ database: true, state: holder.state, stateVersion: holder.stateVersion })
+    );
   });
   return holder;
 }
@@ -1745,9 +1763,9 @@ test('cash form ignores repeated submits while an entry or expense is saving', a
 });
 
 test('an open cash statement updates automatically after another tab saves', async ({ page }) => {
-  await mockOnlineDatabase(page);
+  const database = await mockOnlineDatabase(page);
   const statementPage = await page.context().newPage();
-  await mockOnlineDatabase(statementPage);
+  await mockOnlineDatabase(statementPage, database);
 
   await page.goto('/fluxo-de-caixa');
   await statementPage.goto('/fluxo-de-caixa');
@@ -1763,6 +1781,37 @@ test('an open cash statement updates automatically after another tab saves', asy
   await expect(statementPage.getByText('Entrada sincronizada', { exact: true })).toBeVisible();
   await expect(statementPage.locator('[data-cash-total-balance]')).toContainText('R$ 42,00');
   await statementPage.close();
+});
+
+test('cash save reconciles a concurrent remote entry without losing either change', async ({ page }) => {
+  const database = await mockOnlineDatabase(page);
+  await page.goto('/fluxo-de-caixa');
+  database.conflictState = {
+    ...database.state,
+    cashEntries: [
+      {
+        id: 'remote-entry',
+        date: localDateKey(),
+        type: 'income',
+        category: 'venda',
+        description: 'Entrada de outro dispositivo',
+        amount: '18.00',
+        cashAccount: 'pj',
+      },
+    ],
+  };
+
+  const cashForm = page.locator('#cash-form');
+  await cashForm.locator('input[name="description"]').fill('Entrada desta aba');
+  await cashForm.locator('input[name="amount"]').fill('22,00');
+  await cashForm.getByRole('button', { name: 'Adicionar', exact: true }).click();
+
+  await expect.poll(() => database.state.cashEntries?.length).toBe(2);
+  expect(database.state.cashEntries.map((entry) => entry.description).sort()).toEqual([
+    'Entrada de outro dispositivo',
+    'Entrada desta aba',
+  ]);
+  await expect(page.locator('[data-cash-total-balance]')).toContainText('R$ 40,00');
 });
 
 test('stored financial descriptions stay text instead of becoming HTML', async ({ page }) => {
