@@ -2541,6 +2541,25 @@ html.dark-mode .cash-category-summary-action {
   min-width: 220px;
 }
 
+.cash-ledger-table th:last-child,
+.cash-ledger-table td:last-child {
+  width: 210px;
+  min-width: 210px;
+}
+
+.cash-ledger-table .table-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+}
+
+.cash-ledger-table .table-actions button,
+.cash-ledger-table .table-actions a {
+  min-width: 0;
+  width: 100%;
+  white-space: normal;
+}
+
 .cash-ledger-table thead th {
   position: sticky;
   top: 0;
@@ -8167,6 +8186,12 @@ a.secondary.table-action,
   .report-table td:last-child,
   .table-wrap td:last-child {
     text-align: left;
+  }
+
+  .cash-ledger-table th:last-child,
+  .cash-ledger-table td:last-child {
+    width: auto;
+    min-width: 0;
   }
 
   .table-wrap td[data-label="Ações"],
