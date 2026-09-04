@@ -1298,8 +1298,6 @@ function appStatePayload() {
     partnerAccounts: state.partnerAccounts,
     weeklyMenusByPeriod: state.menus,
     weeklyMenuSupermarketCostsByPeriod: state.menuSupermarketCosts,
-    menuWeek: state.menuWeek,
-    menuPeriod: state.menuPeriod,
     menuDatesByPeriod: state.menuDates,
     clients: state.clients,
     orders: state.orders,
@@ -1317,9 +1315,16 @@ function appStatePayload() {
     pricingIngredients: state.ingredients,
     pricingRecipes: state.pricingRecipes,
     pricingConfig: state.pricingConfig,
-    cashFilter: state.cashFilter,
     financialPlanning: state.financialPlanning,
     appConfig: state.appConfig
+  };
+}
+
+function localViewStatePayload() {
+  return {
+    menuWeek: state.menuWeek,
+    menuPeriod: state.menuPeriod,
+    cashFilter: state.cashFilter
   };
 }
 
@@ -1380,11 +1385,6 @@ function applyPayloadToState(saved = {}) {
   state.partnerAccounts = normalizePartnerAccounts(saved.partnerAccounts || defaultPartnerAccounts());
   state.menus = saved.weeklyMenusByPeriod || {};
   state.menuSupermarketCosts = saved.weeklyMenuSupermarketCostsByPeriod || {};
-  state.menuWeek = Number(saved.menuWeek || 1);
-  state.menuPeriod = saved.menuPeriod || {
-    year: new Date().getFullYear(),
-    month: new Date().getMonth() + 1
-  };
   state.menuDates = saved.menuDatesByPeriod || {};
   state.clients = saved.clients || [];
   state.orders = saved.orders || [];
@@ -1404,7 +1404,6 @@ function applyPayloadToState(saved = {}) {
   state.ingredients = saved.pricingIngredients || [];
   state.pricingRecipes = saved.pricingRecipes || [];
   state.pricingConfig = saved.pricingConfig || {};
-  state.cashFilter = saved.cashFilter || { period: "month" };
   state.financialPlanning = {
     savings: "",
     savingsUpdatedAt: "",
@@ -1455,7 +1454,13 @@ function rollbackUnsavedChange() {
 }
 
 function persistLocal() {
-  Object.entries(appStatePayload()).forEach(([key, value]) => {
+  Object.entries({ ...appStatePayload(), ...localViewStatePayload() }).forEach(([key, value]) => {
+    localStorage.setItem(key, JSON.stringify(value));
+  });
+}
+
+function persistLocalViewState() {
+  Object.entries(localViewStatePayload()).forEach(([key, value]) => {
     localStorage.setItem(key, JSON.stringify(value));
   });
 }
@@ -1490,20 +1495,22 @@ async function persistState() {
     let expectedStateVersion = lastStateVersion;
     let result = null;
     let response = null;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    const maximumAttempts = 4;
+    for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
       response = await fetch("/api/state", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ state: payload, expectedStateVersion })
       });
       result = await response.json();
-      if (response.status !== 409 || attempt > 0) break;
+      if (response.status !== 409 || attempt === maximumAttempts - 1) break;
       const latestResponse = await fetch("/api/state", { cache: "no-store" });
       if (!latestResponse.ok) break;
       const latest = await latestResponse.json();
       if (!latest.database || !latest.stateVersion) break;
       payload = mergeConcurrentState(lastConfirmedPayload || {}, payload, latest.state || {});
       applyPayloadToState(payload);
+      lastConfirmedPayload = clonePayload(latest.state || {});
       expectedStateVersion = String(latest.stateVersion);
       lastStateVersion = expectedStateVersion;
     }
@@ -8197,7 +8204,7 @@ async function renderCash() {
       search: "",
       manualAll: true
     };
-    persistState();
+    persistLocalViewState();
     renderCash();
   });
 
@@ -8215,7 +8222,7 @@ async function renderCash() {
         manualAll: currentFilter.period === "all"
       };
       state.cashSort = { key: "date", direction: "desc" };
-      persistState();
+      persistLocalViewState();
       renderCash();
       requestAnimationFrame(() => {
         document.querySelector("[data-cash-ledger-results]")?.scrollIntoView({ block: "start" });
@@ -8235,7 +8242,7 @@ async function renderCash() {
         manualAll: currentFilter.period === "all"
       };
       state.cashSort = { key: "date", direction: "desc" };
-      persistState();
+      persistLocalViewState();
       renderCash();
     });
   });
@@ -9328,7 +9335,7 @@ async function renderCash() {
           quick: "",
           search: String(original.description || "").trim()
         };
-        persistState();
+        persistLocalViewState();
         renderCash();
       });
     });
@@ -10026,14 +10033,14 @@ async function renderCash() {
       
       state.cashFilter = { ...values, manualAll: values.period === "all" };
       state.cashSort = { key: "date", direction: "desc" };
-      persistState();
+      persistLocalViewState();
       renderCash();
     });
 
     document.querySelector("#clear-cash-filter")?.addEventListener("click", () => {
       state.cashFilter = defaultCashLedgerFilter();
       state.cashSort = { key: "date", direction: "desc" };
-      persistState();
+      persistLocalViewState();
       renderCash();
     });
 
@@ -10066,7 +10073,7 @@ async function renderCash() {
           state.cashFilter = { ...state.cashFilter, ...baseFilter, period: "all", date: today, month: today.slice(0, 7), year: today.slice(0, 4), quick: "withdrawals", manualAll: true };
         }
         state.cashSort = { key: "date", direction: "desc" };
-        persistState();
+        persistLocalViewState();
         renderCash();
       });
     });

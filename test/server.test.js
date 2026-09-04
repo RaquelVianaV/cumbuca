@@ -65,13 +65,20 @@ test('erros técnicos resolvidos saem das pendências sem apagar o histórico', 
       detail: 'Evento 10 resolvido: corrigido e conferido',
       created_at: '2026-08-14T11:30:00.000Z',
     },
+    {
+      id: 13,
+      event_type: 'erro_api',
+      detail:
+        'POST /api/state: Os dados foram alterados em outra sessão. Recarregue a página antes de salvar novamente.',
+      created_at: '2026-08-14T11:45:00.000Z',
+    },
   ];
 
   assert.deepEqual(
     unresolvedTechnicalErrors(events, now).map((event) => event.id),
     [11]
   );
-  assert.equal(events.length, 3);
+  assert.equal(events.length, 4);
 });
 
 test('static paths stay inside public and download names cannot inject headers', () => {

@@ -147,7 +147,13 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /state\.reportPeriod = \{[\s\S]*?type: "month"/);
   assert.match(app, /state\.cashFilter = \{[\s\S]*?period: "month"/);
   assert.match(app, /cashFilter: localValue\("cashFilter", \{ period: "month" \}\)/);
-  assert.match(app, /state\.cashFilter = saved\.cashFilter \|\| \{ period: "month" \}/);
+  const sharedStatePayload = app.match(
+    /function appStatePayload\(\) \{([\s\S]*?)function localViewStatePayload/
+  )?.[1] || "";
+  assert.doesNotMatch(sharedStatePayload, /cashFilter: state\.cashFilter/);
+  assert.doesNotMatch(sharedStatePayload, /menuPeriod: state\.menuPeriod/);
+  assert.doesNotMatch(app, /state\.cashFilter = saved\.cashFilter/);
+  assert.match(app, /function localViewStatePayload\(\)[\s\S]*?cashFilter: state\.cashFilter/);
   assert.match(app, /period: "month",[\s\S]*?type: "all",[\s\S]*?cashAccount: "all"/);
   assert.match(app, /function defaultCashLedgerFilter/);
   assert.match(

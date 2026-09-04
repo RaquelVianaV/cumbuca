@@ -4062,6 +4062,17 @@ html.dark-mode .cash-review-day { color: #17211d; }
   line-height: 1.35;
 }
 
+.technical-error-list .integrity-check {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.technical-error-list .integrity-check button {
+  width: auto;
+  max-width: 150px;
+  white-space: normal;
+}
+
 .db-usage-card {
   display: grid;
   grid-template-columns: 1fr;

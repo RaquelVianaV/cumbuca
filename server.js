@@ -2074,9 +2074,14 @@ function unresolvedTechnicalErrors(events = [], now = Date.now()) {
   );
   return events.filter((event) => {
     const recent = now - new Date(event.created_at).getTime() <= 24 * 3600000;
+    const expectedStateConflict =
+      event.event_type === 'erro_api' &&
+      String(event.detail || '').includes('POST /api/state:') &&
+      String(event.detail || '').includes('Os dados foram alterados em outra sessão.');
     return (
       recent &&
       ['erro_api', 'teste_restauracao_falhou'].includes(event.event_type) &&
+      !expectedStateConflict &&
       !resolvedTechnicalErrorIds.has(String(event.id))
     );
   });
@@ -4204,17 +4209,20 @@ async function handleRequest(req, res) {
     sendJson(res, 405, { error: 'Método não permitido.' });
   } catch (error) {
     console.error(`[${new Date().toISOString()}] ${req.method} ${req.url}`, error);
-    try {
-      await writeEvent(
-        'erro_api',
-        `${req.method} ${String(req.url || '').slice(0, 160)}: ${String(
-          error.message || error
-        ).slice(0, 300)}`
-      );
-    } catch (eventError) {
-      console.error('Falha ao registrar erro da API.', eventError);
+    const statusCode = Number(error.statusCode || 400);
+    if (statusCode >= 500) {
+      try {
+        await writeEvent(
+          'erro_api',
+          `${req.method} ${String(req.url || '').slice(0, 160)}: ${String(
+            error.message || error
+          ).slice(0, 300)}`
+        );
+      } catch (eventError) {
+        console.error('Falha ao registrar erro da API.', eventError);
+      }
     }
-    sendJson(res, error.statusCode || 400, { error: error.message || 'Requisição inválida.' });
+    sendJson(res, statusCode, { error: error.message || 'Requisição inválida.' });
   }
 }
 
