@@ -2561,6 +2561,98 @@ html.dark-mode .cash-category-summary-action {
   backdrop-filter: blur(10px);
 }
 
+.cash-review-calendar {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.cash-review-calendar-head,
+.cash-review-legend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cash-review-calendar-head span,
+.cash-review-calendar-head h3 {
+  display: block;
+  margin: 0;
+}
+
+.cash-review-legend small::before {
+  content: "";
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+
+.cash-review-legend .closed::before { background: #16a34a; }
+.cash-review-legend .pending::before { background: #eab308; }
+.cash-review-legend .difference::before { background: #dc2626; }
+
+.cash-review-weekdays,
+.cash-review-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.cash-review-weekdays span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.cash-review-day {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  min-height: 38px;
+  padding: 6px 8px;
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: var(--text);
+  box-shadow: none;
+}
+
+.cash-review-day.closed { border-color: #86efac; background: #dcfce7; }
+.cash-review-day.pending { border-color: #fde047; background: #fef9c3; }
+.cash-review-day.difference { border-color: #fca5a5; background: #fee2e2; }
+.cash-review-day small { font-size: 0.62rem; opacity: 0.75; }
+
+html.dark-mode .cash-review-day { color: #17211d; }
+
+@media (max-width: 700px) {
+  .cash-review-calendar-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .cash-review-legend {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .cash-review-day {
+    min-height: 34px;
+    padding: 5px;
+  }
+
+  .cash-review-day small {
+    display: none;
+  }
+}
+
 .cash-day-group td {
   padding: 10px 12px;
   background: #edf7f1;

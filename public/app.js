@@ -8100,7 +8100,9 @@ async function renderCash() {
             <h2>${isExpensesRoute ? "Despesas lançadas" : "Extrato"}</h2>
             <p class="muted-inline">${isExpensesRoute ? "Consulte e edite somente as despesas operacionais." : "Filtre, confira categorias e edite lançamentos."}</p>
           </div>
+          <button class="secondary" type="button" data-check-visible-cash ${filteredLedgerEntries.some(entry => !entry.checkedAt) ? "" : "disabled"}>Conferir todos exibidos</button>
         </div>
+        ${cashReviewCalendarHtml(routeCashEntries, selectedMonth)}
         <details class="cash-filter-disclosure" ${advancedCashFilterActive ? "open" : ""}>
           <summary>
             <span>
@@ -10126,6 +10128,48 @@ async function renderCash() {
     });
   });
 
+  on("[data-check-visible-cash]", "click", async () => {
+    const ids = new Set(filteredLedgerEntries.filter(entry => !entry.checkedAt).map(entry => String(entry.id)));
+    if (!ids.size) return;
+    const checkedAt = new Date().toISOString();
+    const checkedBy = state.currentUser?.name || state.currentUser?.username || "Usuário";
+    state.cash.forEach(entry => {
+      if (ids.has(String(entry.id))) {
+        entry.checkedAt = checkedAt;
+        entry.checkedBy = checkedBy;
+      }
+    });
+    recordAudit("Conferência em lote", `${ids.size} lançamento(s) conferido(s)`, {
+      entityIds: [...ids],
+      checkedAt,
+      checkedBy
+    });
+    if (await persistState()) {
+      showToast(`${ids.size} lançamento(s) conferido(s).`, "success");
+      renderCash();
+    }
+  });
+
+  document.querySelectorAll("[data-cash-review-day]").forEach(button => {
+    button.addEventListener("click", event => {
+      const date = event.currentTarget.dataset.cashReviewDay;
+      state.cashFilter = {
+        ...state.cashFilter,
+        period: "day",
+        date,
+        month: date.slice(0, 7),
+        year: date.slice(0, 4),
+        type: "all",
+        category: "all",
+        cashAccount: "all",
+        quick: "",
+        search: "",
+        manualAll: false
+      };
+      renderCash();
+    });
+  });
+
   document.querySelectorAll("[data-open-account-transfer]").forEach(button => {
     button.addEventListener("click", event => {
       state.editAccountTransferId = event.currentTarget.dataset.openAccountTransfer;
@@ -10292,6 +10336,49 @@ function cashSortHeader(key, label) {
   const active = state.cashSort?.key === key;
   const arrow = active ? (state.cashSort.direction === "asc" ? "↑" : "↓") : "↕";
   return `<button class="table-sort-button ${active ? "active" : ""}" type="button" data-sort-cash="${key}" title="Ordenar por ${label}">${label}<span aria-hidden="true">${arrow}</span></button>`;
+}
+
+function cashReviewCalendarHtml(entries = [], monthKey = "") {
+  if (!/^\d{4}-\d{2}$/.test(monthKey)) return "";
+  const [year, month] = monthKey.split("-").map(Number);
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const firstWeekday = new Date(year, month - 1, 1).getDay();
+  const entriesByDate = entries.reduce((map, entry) => {
+    if (String(entry.date || "").startsWith(monthKey)) {
+      const list = map.get(entry.date) || [];
+      list.push(entry);
+      map.set(entry.date, list);
+    }
+    return map;
+  }, new Map());
+  const days = Array.from({ length: daysInMonth }, (_, index) => {
+    const date = `${monthKey}-${String(index + 1).padStart(2, "0")}`;
+    const dayEntries = entriesByDate.get(date) || [];
+    const closing = dayClosingForDate(date);
+    const hasDifference = Math.abs(Number(closing?.difference || 0)) >= 0.01;
+    const allChecked = dayEntries.length > 0 && dayEntries.every(entry => entry.checkedAt);
+    const status = !dayEntries.length
+      ? "empty"
+      : hasDifference
+        ? "difference"
+        : allChecked && closing?.locked !== false && closing
+          ? "closed"
+          : "pending";
+    const label = status === "empty"
+      ? "Sem movimento"
+      : status === "difference"
+        ? "Com divergência"
+        : status === "closed"
+          ? "Fechado e conferido"
+          : `${dayEntries.filter(entry => !entry.checkedAt).length} não conferido(s)`;
+    return `<button class="cash-review-day ${status}" type="button" data-cash-review-day="${date}" title="${formatIsoDateBr(date)}: ${label}"><b>${index + 1}</b><small>${dayEntries.length || "—"}</small></button>`;
+  });
+  return `
+    <section class="cash-review-calendar">
+      <div class="cash-review-calendar-head"><div><span>Conferência mensal</span><h3>${formatMonthKeyBr(monthKey)}</h3></div><div class="cash-review-legend"><small class="closed">Fechado</small><small class="pending">Pendente</small><small class="difference">Divergência</small><small class="empty">Sem movimento</small></div></div>
+      <div class="cash-review-weekdays">${["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map(day => `<span>${day}</span>`).join("")}</div>
+      <div class="cash-review-days">${Array.from({ length: firstWeekday }, () => "<i></i>").join("")}${days.join("")}</div>
+    </section>`;
 }
 
 function cashTable(entries) {
