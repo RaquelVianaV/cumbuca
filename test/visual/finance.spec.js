@@ -1835,6 +1835,7 @@ test('cash statement uses readable cards on tablet without overlapping actions',
   const ledger = page.locator('.cash-ledger-table');
   await expect(ledger.locator('thead')).toBeHidden();
   await expect(ledger.getByText('Compra para conferir no tablet', { exact: true })).toBeVisible();
+  await expect(ledger.locator('.cash-day-group')).toContainText('Saídas R$ 90,00');
   const actionBoxes = await ledger.locator('.table-actions button').evaluateAll((buttons) =>
     buttons.map((button) => {
       const box = button.getBoundingClientRect();
@@ -1854,6 +1855,16 @@ test('cash statement uses readable cards on tablet without overlapping actions',
     }
   }
   await expectNoHorizontalOverflow(page);
+
+  await ledger.getByRole('button', { name: 'Conferir', exact: true }).click();
+  await expect.poll(() => Boolean(database.state.cashEntries?.[0]?.checkedAt)).toBe(true);
+  await expect(page.locator('.cash-ledger-table').getByRole('button', { name: 'Conferido' })).toBeVisible();
+
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('.cash-ledger-table').getByRole('button', { name: 'Excluir' }).click();
+  await expect.poll(() => database.state.cashEntries?.length).toBe(0);
+  await page.getByRole('button', { name: 'Desfazer', exact: true }).click();
+  await expect.poll(() => database.state.cashEntries?.length).toBe(1);
 });
 
 test('stored financial descriptions stay text instead of becoming HTML', async ({ page }) => {

@@ -53,6 +53,8 @@ let stateSaveInFlight = false;
 let pendingStateSync = false;
 let stateSyncChannel = null;
 let stateSyncStarted = false;
+let recentSyncedCashIds = new Set();
+let recentSyncedCashCount = 0;
 const STATUS_REQUEST_TIMEOUT_MS = 10000;
 const STATE_SYNC_INTERVAL_MS = 2500;
 const STATE_SYNC_STORAGE_KEY = "cumbuca-state-sync";
@@ -750,6 +752,38 @@ function showToast(text, mode = "success") {
     toast.classList.remove("show");
     setTimeout(() => toast.remove(), 180);
   }, 2600);
+}
+
+function showUndoToast(text, undo) {
+  let area = document.querySelector(".toast-area");
+  if (!area) {
+    area = document.createElement("div");
+    area.className = "toast-area";
+    document.body.appendChild(area);
+  }
+  [...area.querySelectorAll(".toast")].forEach(item => item.remove());
+  const toast = document.createElement("div");
+  toast.className = "toast warning toast-with-action";
+  const message = document.createElement("span");
+  message.textContent = text;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "secondary";
+  button.textContent = "Desfazer";
+  toast.append(message, button);
+  area.appendChild(toast);
+  const remove = () => {
+    toast.classList.remove("show");
+    setTimeout(() => toast.remove(), 180);
+  };
+  const timeout = setTimeout(remove, 8000);
+  button.addEventListener("click", async () => {
+    clearTimeout(timeout);
+    button.disabled = true;
+    await undo();
+    remove();
+  });
+  setTimeout(() => toast.classList.add("show"), 20);
 }
 
 function toggleTheme() {
@@ -1552,6 +1586,7 @@ function applySyncedState(payload, stateVersion) {
     return false;
   }
   const priorCash = clonePayload(state.cash || []);
+  const priorCashIds = new Set(priorCash.map(entry => String(entry.id || "")));
   const ledger = document.querySelector("[data-cash-ledger-results]");
   const viewPosition = {
     windowY: window.scrollY,
@@ -1559,6 +1594,12 @@ function applySyncedState(payload, stateVersion) {
     ledgerLeft: ledger?.scrollLeft || 0
   };
   applyPayloadToState(payload);
+  recentSyncedCashIds = new Set(
+    (state.cash || [])
+      .filter(entry => entry.id && !priorCashIds.has(String(entry.id)))
+      .map(entry => String(entry.id))
+  );
+  recentSyncedCashCount = recentSyncedCashIds.size;
   persistLocal();
   lastConfirmedPayload = clonePayload(appStatePayload());
   lastStateVersion = version;
@@ -1570,7 +1611,14 @@ function applySyncedState(payload, stateVersion) {
       nextLedger.scrollTop = viewPosition.ledgerTop;
       nextLedger.scrollLeft = viewPosition.ledgerLeft;
     }
-    if (cashChanged) showToast("Extrato atualizado em outra sessão", "success");
+    if (cashChanged) {
+      showToast(
+        recentSyncedCashCount
+          ? `${recentSyncedCashCount} novo(s) lançamento(s) recebido(s)`
+          : "Extrato atualizado em outra sessão",
+        "success"
+      );
+    }
   });
   return true;
 }
@@ -8101,7 +8149,8 @@ async function renderCash() {
           <button class="secondary ${selectedQuickFilter === "savings" ? "active" : ""}" type="button" data-cash-quick="savings">Cofrinho</button>
           <button class="secondary ${selectedQuickFilter === "withdrawals" ? "active" : ""}" type="button" data-cash-quick="withdrawals">Retiradas</button>
         </div>
-        <div class="summary">
+        ${recentSyncedCashCount ? `<div class="cash-sync-notice"><b>${recentSyncedCashCount} novo(s) lançamento(s)</b><span>Recebidos de outra aba ou dispositivo.</span><button class="secondary" type="button" data-clear-cash-sync>Destaques vistos</button></div>` : ""}
+        <div class="summary cash-ledger-sticky-summary">
           <div class="metric"><span>Entradas operacionais</span><strong>${money(operationalTotals.income)}</strong></div>
           <div class="metric"><span>Saídas operacionais</span><strong>${money(operationalTotals.expenses)}</strong></div>
           <div class="metric"><span>Ajustes da conta</span><strong class="${filteredAdjustmentTotals.balance < 0 ? "negative" : "positive"}">${money(filteredAdjustmentTotals.balance)}</strong></div>
@@ -10015,6 +10064,22 @@ async function renderCash() {
     });
   });
 
+  on("[data-clear-cash-sync]", "click", () => {
+    recentSyncedCashIds.clear();
+    recentSyncedCashCount = 0;
+    renderCash();
+  });
+
+  document.querySelectorAll("[data-check-cash]").forEach(button => {
+    button.addEventListener("click", async event => {
+      const entry = state.cash.find(item => String(item.id) === event.currentTarget.dataset.checkCash);
+      if (!entry) return;
+      entry.checkedAt = entry.checkedAt ? "" : new Date().toISOString();
+      entry.checkedBy = entry.checkedAt ? (state.currentUser?.name || state.currentUser?.username || "Usuário") : "";
+      if (await persistState()) renderCash();
+    });
+  });
+
   document.querySelectorAll("[data-open-account-transfer]").forEach(button => {
     button.addEventListener("click", event => {
       state.editAccountTransferId = event.currentTarget.dataset.openAccountTransfer;
@@ -10107,6 +10172,7 @@ async function renderCash() {
       if (coverage?.date && blockClosedPeriod(coverage.date, "excluir cobertura do cofrinho")) {
         return;
       }
+      const beforeDeletion = clonePayload(appStatePayload());
       const prospectiveSavingsHistory = prospectiveSavingsHistoryForCashEntry({}, removed?.id || "");
       removeCashSavingsCoverage(id);
       applySavingsHistory(prospectiveSavingsHistory);
@@ -10121,6 +10187,13 @@ async function renderCash() {
       });
       if (await persistState()) {
         renderCash();
+        showUndoToast("Lançamento excluído.", async () => {
+          applyPayloadToState(beforeDeletion);
+          if (await persistState()) {
+            showToast("Exclusão desfeita.", "success");
+            renderCash();
+          }
+        });
       }
     });
   });
@@ -10180,6 +10253,14 @@ function cashTable(entries) {
     return `<p class="muted" data-cash-ledger-results>Nenhum lançamento ainda.</p>`;
   }
   const sortedEntries = sortedCashEntries(entries);
+  const dayTotals = new Map();
+  sortedEntries.forEach(entry => {
+    const totals = dayTotals.get(entry.date) || { income: 0, expenses: 0 };
+    if (entry.type === "income") totals.income += Number(entry.amount || 0);
+    if (entry.type === "expense") totals.expenses += Number(entry.amount || 0);
+    dayTotals.set(entry.date, totals);
+  });
+  let renderedDate = "";
 
   return `
     <div class="table-wrap cash-ledger-table" data-cash-ledger-results>
@@ -10192,8 +10273,13 @@ function cashTable(entries) {
             const internalTransfer = isAccountTransferCashEntry(item);
             const savingsLedgerEntry = item.savingsLedgerEntry === true;
             const employee = financialEmployeeForEntry(item);
-            return `
-            <tr class="cash-row ${item.type === "income" ? "income-row" : "expense-row"} ${accountAdjustment ? "account-adjustment-row" : ""}">
+            const totals = dayTotals.get(item.date);
+            const dayHeading = item.date !== renderedDate
+              ? `<tr class="cash-day-group"><td colspan="8"><b>${formatIsoDateBr(item.date)}</b><span>Entradas ${money(totals.income)} · Saídas ${money(totals.expenses)} · Saldo ${money(totals.income - totals.expenses)}</span></td></tr>`
+              : "";
+            renderedDate = item.date;
+            return `${dayHeading}
+            <tr class="cash-row ${item.type === "income" ? "income-row" : "expense-row"} ${accountAdjustment ? "account-adjustment-row" : ""} ${recentSyncedCashIds.has(String(item.id)) ? "cash-row-new" : ""}">
               <td>${formatIsoDateBr(item.date)}</td>
               <td>
                 ${escapeHtml(item.description)}
@@ -10211,6 +10297,7 @@ function cashTable(entries) {
               <td class="${item.type === "income" ? "positive" : "negative"}">${money(item.amount)}</td>
               <td>
                 <div class="table-actions">
+                  <button class="secondary table-action ${item.checkedAt ? "checked" : ""}" type="button" data-check-cash="${item.id || ""}">${item.checkedAt ? "Conferido" : "Conferir"}</button>
                   ${internalTransfer ? `<button class="secondary table-action" type="button" data-open-account-transfer="${escapeHtml(item.accountTransferId || item.transferId || "")}">Ver transferência</button>` : savingsLedgerEntry ? `<a class="secondary table-action" href="/fluxo-de-caixa?panel=savings">Ver Cofrinho</a>` : automaticCoverage ? `<small>Cobertura automática</small>` : `
                     ${isPendingBill(item) ? `<button class="secondary table-action" type="button" data-pay-bill="${item.id || ""}">Marcar pago</button>` : ""}
                     <button class="secondary table-action" type="button" data-edit-cash="${item.id || ""}">Editar</button>
