@@ -48,7 +48,15 @@ let offlineAlertOpen = false;
 let suppressIssueLog = false;
 let serverStatusRequest = null;
 let persistenceStatusRequest = null;
+let stateSyncRequest = null;
+let stateSaveInFlight = false;
+let pendingStateSync = false;
+let stateSyncChannel = null;
+let stateSyncStarted = false;
 const STATUS_REQUEST_TIMEOUT_MS = 10000;
+const STATE_SYNC_INTERVAL_MS = 5000;
+const STATE_SYNC_STORAGE_KEY = "cumbuca-state-sync";
+const STATE_SYNC_SOURCE = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const APP_DATA_RESET_VERSION = "2026-05-29-clean-start";
 const THEME_STORAGE_KEY = "cumbuca-theme";
 const themePreferenceOptions = [
@@ -815,37 +823,10 @@ function alertOfflineSave(reason) {
   }
 }
 
-async function onlineSaveCheck() {
-  try {
-    const healthResponse = await fetchWithTimeout("/api/health", { cache: "no-store" });
-    if (!healthResponse.ok) {
-      return { ok: false, reason: "server" };
-    }
-    const health = await healthResponse.json();
-    systemStatus.server = true;
-    systemStatus.database = Boolean(health.database);
-    state.database = Boolean(health.database);
-    if (!health.database) {
-      return { ok: false, reason: "database" };
-    }
-
-    const persistenceResponse = await fetchWithTimeout("/api/persistence-check", { cache: "no-store" });
-    if (!persistenceResponse.ok) {
-      return { ok: false, reason: "database" };
-    }
-    const persistence = await persistenceResponse.json();
-    systemStatus.persistence = Boolean(persistence.database && persistence.saved);
-    if (!systemStatus.persistence) {
-      return { ok: false, reason: "database" };
-    }
-
-    return { ok: true };
-  } catch (error) {
-    systemStatus.server = false;
-    systemStatus.database = false;
-    systemStatus.persistence = false;
-    return { ok: false, reason: "server" };
-  }
+function onlineSaveCheck() {
+  return navigator.onLine === false
+    ? { ok: false, reason: "server" }
+    : { ok: true };
 }
 
 async function performPersistenceStatusUpdate() {
@@ -1414,16 +1395,14 @@ function recordAudit(action, detail, metadata = {}) {
 
 async function persistState() {
   syncSavingsHistoryWithCashEntries();
-  setSaveStatus("Conferindo conexão...");
-  const online = await onlineSaveCheck();
+  const online = onlineSaveCheck();
   if (!online.ok) {
     rollbackUnsavedChange();
     alertOfflineSave(online.reason);
-    updateServerStatus();
     return false;
   }
-
   setSaveStatus("Salvando...");
+  stateSaveInFlight = true;
   try {
     const response = await fetch("/api/state", {
       method: "POST",
@@ -1438,6 +1417,7 @@ async function persistState() {
       persistLocal();
       lastConfirmedPayload = clonePayload(appStatePayload());
       lastStateVersion = String(result.stateVersion || lastStateVersion);
+      announceStateUpdate();
       const now = shortDateTime.format(new Date());
       setSaveStatus(`Salvo no Supabase ${now}`, "online");
       showToast("Salvo no Supabase", "success");
@@ -1456,6 +1436,12 @@ async function persistState() {
     rollbackUnsavedChange();
     alertOfflineSave("server");
     return false;
+  } finally {
+    stateSaveInFlight = false;
+    if (pendingStateSync) {
+      pendingStateSync = false;
+      setTimeout(syncStateFromServer, 0);
+    }
   }
 }
 
@@ -1483,6 +1469,98 @@ async function hydrateState() {
     systemStatus.database = false;
     lastConfirmedPayload = clonePayload(appStatePayload());
   }
+}
+
+function stateSyncShouldWait() {
+  return stateSaveInFlight || Boolean(document.activeElement?.closest?.("form"));
+}
+
+function applySyncedState(payload, stateVersion) {
+  const version = String(stateVersion || "");
+  if (!payload || !version || version === lastStateVersion) {
+    return false;
+  }
+  if (stateSyncShouldWait()) {
+    pendingStateSync = true;
+    return false;
+  }
+  applyPayloadToState(payload);
+  persistLocal();
+  lastConfirmedPayload = clonePayload(appStatePayload());
+  lastStateVersion = version;
+  renderCurrentRoute();
+  return true;
+}
+
+function announceStateUpdate() {
+  const announcedVersion = lastStateVersion || `${STATE_SYNC_SOURCE}-${Date.now()}`;
+  const message = {
+    source: STATE_SYNC_SOURCE,
+    stateVersion: announcedVersion,
+    state: clonePayload(appStatePayload())
+  };
+  stateSyncChannel?.postMessage(message);
+  try {
+    localStorage.setItem(STATE_SYNC_STORAGE_KEY, JSON.stringify({
+      source: STATE_SYNC_SOURCE,
+      stateVersion: lastStateVersion,
+      updatedAt: Date.now()
+    }));
+  } catch (error) {
+    // A sincronização pelo canal e a consulta periódica continuam disponíveis.
+  }
+}
+
+async function syncStateFromServer() {
+  if (!["fluxo-de-caixa", "despesas"].includes(routeName())) {
+    return false;
+  }
+  if (document.hidden || stateSyncShouldWait()) {
+    pendingStateSync = true;
+    return false;
+  }
+  if (stateSyncRequest) {
+    return stateSyncRequest;
+  }
+  stateSyncRequest = (async () => {
+    try {
+      const response = await fetch("/api/state", { cache: "no-store" });
+      if (!response.ok) return false;
+      const result = await response.json();
+      return result.database
+        ? applySyncedState(result.state || {}, result.stateVersion)
+        : false;
+    } catch (error) {
+      return false;
+    } finally {
+      stateSyncRequest = null;
+    }
+  })();
+  return stateSyncRequest;
+}
+
+function setupStateSync() {
+  if (stateSyncStarted) return;
+  stateSyncStarted = true;
+  if (typeof BroadcastChannel !== "undefined") {
+    stateSyncChannel = new BroadcastChannel("cumbuca-state");
+    stateSyncChannel.addEventListener("message", event => {
+      const message = event.data || {};
+      if (message.source !== STATE_SYNC_SOURCE) {
+        applySyncedState(message.state, message.stateVersion);
+      }
+    });
+  }
+  window.addEventListener("storage", event => {
+    if (event.key === STATE_SYNC_STORAGE_KEY) syncStateFromServer();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) syncStateFromServer();
+  });
+  document.addEventListener("focusout", () => {
+    if (pendingStateSync) setTimeout(syncStateFromServer, 0);
+  });
+  setInterval(syncStateFromServer, STATE_SYNC_INTERVAL_MS);
 }
 
 async function hydrateSession() {
@@ -3427,6 +3505,53 @@ function accountBalanceBreakdownUntilDate(dateKey, excludeIds = []) {
     pj,
     unassigned: unified - pf - pj
   };
+}
+
+function refreshCashSummaryValues() {
+  if (!["fluxo-de-caixa", "despesas"].includes(routeName())) {
+    return;
+  }
+  const today = isoDate(new Date());
+  const filter = getCashFilter();
+  const selectedDate = filter.date || today;
+  const selectedMonth = filter.month || today.slice(0, 7);
+  const [year, month] = selectedMonth.split("-").map(Number);
+  const selectedMonthEnd = isoDate(new Date(year, month, 0));
+  const balanceDate = filter.period === "day"
+    ? selectedDate
+    : filter.period === "week"
+      ? weekRangeForDate(selectedDate).end
+      : filter.period === "month"
+        ? (selectedMonth === today.slice(0, 7) ? today : selectedMonthEnd)
+        : today;
+  const isExpensesRoute = routeName() === "despesas";
+  const routeEntries = isExpensesRoute
+    ? state.cash.filter(entry => entry.type === "expense" && !isWithdrawalEntry(entry) && !isAccountAdjustmentEntry(entry) && !isPartnerCashEntry(entry))
+    : state.cash;
+  const totals = cashTotals(filterCashEntries(routeEntries, isExpensesRoute ? { type: "expense", quick: "" } : {}));
+  const accounts = accountBalanceBreakdownUntilDate(balanceDate);
+  const savings = savingsBalanceUntilDate(balanceDate);
+  const consolidated = roundedMoneyValue(accounts.unified + savings);
+  const setValue = (selector, value, signed = false) => {
+    const element = document.querySelector(selector);
+    if (!element) return;
+    element.textContent = money(value);
+    if (signed) {
+      element.classList.toggle("negative", value < 0);
+      element.classList.toggle("positive", value >= 0);
+    }
+  };
+
+  setValue("[data-cash-total-balance]", isExpensesRoute ? totals.expenses : consolidated);
+  setValue("[data-cash-filter-income] b", totals.income);
+  setValue("[data-cash-filter-expenses] b", totals.expenses);
+  setValue("[data-cash-filter-result] b", totals.balance, true);
+  setValue("[data-cash-accumulated-balance] b", accounts.unified, true);
+  setValue('[data-cash-account-summary="pf"] b', accounts.pf, true);
+  setValue('[data-cash-account-summary="pj"] b', accounts.pj, true);
+  setValue('[data-cash-account-summary="savings"] b', savings, true);
+  setValue('[data-cash-account-summary="unassigned"] b', accounts.unassigned, true);
+  setValue("[data-cash-check-balance]", accounts.unified, true);
 }
 
 function latestCashEntryForAccount(cashAccount, dateKey) {
@@ -7392,13 +7517,13 @@ async function renderCash() {
   app.innerHTML = `
     <section class="cash-hero">
       <div>
-        <span>${isExpensesRoute ? "Despesas operacionais do período" : "Saldo consolidado das contas"}</span>
-        <h2>${money(isExpensesRoute ? filteredTotals.expenses : consolidatedAccountBalance)}</h2>
+        <span>${isExpensesRoute ? "Despesas operacionais do período" : "Saldo consolidado das contas: PF + PJ + Cofrinho"}</span>
+        <h2 data-cash-total-balance>${money(isExpensesRoute ? filteredTotals.expenses : consolidatedAccountBalance)}</h2>
       </div>
       <div class="cash-hero-metrics">
         <span data-cash-filter-income><b>${money(filteredTotals.income)}</b>Entradas do filtro<small>Lançamentos contabilizados</small></span>
         <span data-cash-filter-expenses><b>${money(filteredTotals.expenses)}</b>Saídas do filtro<small>Lançamentos contabilizados</small></span>
-        <span data-cash-accumulated-balance><b>${money(displayedCashBalance)}</b>${balanceLabel}<small>Inclui ajustes e lançamentos sem conta</small></span>
+        <span data-cash-accumulated-balance><b>${money(displayedCashBalance)}</b>${balanceLabel}<small>PF + PJ; inclui ajustes e lançamentos sem conta</small></span>
         <span data-cash-filter-result>
           <b class="${filteredTotals.balance < 0 ? "negative" : "positive"}">${money(filteredTotals.balance)}</b>
           Resultado do filtro
@@ -7432,7 +7557,7 @@ async function renderCash() {
     ${isExpensesRoute ? "" : `<section class="account-check-card">
       <div>
         <span>Conferência PF + PJ</span>
-        <strong class="${displayedCashBalance < 0 ? "negative" : "positive"}">${money(displayedCashBalance)}</strong>
+        <strong data-cash-check-balance class="${displayedCashBalance < 0 ? "negative" : "positive"}">${money(displayedCashBalance)}</strong>
         <small>${adjustmentLabel}</small>
       </div>
     </section>`}
@@ -8488,6 +8613,7 @@ async function renderCash() {
           search: "",
           manualAll: false
         };
+        refreshCashSummaryValues();
 
         if (await persistState()) {
           if (!editing) {
@@ -23741,4 +23867,5 @@ Promise.all([hydrateSession(), hydrateState()]).then(() => {
     }
   }
   renderCurrentRoute();
+  setupStateSync();
 });

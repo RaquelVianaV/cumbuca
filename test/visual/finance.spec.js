@@ -1720,6 +1720,8 @@ test('cash form ignores repeated submits while an entry or expense is saving', a
   });
   await expect(submitButton).toBeDisabled();
   await expect(submitButton).toHaveText('Salvando...');
+  await expect(page.locator('[data-cash-total-balance]')).toContainText('R$ 25,00');
+  await expect(page.locator('[data-cash-accumulated-balance]')).toContainText('R$ 25,00');
   await expect.poll(() => database.state.cashEntries?.length).toBe(1);
   expect(database.statePostCount).toBe(1);
   await expect(submitButton).toBeEnabled();
@@ -1734,10 +1736,31 @@ test('cash form ignores repeated submits while an entry or expense is saving', a
   });
   await expect(submitButton).toBeDisabled();
   await expect(submitButton).toHaveText('Salvando...');
+  await expect(page.locator('[data-cash-total-balance]')).toContainText('R$ 15,00');
+  await expect(page.locator('[data-cash-accumulated-balance]')).toContainText('R$ 15,00');
   await expect.poll(() => database.state.cashEntries?.length).toBe(2);
   expect(database.statePostCount).toBe(2);
   expect(database.state.cashEntries.map((entry) => entry.type)).toEqual(['income', 'expense']);
   expect(dialogMessages).toEqual([]);
+});
+
+test('an open cash statement updates automatically after another tab saves', async ({ page }) => {
+  await mockOnlineDatabase(page);
+  const statementPage = await page.context().newPage();
+  await mockOnlineDatabase(statementPage);
+
+  await page.goto('/fluxo-de-caixa');
+  await statementPage.goto('/fluxo-de-caixa');
+  await statementPage.getByRole('button', { name: 'Extrato', exact: true }).click();
+
+  const cashForm = page.locator('#cash-form');
+  await cashForm.locator('input[name="description"]').fill('Entrada sincronizada');
+  await cashForm.locator('input[name="amount"]').fill('42,00');
+  await cashForm.getByRole('button', { name: 'Adicionar', exact: true }).click();
+
+  await expect(statementPage.getByText('Entrada sincronizada', { exact: true })).toBeVisible();
+  await expect(statementPage.locator('[data-cash-total-balance]')).toContainText('R$ 42,00');
+  await statementPage.close();
 });
 
 test('stored financial descriptions stay text instead of becoming HTML', async ({ page }) => {

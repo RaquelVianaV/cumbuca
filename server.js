@@ -2313,13 +2313,17 @@ async function writeAppState(payload = {}, user = null, options = {}) {
   }
   const entries = Object.entries(payload).filter(([key]) => stateKeys.includes(key));
 
-  for (const [key, value] of entries) {
+  if (entries.length) {
+    const valuesSql = entries
+      .map((_, index) => `($${index * 2 + 1}, $${index * 2 + 2}::jsonb, now())`)
+      .join(', ');
+    const values = entries.flatMap(([key, value]) => [key, JSON.stringify(value)]);
     await db.query(
       `insert into cumbuca_app_state (key, value, updated_at)
-       values ($1, $2::jsonb, now())
+       values ${valuesSql}
        on conflict (key)
        do update set value = excluded.value, updated_at = now()`,
-      [key, JSON.stringify(value)]
+      values
     );
   }
 
