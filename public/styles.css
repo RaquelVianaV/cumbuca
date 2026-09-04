@@ -7588,6 +7588,82 @@ a.secondary.table-action,
   .user-admin-layout {
     grid-template-columns: 1fr;
   }
+
+  .cash-ledger-table {
+    max-height: none;
+    overflow: visible;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .cash-ledger-table table,
+  .cash-ledger-table thead,
+  .cash-ledger-table tbody,
+  .cash-ledger-table tr,
+  .cash-ledger-table th,
+  .cash-ledger-table td {
+    display: block;
+  }
+
+  .cash-ledger-table table {
+    width: 100%;
+    min-width: 0;
+    background: transparent;
+  }
+
+  .cash-ledger-table thead {
+    display: none;
+  }
+
+  .cash-ledger-table tr {
+    margin-bottom: 12px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: #ffffff;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+  }
+
+  .cash-ledger-table td,
+  .cash-ledger-table td:nth-child(2),
+  .cash-ledger-table td:last-child {
+    display: grid;
+    grid-template-columns: minmax(112px, 0.34fr) minmax(0, 1fr);
+    align-items: start;
+    gap: 12px;
+    width: auto;
+    min-width: 0;
+    padding: 11px 13px;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+
+  .cash-ledger-table td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 850;
+    line-height: 1.3;
+    text-transform: uppercase;
+  }
+
+  .cash-ledger-table td:last-child {
+    grid-template-columns: 1fr;
+    border-bottom: 0;
+  }
+
+  .cash-ledger-table td:last-child::before {
+    margin-bottom: -3px;
+  }
+
+  html.dark-mode .cash-ledger-table tr {
+    border-color: rgba(245, 243, 240, 0.09);
+    background: linear-gradient(180deg, rgba(30, 28, 24, 0.96), rgba(24, 22, 19, 0.94));
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.26);
+  }
 }
 
 @media (min-width: 701px) and (max-width: 1200px) {

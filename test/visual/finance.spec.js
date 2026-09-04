@@ -1814,6 +1814,48 @@ test('cash save reconciles a concurrent remote entry without losing either chang
   await expect(page.locator('[data-cash-total-balance]')).toContainText('R$ 40,00');
 });
 
+test('cash statement uses readable cards on tablet without overlapping actions', async ({ page }) => {
+  await page.setViewportSize({ width: 1116, height: 900 });
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    cashEntries: [
+      {
+        id: 'tablet-expense',
+        date: localDateKey(),
+        type: 'expense',
+        category: 'supermercado',
+        description: 'Compra para conferir no tablet',
+        amount: '90.00',
+        cashAccount: 'pj',
+      },
+    ],
+  };
+
+  await page.goto('/fluxo-de-caixa?panel=ledger');
+  const ledger = page.locator('.cash-ledger-table');
+  await expect(ledger.locator('thead')).toBeHidden();
+  await expect(ledger.getByText('Compra para conferir no tablet', { exact: true })).toBeVisible();
+  const actionBoxes = await ledger.locator('.table-actions button').evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const box = button.getBoundingClientRect();
+      return { left: box.left, right: box.right, top: box.top, bottom: box.bottom };
+    })
+  );
+  for (let index = 0; index < actionBoxes.length; index += 1) {
+    for (let other = index + 1; other < actionBoxes.length; other += 1) {
+      const first = actionBoxes[index];
+      const second = actionBoxes[other];
+      const overlaps =
+        first.left < second.right &&
+        first.right > second.left &&
+        first.top < second.bottom &&
+        first.bottom > second.top;
+      expect(overlaps).toBe(false);
+    }
+  }
+  await expectNoHorizontalOverflow(page);
+});
+
 test('stored financial descriptions stay text instead of becoming HTML', async ({ page }) => {
   const database = await mockOnlineDatabase(page);
   const maliciousDescription = '<img src=x onerror=alert(1)> Caixa teste';
