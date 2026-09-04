@@ -2645,6 +2645,9 @@ function filterCashEntries(entries, filterOverrides = {}) {
       if (quick === "pending") {
         return isPendingBill(entry);
       }
+      if (quick === "unchecked") {
+        return !entry.checkedAt;
+      }
       if (quick === "savings") {
         return normalizedCashAccount(entry.cashAccount, "") === "savings"
           || normalizedCategory(entry.category) === "cofrinho"
@@ -3855,7 +3858,18 @@ function dailyClosingChecklist(metrics, closing = null) {
   const backupOk = backupAgeHours !== null && backupAgeHours <= 26;
   const differenceOk = Math.abs(metrics.difference || 0) < 0.01;
   const savingsDebt = savingsDebtAmount();
+  const uncheckedEntries = metrics.entries.filter(entry => !entry.checkedAt);
   return [
+    {
+      id: "entries-reviewed",
+      label: "Lançamentos conferidos",
+      status: uncheckedEntries.length ? "warning" : "ok",
+      detail: uncheckedEntries.length
+        ? `${uncheckedEntries.length} lançamento(s) do dia ainda precisam de conferência.`
+        : "Todos os lançamentos do dia foram conferidos.",
+      actionLabel: uncheckedEntries.length ? "Ver não conferidos" : "",
+      action: "unchecked"
+    },
     {
       id: "real-balance",
       label: "Saldo real conferido",
@@ -8146,6 +8160,7 @@ async function renderCash() {
           <button class="secondary ${currentCashFilter.period === "week" && !selectedQuickFilter ? "active" : ""}" type="button" data-cash-quick="week">Esta semana</button>
           <button class="secondary ${currentCashFilter.period === "month" && selectedMonth === today.slice(0, 7) && !selectedQuickFilter ? "active" : ""}" type="button" data-cash-quick="month">Este mês</button>
           <button class="secondary ${selectedQuickFilter === "pending" ? "active" : ""}" type="button" data-cash-quick="pending">Pendentes</button>
+          <button class="secondary ${selectedQuickFilter === "unchecked" ? "active" : ""}" type="button" data-cash-quick="unchecked">Não conferidos</button>
           <button class="secondary ${selectedQuickFilter === "savings" ? "active" : ""}" type="button" data-cash-quick="savings">Cofrinho</button>
           <button class="secondary ${selectedQuickFilter === "withdrawals" ? "active" : ""}" type="button" data-cash-quick="withdrawals">Retiradas</button>
         </div>
@@ -8527,6 +8542,11 @@ async function renderCash() {
       if (blockClosedPeriod(date, "fechar o dia")) {
         return;
       }
+      const uncheckedEntries = dailyClosingMetrics(date, realBalance).entries.filter(entry => !entry.checkedAt);
+      if (uncheckedEntries.length) {
+        showToast(`Confira os ${uncheckedEntries.length} lançamento(s) do dia antes de fechar.`, "warning");
+        return;
+      }
       if (!confirm(`Fechar o dia ${formatIsoDateBr(date)} com saldo real ${money(realBalance)}?`)) {
         return;
       }
@@ -8603,6 +8623,24 @@ async function renderCash() {
       button.addEventListener("click", event => {
         const action = event.currentTarget.dataset.dailyClosingAction;
         const date = String(dailyClosingForm.elements.date.value || today).slice(0, 10);
+        if (action === "unchecked") {
+          state.cashFilter = {
+            ...state.cashFilter,
+            period: "day",
+            date,
+            month: date.slice(0, 7),
+            year: date.slice(0, 4),
+            type: "all",
+            category: "all",
+            cashAccount: "all",
+            quick: "unchecked",
+            search: "",
+            manualAll: false
+          };
+          state.cashPanelTab = "ledger";
+          renderCash();
+          return;
+        }
         if (action === "reconciliation") {
           state.cashFilter = {
             ...state.cashFilter,
@@ -10016,6 +10054,9 @@ async function renderCash() {
         if (quick === "pending") {
           state.cashFilter = { ...state.cashFilter, ...baseFilter, period: "all", date: today, month: today.slice(0, 7), year: today.slice(0, 4), quick: "pending", manualAll: true };
         }
+        if (quick === "unchecked") {
+          state.cashFilter = { ...state.cashFilter, ...baseFilter, period: "all", date: today, month: today.slice(0, 7), year: today.slice(0, 4), quick: "unchecked", manualAll: true };
+        }
         if (quick === "savings") {
           state.cashFilter = { ...state.cashFilter, ...baseFilter, period: "all", date: today, month: today.slice(0, 7), year: today.slice(0, 4), quick: "savings", manualAll: true };
         }
@@ -10076,6 +10117,11 @@ async function renderCash() {
       if (!entry) return;
       entry.checkedAt = entry.checkedAt ? "" : new Date().toISOString();
       entry.checkedBy = entry.checkedAt ? (state.currentUser?.name || state.currentUser?.username || "Usuário") : "";
+      recordAudit(entry.checkedAt ? "Lançamento conferido" : "Conferência desfeita", entry.description || "Lançamento", {
+        entityId: String(entry.id || ""),
+        checkedAt: entry.checkedAt,
+        checkedBy: entry.checkedBy
+      });
       if (await persistState()) renderCash();
     });
   });
