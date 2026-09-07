@@ -1837,6 +1837,12 @@ test('cash statement uses readable cards on tablet without overlapping actions',
   await expect(ledger.getByText('Compra para conferir no tablet', { exact: true })).toBeVisible();
   await expect(ledger.locator('.cash-day-group')).toContainText('Saídas R$ 90,00');
   await expect(page.locator('.cash-review-calendar')).toBeVisible();
+  const calendar = page.locator('.cash-review-calendar');
+  const calendarDay = calendar.locator(`[data-cash-review-day="${localDateKey()}"]`);
+  await expect(calendarDay).toBeHidden();
+  await calendar.locator('summary').click();
+  await expect(calendarDay).toBeVisible();
+  await expect(calendarDay).toHaveClass(/pending/);
   const actionBoxes = await ledger.locator('.table-actions button').evaluateAll((buttons) =>
     buttons.map((button) => {
       const box = button.getBoundingClientRect();
@@ -1859,11 +1865,22 @@ test('cash statement uses readable cards on tablet without overlapping actions',
 
   await page.getByRole('button', { name: 'Conferir todos exibidos', exact: true }).click();
   await expect.poll(() => Boolean(database.state.cashEntries?.[0]?.checkedAt)).toBe(true);
+  await expect(calendarDay).toBeVisible();
+  await expect(calendarDay).toHaveClass(/checked/);
+  await expect(calendarDay).toHaveCSS('background-color', 'rgb(220, 252, 231)');
   await page.locator('.cash-ledger-table').getByRole('button', { name: 'Conferido' }).click();
   await expect.poll(() => Boolean(database.state.cashEntries?.[0]?.checkedAt)).toBe(false);
+  await expect(calendarDay).toHaveClass(/pending/);
   await ledger.getByRole('button', { name: 'Conferir', exact: true }).click();
   await expect.poll(() => Boolean(database.state.cashEntries?.[0]?.checkedAt)).toBe(true);
   await expect(page.locator('.cash-ledger-table').getByRole('button', { name: 'Conferido' })).toBeVisible();
+  await expect(calendarDay).toHaveClass(/checked/);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expectNoHorizontalOverflow(page);
+  await calendar.screenshot({ path: 'test-results/cash-review-mobile.png' });
+  await calendar.locator('summary').click();
+  await expect(calendarDay).toBeHidden();
+  await page.setViewportSize({ width: 1116, height: 900 });
 
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('.cash-ledger-table').getByRole('button', { name: 'Excluir' }).click();

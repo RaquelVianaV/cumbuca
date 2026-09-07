@@ -4095,7 +4095,13 @@ function isSavingsDistributionEntry(entry = {}) {
   return normalizedCategory(entry.category) === "cofrinho";
 }
 
+function isWithdrawalHistoryEntry(entry = {}) {
+  return isWithdrawalEntry(entry)
+    || (entry.type === "expense" && isSavingsDistributionEntry(entry));
+}
+
 function withdrawalTarget(entry = {}) {
+  if (isSavingsDistributionEntry(entry)) return "savings";
   const text = String(entry.description || "").toLowerCase();
   if (text.includes("cofrinho")) {
     return "savings";
@@ -4414,9 +4420,36 @@ function savingsTracePanelHtml(rows = [], { current = 0, expected = 0, debt = 0 
   `;
 }
 
+function withdrawalSavingsReceipt(group, history = savingsHistoryRows(), snapshots = partnerWithdrawalSnapshots()) {
+  const sourceKeys = new Set(group.entries.map(withdrawalSourceGroupKey));
+  sourceKeys.add(group.key);
+  const snapshotIds = new Set(group.entries.map(entry => entry.partnerWithdrawalSnapshotId).filter(Boolean));
+  const entryIds = new Set(group.entries.map(entry => String(entry.id || "")));
+  const movements = history.filter(entry => {
+    if (!["deposit", "withdrawal"].includes(entry.type)) return false;
+    if (entry.withdrawalGroup) return sourceKeys.has(String(entry.withdrawalGroup));
+    if (entry.withdrawalSnapshotId) return snapshotIds.has(entry.withdrawalSnapshotId);
+    return entry.date === group.date
+      && /^(?:Ajuste da )?Retirada\s*-\s*cofrinho$/i.test(String(entry.description || "").trim());
+  });
+  if (movements.length) {
+    const net = movements.reduce((sum, entry) => {
+      const amount = Math.max(0, Number(entry.amount || 0));
+      return sum + (entry.type === "withdrawal" ? -amount : amount);
+    }, 0);
+    return roundedMoneyValue(Math.max(group.savings, net));
+  }
+  // Older snapshots can prove receipt, but the reserved entitlement alone cannot.
+  const paid = snapshots.filter(snapshot => {
+    return snapshotIds.has(snapshot.id)
+      || (snapshot.withdrawalEntryIds || []).some(id => entryIds.has(String(id)));
+  }).reduce((sum, snapshot) => sum + Math.max(0, Number(snapshot.companyReservePaid || 0)), 0);
+  return roundedMoneyValue(Math.max(group.savings, paid));
+}
+
 function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod(state.cash, { includeNonCash: true })) {
   const groups = new Map();
-  deduplicatedWithdrawalEntries(entries).filter(isWithdrawalEntry).forEach(entry => {
+  deduplicatedWithdrawalEntries(entries).filter(isWithdrawalHistoryEntry).forEach(entry => {
     const key = withdrawalGroupKey(entry);
     const group = groups.get(key) || {
       key,
@@ -4506,6 +4539,7 @@ function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod(state.ca
     groups.set(key, group);
   });
   return [...groups.values()].map(group => {
+    const savingsReceived = withdrawalSavingsReceipt(group);
     const legacyExpected = withdrawalSplitFromRaquel(group.raquel);
     const expectedSavings = group.hasExpectedSavings ? group.expectedSavings : legacyExpected.savings;
     const expectedVanessa = group.hasExpectedVanessa ? group.expectedVanessa : legacyExpected.vanessa;
@@ -4537,10 +4571,13 @@ function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod(state.ca
       : Math.max(0, distributionBase - priorVanessa - priorRaquel);
     return {
       ...group,
+      savings: savingsReceived,
+      total: roundedMoneyValue(group.total - group.savings + savingsReceived),
       distributionBase,
       accountBalanceBefore,
       expectedTotal,
       expectedSavings,
+      pendingSavings: roundedMoneyValue(Math.max(0, expectedSavings - savingsReceived)),
       expectedVanessa,
       expectedRaquel,
       priorVanessa,
@@ -4564,7 +4601,7 @@ function withdrawalHistoryGroups(entries = cashEntriesForSelectedPeriod(state.ca
 function withdrawalEntriesForMonth(monthKey = currentMonthKey()) {
   const month = String(monthKey || currentMonthKey()).slice(0, 7);
   return state.cash.filter(entry => {
-    return isWithdrawalEntry(entry) && cashAccountingDate(entry).startsWith(month);
+    return isWithdrawalHistoryEntry(entry) && cashAccountingDate(entry).startsWith(month);
   });
 }
 
@@ -4574,6 +4611,10 @@ function partnerPendingLabel(value) {
     return "Quitado";
   }
   return `Ainda não retirou ${money(amount)}`;
+}
+
+function savingsPendingLabel(value) {
+  return Number(value || 0) < 0.01 ? "Quitado" : `Falta repassar ${money(value)}`;
 }
 
 function partnerCashOffsetLabel(value) {
@@ -4594,6 +4635,7 @@ function partnerPeriodTotals(groups = []) {
     totals.vanessa += Number(group.vanessa || 0);
     totals.raquel += Number(group.raquel || 0);
     totals.expectedSavings += Number(group.expectedSavings || 0);
+    totals.pendingSavings += Number(group.pendingSavings || 0);
     totals.expectedVanessa += Number(group.expectedVanessa || 0);
     totals.expectedRaquel += Number(group.expectedRaquel || 0);
     totals.expectedTotal += Number(group.expectedTotal || 0);
@@ -4619,6 +4661,7 @@ function partnerPeriodTotals(groups = []) {
     vanessa: 0,
     raquel: 0,
     expectedSavings: 0,
+    pendingSavings: 0,
     expectedVanessa: 0,
     expectedRaquel: 0,
     expectedTotal: 0,
@@ -4701,7 +4744,7 @@ function withdrawalHistoryHtml(monthKey = currentMonthKey()) {
           <div class="withdrawal-history-overview">
             <span><small>Base da divisão</small><strong>${money(group.distributionBase || group.accountBalanceBefore)}</strong></span>
             <span><small>Saldo real usado</small><strong>${money(group.accountBalanceBefore)}</strong></span>
-            <span><small>Cofrinho</small><strong>${money(group.savings)}</strong><small>Direito ${money(group.expectedSavings)}</small></span>
+            <span><small>Cofrinho</small><strong>${money(group.savings)}</strong><small>Direito ${money(group.expectedSavings)} · ${savingsPendingLabel(group.pendingSavings)}</small></span>
           </div>
           <div class="withdrawal-partner-cards">
             ${[["Vanessa", group.expectedVanessa, group.vanessa, group.paidToCashVanessa, group.pendingVanessa], ["Raquel", group.expectedRaquel, group.raquel, group.paidToCashRaquel, group.pendingRaquel]].map(([name, expected, received, compensated, pending]) => `
@@ -4816,7 +4859,7 @@ function applySavingsHistory(rows = savingsHistoryRows()) {
   return Number(state.financialPlanning.savings || 0);
 }
 
-function updateSavingsBalance({ amount, date, type, description, id, dayOrder = 0 }) {
+function updateSavingsBalance({ amount, date, type, description, id, dayOrder = 0, withdrawalGroup = "" }) {
   const numericAmount = Number(amount || 0);
   return applySavingsHistory([
     {
@@ -4826,6 +4869,7 @@ function updateSavingsBalance({ amount, date, type, description, id, dayOrder = 
       amount: numericAmount.toFixed(2),
       balance: "0.00",
       description: description || "",
+      ...(withdrawalGroup ? { withdrawalGroup } : {}),
       dayOrder
     },
     ...savingsHistoryRows()
@@ -9956,7 +10000,8 @@ async function renderCash() {
         amount: Math.abs(savingsDifference),
         date: values.date,
         type: savingsDifference > 0 ? "deposit" : "withdrawal",
-        description: previousWithdrawal ? "Ajuste da retirada - cofrinho" : "Retirada - cofrinho"
+        description: previousWithdrawal ? "Ajuste da retirada - cofrinho" : "Retirada - cofrinho",
+        withdrawalGroup: `withdrawal-${idBase}`
       });
     }
     const savingsLoanDifference = savingsLoan - previousSavingsLoanAmount;
@@ -10154,6 +10199,12 @@ async function renderCash() {
     if (await persistState()) {
       showToast(`${ids.size} lançamento(s) conferido(s).`, "success");
       renderCash();
+    }
+  });
+
+  on(".cash-review-calendar", "toggle", event => {
+    if (event.currentTarget.isConnected) {
+      state.cashReviewCalendarOpen = event.currentTarget.open;
     }
   });
 
@@ -10368,8 +10419,8 @@ function cashReviewCalendarHtml(entries = [], monthKey = "") {
       ? "empty"
       : hasDifference
         ? "difference"
-        : allChecked && closing?.locked !== false && closing
-          ? "closed"
+        : allChecked
+          ? (closing && closing.locked !== false ? "closed" : "checked")
           : "pending";
     const label = status === "empty"
       ? "Sem movimento"
@@ -10377,15 +10428,20 @@ function cashReviewCalendarHtml(entries = [], monthKey = "") {
         ? "Com divergência"
         : status === "closed"
           ? "Fechado e conferido"
-          : `${dayEntries.filter(entry => !entry.checkedAt).length} não conferido(s)`;
+          : status === "checked"
+            ? "Conferido"
+            : `${dayEntries.filter(entry => !entry.checkedAt).length} não conferido(s)`;
     return `<button class="cash-review-day ${status}" type="button" data-cash-review-day="${date}" title="${formatIsoDateBr(date)}: ${label}"><b>${index + 1}</b><small>${dayEntries.length || "—"}</small></button>`;
   });
   return `
-    <section class="cash-review-calendar">
-      <div class="cash-review-calendar-head"><div><span>Conferência mensal</span><h3>${formatMonthKeyBr(monthKey)}</h3></div><div class="cash-review-legend"><small class="closed">Fechado</small><small class="pending">Pendente</small><small class="difference">Divergência</small><small class="empty">Sem movimento</small></div></div>
+    <details class="cash-review-calendar" ${state.cashReviewCalendarOpen ? "open" : ""}>
+      <summary class="cash-review-calendar-head"><span>Conferência mensal<strong>${formatMonthKeyBr(monthKey)}</strong></span></summary>
+      <div class="cash-review-calendar-body">
+      <div class="cash-review-legend"><small class="closed">Conferido / Fechado</small><small class="pending">Pendente</small><small class="difference">Divergência</small><small class="empty">Sem movimento</small></div>
       <div class="cash-review-weekdays">${["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map(day => `<span>${day}</span>`).join("")}</div>
       <div class="cash-review-days">${Array.from({ length: firstWeekday }, () => "<i></i>").join("")}${days.join("")}</div>
-    </section>`;
+      </div>
+    </details>`;
 }
 
 function cashTable(entries) {
@@ -14219,7 +14275,7 @@ function reportCashEntries(periodKey) {
 }
 
 function reportWithdrawalHistoryEntries(periodKey) {
-  const entries = state.cash.filter(isWithdrawalEntry);
+  const entries = state.cash.filter(isWithdrawalHistoryEntry);
   const type = state.reportPeriod.type || "month";
   if (type === "day") {
     return entries.filter(entry => cashAccountingDate(entry) === reportDate());
@@ -17563,12 +17619,12 @@ function withdrawalPersonRows(data) {
       receivedWeek: weekTotals.savings,
       paidToCashWeek: 0,
       totalWeek: weekTotals.savings,
-      pendingWeek: 0,
+      pendingWeek: weekTotals.pendingSavings,
       expectedMonth: monthTotals.expectedSavings,
       receivedMonth: monthTotals.savings,
       paidToCashMonth: 0,
       totalMonth: monthTotals.savings,
-      pendingMonth: 0
+      pendingMonth: monthTotals.pendingSavings
     },
     {
       key: "vanessa",
@@ -17632,11 +17688,11 @@ function withdrawalPersonReportPanel(data) {
                 <td>${money(row.expectedWeek)}</td>
                 <td>${money(row.receivedWeek)}</td>
                 <td>${row.key === "savings" ? "-" : money(row.paidToCashWeek)}</td>
-                <td>${row.key === "savings" ? "-" : partnerPendingLabel(row.pendingWeek)}</td>
+                <td>${row.key === "savings" ? savingsPendingLabel(row.pendingWeek) : partnerPendingLabel(row.pendingWeek)}</td>
                 <td>${money(row.expectedMonth)}</td>
                 <td>${money(row.receivedMonth)}</td>
                 <td>${row.key === "savings" ? "-" : money(row.paidToCashMonth)}</td>
-                <td>${row.key === "savings" ? "-" : partnerPendingLabel(row.pendingMonth)}</td>
+                <td>${row.key === "savings" ? savingsPendingLabel(row.pendingMonth) : partnerPendingLabel(row.pendingMonth)}</td>
               </tr>
             `).join("")}
           </tbody>
@@ -17652,7 +17708,7 @@ function withdrawalPersonReportPanel(data) {
                 <tr>
                   <td>${formatIsoDateBr(group.date)}</td>
                   <td>${money(group.accountBalanceBefore)}</td>
-                  <td>${money(group.savings)}<br><small>Direito ${money(group.expectedSavings)}</small></td>
+                  <td><strong>Recebeu ${money(group.savings)}</strong><br><small>Direito ${money(group.expectedSavings)} · ${savingsPendingLabel(group.pendingSavings)}</small></td>
                   <td><strong>Recebeu ${money(group.vanessa)}</strong><br><small>Direito ${money(group.expectedVanessa)} · ${partnerPendingLabel(group.pendingVanessa)}</small></td>
                   <td><strong>Recebeu ${money(group.raquel)}</strong><br><small>Direito ${money(group.expectedRaquel)} · ${partnerPendingLabel(group.pendingRaquel)}</small></td>
                   <td><small>Vanessa ${money(group.paidToCashVanessa)}</small><br><small>Raquel ${money(group.paidToCashRaquel)}</small></td>

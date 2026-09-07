@@ -285,6 +285,227 @@ test.beforeEach(async ({ page }) => {
   await login(page);
 });
 
+test('Cofrinho reconhece o repasse de agosto sem duplicar saldo ou quitar valores não pagos', async ({
+  page,
+}) => {
+  const database = await mockOnlineDatabase(page);
+  const date = '2026-08-21';
+  const withdrawal = (target, amount, expectedAmount) => ({
+    id: `withdrawal-august-${target}`,
+    date,
+    type: 'expense',
+    category: 'retirada',
+    description: `Retirada - ${target}`,
+    amount,
+    expectedAmount,
+    accountBalanceBefore: '3096.04',
+    cashAccount: 'pj',
+  });
+  database.state = {
+    cashEntries: [
+      withdrawal('vanessa', '1950.51', '1950.51'),
+      withdrawal('raquel', '835.93', '835.93'),
+      withdrawal('savings', '0.00', '309.60'),
+      {
+        id: 'reserve-payment',
+        date,
+        type: 'expense',
+        category: 'cofrinho',
+        description: 'Reserva da divisão',
+        amount: '309.60',
+        cashAccount: 'pj',
+      },
+    ],
+    financialPlanning: {
+      savings: '309.60',
+      savingsHistory: [{ id: 'reserve-deposit', date, type: 'deposit', amount: '309.60' }],
+    },
+  };
+  // The legacy zero-value reserve row identifies its destination by description.
+  database.state.cashEntries[2].description = 'Retirada - cofrinho';
+  await page.goto('/relatorios?ano=2026&mes=8');
+  const result = await page.evaluate(() => {
+    const data = window.reportData();
+    const groups = window.withdrawalHistoryGroups(data.withdrawalHistoryEntries);
+    const source = data.withdrawalHistoryEntries;
+    return {
+      groups,
+      unpaid: window.withdrawalHistoryGroups(
+        source.filter((entry) => entry.id !== 'reserve-payment')
+      ),
+      partial: window.withdrawalHistoryGroups(
+        source.map((entry) =>
+          entry.id === 'reserve-payment' ? { ...entry, amount: '100.00' } : entry
+        )
+      ),
+      income: window.withdrawalHistoryGroups(
+        source.map((entry) =>
+          entry.id === 'reserve-payment' ? { ...entry, type: 'income' } : entry
+        )
+      ),
+      panel: window.withdrawalPersonReportPanel(data),
+      financial: data.financial.withdrawals,
+    };
+  });
+  expect(result.groups).toHaveLength(1);
+  expect(result.groups[0].savings).toBeCloseTo(309.6, 2);
+  expect(result.groups[0].pendingSavings).toBe(0);
+  expect(result.groups[0].total).toBeCloseTo(3096.04, 2);
+  expect(result.financial.savings).toBeCloseTo(309.6, 2);
+  expect(result.unpaid[0].pendingSavings).toBeCloseTo(309.6, 2);
+  expect(result.partial[0].pendingSavings).toBeCloseTo(209.6, 2);
+  expect(result.income[0].savings).toBe(0);
+  expect(result.panel).toMatch(/Recebeu R\$\s*309,60/);
+  expect(result.panel).toMatch(/Direito R\$\s*309,60 · Quitado/);
+  expect(database.state.financialPlanning.savings).toBe('309.60');
+  expect(database.state.financialPlanning.savingsHistory).toHaveLength(1);
+});
+
+test('retirada reconhece depósito no extrato do Cofrinho mesmo sem linha de saída no caixa', async ({
+  page,
+}, testInfo) => {
+  const database = await mockOnlineDatabase(page);
+  const date = '2026-08-21';
+  database.state = {
+    cashEntries: [
+      {
+        id: 'withdrawal-august-vanessa',
+        date,
+        type: 'expense',
+        category: 'retirada',
+        description: 'Retirada - Vanessa',
+        amount: '1950.51',
+        expectedAmount: '1950.51',
+        accountBalanceBefore: '3096.04',
+      },
+      {
+        id: 'withdrawal-august-raquel',
+        date,
+        type: 'expense',
+        category: 'retirada',
+        description: 'Retirada - Raquel',
+        amount: '835.93',
+        expectedAmount: '835.93',
+        accountBalanceBefore: '3096.04',
+      },
+    ],
+    financialPlanning: {
+      savings: '309.60',
+      savingsHistory: [
+        {
+          id: 'reserve-paid',
+          date,
+          type: 'deposit',
+          amount: '309.60',
+          description: 'Retirada - cofrinho',
+        },
+      ],
+    },
+  };
+  const original = JSON.stringify(database.state);
+  await page.goto('/relatorios?ano=2026&mes=8');
+  const result = await page.evaluate(() => {
+    const data = window.reportData();
+    const group = window.withdrawalHistoryGroups(data.withdrawalHistoryEntries)[0];
+    const cashGroup = { ...group, savings: 0 };
+    const receipt = {
+      id: 'receipt',
+      date: '2026-08-21',
+      type: 'deposit',
+      amount: '309.60',
+      description: 'Retirada - cofrinho',
+    };
+    const snapshot = {
+      id: 'snapshot',
+      withdrawalEntryIds: group.entries.map((entry) => entry.id),
+      companyReserve: '309.60',
+    };
+    return {
+      group,
+      panel: window.withdrawalPersonReportPanel(data),
+      duplicate: window.withdrawalSavingsReceipt(group, [receipt], []),
+      unrelated: window.withdrawalSavingsReceipt(
+        cashGroup,
+        [{ ...receipt, description: 'Depósito manual' }],
+        []
+      ),
+      wrongDate: window.withdrawalSavingsReceipt(
+        cashGroup,
+        [{ ...receipt, date: '2026-08-22' }],
+        []
+      ),
+      balanceSet: window.withdrawalSavingsReceipt(cashGroup, [{ ...receipt, type: 'set' }], []),
+      expectedOnly: window.withdrawalSavingsReceipt(cashGroup, [], [snapshot]),
+      explicitPaid: window.withdrawalSavingsReceipt(
+        cashGroup,
+        [],
+        [{ ...snapshot, companyReservePaid: '309.60' }]
+      ),
+      reversed: window.withdrawalSavingsReceipt(
+        cashGroup,
+        [
+          receipt,
+          {
+            ...receipt,
+            id: 'undo',
+            type: 'withdrawal',
+            description: 'Ajuste da retirada - cofrinho',
+          },
+        ],
+        [{ ...snapshot, companyReservePaid: '309.60' }]
+      ),
+      partial: window.withdrawalSavingsReceipt(
+        cashGroup,
+        [
+          receipt,
+          {
+            ...receipt,
+            id: 'adjust',
+            type: 'withdrawal',
+            amount: '209.60',
+            description: 'Ajuste da retirada - cofrinho',
+          },
+        ],
+        []
+      ),
+      linked: window.withdrawalSavingsReceipt(
+        cashGroup,
+        [{ ...receipt, date: '2026-08-22', withdrawalGroup: 'withdrawal-august' }],
+        []
+      ),
+      wrongLink: window.withdrawalSavingsReceipt(
+        cashGroup,
+        [{ ...receipt, withdrawalGroup: 'withdrawal-other' }],
+        []
+      ),
+    };
+  });
+  expect(result.group.savings).toBeCloseTo(309.6, 2);
+  expect(result.group.total).toBeCloseTo(3096.04, 2);
+  expect(result.group.pendingSavings).toBe(0);
+  expect(result.panel).toMatch(/Direito R\$\s*309,60 · Quitado/);
+  expect(result).toMatchObject({
+    duplicate: 309.6,
+    unrelated: 0,
+    wrongDate: 0,
+    balanceSet: 0,
+    expectedOnly: 0,
+    explicitPaid: 309.6,
+    reversed: 0,
+    partial: 100,
+    linked: 309.6,
+    wrongLink: 0,
+  });
+  expect(JSON.stringify(database.state)).toBe(original);
+  await page.evaluate(() => {
+    localStorage.setItem('reportViewTab', JSON.stringify('withdrawals'));
+  });
+  await page.reload();
+  const panel = page.locator('.withdrawal-person-panel:visible');
+  await expect(panel).toContainText(/Recebeu R\$\s*309,60/);
+  await panel.screenshot({ path: testInfo.outputPath('cofrinho-recebido.png') });
+});
+
 test('lucro e resultado usam operação e somente retiradas reais de caixa', async ({ page }) => {
   await page.goto('/home');
 

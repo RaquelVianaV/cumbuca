@@ -2562,12 +2562,31 @@ html.dark-mode .cash-category-summary-action {
 }
 
 .cash-review-calendar {
-  display: grid;
-  gap: 8px;
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--surface);
+}
+
+.cash-review-calendar-body {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.cash-review-calendar > summary {
+  display: list-item;
+  cursor: pointer;
+}
+
+.cash-review-calendar-head > span {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.cash-review-calendar-head strong {
+  display: block;
+  font-size: 1.1rem;
 }
 
 .cash-review-calendar-head,
@@ -2578,7 +2597,6 @@ html.dark-mode .cash-category-summary-action {
   gap: 10px;
 }
 
-.cash-review-calendar-head span,
 .cash-review-calendar-head h3 {
   display: block;
   margin: 0;
@@ -2625,7 +2643,8 @@ html.dark-mode .cash-category-summary-action {
   box-shadow: none;
 }
 
-.cash-review-day.closed { border-color: #86efac; background: #dcfce7; }
+.cash-review-day.closed,
+.cash-review-day.checked { border-color: #86efac; background: #dcfce7; }
 .cash-review-day.pending { border-color: #fde047; background: #fef9c3; }
 .cash-review-day.difference { border-color: #fca5a5; background: #fee2e2; }
 .cash-review-day small { font-size: 0.62rem; opacity: 0.75; }
