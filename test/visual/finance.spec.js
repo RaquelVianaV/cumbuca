@@ -1,4 +1,5 @@
 const { test, expect } = require('@playwright/test');
+const { validatePartnerAccountState } = require('../../public/partner-accounts');
 
 async function login(page) {
   await page.goto('/login');
@@ -72,7 +73,21 @@ async function mockOnlineDatabase(page, sharedHolder = null) {
       if (holder.statePostDelayMs) {
         await new Promise((resolve) => setTimeout(resolve, holder.statePostDelayMs));
       }
-      holder.state = JSON.parse(route.request().postData() || '{}').state || {};
+      const nextState = JSON.parse(route.request().postData() || '{}').state || {};
+      if (holder.validateSaves) {
+        const validation = validatePartnerAccountState(
+          nextState.partnerAccounts,
+          nextState.cashEntries,
+          holder.state.partnerAccounts,
+          nextState.financialPlanning?.savingsHistory || [],
+          holder.state.cashEntries
+        );
+        if (!validation.valid) {
+          await route.fulfill({ ...json({ error: validation.errors.join('; ') }), status: 422 });
+          return;
+        }
+      }
+      holder.state = nextState;
       holder.stateVersion = `test-state-${holder.statePostCount}`;
       await route.fulfill(json({ database: true, saved: true, stateVersion: holder.stateVersion }));
       return;
@@ -4325,6 +4340,7 @@ test('registro rápido lança venda como entrada de dinheiro no caixa', async ({
 
 test('retirada permite informar a base sem alterar o saldo real da conta', async ({ page }) => {
   const database = await mockOnlineDatabase(page);
+  database.validateSaves = true;
   database.state = {
     cashEntries: [
       {
@@ -4361,4 +4377,89 @@ test('retirada permite informar a base sem alterar o saldo real da conta', async
   const history = page.locator('.withdrawal-history-card');
   await expect(history).toContainText('Base da divisãoR$ 1.000,00');
   await expect(history).toContainText('Saldo real usadoR$ 2.000,00');
+});
+
+test('estorno da retirada restaura conta, Cofrinho e dívidas sem apagar o fechamento', async ({
+  page,
+}) => {
+  const database = await mockOnlineDatabase(page);
+  database.validateSaves = true;
+  const today = localDateKey();
+  database.state = {
+    cashEntries: [
+      {
+        id: 'opening-reversal',
+        date: today,
+        type: 'income',
+        category: 'venda',
+        cashAccount: 'pj',
+        amount: '2000.00',
+      },
+    ],
+    appConfig: { splitSavingsPercent: 10, splitVanessaPercent: 70, splitRaquelPercent: 30 },
+    partnerAccounts: {
+      movements: ['vanessa', 'raquel'].map((partnerId, index) => ({
+        id: `debt-${partnerId}`,
+        partnerId,
+        date: today,
+        type: 'debit',
+        description: 'Débito anterior',
+        amount: index === 0 ? '200.00' : '50.00',
+        origin: 'pj',
+        cashImpact: false,
+      })),
+      withdrawalSnapshots: [],
+    },
+  };
+  await page.goto('/fluxo-de-caixa?panel=withdrawals');
+  const form = page.locator('#withdrawal-form');
+  await form.locator('[name="cashAccount"]').selectOption('pj');
+  await form.locator('[name="partnerActionVanessa"]').selectOption('discount');
+  await form.locator('[name="partnerActionRaquel"]').selectOption('pay');
+  await form.locator('[name="partnerSettlementRaquel"]').fill('50,00');
+  page.once('dialog', (dialog) => dialog.accept());
+  await form.getByRole('button', { name: 'Registrar retiradas', exact: true }).click();
+  const reverse = page.getByRole('button', { name: 'Estornar retirada', exact: true });
+  await expect(reverse).toBeVisible();
+  const snapshot = structuredClone(database.state.partnerAccounts.withdrawalSnapshots[0]);
+  const originalEntries = structuredClone(database.state.cashEntries);
+  const posts = database.statePostCount;
+  page.once('dialog', (dialog) => dialog.accept(' '));
+  await reverse.click();
+  await expect(page.getByText('Informe o motivo do estorno.', { exact: true })).toBeVisible();
+  expect(database.statePostCount).toBe(posts);
+  const confirmReversal = async (dialog) =>
+    dialog.accept(dialog.type() === 'prompt' ? 'Conta selecionada incorretamente' : undefined);
+  page.on('dialog', confirmReversal);
+  await reverse.click();
+  await expect(page.locator('[data-withdrawal-reversed]')).toContainText(
+    'Conta selecionada incorretamente'
+  );
+  page.off('dialog', confirmReversal);
+  expect(database.state.partnerAccounts.withdrawalSnapshots[0]).toEqual(snapshot);
+  expect(database.state.cashEntries.slice(0, originalEntries.length)).toEqual(originalEntries);
+  expect(database.state.partnerAccounts.withdrawalReversals).toHaveLength(1);
+  await expect(reverse).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator('[data-withdrawal-reversed]')).toContainText('Estornada');
+  const totals = await page.evaluate(
+    (date) => ({
+      cash: window.accountBalanceUntilDate(date, [], 'pj'),
+      savings: window.savingsBalanceUntilDate(date),
+      debts: window.CumbucaPartnerAccounts.partnerBalances(
+        JSON.parse(localStorage.getItem('partnerAccounts'))
+      ),
+      financial: window.financialSummary(JSON.parse(localStorage.getItem('cashEntries'))),
+      withdrawals: window.withdrawalHistoryGroups(JSON.parse(localStorage.getItem('cashEntries')))
+        .length,
+    }),
+    today
+  );
+  expect(totals.cash).toBe(2000);
+  expect(totals.savings).toBe(0);
+  expect(totals.debts).toEqual({ vanessa: 200, raquel: 50 });
+  expect(totals.financial.income).toBe(2000);
+  expect(totals.financial.operationalExpenses).toBe(0);
+  expect(totals.financial.withdrawals.total).toBe(0);
+  expect(totals.withdrawals).toBe(0);
 });

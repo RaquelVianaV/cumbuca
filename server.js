@@ -401,7 +401,7 @@ function changedRecordMonths(previous = [], next = []) {
 
 function partnerAccountDatedRecords(value = {}) {
   const account = normalizePartnerAccounts(value);
-  return [...account.movements, ...account.withdrawalSnapshots];
+  return [...account.movements, ...account.withdrawalSnapshots, ...account.withdrawalReversals];
 }
 
 function partnerManualAdjustmentsChanged(previous = {}, next = {}) {
@@ -2276,13 +2276,16 @@ async function writeAppState(payload = {}, user = null, options = {}) {
   }
   if (
     Object.prototype.hasOwnProperty.call(payload, 'partnerAccounts') ||
+    Object.prototype.hasOwnProperty.call(payload, 'financialPlanning') ||
     Object.prototype.hasOwnProperty.call(payload, 'cashEntries')
   ) {
     const nextState = normalizeState({ ...currentBeforeWrite.state, ...payload });
     const validation = validatePartnerAccountState(
       nextState.partnerAccounts,
       nextState.cashEntries,
-      options.bypassLocks ? null : currentBeforeWrite.state.partnerAccounts
+      options.bypassLocks ? null : currentBeforeWrite.state.partnerAccounts,
+      nextState.financialPlanning?.savingsHistory || [],
+      options.bypassLocks ? null : currentBeforeWrite.state.cashEntries
     );
     if (!validation.valid) {
       const error = new Error(validation.errors[0] || 'Conta-corrente das sócias inconsistente.');

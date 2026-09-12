@@ -874,6 +874,7 @@ test('comparação mensal calcula variação, pontos percentuais e média de tr�
   database.state = julyFinancialState();
 
   await page.goto('/home');
+  await expect(page.locator('.executive-kpi-grid')).toBeVisible();
   const result = await page.evaluate(() => {
     const rows = window.managementComparisonRows('2026-07');
     return {

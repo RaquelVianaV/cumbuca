@@ -3446,8 +3446,15 @@ function cashTotals(entries = state.cash) {
   }, { income: 0, expenses: 0, balance: 0 });
 }
 
+function isReversedWithdrawalCash(entry = {}) {
+  return normalizePartnerAccounts(state.partnerAccounts).withdrawalReversals.some(reversal =>
+    reversal.originalCashEntryIds.includes(String(entry.id || ""))
+  );
+}
+
 function isAccountAdjustmentEntry(entry = {}) {
-  return normalizedCategory(entry.category) === "ajuste-conta"
+  return isReversedWithdrawalCash(entry)
+    || normalizedCategory(entry.category) === "ajuste-conta"
     || String(entry.id || "").startsWith("account-zero-");
 }
 
@@ -4097,6 +4104,7 @@ function isSavingsDistributionEntry(entry = {}) {
 }
 
 function isWithdrawalHistoryEntry(entry = {}) {
+  if (isReversedWithdrawalCash(entry)) return false;
   return isWithdrawalEntry(entry)
     || (entry.type === "expense" && isSavingsDistributionEntry(entry));
 }
@@ -4718,11 +4726,19 @@ function partnerDashboard(referenceDate, monthKey) {
 
 function withdrawalHistoryHtml(monthKey = currentMonthKey()) {
   const groups = withdrawalHistoryGroups(withdrawalEntriesForMonth(monthKey));
+  const reversals = normalizePartnerAccounts(state.partnerAccounts).withdrawalReversals
+    .filter(row => row.date.startsWith(monthKey));
+  const reversalHistory = reversals.map(row => `<article class="withdrawal-history-card" data-withdrawal-reversed="${escapeHtml(row.id)}">
+    <header><strong>${formatIsoDateBr(row.date)}</strong><span class="status-pill">Estornada</span></header>
+    <p>Motivo: ${escapeHtml(row.reason)}</p>
+    <p class="muted-inline">Registrado por ${escapeHtml(row.createdBy)} · ${escapeHtml(shortDateTime.format(new Date(row.createdAt)))}</p>
+  </article>`).join("");
   if (!groups.length) {
-    return `<p class="muted">Nenhuma retirada registrada neste mês.</p>`;
+    return reversalHistory || `<p class="muted">Nenhuma retirada registrada neste mês.</p>`;
   }
   const legacyGroups = groups.filter(group => !group.partnerWithdrawalSnapshotId);
   return `
+    ${reversalHistory}
     ${legacyGroups.length ? `
       <div class="backup-list-state warning-state">
         <strong>${legacyGroups.length} retirada(s) antiga(s) precisam de revisão</strong>
@@ -4761,7 +4777,7 @@ function withdrawalHistoryHtml(monthKey = currentMonthKey()) {
           <footer>
             <small>Conferência: recebido + dívida compensada = direito reconhecido.</small>
             ${group.partnerWithdrawalSnapshotId
-              ? `<span class="status-pill">Fechamento salvo</span>`
+              ? `<span class="status-pill">Fechamento salvo</span>${canUser("editFinancial") && canUser("managePartnerAdjustments") ? `<button type="button" class="danger table-action" data-reverse-withdrawal="${escapeHtml(group.partnerWithdrawalSnapshotId)}">Estornar retirada</button>` : ""}`
               : `<button class="secondary table-action" type="button" data-edit-withdrawal="${escapeHtml(group.key)}">Revisar e editar</button>`}
           </footer>
         </article>
@@ -4985,7 +5001,8 @@ function partnerAccountMovements() {
 }
 
 function partnerWithdrawalSnapshots() {
-  return normalizePartnerAccounts(state.partnerAccounts).withdrawalSnapshots;
+  const account = normalizePartnerAccounts(state.partnerAccounts);
+  return account.withdrawalSnapshots.filter(snapshot => !account.withdrawalReversals.some(row => row.snapshotId === snapshot.id));
 }
 
 function partnerAccountName(partnerId) {
@@ -9957,6 +9974,7 @@ async function renderCash() {
         physicalCash: physicalBalance.toFixed(2),
         receivablesTotal: roundedMoneyValue(prior.vanessa + prior.raquel).toFixed(2),
         adjustedBase: calculation.distributionBase.toFixed(2),
+        ...(String(values.distributionBase || "").trim() ? { distributionBaseOverride: calculation.distributionBase.toFixed(2) } : {}),
         companyReserve: expected.savings.toFixed(2),
         companyReservePaid: split.savings.toFixed(2),
         cashAvailableAfterPayments: calculation.cashAvailable.toFixed(2),
@@ -10002,7 +10020,7 @@ async function renderCash() {
       state.partnerAccounts = {
         ...normalizePartnerAccounts(state.partnerAccounts),
         movements: [...settlementMovements, ...partnerAccountMovements()],
-        withdrawalSnapshots: [snapshot, ...partnerWithdrawalSnapshots()]
+        withdrawalSnapshots: [snapshot, ...normalizePartnerAccounts(state.partnerAccounts).withdrawalSnapshots]
       };
     }
     const savingsDifference = split.savings - Number(previousWithdrawal?.savings || 0);
@@ -10049,6 +10067,51 @@ async function renderCash() {
       state.editWithdrawalGroup = event.currentTarget.dataset.editWithdrawal;
       state.cashPanelTab = "withdrawals";
       renderCash();
+    });
+  });
+
+  document.querySelectorAll("[data-reverse-withdrawal]").forEach(button => {
+    button.addEventListener("click", async () => {
+      if (button.disabled || !canUser("editFinancial") || !canUser("managePartnerAdjustments")) return;
+      const snapshotId = button.dataset.reverseWithdrawal;
+      const snapshot = partnerWithdrawalSnapshots().find(row => row.id === snapshotId);
+      if (!snapshot || blockClosedPeriod(snapshot.date, "estornar retirada")) return;
+      const reason = prompt("Motivo obrigatório do estorno da retirada:");
+      if (reason === null) return;
+      if (!reason.trim()) {
+        showToast("Informe o motivo do estorno.", "error");
+        return;
+      }
+      if (!confirm(`Estornar a retirada de ${formatIsoDateBr(snapshot.date)}?\n\nO sistema desfará os lançamentos vinculados na data original, incluindo Cofrinho, pagamentos e compensações das sócias.\n\nMotivo: ${reason.trim()}`)) return;
+      button.disabled = true;
+      try {
+        const result = partnerAccountRules.buildWithdrawalReversal(
+          state.partnerAccounts, state.cash, snapshotId, reason,
+          state.currentUser?.name || state.currentUser?.username || "Sistema", new Date().toISOString()
+        );
+        const account = normalizePartnerAccounts(state.partnerAccounts);
+        const nextAccount = {
+          ...account,
+          movements: [...result.movements, ...account.movements],
+          withdrawalReversals: [...account.withdrawalReversals, result.reversal]
+        };
+        const nextCash = [...state.cash, ...result.cashEntries];
+        const nextSavings = [...result.savingsHistory, ...savingsHistoryRows()];
+        const validation = partnerAccountRules.validatePartnerAccountState(nextAccount, nextCash, account, nextSavings);
+        if (!validation.valid) throw new Error(validation.errors[0]);
+        state.partnerAccounts = nextAccount;
+        state.cash = nextCash;
+        applySavingsHistory(nextSavings);
+        recordAudit("Retirada estornada", `${snapshotId} · ${reason.trim()}`, { entityId: result.reversal.id });
+        if (await persistState()) {
+          showToast("Retirada estornada. Histórico preservado.", "success");
+          renderCash();
+        }
+      } catch (error) {
+        showToast(error.message || "Não foi possível estornar a retirada.", "error");
+      } finally {
+        button.disabled = false;
+      }
     });
   });
 
@@ -10505,7 +10568,7 @@ function cashTable(entries) {
               <td>
                 <div class="table-actions">
                   <button class="secondary table-action ${item.checkedAt ? "checked" : ""}" type="button" data-check-cash="${item.id || ""}">${item.checkedAt ? "Conferido" : "Conferir"}</button>
-                  ${internalTransfer ? `<button class="secondary table-action" type="button" data-open-account-transfer="${escapeHtml(item.accountTransferId || item.transferId || "")}">Ver transferência</button>` : savingsLedgerEntry ? `<a class="secondary table-action" href="/fluxo-de-caixa?panel=savings">Ver Cofrinho</a>` : automaticCoverage ? `<small>Cobertura automática</small>` : `
+                  ${item.partnerWithdrawalSnapshotId || item.withdrawalReversalId || isReversedWithdrawalCash(item) ? `<a class="secondary table-action" href="/fluxo-de-caixa?panel=withdrawals">Ver retirada</a>` : internalTransfer ? `<button class="secondary table-action" type="button" data-open-account-transfer="${escapeHtml(item.accountTransferId || item.transferId || "")}">Ver transferência</button>` : savingsLedgerEntry ? `<a class="secondary table-action" href="/fluxo-de-caixa?panel=savings">Ver Cofrinho</a>` : automaticCoverage ? `<small>Cobertura automática</small>` : `
                     ${isPendingBill(item) ? `<button class="secondary table-action" type="button" data-pay-bill="${item.id || ""}">Marcar pago</button>` : ""}
                     <button class="secondary table-action" type="button" data-edit-cash="${item.id || ""}">Editar</button>
                     ${!item.reversedBy && !item.reversalOf ? `<button class="secondary table-action" type="button" data-reverse-cash="${item.id || ""}">Estornar</button>` : ""}

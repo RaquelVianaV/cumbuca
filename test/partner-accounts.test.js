@@ -475,3 +475,204 @@ test('base informada divide apenas o valor escolhido e preserva o caixa real', (
   assert.equal(result.partners[0].expectedRight, 630);
   assert.equal(result.partners[1].expectedRight, 270);
 });
+
+function withdrawalReversalFixture() {
+  const debit = movement({ id: 'opening-debt', amount: '500.00', cashImpact: false });
+  const payment = movement({
+    id: 'payment',
+    type: 'payment',
+    amount: '200.00',
+    cashEntryId: 'payment-cash',
+    withdrawalSnapshotId: 'closed',
+  });
+  const compensation = movement({
+    id: 'compensation',
+    type: 'withdrawal_compensation',
+    amount: '300.00',
+    withdrawalSnapshotId: 'closed',
+  });
+  const snapshot = {
+    id: 'closed',
+    date: '2026-08-07',
+    period: { start: '2026-08-03', end: '2026-08-09' },
+    cashAccount: 'pj',
+    physicalCash: '2000.00',
+    receivablesTotal: '500.00',
+    adjustedBase: '2500.00',
+    companyReserve: '250.00',
+    companyReservePaid: '250.00',
+    cashPaidTotal: '2200.00',
+    closedBy: 'Teste',
+    withdrawalEntryIds: ['savings', 'vanessa', 'raquel'],
+    partners: [
+      {
+        partnerId: 'vanessa',
+        openingDebt: '500.00',
+        openingMovementIds: ['opening-debt'],
+        distributionRight: '1575.00',
+        realPayment: '200.00',
+        paymentMovementId: 'payment',
+        compensation: '300.00',
+        compensationMovementId: 'compensation',
+        cashPaid: '1275.00',
+        remainingDebt: '0.00',
+      },
+    ],
+  };
+  const cash = [
+    {
+      id: 'opening',
+      date: snapshot.date,
+      type: 'income',
+      category: 'venda',
+      cashAccount: 'pj',
+      amount: '2000.00',
+    },
+    {
+      id: 'payment-cash',
+      date: snapshot.date,
+      type: 'income',
+      category: 'conta-socia',
+      cashAccount: 'pj',
+      amount: '200.00',
+      partnerMovementId: 'payment',
+    },
+    ...[
+      ['savings', '250.00'],
+      ['vanessa', '1275.00'],
+      ['raquel', '675.00'],
+    ].map(([id, amount]) => ({
+      id,
+      amount,
+      date: snapshot.date,
+      type: 'expense',
+      category: 'retirada',
+      cashAccount: 'pj',
+      partnerWithdrawalSnapshotId: snapshot.id,
+    })),
+  ];
+  return { account: account([debit, payment, compensation], [snapshot]), cash };
+}
+
+function reversedWithdrawalFixture() {
+  const original = withdrawalReversalFixture();
+  const result = handleRequest._test.partnerAccountRules.buildWithdrawalReversal(
+    original.account,
+    original.cash,
+    'closed',
+    'Conta incorreta',
+    'Teste',
+    '2026-08-07T15:00:00Z'
+  );
+  const next = {
+    ...original.account,
+    movements: [...original.account.movements, ...result.movements],
+    withdrawalReversals: [result.reversal],
+  };
+  return { original, result, next, cash: [...original.cash, ...result.cashEntries] };
+}
+
+test('estorno integral preserva fechamento e restaura caixa, dívida e Cofrinho', () => {
+  const { original, result, next, cash } = reversedWithdrawalFixture();
+  const validation = validatePartnerAccountState(
+    next,
+    cash,
+    original.account,
+    result.savingsHistory,
+    original.cash
+  );
+  assert.equal(validation.valid, true, validation.errors.join('\n'));
+  assert.equal(partnerBalances(original.account).vanessa, 0);
+  assert.equal(partnerBalances(next).vanessa, 500);
+  assert.equal(
+    cash.reduce((sum, row) => sum + (row.type === 'income' ? 1 : -1) * Number(row.amount), 0),
+    2000
+  );
+  assert.equal(result.savingsHistory[0].type, 'withdrawal');
+  assert.equal(result.savingsHistory[0].amount, '250.00');
+  assert.deepEqual(next.withdrawalSnapshots, original.account.withdrawalSnapshots);
+  assert.deepEqual(next.movements.slice(0, 3), original.account.movements);
+});
+
+test('estorno exige motivo, impede repetição e rejeita movimentos faltantes', () => {
+  const { original, result, next, cash } = reversedWithdrawalFixture();
+  const build = handleRequest._test.partnerAccountRules.buildWithdrawalReversal;
+  assert.throws(
+    () => build(original.account, original.cash, 'closed', ' ', 'Teste', '2026-08-07T15:00:00Z'),
+    /motivo/
+  );
+  assert.throws(
+    () => build(next, cash, 'closed', 'Novamente', 'Teste', '2026-08-07T15:00:00Z'),
+    /já foi estornada/
+  );
+  assert.equal(
+    validatePartnerAccountState(next, cash.slice(0, -1), original.account, result.savingsHistory)
+      .valid,
+    false
+  );
+  assert.equal(validatePartnerAccountState(next, cash, original.account, []).valid, false);
+  assert.equal(
+    validatePartnerAccountState(
+      { ...next, withdrawalReversals: [] },
+      cash,
+      next,
+      result.savingsHistory
+    ).valid,
+    false
+  );
+  assert.equal(
+    validatePartnerAccountState(
+      { ...next, withdrawalReversals: [result.reversal, result.reversal] },
+      cash,
+      original.account,
+      result.savingsHistory
+    ).valid,
+    false
+  );
+});
+
+test('caixa da retirada fechada não pode ser alterado ou excluído isoladamente', () => {
+  const { account: original, cash } = withdrawalReversalFixture();
+  const edited = cash.map((row) => (row.id === 'vanessa' ? { ...row, amount: '1.00' } : row));
+  assert.equal(validatePartnerAccountState(original, edited, original, [], cash).valid, false);
+  assert.equal(
+    validatePartnerAccountState(
+      original,
+      cash.filter((row) => row.id !== 'vanessa'),
+      original,
+      [],
+      cash
+    ).valid,
+    false
+  );
+});
+
+test('base manual do fechamento também é aceita pela validação do servidor', () => {
+  const { account: original, cash } = withdrawalReversalFixture();
+  const snapshot = {
+    ...original.withdrawalSnapshots[0],
+    adjustedBase: '1000.00',
+    distributionBaseOverride: '1000.00',
+  };
+  const next = { ...original, withdrawalSnapshots: [snapshot] };
+  assert.equal(validatePartnerAccountState(next, cash).valid, true);
+  assert.equal(
+    validatePartnerAccountState(
+      { ...next, withdrawalSnapshots: [{ ...snapshot, distributionBaseOverride: '999.00' }] },
+      cash
+    ).valid,
+    false
+  );
+});
+
+test('estorno de retirada respeita fechamento mensal e mantém permissão de ajuste de sócias', () => {
+  const { original, next, cash } = reversedWithdrawalFixture();
+  const current = normalizeState({
+    partnerAccounts: original.account,
+    cashEntries: original.cash,
+    monthlyClosings: { '2026-08': { closedAt: '2026-08-31T12:00:00Z' } },
+  });
+  const violation = stateWriteViolation(current, { partnerAccounts: next, cashEntries: cash });
+  assert.ok(violation);
+  assert.equal(partnerManualAdjustmentsChanged(original.account, next), true);
+});

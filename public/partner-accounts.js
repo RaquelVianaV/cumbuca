@@ -32,7 +32,8 @@
     return {
       partners: DEFAULT_PARTNERS.map(partner => ({ ...partner })),
       movements: [],
-      withdrawalSnapshots: []
+      withdrawalSnapshots: [],
+      withdrawalReversals: []
     };
   }
 
@@ -47,6 +48,7 @@
       : DEFAULT_PARTNERS.map(partner => ({ ...partner }));
     return {
       partners,
+      withdrawalReversals: Array.isArray(source.withdrawalReversals) ? source.withdrawalReversals : [],
       movements: Array.isArray(source.movements) ? source.movements : [],
       withdrawalSnapshots: Array.isArray(source.withdrawalSnapshots)
         ? source.withdrawalSnapshots
@@ -301,9 +303,110 @@
     return ids;
   }
 
-  function validatePartnerAccountState(account = {}, cashEntries = [], previousAccount = null) {
+  function buildWithdrawalReversal(account, cashEntries, snapshotId, reason, createdBy, createdAt) {
+    const normalized = normalizePartnerAccounts(account);
+    const snapshot = normalized.withdrawalSnapshots.find(row => row.id === snapshotId);
+    if (!snapshot) throw new Error("Retirada não encontrada. Revise os registros antigos antes de estornar.");
+    if (!String(reason || "").trim()) throw new Error("Informe o motivo do estorno.");
+    if (!String(createdBy || "").trim() || !Number.isFinite(Date.parse(createdAt))) throw new Error("Responsável ou data do estorno inválidos.");
+    if (normalized.withdrawalReversals.some(row => row.snapshotId === snapshotId)) throw new Error("Esta retirada já foi estornada.");
+    const id = `withdrawal-reversal-${snapshotId}`;
+    const settlements = normalized.movements.filter(row => row.withdrawalSnapshotId === snapshotId);
+    if (settlements.some(row => normalized.movements.some(other => other.reversalOf === row.id))) {
+      throw new Error("Uma movimentação desta retirada já foi estornada. Confira a conta da sócia.");
+    }
+    const originalIds = [...new Set([
+      ...(snapshot.withdrawalEntryIds || []),
+      ...settlements.map(row => row.cashEntryId).filter(Boolean)
+    ])];
+    if (snapshot.companyReservePaid == null) throw new Error("O fechamento não informa o repasse efetivo ao Cofrinho. Revise o registro antes de estornar.");
+    if (!originalIds.length || originalIds.some(entryId => !cashEntries.some(row => row.id === entryId))) {
+      throw new Error("Os lançamentos vinculados à retirada estão incompletos.");
+    }
+    const cash = originalIds.map(entryId => cashEntries.find(row => row.id === entryId));
+    const reversal = {
+      id, snapshotId, date: snapshot.date, reason: String(reason).trim(), createdBy, createdAt,
+      originalCashEntryIds: originalIds,
+      originalMovementIds: settlements.map(row => row.id),
+      savingsAmount: positiveMoney(snapshot.companyReservePaid).toFixed(2)
+    };
+    const movements = settlements.map(row => ({
+      id: `${id}-movement-${row.id}`, partnerId: row.partnerId, date: snapshot.date,
+      type: "manual_adjustment", direction: movementEffect(row) < 0 ? "increase" : "decrease",
+      amount: positiveMoney(row.amount).toFixed(2), description: `Estorno de ${row.description}`,
+      observation: reversal.reason, origin: "", cashImpact: false, reversalOf: row.id,
+      withdrawalReversalId: id, createdAt, updatedAt: createdAt, createdBy
+    }));
+    const reversedCash = cash.filter(row => row.cashImpact !== false && Number(row.amount) > 0).map(row => ({
+      id: `${id}-cash-${row.id}`, date: row.date, type: row.type === "expense" ? "income" : "expense",
+      amount: positiveMoney(row.amount).toFixed(2), cashAccount: row.cashAccount || "",
+      category: "ajuste-conta", description: `Estorno da retirada: ${row.description || row.id}`,
+      withdrawalReversalId: id, reversalOf: row.id, reversalReason: reversal.reason,
+      // Payments remain outside operational and adjustment totals, like their originals.
+      ...(isPartnerCashEntry(row) ? { nonOperationalPartnerAccount: true } : {})
+    }));
+    const savings = Number(reversal.savingsAmount) > 0 ? [{
+      id: `${id}-savings`, date: snapshot.date, type: "withdrawal", amount: reversal.savingsAmount,
+      description: `Estorno da retirada: ${reversal.reason}`, withdrawalReversalId: id, balance: "0.00"
+    }] : [];
+    return { reversal, movements, cashEntries: reversedCash, savingsHistory: savings };
+  }
+
+  function validateWithdrawalReversals(account, cashEntries, previousAccount, savingsHistory) {
     const normalized = normalizePartnerAccounts(account);
     const errors = [];
+    const seen = new Set();
+    for (const reversal of normalized.withdrawalReversals) {
+      if (seen.has(reversal.snapshotId)) errors.push("A retirada não pode ser estornada duas vezes.");
+      seen.add(reversal.snapshotId);
+      try {
+        const source = {
+          ...normalized, withdrawalReversals: [],
+          movements: normalized.movements.filter(row => row.withdrawalReversalId !== reversal.id)
+        };
+        const expected = buildWithdrawalReversal(source, cashEntries, reversal.snapshotId, reversal.reason, reversal.createdBy, reversal.createdAt);
+        if (JSON.stringify(expected.reversal) !== JSON.stringify(reversal)) errors.push("Registro de estorno de retirada inconsistente.");
+        for (const [rows, required] of [[cashEntries, expected.cashEntries], [normalized.movements, expected.movements], ...(savingsHistory ? [[savingsHistory, expected.savingsHistory]] : [])]) {
+          if (rows.filter(row => row.withdrawalReversalId === reversal.id).length !== required.length) errors.push("Quantidade de movimentos do estorno inconsistente.");
+        }
+        for (const [rows, required] of [[cashEntries, expected.cashEntries], [normalized.movements, expected.movements], ...(savingsHistory ? [[savingsHistory, expected.savingsHistory]] : [])]) {
+          for (const item of required) {
+            const matches = rows.filter(row => row.id === item.id);
+            if (matches.length !== 1 || Object.keys(item).some(key => key !== "balance" && JSON.stringify(matches[0][key]) !== JSON.stringify(item[key]))) {
+              errors.push("Os movimentos do estorno de retirada estão incompletos ou inconsistentes.");
+            }
+          }
+        }
+      } catch (error) { errors.push(error.message); }
+    }
+    const reversalIds = new Set(normalized.withdrawalReversals.map(row => row.id));
+    for (const row of [...cashEntries, ...normalized.movements, ...(savingsHistory || [])]) {
+      if (row.withdrawalReversalId && !reversalIds.has(row.withdrawalReversalId)) errors.push("Movimento sem registro de estorno de retirada.");
+    }
+    for (const row of normalizePartnerAccounts(previousAccount).withdrawalReversals) {
+      if (JSON.stringify(normalized.withdrawalReversals.find(item => item.id === row.id)) !== JSON.stringify(row)) {
+        errors.push("Um estorno registrado não pode ser alterado ou excluído.");
+      }
+    }
+    return errors;
+  }
+
+  function validatePartnerAccountState(account = {}, cashEntries = [], previousAccount = null, savingsHistory = null, previousCashEntries = null) {
+    const normalized = normalizePartnerAccounts(account);
+    const errors = validateWithdrawalReversals(account, cashEntries, previousAccount, savingsHistory);
+    if (previousAccount && previousCashEntries) {
+      const protectedIds = new Set(normalizePartnerAccounts(previousAccount).withdrawalSnapshots.flatMap(snapshot => [
+        ...(snapshot.withdrawalEntryIds || []),
+        ...normalizePartnerAccounts(previousAccount).movements.filter(row => row.withdrawalSnapshotId === snapshot.id).map(row => row.cashEntryId).filter(Boolean)
+      ]));
+      for (const id of protectedIds) {
+        const before = previousCashEntries.find(row => row.id === id);
+        const after = cashEntries.find(row => row.id === id);
+        if (before && (!after || ["type", "amount", "cashAccount", "date", "category", "cashImpact", "partnerWithdrawalSnapshotId"].some(key => JSON.stringify(before[key]) !== JSON.stringify(after[key])))) {
+          errors.push("Os lançamentos de uma retirada consolidada devem ser estornados juntos, não alterados ou excluídos.");
+        }
+      }
+    }
     const partnerIds = normalized.partners.map(partner => partner.id);
     if (partnerIds.some(id => !id) || new Set(partnerIds).size !== partnerIds.length) {
       errors.push("As sócias precisam ter identificadores únicos.");
@@ -372,12 +475,13 @@
         if (!Number.isFinite(value) || value < 0) errors.push(`A quebra ${id || "sem ID"} não possui ${field} válido.`);
       });
       if (!String(snapshot.closedBy || "").trim()) errors.push(`A quebra ${id || "sem ID"} precisa do responsável pelo fechamento.`);
+      if (snapshot.distributionBaseOverride != null && (!Number.isFinite(Number(snapshot.distributionBaseOverride)) || Number(snapshot.distributionBaseOverride) <= 0)) errors.push("A base manual da divisão deve ser positiva.");
       const snapshotPartners = Array.isArray(snapshot.partners) ? snapshot.partners : [];
       const openingDebtTotal = snapshotPartners.reduce(
         (sum, partner) => sum + positiveMoney(partner.openingDebt),
         0
       );
-      if (Math.abs(roundedMoney(Number(snapshot.physicalCash) + openingDebtTotal) - roundedMoney(snapshot.adjustedBase)) > 0.009) {
+      if (Math.abs(roundedMoney(snapshot.distributionBaseOverride == null ? Number(snapshot.physicalCash) + openingDebtTotal : snapshot.distributionBaseOverride) - roundedMoney(snapshot.adjustedBase)) > 0.009) {
         errors.push(`A base ajustada da quebra ${id || "sem ID"} está inconsistente.`);
       }
       snapshotPartners.forEach(partner => {
@@ -433,6 +537,7 @@
 
   return {
     MOVEMENT_TYPES,
+    buildWithdrawalReversal,
     calculateWithdrawalDistribution,
     cashEntrySpecForMovement,
     consolidatedMovementIds,
