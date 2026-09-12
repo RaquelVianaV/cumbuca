@@ -74,9 +74,7 @@ async function mockOnlineDatabase(page, sharedHolder = null) {
       }
       holder.state = JSON.parse(route.request().postData() || '{}').state || {};
       holder.stateVersion = `test-state-${holder.statePostCount}`;
-      await route.fulfill(
-        json({ database: true, saved: true, stateVersion: holder.stateVersion })
-      );
+      await route.fulfill(json({ database: true, saved: true, stateVersion: holder.stateVersion }));
       return;
     }
     holder.stateGetCount += 1;
@@ -136,7 +134,9 @@ test('finance menu stays between the hero and period filters', async ({ page }, 
   ).toHaveCount(0);
 });
 
-test('order revenue follows the selected filter and sums orders, channels and delivery fees', async ({ page }) => {
+test('order revenue follows the selected filter and sums orders, channels and delivery fees', async ({
+  page,
+}) => {
   const database = await mockOnlineDatabase(page);
   database.state = {
     pricingRecipes: [
@@ -158,17 +158,46 @@ test('order revenue follows the selected filter and sums orders, channels and de
     ],
     storeSales: [
       { id: 'unit-sale', date: '2026-08-05', saleType: 'unit', quantity: 635 },
-      { id: 'combo-sale', date: '2026-08-05', productId: 'combo-product', saleType: 'combo', quantity: 3, unitsPerCombo: 4 },
+      {
+        id: 'combo-sale',
+        date: '2026-08-05',
+        productId: 'combo-product',
+        saleType: 'combo',
+        quantity: 3,
+        unitsPerCombo: 4,
+      },
     ],
     cashEntries: [
-      { id: 'sale-in-filter', date: '2026-08-05', type: 'income', category: 'venda', amount: '1200.00' },
-      { id: 'other-income', date: '2026-08-05', type: 'income', category: 'aporte-socia', amount: '500.00' },
-      { id: 'channel-category', date: '2026-08-05', type: 'income', category: 'cardapio-web', amount: '300.00' },
-      { id: 'sale-outside-filter', date: '2026-08-12', type: 'income', category: 'venda', amount: '400.00' },
+      {
+        id: 'sale-in-filter',
+        date: '2026-08-05',
+        type: 'income',
+        category: 'venda',
+        amount: '1200.00',
+      },
+      {
+        id: 'other-income',
+        date: '2026-08-05',
+        type: 'income',
+        category: 'aporte-socia',
+        amount: '500.00',
+      },
+      {
+        id: 'channel-category',
+        date: '2026-08-05',
+        type: 'income',
+        category: 'cardapio-web',
+        amount: '300.00',
+      },
+      {
+        id: 'sale-outside-filter',
+        date: '2026-08-12',
+        type: 'income',
+        category: 'venda',
+        amount: '400.00',
+      },
     ],
-    orders: [
-      { id: 'weekly-order', menuKey: '2026-08-semana-1', amount: '8900.00' },
-    ],
+    orders: [{ id: 'weekly-order', menuKey: '2026-08-semana-1', amount: '8900.00' }],
     channelReceipts: [
       {
         id: 'weekly-channels',
@@ -186,7 +215,9 @@ test('order revenue follows the selected filter and sums orders, channels and de
   };
 
   await page.goto('/relatorios?ano=2026&mes=8');
-  await expect(page.locator('[data-view-tab-group="reportViewTab"] [data-view-tab="products"]')).toHaveCount(0);
+  await expect(
+    page.locator('[data-view-tab-group="reportViewTab"] [data-view-tab="products"]')
+  ).toHaveCount(0);
   await page.locator('.report-filter-menu').click();
   const reportFilter = page.locator('#report-filter-form');
   await reportFilter.locator('select[name="type"]').selectOption('week');
@@ -216,15 +247,23 @@ test('order revenue follows the selected filter and sums orders, channels and de
   await page.getByRole('button', { name: 'Rentabilidade', exact: true }).click();
   const storeProfitability = page.locator('[data-store-profitability-panel]');
   await expect(storeProfitability.locator('[data-store-profitability-combos]')).toContainText('3');
-  await expect(storeProfitability.locator('[data-store-profitability-combo-units]')).toContainText('12');
-  await expect(storeProfitability.locator('[data-store-profitability-product-units]')).toContainText('24');
+  await expect(storeProfitability.locator('[data-store-profitability-combo-units]')).toContainText(
+    '12'
+  );
+  await expect(
+    storeProfitability.locator('[data-store-profitability-product-units]')
+  ).toContainText('24');
   await expect(storeProfitability.locator('thead')).not.toContainText('Unidades nos combos');
   await expect(storeProfitability.locator('thead')).not.toContainText('Combos');
   await expect(
     storeProfitability.locator('.metric').filter({ hasText: 'Receita estimada' })
   ).toContainText('R$ 480,00');
-  await expect(storeProfitability.locator('[data-store-highest-margin]')).toContainText('Produto do combo');
-  await expect(storeProfitability.locator('[data-store-lowest-margin]')).toContainText('Produto do combo');
+  await expect(storeProfitability.locator('[data-store-highest-margin]')).toContainText(
+    'Produto do combo'
+  );
+  await expect(storeProfitability.locator('[data-store-lowest-margin]')).toContainText(
+    'Produto do combo'
+  );
   await expect(storeProfitability).toContainText('3 combo(s)');
   await expect(storeProfitability).toContainText('Loja → Produtos');
   await expect(storeProfitability).not.toContainText('Sem produto informado');
@@ -389,7 +428,7 @@ test('operation menu exposes Semanal, Loja and Precificação without an expense
     cashEntries: [
       {
         id: 'expense-navigation',
-        date: '2026-08-01',
+        date: localDateKey(),
         type: 'expense',
         category: 'aluguel',
         description: 'Despesa operacional teste',
@@ -398,7 +437,7 @@ test('operation menu exposes Semanal, Loja and Precificação without an expense
       },
       {
         id: 'income-navigation',
-        date: '2026-08-01',
+        date: localDateKey(),
         type: 'income',
         category: 'venda',
         description: 'Venda que não é despesa',
@@ -607,7 +646,7 @@ test('monthly client balance decreases with orders and warns at five remaining',
 
   await expect.poll(() => database.state.orders?.length).toBe(1);
   expect(database.state.orders[0].dishes).toEqual([{ slot: 1, quantity: 1 }]);
-  expect(warningMessage).toContain('restam 5 cumbuca(s)');
+  await expect.poll(() => warningMessage).toContain('restam 5 cumbuca(s)');
   expect(warningMessage).toContain('Renovar quantidade');
 
   await page.locator('#client-toggle').click();
@@ -1001,8 +1040,12 @@ test('menu planning divides the manual weekly supermarket total only by its menu
   await page.getByRole('button', { name: 'Rentabilidade', exact: true }).click();
   const profitability = page.locator('[data-profitability-panel]');
   const storeProfitability = page.locator('[data-store-profitability-panel]');
-  await expect(profitability.getByRole('heading', { name: /Rentabilidade do Semanal/ })).toBeVisible();
-  await expect(storeProfitability.getByRole('heading', { name: /Rentabilidade da Loja/ })).toBeVisible();
+  await expect(
+    profitability.getByRole('heading', { name: /Rentabilidade do Semanal/ })
+  ).toBeVisible();
+  await expect(
+    storeProfitability.getByRole('heading', { name: /Rentabilidade da Loja/ })
+  ).toBeVisible();
   const dishDetails = profitability.locator('[data-weekly-dish-details]');
   await expect(dishDetails).not.toHaveAttribute('open', '');
   await expect(dishDetails.getByText('Conferir pratos um a um')).toBeVisible();
@@ -1027,9 +1070,9 @@ test('menu planning divides the manual weekly supermarket total only by its menu
   await expect(profitability.getByText('Vasilhas', { exact: true }).locator('..')).toContainText(
     'R$ 3,20'
   );
-  await expect(profitability.getByText('Custos rateados', { exact: true }).locator('..')).toContainText(
-    'R$ 20,00'
-  );
+  await expect(
+    profitability.getByText('Custos rateados', { exact: true }).locator('..')
+  ).toContainText('R$ 20,00');
   await expect(profitability.locator('tbody tr').first()).toContainText('Cumbuca da semana');
   await expect(profitability.locator('tbody tr').first()).toContainText(
     'Supermercado da semana + vasilha R$ 1,60 + rateio R$ 10,00'
@@ -1590,7 +1633,9 @@ test('employee registry links employee expenses automatically', async ({ page },
   const accountForm = page.locator('#financial-account-form');
   await expect(accountForm.locator('#financial-account-employee')).toHaveCount(0);
   await expect(accountForm.locator('#financial-account-category option')).not.toHaveCount(0);
-  await expect(accountForm.locator('#financial-account-category option[value="conta"]')).toHaveCount(1);
+  await expect(
+    accountForm.locator('#financial-account-category option[value="conta"]')
+  ).toHaveCount(1);
   await accountForm.locator('#financial-account-category').selectOption('conta');
   await accountForm.locator('#financial-account-payment-timing').selectOption('future');
   await accountForm.getByLabel('Descrição', { exact: true }).fill('Conta fixa - teste');
@@ -1603,7 +1648,9 @@ test('employee registry links employee expenses automatically', async ({ page },
     paymentTiming: 'future',
   });
   const fixedAccount = page.locator('.account-row');
-  await expect(fixedAccount.getByLabel('Data do pagamento', { exact: true })).toHaveValue(localDateKey());
+  await expect(fixedAccount.getByLabel('Data do pagamento', { exact: true })).toHaveValue(
+    localDateKey()
+  );
   await fixedAccount
     .locator('form[data-account-settlement] select[name="cashAccount"]')
     .selectOption('pj');
@@ -1783,7 +1830,9 @@ test('an open cash statement updates automatically after another tab saves', asy
   await statementPage.close();
 });
 
-test('cash save reconciles a concurrent remote entry without losing either change', async ({ page }) => {
+test('cash save reconciles a concurrent remote entry without losing either change', async ({
+  page,
+}) => {
   const database = await mockOnlineDatabase(page);
   await page.goto('/fluxo-de-caixa');
   database.conflictState = {
@@ -1814,7 +1863,9 @@ test('cash save reconciles a concurrent remote entry without losing either chang
   await expect(page.locator('[data-cash-total-balance]')).toContainText('R$ 40,00');
 });
 
-test('cash statement uses readable cards on tablet without overlapping actions', async ({ page }) => {
+test('cash statement uses readable cards on tablet without overlapping actions', async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1116, height: 900 });
   const database = await mockOnlineDatabase(page);
   database.state = {
@@ -1873,7 +1924,9 @@ test('cash statement uses readable cards on tablet without overlapping actions',
   await expect(calendarDay).toHaveClass(/pending/);
   await ledger.getByRole('button', { name: 'Conferir', exact: true }).click();
   await expect.poll(() => Boolean(database.state.cashEntries?.[0]?.checkedAt)).toBe(true);
-  await expect(page.locator('.cash-ledger-table').getByRole('button', { name: 'Conferido' })).toBeVisible();
+  await expect(
+    page.locator('.cash-ledger-table').getByRole('button', { name: 'Conferido' })
+  ).toBeVisible();
   await expect(calendarDay).toHaveClass(/checked/);
   await page.setViewportSize({ width: 390, height: 844 });
   await expectNoHorizontalOverflow(page);
@@ -1905,6 +1958,10 @@ test('stored financial descriptions stay text instead of becoming HTML', async (
       },
     ],
   };
+  // These fixtures belong to August, independently of the date running the suite.
+  await page.evaluate(() => {
+    localStorage.setItem('globalPeriod', JSON.stringify({ year: 2026, month: 8 }));
+  });
   await page.goto('/fluxo-de-caixa?panel=ledger');
   const ledger = page.locator('.cash-ledger-table');
   await expect(ledger).toContainText(maliciousDescription);
@@ -2606,33 +2663,87 @@ test('withdrawals compensate debt only after an explicit choice', async ({ page 
   });
 });
 
-test('withdrawals from the same day are unified without counting a partial duplicate', async ({ page }) => {
+test('withdrawals from the same day are unified without counting a partial duplicate', async ({
+  page,
+}) => {
   await mockOnlineDatabase(page);
   await page.goto('/financeiro');
-  const groups = await page.evaluate(() => withdrawalHistoryGroups([
-    { id: 'withdrawal-full-savings', description: 'Retirada - cofrinho', date: '2026-08-21', type: 'expense', category: 'retirada', amount: '309.60', expectedAmount: '309.60' },
-    { id: 'withdrawal-full-vanessa', description: 'Retirada - Vanessa', date: '2026-08-21', type: 'expense', category: 'retirada', amount: '1644.23', expectedAmount: '1644.23' },
-    { id: 'withdrawal-full-raquel', description: 'Retirada - Raquel', date: '2026-08-21', type: 'expense', category: 'retirada', amount: '1142.21', expectedAmount: '1142.21' },
-    { id: 'withdrawal-duplicate-vanessa', description: 'Retirada - Vanessa', date: '2026-08-21', type: 'expense', category: 'retirada', amount: '1644.23', expectedAmount: '1644.23' },
-  ]));
+  const groups = await page.evaluate(() =>
+    window.withdrawalHistoryGroups([
+      {
+        id: 'withdrawal-full-savings',
+        description: 'Retirada - cofrinho',
+        date: '2026-08-21',
+        type: 'expense',
+        category: 'retirada',
+        amount: '309.60',
+        expectedAmount: '309.60',
+      },
+      {
+        id: 'withdrawal-full-vanessa',
+        description: 'Retirada - Vanessa',
+        date: '2026-08-21',
+        type: 'expense',
+        category: 'retirada',
+        amount: '1644.23',
+        expectedAmount: '1644.23',
+      },
+      {
+        id: 'withdrawal-full-raquel',
+        description: 'Retirada - Raquel',
+        date: '2026-08-21',
+        type: 'expense',
+        category: 'retirada',
+        amount: '1142.21',
+        expectedAmount: '1142.21',
+      },
+      {
+        id: 'withdrawal-duplicate-vanessa',
+        description: 'Retirada - Vanessa',
+        date: '2026-08-21',
+        type: 'expense',
+        category: 'retirada',
+        amount: '1644.23',
+        expectedAmount: '1644.23',
+      },
+    ])
+  );
   expect(groups).toHaveLength(1);
   expect(groups[0].date).toBe('2026-08-21');
   expect(groups[0].total).toBeCloseTo(3096.04, 2);
   expect(groups[0].vanessa).toBeCloseTo(1644.23, 2);
 });
 
-test('unified withdrawal totals include Cofrinho deposits stored in its history', async ({ page }) => {
+test('unified withdrawal totals include Cofrinho deposits stored in its history', async ({
+  page,
+}) => {
   await mockOnlineDatabase(page);
   await page.goto('/financeiro');
-  const totals = await page.evaluate(() => unifiedDivisionWithdrawalAmounts(
-    [
-      { date: '2026-08-10', distributionBase: 2920.1, expectedSavings: 292.01, vanessa: 1800, raquel: 828.1, savings: 292.01 },
-      { date: '2026-08-21', distributionBase: 3096.04, expectedSavings: 309.6, vanessa: 2100, raquel: 686.44, savings: 0 },
-    ],
-    { savings: 292.01 },
-    [],
-    []
-  ));
+  const totals = await page.evaluate(() =>
+    window.unifiedDivisionWithdrawalAmounts(
+      [
+        {
+          date: '2026-08-10',
+          distributionBase: 2920.1,
+          expectedSavings: 292.01,
+          vanessa: 1800,
+          raquel: 828.1,
+          savings: 292.01,
+        },
+        {
+          date: '2026-08-21',
+          distributionBase: 3096.04,
+          expectedSavings: 309.6,
+          vanessa: 2100,
+          raquel: 686.44,
+          savings: 0,
+        },
+      ],
+      { savings: 292.01 },
+      [],
+      []
+    )
+  );
   expect(totals.savings).toBeCloseTo(601.61, 2);
   expect(totals.partners).toBeCloseTo(5414.54, 2);
 });
@@ -2740,6 +2851,10 @@ test('stored Vanessa compensation is displayed without rewriting the manual entr
     ],
   };
 
+  // These fixtures belong to August, independently of the date running the suite.
+  await page.evaluate(() => {
+    localStorage.setItem('globalPeriod', JSON.stringify({ year: 2026, month: 8 }));
+  });
   await page.goto('/fluxo-de-caixa?panel=withdrawals');
   const vanessaCard = page.locator('.withdrawal-partner-card').filter({ hasText: 'Vanessa' });
   await expect(vanessaCard).toContainText('Dívida compensadaR$ 397,99');
@@ -2801,7 +2916,9 @@ test('store sales filter by day, week and month with previous month comparison',
   await expect(filteredTotal).toContainText('18');
   await expect(filteredRows).toHaveCount(3);
   await page.locator('.store-sales-day-group').evaluateAll((groups) => {
-    groups.forEach((group) => { group.open = true; });
+    groups.forEach((group) => {
+      group.open = true;
+    });
   });
   await expect(page.getByRole('button', { name: 'Editar', exact: true })).toHaveCount(3);
   await expect(page.getByRole('button', { name: 'Excluir', exact: true })).toHaveCount(3);
@@ -2867,6 +2984,10 @@ test('Cardápio Web delivery fees are saved only for conference', async ({ page 
     appConfig: { cardapioWebDebitFeePercent: 10 },
   };
 
+  // These fixtures belong to August, independently of the date running the suite.
+  await page.evaluate(() => {
+    localStorage.setItem('globalPeriod', JSON.stringify({ year: 2026, month: 8 }));
+  });
   await page.goto('/loja?view=channels');
   const form = page.locator('#channel-receipt-form');
   await form.locator('input[name="date"]').fill('2026-08-15');
@@ -3052,7 +3173,9 @@ test('store sales can filter combos and count combos separately from units', asy
   await expect(filterForm.locator('select[name="productId"]')).toHaveCount(0);
 });
 
-test('store catalog is expandable and feeds the daily sale selector', async ({ page }, testInfo) => {
+test('store catalog is expandable and feeds the daily sale selector', async ({
+  page,
+}, testInfo) => {
   const database = await mockOnlineDatabase(page);
   database.state = {
     storeProducts: [],
@@ -3134,6 +3257,8 @@ test('store products link pricing and keep sales generic', async ({ page }, test
     await expect
       .poll(() => database.state.storeProducts?.some((item) => item.name === name))
       .toBe(true);
+    await expect(page.locator('.store-product-table')).toContainText(name);
+    await expect(productForm.locator('input[name="name"]')).toHaveValue('');
   };
 
   await createProduct('Frango Fit', 'recipe-a');
@@ -3154,7 +3279,9 @@ test('store products link pricing and keep sales generic', async ({ page }, test
   await dailyLine.locator('[data-store-daily-item]').selectOption(`product:${frango.id}`);
   await dailyLine.locator('[data-store-daily-quantity]').fill('10');
   await expect(dailyForm.locator('[data-store-daily-preview-cost]')).toContainText('R$ 0,00');
-  await dailyForm.getByRole('button', { name: 'Salvar todas as vendas do dia', exact: true }).click();
+  await dailyForm
+    .getByRole('button', { name: 'Salvar todas as vendas do dia', exact: true })
+    .click();
   const frangoFinancial = page.locator('[data-store-financial-summary]');
   await expect(frangoFinancial).toContainText('R$ 300,00');
   await expect(frangoFinancial).toContainText('R$ 200,00');
@@ -3217,6 +3344,7 @@ test('pricing rates monthly costs and calculates recipe profitability', async ({
   await expect
     .poll(() => database.state.pricingConfig?.sharedCosts?.staff?.[0]?.name)
     .toBe('Ana Silva');
+  await expect(costForm.locator('input[name="staffName"]')).toHaveValue('');
 
   await costForm.locator('input[name="staffName"]').fill('Temporário');
   await costForm.locator('input[name="staffSalary"]').fill('50');
@@ -3620,9 +3748,9 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
 
   await page.goto('/fluxo-de-caixa?panel=ledger');
   await expect(page.getByRole('heading', { name: 'Extrato', exact: true })).toBeVisible();
-  await expect(page.locator('tr').filter({ hasText: 'Pagamento - Teste fornecedor Contador' })).toContainText(
-    'R$ 30,00'
-  );
+  await expect(
+    page.locator('tr').filter({ hasText: 'Pagamento - Teste fornecedor Contador' })
+  ).toContainText('R$ 30,00');
   await page.goto('/financeiro?view=accounts');
   firstAccount = page.locator('.account-row').filter({ hasText: 'Teste fornecedor' }).first();
   await firstAccount.locator('details').click();
@@ -3676,8 +3804,9 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
   page.once('dialog', (dialog) => dialog.accept());
   await adjustedAccount.getByRole('button', { name: 'Excluir', exact: true }).click();
   await expect(page.locator('.account-row').filter({ hasText: 'Assinatura mensal' })).toHaveCount(
-    1
+    0
   );
+  await expect.poll(() => database.state.financialPlanning.accounts).toHaveLength(3);
 
   await page.goto('/alertas');
   await expect(
@@ -3697,7 +3826,7 @@ test('controlled finance workflow covers installments, reversal, alerts and reco
   await page.getByRole('button', { name: 'Excluir', exact: true }).click();
   await expect.poll(() => database.state.financialPlanning.reconciliationHistory).toHaveLength(0);
   expect(database.state.cashEntries?.some((entry) => entry.reconciliation)).toBe(false);
-  expect(database.state.financialPlanning.accounts).toHaveLength(4);
+  expect(database.state.financialPlanning.accounts).toHaveLength(3);
   const testedAccount = database.state.financialPlanning.accounts.find(
     (account) => account.description === 'Teste fornecedor Contador'
   );
@@ -3745,9 +3874,9 @@ test('pay now settles the account and posts it to the selected cash account', as
   );
 
   await page.goto('/fluxo-de-caixa?panel=ledger');
-  await expect(page.locator('tr').filter({ hasText: 'Pagamento - Contador imediato' })).toContainText(
-    'R$ 250,00'
-  );
+  await expect(
+    page.locator('tr').filter({ hasText: 'Pagamento - Contador imediato' })
+  ).toContainText('R$ 250,00');
 });
 
 test('home dashboard prioritizes projected balance and actions', async ({ page }, testInfo) => {
@@ -3871,7 +4000,9 @@ test('home dashboard prioritizes projected balance and actions', async ({ page }
   await expect(page.getByText('Resultado operacional da semana', { exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Maiores gastos', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Maiores receitas', exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Como o saldo pode ficar', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Como o saldo pode ficar', exact: true })
+  ).toBeVisible();
   await expect(
     page.getByRole('heading', { name: 'Comparação com semana anterior', exact: true })
   ).toBeVisible();
@@ -3998,9 +4129,27 @@ test('home can filter a selected week and compare it with the previous week', as
   const database = await mockOnlineDatabase(page);
   database.state = {
     cashEntries: [
-      { id: 'week-current-income', date: '2026-08-18', type: 'income', category: 'venda', amount: '200.00' },
-      { id: 'week-current-expense', date: '2026-08-19', type: 'expense', category: 'supermercado', amount: '50.00' },
-      { id: 'week-previous-income', date: '2026-08-11', type: 'income', category: 'venda', amount: '100.00' },
+      {
+        id: 'week-current-income',
+        date: '2026-08-18',
+        type: 'income',
+        category: 'venda',
+        amount: '200.00',
+      },
+      {
+        id: 'week-current-expense',
+        date: '2026-08-19',
+        type: 'expense',
+        category: 'supermercado',
+        amount: '50.00',
+      },
+      {
+        id: 'week-previous-income',
+        date: '2026-08-11',
+        type: 'income',
+        category: 'venda',
+        amount: '100.00',
+      },
     ],
   };
   await page.goto('/home');
@@ -4134,4 +4283,82 @@ test('monthly category budget compares limits with operational expenses', async 
   await expect(page.locator('.budget-row').filter({ hasText: 'Supermercado' })).toContainText(
     'Excedeu R$ 10,00'
   );
+});
+
+test('registro rápido lança venda como entrada de dinheiro no caixa', async ({ page }) => {
+  const database = await mockOnlineDatabase(page);
+  await page.evaluate(() => {
+    localStorage.setItem(
+      'cashEntryDraft',
+      JSON.stringify({ type: 'expense', category: 'aluguel' })
+    );
+  });
+  await page.goto('/home');
+  await page.locator('#global-new-button').click();
+  await page
+    .locator('#global-new-dialog')
+    .getByRole('link', {
+      name: 'Venda no caixa Entrada de dinheiro recebido',
+      exact: true,
+    })
+    .click();
+  const form = page.locator('#cash-form');
+  await expect(form).toBeVisible();
+  await expect(form.locator('[name="type"]')).toHaveValue('income');
+  await expect(form.locator('[name="category"]')).toHaveValue('venda');
+  await form.locator('[name="cashAccount"]').selectOption('pj');
+  await form.locator('[name="amount"]').fill('125,50');
+  await form.getByRole('button', { name: 'Adicionar', exact: true }).click();
+  await expect.poll(() => database.state.cashEntries).toHaveLength(1);
+  expect(database.state.cashEntries[0]).toMatchObject({
+    type: 'income',
+    category: 'venda',
+    description: 'Venda',
+    amount: '125.50',
+    cashAccount: 'pj',
+  });
+  expect(database.state.storeSales || []).toHaveLength(0);
+  await expect
+    .poll(() => page.evaluate(() => window.accountBalanceUntilDate('2100-01-01', [], 'pj')))
+    .toBe(125.5);
+});
+
+test('retirada permite informar a base sem alterar o saldo real da conta', async ({ page }) => {
+  const database = await mockOnlineDatabase(page);
+  database.state = {
+    cashEntries: [
+      {
+        id: 'opening',
+        date: localDateKey(),
+        type: 'income',
+        category: 'venda',
+        cashAccount: 'pj',
+        amount: '2000.00',
+      },
+    ],
+    appConfig: { splitSavingsPercent: 10, splitVanessaPercent: 70, splitRaquelPercent: 30 },
+  };
+  await page.goto('/fluxo-de-caixa?panel=withdrawals');
+  const form = page.locator('#withdrawal-form');
+  await form.locator('[name="cashAccount"]').selectOption('pj');
+  await form.getByLabel('Base usada na divisão', { exact: true }).fill('1000,00');
+  await expect(form.locator('[name="expectedSavings"]')).toHaveValue('100,00');
+  await expect(form.locator('[name="expectedVanessa"]')).toHaveValue('630,00');
+  await expect(form.locator('[name="expectedRaquel"]')).toHaveValue('270,00');
+  await expect(form.locator('[name="accountBalanceBefore"]')).toHaveValue('2.000,00');
+  page.once('dialog', (dialog) => dialog.accept());
+  await form.getByRole('button', { name: 'Registrar retiradas', exact: true }).click();
+  await expect
+    .poll(() => database.state.cashEntries.filter((entry) => entry.category === 'retirada').length)
+    .toBe(3);
+  const withdrawals = database.state.cashEntries.filter((entry) => entry.category === 'retirada');
+  expect(withdrawals.every((entry) => entry.distributionBase === '1000.00')).toBe(true);
+  expect(database.state.cashEntries.some((entry) => entry.withdrawalBalanceAdjustment)).toBe(false);
+  await expect
+    .poll(() => page.evaluate(() => window.accountBalanceUntilDate('2100-01-01', [], 'pj')))
+    .toBe(1000);
+  await page.goto('/fluxo-de-caixa?panel=withdrawals');
+  const history = page.locator('.withdrawal-history-card');
+  await expect(history).toContainText('Base da divisãoR$ 1.000,00');
+  await expect(history).toContainText('Saldo real usadoR$ 2.000,00');
 });

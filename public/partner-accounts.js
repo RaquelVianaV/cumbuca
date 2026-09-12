@@ -213,7 +213,9 @@
     const openingDebtTotal = roundedMoney(
       partners.reduce((sum, partner) => sum + partner.openingDebt, 0)
     );
-    const distributionBase = roundedMoney(physicalBalance + openingDebtTotal);
+    const distributionBase = input.distributionBase == null
+      ? roundedMoney(physicalBalance + openingDebtTotal)
+      : positiveMoney(input.distributionBase);
     const expectedSavings = roundedMoney(distributionBase * (savingsPercent / 100));
     const partnerPool = roundedMoney(distributionBase - expectedSavings);
     const shareTotal = partners.reduce((sum, partner) => sum + partner.share, 0) || 100;

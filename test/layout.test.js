@@ -147,9 +147,8 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /state\.reportPeriod = \{[\s\S]*?type: "month"/);
   assert.match(app, /state\.cashFilter = \{[\s\S]*?period: "month"/);
   assert.match(app, /cashFilter: localValue\("cashFilter", \{ period: "month" \}\)/);
-  const sharedStatePayload = app.match(
-    /function appStatePayload\(\) \{([\s\S]*?)function localViewStatePayload/
-  )?.[1] || "";
+  const sharedStatePayload =
+    app.match(/function appStatePayload\(\) \{([\s\S]*?)function localViewStatePayload/)?.[1] || '';
   assert.doesNotMatch(sharedStatePayload, /cashFilter: state\.cashFilter/);
   assert.doesNotMatch(sharedStatePayload, /menuPeriod: state\.menuPeriod/);
   assert.doesNotMatch(app, /state\.cashFilter = saved\.cashFilter/);
@@ -357,7 +356,10 @@ test('navigation, finance, reports and maintenance expose the expected views', (
   assert.match(app, /data-store-sales-day-groups/);
   assert.match(css, /\.store-sales-day-group/);
   assert.match(css, /\.store-sales-workspace \{\s*grid-template-columns: minmax\(0, 1fr\)/);
-  assert.match(css, /\.store-sales-summary \{[\s\S]*?grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/);
+  assert.match(
+    css,
+    /\.store-sales-summary \{[\s\S]*?grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/
+  );
   assert.match(css, /\.store-sales-summary \.metric strong[\s\S]*?white-space: nowrap/);
   assert.match(css, /\.store-financial-metrics \.metric strong[\s\S]*?white-space: nowrap/);
   assert.doesNotMatch(app, /id="store-product-quantities-form"/);

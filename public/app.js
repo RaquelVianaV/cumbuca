@@ -3532,6 +3532,7 @@ function withdrawalDistributionCalculation(
   );
   const result = calculatePartnerWithdrawalDistribution({
     physicalBalance: Math.max(0, roundedMoneyValue(parseMoneyInput(accountBalance))),
+    distributionBase: options.distributionBase == null ? undefined : parseMoneyInput(options.distributionBase),
     savingsPercent: Number(config.splitSavingsPercent || 0),
     partners: [
       {
@@ -7458,6 +7459,7 @@ async function renderCash() {
     ? cashParams.get("month")
     : "";
   const quickEntryDrafts = {
+    venda: { type: "income", category: "venda", description: "Venda" },
     despesa: { type: "expense", category: "outros", description: "" },
     insumos: { type: "expense", category: "supermercado", description: "Compra de insumos" },
     desperdicio: { type: "expense", category: "outros", description: "Perda/desperdício" }
@@ -8031,7 +8033,11 @@ async function renderCash() {
           </div>
           <div class="withdrawal-value-group">
             <strong>2. Divisão automática</strong>
-            <p class="muted-inline">Base ajustada = caixa real + valores a receber. O sistema usa a configuração central: ${Number(state.appConfig.splitSavingsPercent || 0)}% para o cofrinho e, no restante, ${Number(state.appConfig.splitVanessaPercent || 0)}% para Vanessa / ${Number(state.appConfig.splitRaquelPercent || 0)}% para Raquel.</p>
+            <label>Base usada na divisão
+              <input name="distributionBase" type="text" inputmode="decimal" placeholder="Automática: caixa real + valores a receber" value="${editingWithdrawal ? moneyInputValue(editingWithdrawal.distributionBase) : ""}">
+            </label>
+            <p class="muted-inline">Informe o valor que deseja dividir ou deixe vazio para calcular automaticamente.</p>
+            <p class="muted-inline">Sem base informada, usamos caixa real + valores a receber. O sistema usa a configuração central: ${Number(state.appConfig.splitSavingsPercent || 0)}% para o cofrinho e, no restante, ${Number(state.appConfig.splitVanessaPercent || 0)}% para Vanessa / ${Number(state.appConfig.splitRaquelPercent || 0)}% para Raquel.</p>
             <div class="withdrawal-fields">
               <label>Cofrinho - direito
                 <input name="expectedSavings" type="text" inputmode="decimal" value="${moneyInputValue(withdrawalFormValues.expectedSavings)}" readonly>
@@ -9520,7 +9526,8 @@ async function renderCash() {
     };
 
     const withdrawalSettlementOptions = () => {
-      const options = {};
+      const baseValue = withdrawalForm.elements.distributionBase.value.trim();
+      const options = baseValue ? { distributionBase: parseMoneyInput(baseValue) } : {};
       ["Vanessa", "Raquel"].forEach(name => {
         const key = name.toLowerCase();
         const action = withdrawalForm.elements[`partnerAction${name}`].value;
@@ -9663,7 +9670,7 @@ async function renderCash() {
       if (["date", "cashAccount"].includes(fieldName)) {
         if (fieldName === "date") syncWithdrawalDebtBalances();
         automaticWithdrawalValues(true, true);
-      } else if (["accountBalanceBefore", "partnerActionVanessa", "partnerActionRaquel", "partnerSettlementVanessa", "partnerSettlementRaquel"].includes(fieldName)) {
+      } else if (["distributionBase", "accountBalanceBefore", "partnerActionVanessa", "partnerActionRaquel", "partnerSettlementVanessa", "partnerSettlementRaquel"].includes(fieldName)) {
         automaticWithdrawalValues(true, false);
       }
       updateWithdrawalPreview();
@@ -9674,6 +9681,10 @@ async function renderCash() {
     withdrawalForm.addEventListener("submit", async event => {
     event.preventDefault();
     const values = readForm(event.currentTarget);
+    if (String(values.distributionBase || "").trim() && !(parseMoneyInput(values.distributionBase) > 0)) {
+      showToast("Informe uma base da divisão maior que zero.", "error");
+      return;
+    }
     const previousWithdrawal = state.editWithdrawalGroup
       ? withdrawalHistoryGroups(state.cash).find(group => group.key === state.editWithdrawalGroup)
       : null;
@@ -16574,6 +16585,7 @@ function storeProductPerformanceRows(data, options = {}) {
   });
 }
 
+// eslint-disable-next-line no-unused-vars -- Mantido para reutilização do painel de desempenho.
 function storeProductPerformancePanel(data) {
   const rows = storeProductPerformanceRows(data);
   const productRows = rows.filter(row => row.product);
@@ -18351,7 +18363,9 @@ function renderStoreSales() {
     ["channels", "Canais"]
   ];
   const storeParams = new URLSearchParams(location.search);
-  const requestedStoreView = storeParams.get("view");
+  const quickSale = storeParams.get("novo") === "venda";
+  if (quickSale) state.editStoreSaleId = null;
+  const requestedStoreView = quickSale ? "sales" : storeParams.get("view");
   const expandStoreCatalog = requestedStoreView === "products" || storeParams.get("catalog") === "open";
   const requestedStoreProductMonth = normalizedStoreProductMonth(storeParams.get("month"));
   if (requestedStoreView === "products") {
@@ -18393,10 +18407,10 @@ function renderStoreSales() {
       <section class="panel store-sale-entry-panel">
         <div class="store-panel-heading">
           <span class="section-kicker">Registro diário</span>
-          <h2>${editing ? "Editar venda" : "Lançar venda"}</h2>
+          <h2>${editing ? "Editar venda" : quickSale ? "Incluir venda" : "Lançar venda"}</h2>
           <p>Informe a cumbuca e a quantidade. O custo previsto é calculado automaticamente.</p>
         </div>
-        ${!editing ? `
+        ${!editing && !quickSale ? `
           <form id="store-daily-sales-form" class="store-daily-sales-form">
             <label class="store-daily-date">Data do fechamento
               <input name="date" type="date" value="${today}" required>
@@ -18416,7 +18430,7 @@ function renderStoreSales() {
             <div class="store-daily-preview" data-store-daily-preview><span>Total do fechamento</span><strong data-store-daily-preview-units>0 unidades</strong><b data-store-daily-preview-cost>R$ 0,00</b></div>
             <button type="submit">Salvar todas as vendas do dia</button>
           </form>` : ""}
-        <form id="store-sale-form" class="form-grid single" ${editing ? "" : "hidden"}>
+        <form id="store-sale-form" class="form-grid single" ${editing || quickSale ? "" : "hidden"}>
           <label>Data da venda
             <input name="date" type="date" value="${editing?.date || today}" required>
           </label>
@@ -18461,8 +18475,8 @@ function renderStoreSales() {
             <input name="notes" placeholder="Opcional" value="${escapeHtml(editing?.notes || "")}">
           </label>
           <div class="actions">
-            <button type="submit">${editing ? "Salvar edição" : "Adicionar"}</button>
-            ${editing ? `<button class="secondary" type="button" id="cancel-store-sale-edit">Cancelar</button>` : ""}
+            <button type="submit">${editing ? "Salvar edição" : "Incluir venda"}</button>
+            ${editing || quickSale ? `<button class="secondary" type="button" id="cancel-store-sale-edit">Cancelar</button>` : ""}
           </div>
         </form>
       </section>
@@ -18953,6 +18967,7 @@ function renderStoreSales() {
       recordAudit("Loja lançada", storeSaleAuditDetail(entry));
     }
     persistState();
+    if (quickSale) history.replaceState(null, "", "/loja?view=sales");
     renderStoreSales();
   });
 
@@ -18960,12 +18975,14 @@ function renderStoreSales() {
   if (cancelStoreSaleEdit) {
     cancelStoreSaleEdit.addEventListener("click", () => {
       state.editStoreSaleId = null;
+      if (quickSale) history.replaceState(null, "", "/loja?view=sales");
       renderStoreSales();
     });
   }
 
   document.querySelectorAll("[data-edit-store-sale]").forEach(button => {
     button.addEventListener("click", event => {
+      if (quickSale) history.replaceState(null, "", "/loja?view=sales");
       state.editStoreSaleId = event.currentTarget.dataset.editStoreSale;
       state.storeViewTab = "sales";
       renderStoreSales();

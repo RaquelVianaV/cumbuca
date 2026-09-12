@@ -458,3 +458,20 @@ test('reparo de vínculo antigo devolve a saída à data original sem duplicar o
   assert.equal(repairedRows.length, 1);
   assert.equal(validatePartnerAccountState(repairedAccount, repairedRows).valid, true);
 });
+
+test('base informada divide apenas o valor escolhido e preserva o caixa real', () => {
+  const result = calculateWithdrawalDistribution({
+    physicalBalance: 2000,
+    distributionBase: 1000,
+    savingsPercent: 10,
+    partners: [
+      { id: 'vanessa', share: 70, openingDebt: 100 },
+      { id: 'raquel', share: 30, openingDebt: 0 },
+    ],
+  });
+  assert.equal(result.distributionBase, 1000);
+  assert.equal(result.physicalBalance, 2000);
+  assert.equal(result.expectedSavings, 100);
+  assert.equal(result.partners[0].expectedRight, 630);
+  assert.equal(result.partners[1].expectedRight, 270);
+});

@@ -911,6 +911,7 @@ test('alertas detectam compras por cumbuca em alta e compras maiores com produç
   database.state = julyFinancialState();
 
   await page.goto('/home');
+  await expect(page.locator('.executive-kpi-grid')).toBeVisible();
   const result = await page.evaluate(() => {
     const current = window.managementPeriodMetrics('2026-08');
     const previous = window.managementPeriodMetrics('2026-07');

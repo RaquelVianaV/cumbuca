@@ -26,8 +26,18 @@ const routes = [
   '/fluxo-de-caixa?panel=transfers',
   '/fluxo-de-caixa?panel=withdrawals',
   '/fluxo-de-caixa?panel=savings',
-  ...['summary', 'pending', 'accounts', 'employees', 'cash', 'planning', 'partners', 'withdrawals', 'audit', 'closing']
-    .map((view) => `/financeiro?view=${view}`),
+  ...[
+    'summary',
+    'pending',
+    'accounts',
+    'employees',
+    'cash',
+    'planning',
+    'partners',
+    'withdrawals',
+    'audit',
+    'closing',
+  ].map((view) => `/financeiro?view=${view}`),
   '/relatorios',
   '/alertas',
   '/configuracoes',
@@ -57,20 +67,28 @@ test('all system views fit desktop, notebook and mobile layouts', async ({ page 
     const layout = await page.evaluate(() => {
       const root = document.documentElement;
       const viewportWidth = root.clientWidth;
-      const overflowing = [...document.querySelectorAll('main, .workspace, .panel, form, .summary, .report-grid')]
+      const overflowing = [
+        ...document.querySelectorAll('main, .workspace, .panel, form, .summary, .report-grid'),
+      ]
         .filter((element) => {
           const style = getComputedStyle(element);
           const box = element.getBoundingClientRect();
-          return style.display !== 'none'
-            && box.width > 0
-            && (box.left < -1 || box.right > viewportWidth + 1);
+          return (
+            style.display !== 'none' &&
+            box.width > 0 &&
+            (box.left < -1 || box.right > viewportWidth + 1)
+          );
         })
         .map((element) => element.id || element.className || element.tagName)
         .slice(0, 8);
       const widest = [...document.body.querySelectorAll('*')]
         .map((element) => {
           const box = element.getBoundingClientRect();
-          return { name: element.id || element.className || element.tagName, right: Math.round(box.right), width: Math.round(box.width) };
+          return {
+            name: element.id || element.className || element.tagName,
+            right: Math.round(box.right),
+            width: Math.round(box.width),
+          };
         })
         .filter((item) => item.right > viewportWidth + 1)
         .sort((left, right) => right.right - left.right)
@@ -81,8 +99,14 @@ test('all system views fit desktop, notebook and mobile layouts', async ({ page 
         widest,
       };
     });
-    expect(layout.overflowing, `${route} must stay inside the viewport: ${JSON.stringify(layout.widest)}`).toEqual([]);
-    expect(layout.pageOverflow, `${route} has horizontal page overflow: ${JSON.stringify(layout.widest)}`).toBeLessThanOrEqual(1);
+    expect(
+      layout.overflowing,
+      `${route} must stay inside the viewport: ${JSON.stringify(layout.widest)}`
+    ).toEqual([]);
+    expect(
+      layout.pageOverflow,
+      `${route} has horizontal page overflow: ${JSON.stringify(layout.widest)}`
+    ).toBeLessThanOrEqual(1);
   }
 
   expect(browserErrors).toEqual([]);
